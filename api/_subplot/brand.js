@@ -20,6 +20,9 @@ export const BRANDS = {
     key: "subplot",
     name: "SUBPLOT",
     domain: "subplot.tv",
+    // Google Search Console ownership token. Public by design - it proves control of the
+    // domain, it is not a credential. Removing it un-verifies the property, so leave it.
+    gsc: "iFwvPvA6WRGimh2Qj8MNDpeAKJ2y4z4FSr3okN9LiJ8",
     tagline: "The story under the story. Breakdowns, theories, reactions, opinions, reviews and lore from the people who actually watch it.",
     memberWord: "SubPlotter",
     signup: "curated",              // approved list in CREATORS, edited by us

@@ -228,6 +228,7 @@ function shell({ base, title, desc, body, current = "all", bodyClass = "", rule 
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex,noarchive">
+${brand().gsc ? `<meta name="google-site-verification" content="${brand().gsc}">` : ""}
 <title>${esc(title)}</title>
 <meta name="description" content="${esc(desc)}">
 <link rel="icon" type="image/svg+xml" href="${base}/favicon.svg">
