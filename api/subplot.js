@@ -3,11 +3,11 @@
 // Private preview: every response is noindex, and robots.txt lets Google crawl but nobody else.
 // Optional gate: set SUBPLOT_PASS in Vercel env to require a password (user "subplot").
 import { getData } from "./_subplot/data.js";
-import { brandFor, setBrand } from "./_subplot/brand.js";
+import { brandFor, setBrand, siteUrl } from "./_subplot/brand.js";
 import { runHealth } from "./_subplot/health.js";
 import { setDesign } from "./_subplot/design.js";
 import { listMonths, readMonth } from "./_subplot/archive.js";
-import { homePage, articlePage, creatorPage, joinPage, aboutPage, threadPage, rssFeed, notFound, legalPage, artPath, revenuePage } from "./_subplot/render.js";
+import { homePage, articlePage, creatorPage, joinPage, aboutPage, threadPage, rssFeed, notFound, legalPage, artPath, revenuePage, sitemap } from "./_subplot/render.js";
 import { CAST } from "./_subplot/cast.js";
 import { faviconSvg, assetKey } from "./_subplot/brand.js";
 import { adsTxt } from "./_subplot/ads.js";
@@ -138,6 +138,9 @@ export default async function handler(req, res) {
     return res.status(200).send([
       ...googleAgents.flatMap(a => ["User-agent: " + a, "Allow: /", ""]),
       "User-agent: *", "Allow: /ads.txt", "Disallow: /", "",
+      // Absolute by spec, and it names the sitemap even to crawlers that never see
+      // Search Console. This is the line that says "the site is here".
+      "Sitemap: " + siteUrl() + base + "/sitemap.xml", "",
     ].join("\n"));
   }
 
@@ -148,6 +151,11 @@ export default async function handler(req, res) {
     return res.status(502).send("The article feed isn't reachable right now: " + e.message);
   }
 
+  if (path === "/sitemap.xml") {
+    res.setHeader("Content-Type", "application/xml; charset=utf-8");
+    res.setHeader("Cache-Control", "public, s-maxage=3600");
+    return res.status(200).send(sitemap(data, base));
+  }
   if (path === "/feed.xml") { res.setHeader("Content-Type", "application/rss+xml; charset=utf-8"); res.setHeader("Cache-Control", "public, s-maxage=600"); return res.status(200).send(rssFeed(data, base)); }
   res.setHeader("Content-Type", "text/html; charset=utf-8");
   res.setHeader("Cache-Control", pass || activeDesign === 2 ? "private, no-store" : "public, s-maxage=300, stale-while-revalidate=3600");

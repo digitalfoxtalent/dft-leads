@@ -741,3 +741,42 @@ export function revenuePage(months, month, data, base) {
 .revtbl .meta{font-size:.78rem}
 </style>` + body, trending: data.threads });
 }
+
+// A sitemap exists to tell Google the site is here at all. Search Console proved on 6 Sep 2026
+// that Googlebot had NEVER fetched subplot.tv - "URL is unknown to Google", last crawl N/A -
+// with no referring sitemaps and no inbound links. Lifting the robots block opened the door;
+// this is what tells Google the door exists.
+//
+// Every page still carries noindex, so Search Console will report these as "Discovered -
+// excluded by noindex". THAT IS THE INTENDED STATE while the site is closed, not a fault:
+// the point is to get pages CRAWLED so the AdSense reviewer has something to read. When the
+// site launches, drop the noindex header and these same URLs start indexing with no change here.
+export function sitemap(data, base) {
+  const site = siteUrl() + base;
+  const seen = new Set();
+  const url = (loc, lastmod, priority) => {
+    if (seen.has(loc)) return "";                                   // a URL twice is a defect, not a hint
+    seen.add(loc);
+    return `<url><loc>${esc(site + loc)}</loc>` +
+      (lastmod ? `<lastmod>${new Date(lastmod).toISOString().slice(0, 10)}</lastmod>` : "") +
+      `<priority>${priority}</priority></url>`;
+  };
+
+  const newest = data.arts.length ? Math.max(...data.arts.map(a => +new Date(a.p) || 0)) : Date.now();
+  const out = [url("/", newest, "1.0"), url("/about", null, "0.5"), url("/join", null, "0.8")];
+
+  for (const k of Object.keys(CATS)) {
+    const inSection = data.arts.filter(a => a.k === k);
+    if (inSection.length) out.push(url("/s/" + k, Math.max(...inSection.map(a => +new Date(a.p) || 0)), "0.6"));
+  }
+  // Creator pages: derive from the articles actually on the site, so a creator with nothing
+  // published never appears as a URL that would 404 the moment Google follows it.
+  for (const h of [...new Set(data.arts.map(a => a.c))]) {
+    const theirs = data.arts.filter(a => a.c === h);
+    out.push(url("/c/" + slugH(h), Math.max(...theirs.map(a => +new Date(a.p) || 0)), "0.7"));
+  }
+  for (const t of (data.threads || [])) out.push(url("/t/" + t.slug, null, "0.5"));
+  for (const a of data.arts) out.push(url(artPath(a), a.p, "0.9"));
+
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${out.join("")}</urlset>`;
+}
