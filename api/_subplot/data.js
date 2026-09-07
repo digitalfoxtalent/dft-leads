@@ -31,6 +31,23 @@ export const CREATORS = [
   { slug: "everythingalways", name: "Everything Always",                            handles: ["@everythingalways"] },           // Everything Always
   { slug: "gique_", name: "GIQUE",                                                  handles: ["@gique_"] },                     // GIQUE (DFT-owned; dormant channel, evergreen back catalogue)
   { slug: "downtoearthkh", name: "Down to Earth with Kristian Harloff",             handles: ["@downtoearthkh"] },              // Down to Earth with Kristian Harloff (MSN-banned, but that is platform-side and does not apply here)
+
+  // Added 7 Sep 2026. All six were already "Approved" on the Article Rights board 18427697857
+  // but missing here, so their creator pages and articles were 404ing on a site they had
+  // agreed to. Every handle below was opened on YouTube and checked against the channel it
+  // actually resolves to - name and subscriber count in the comment - because a well-formed
+  // handle can still be the wrong channel (see the roster's @kristianharloff and Film Paradise
+  // lookalike, both fixed 4 Sep).
+  { slug: "geekdom101", name: "Geekdom101",                                        handles: ["@geekdom101"] },                 // Geekdom101, 784K
+  { slug: "worldofgeekdom", name: "World of Geekdom",                              handles: ["@worldofgeekdom"] },             // World of Geekdom, 80.6K
+  { slug: "geekdom101plus", name: "Geekdom101 Plus",                               handles: ["@geekdom101plus"] },             // Geekdom101 Plus, 3.41K
+  { slug: "danco", name: "DanCo",                                                  handles: ["@danco"] },                      // DanCo, 583K
+  // Better Gaming's HANDLE IS @yu-gg, not @bettergaming - the brand name and the handle differ.
+  // The slug follows the handle, as every other slug here does, so the URL is /a/yu-gg/.
+  { slug: "yu-gg", name: "Better Gaming",                                          handles: ["@yu-gg"] },                      // Better Gaming, 40.8K
+  // A SECOND, SEPARATE Chaos channel - not @chaosgaming and not @chaostrektv. YouTube shows it
+  // as "ChaosGaming" too, which is why it is easy to mistake for the first one. Same payee.
+  { slug: "morechaosgaming", name: "ChaosGaming (second channel)",                 handles: ["@morechaosgaming"] },            // ChaosGaming, 26.7K
 ];
 
 export const APPROVED_HANDLES = CREATORS.flatMap(c => c.handles);
