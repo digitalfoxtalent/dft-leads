@@ -48,6 +48,7 @@ export const CREATORS = [
   // A SECOND, SEPARATE Chaos channel - not @chaosgaming and not @chaostrektv. YouTube shows it
   // as "ChaosGaming" too, which is why it is easy to mistake for the first one. Same payee.
   { slug: "morechaosgaming", name: "ChaosGaming (second channel)",                 handles: ["@morechaosgaming"] },            // ChaosGaming, 26.7K
+  { slug: "beyondthetrailer", name: "Beyond The Trailer",                        handles: ["@beyondthetrailer"] },             // Beyond The Trailer (Grace Randolph), approved 8 Sep 2026
 ];
 
 export const APPROVED_HANDLES = CREATORS.flatMap(c => c.handles);
