@@ -275,6 +275,24 @@ async function load() {
   const removed = await pruneMissing(arts);
   if (APPROVED) { const kept = arts.filter(a => APPROVED.includes(a.c)); arts.length = 0; arts.push(...kept); }
 
+  // WORD COUNTS AND THE THIN-PAGE FLOOR, both added 8 Sep 2026.
+  // Some store records carry no word_count. Those rendered as "0 words - 1 min read" and were
+  // quietly disqualified from the lead, the secondary slots and the evergreen rail, all of which
+  // test a.w. Count the body ourselves when the number is missing, so an article is judged on
+  // its length rather than on whether the publisher happened to record one.
+  const countWords = html => (String(html || "").replace(/<[^>]*>/g, " ").match(/\S+/g) || []).length;
+  for (const a of arts) if (!a.w) { a.w = countWords(a.body); a.rt = Math.max(1, Math.round(a.w / 220)); }
+
+  // The floor. A site is judged on its weakest pages, and a 140-word explainer reads as scaled
+  // AI content however honest the disclosure under it is. Articles below MIN_WORDS are simply
+  // not rendered: nothing is deleted, nothing is unpublished in the store, and nothing is
+  // withdrawn from MSN. Lower the number and they are back on the next five minute cache turn.
+  // SUBPLOT_MIN_WORDS overrides it and 0 turns it off. At 400 this holds back 150 of 539
+  // articles and no creator loses all of theirs. Thin pieces are meant to come back by being
+  // rewritten longer, not by dropping the floor.
+  const MIN_WORDS = Number(process.env.SUBPLOT_MIN_WORDS ?? 400);
+  if (MIN_WORDS > 0) { const kept = arts.filter(a => a.w >= MIN_WORDS); arts.length = 0; arts.push(...kept); }
+
   // creators
   const byC = new Map();
   for (const a of arts) {
