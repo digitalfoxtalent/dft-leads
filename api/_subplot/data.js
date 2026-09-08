@@ -281,6 +281,11 @@ async function load() {
   // test a.w. Count the body ourselves when the number is missing, so an article is judged on
   // its length rather than on whether the publisher happened to record one.
   const countWords = html => (String(html || "").replace(/<[^>]*>/g, " ").match(/\S+/g) || []).length;
+
+  // Film Paradise's records end with their own "About this article" disclosure paragraph, so those
+  // 37 pages carried the disclosure twice, once inside the article and again in the site's footer.
+  // Strip the in-body copy before anything measures or renders it. No other feed does this.
+  for (const a of arts) a.body = a.body.replace(/(?:<hr\s*\/?>)?\s*<p class="ai-disclosure">[\s\S]*?<\/p>/gi, "");
   for (const a of arts) if (!a.w) { a.w = countWords(a.body); a.rt = Math.max(1, Math.round(a.w / 220)); }
 
   // The floor. A site is judged on its weakest pages, and a 140-word explainer reads as scaled
@@ -292,6 +297,22 @@ async function load() {
   // rewritten longer, not by dropping the floor.
   const MIN_WORDS = Number(process.env.SUBPLOT_MIN_WORDS ?? 400);
   if (MIN_WORDS > 0) { const kept = arts.filter(a => a.w >= MIN_WORDS); arts.length = 0; arts.push(...kept); }
+
+  // CORRECTIONS, 8 Sep 2026. Errors found by auditing every live article, fixed at render rather
+  // than in the store, so the source record is untouched, the change is reversible, and the copy
+  // MSN holds does not move. Keyed on article id, applied to headline, standfirst and body.
+  // ONLY checked proper nouns and plain factual slips belong here, never the creator's argument,
+  // opinion or framing: those go back to the creator. Every entry was read in context first.
+  const CORRECTIONS = {};
+  CORRECTIONS.DKyHeSmlWA8 = [[/Viseris/g, "Viserys"], [/Alison Targaryen/g, "Alysanne Targaryen"]];
+  CORRECTIONS.xGwVPYCrgME = [[/Hugh Howie/g, "Hugh Howey"]];
+  CORRECTIONS["4iBZK-tITss"] = [[/Mark Alaimo/g, "Marc Alaimo"]];
+  CORRECTIONS.sos_1veW_Xw = [[/Gustaf Cannon/g, "Gustav Cannon"]];
+  CORRECTIONS.MxbwK2txcE4 = [[/April Fu\b/g, "April Fools"]];
+  CORRECTIONS["3SMf4bx1Rgc"] = [[/Granola(?!h)/g, "Granolah"]];
+  CORRECTIONS["3deOpyoExa4"] = [[/one-and-one/g, "one and done"]];
+  CORRECTIONS.zyN527oP580 = [[/the core/g, "the Corps"]];
+  for (const a of arts) for (const [re, to] of CORRECTIONS[a.id] || []) { a.h = a.h.replace(re, to); a.s = a.s.replace(re, to); a.body = a.body.replace(re, to); }
 
   // creators
   const byC = new Map();
