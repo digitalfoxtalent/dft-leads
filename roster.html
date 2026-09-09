@@ -145,10 +145,15 @@ const STATE_KEY="__creator_state";
 // Display-name overrides (shorten unwieldy board names for the brand-facing view).
 const RENAME={ "Down To Earth With Kristian Harloff (UAP NEWS)":"Down to Earth" };
 const dispName=n=>RENAME[n]||n;
+// The Creator / Shows column shows the @handle so every row reads the same way
+// (board item names are a mix of real names and handles). Normalise the leading @
+// (Instagram and TikTok handles are stored without one) and fall back to the board
+// name only where no handle is recorded.
+const dispHandle=c=>{const h=String(c.handle==null?"":c.handle).trim();return h?(h.charAt(0)==="@"?h:"@"+h):dispName(c.name);};
 
 // Column layout mirrors the sheet (name is sticky-left).
 const COLS=[
-  {key:"name",   head:"Creator / Shows",   w:200, cls:"name"},
+  {key:"name",   head:"Creator / Shows",   w:220, cls:"name"},
   {key:"subs",   head:"Subscribers",       w:100, fmt:"int"},
   {key:"rate",   head:"Rate",              w:88,  fmt:"money"},
   {key:"vg",     head:"View Guarantee",    w:108, fmt:"int"},
@@ -158,7 +163,6 @@ const COLS=[
   {key:"category",head:"Category",         w:116},
   {key:"location",head:"Location",         w:124},
   {key:"state",  head:"State / Region",    w:112},
-  {key:"handle", head:"Handle",            w:126},
   {key:"about",  head:"About",             w:200, cls:"wide"},
   {key:"hostGender",head:"Host Gender",    w:90},
   {key:"hostRead",head:"Host Read",        w:78},
@@ -230,10 +234,12 @@ function fmtCell(c,col){
 function nameCell(c){
   const has=c.shows.length;
   const chev=`<span class="chev ${has?"":"spacer-ic"}"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg></span>`;
-  const dn=dispName(c.name);
+  const dn=dispHandle(c);
+  const real=dispName(c.name);
+  const ttl=(real&&real!==dn)?` title="${esc(real)}"`:"";
   const nm=c.url?`<a href="${esc(c.url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${esc(dn)}</a>`:esc(dn);
   const tag=has?`<span class="tag">+${c.shows.length}</span>`:"";
-  return `<div class="nmwrap"><span class="grip" title="Drag to reorder">⠿</span>${chev}<span class="nmtext">${nm}${tag}</span></div>`;
+  return `<div class="nmwrap"><span class="grip" title="Drag to reorder">⠿</span>${chev}<span class="nmtext"${ttl}>${nm}${tag}</span></div>`;
 }
 function showNameCell(s){
   const nm=s.url?`<a href="${esc(s.url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${esc(s.name)}</a>`:esc(s.name);
@@ -273,7 +279,7 @@ function rowsFor(list){
 function cmpChannels(a,b){
   const col=COLS.find(c=>c.key===sortKey)||{};
   let r;
-  if(sortKey==="name"){ r=dispName(a.name).localeCompare(dispName(b.name)); }
+  if(sortKey==="name"){ r=dispHandle(a).localeCompare(dispHandle(b)); }
   else if(col.fmt==="int"||col.fmt==="money"){
     const av=a[sortKey], bv=b[sortKey];
     r=(av==null?-Infinity:av)-(bv==null?-Infinity:bv);
@@ -401,9 +407,9 @@ function currentChannels(){
   return q?all.filter(c=>(c.name+" "+c.host+" "+c.category+" "+c.handle+" "+c.location+" "+c.state).toLowerCase().includes(q)):all;
 }
 function exportCSV(){
-  const header=COLS.map(c=>c.head==="Creator / Shows"?"Creator":c.head);
+  const header=COLS.map(c=>c.head==="Creator / Shows"?"Creator (@handle)":c.head);
   const rows=currentChannels().map(c=>COLS.map(col=>{
-    if(col.key==="name") return dispName(c.name);
+    if(col.key==="name") return dispHandle(c);
     const v=c[col.key];
     if(col.fmt==="money"||col.fmt==="int") return v==null?"":Math.round(v);
     return v==null?"":v;
