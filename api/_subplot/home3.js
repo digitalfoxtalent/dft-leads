@@ -135,6 +135,10 @@ export function homePage3(data, base, section, page, ctx) {
         <a class="morelink" href="${base}/${section === "all" ? "" : "s/" + section}?p=2">${section === "all" ? "All of today's stories" : "More in " + esc(secName)} &rarr;</a>
       </aside>
     </section>
+    <section class="latest">
+      <div class="rule-h"><h2>Latest${section === "all" ? " across the network" : " in " + esc(secName)}</h2><span class="note">${list.length} stories</span></div>
+      ${grid.length ? `<section class="grid4">${grid.map(a => card3(a, base)).join("")}</section>` : ""}
+    </section>
     ${section === "all" ? snippetsSection(data, base) : ""}
     ${threads.length ? `
     <section class="threadsec">
@@ -147,8 +151,7 @@ export function homePage3(data, base, section, page, ctx) {
         </section>`).join("")}
       </div>
     </section>` : ""}
-    <div class="rule-h"><h2>Latest${section === "all" ? " across the network" : " in " + esc(secName)}</h2><span class="note">${list.length} stories</span></div>
-    ${grid.length ? `<section class="grid4">${grid.map(a => card3(a, base)).join("")}</section>` : ""}`}
+    <div class="rule-h"><h2>${section === "all" ? "Older stories" : "Older in " + esc(secName)}</h2><span class="note">${list.length} stories</span></div>`}
     <div class="cols">
       <div>${wire3(wireList.filter(a => !also.includes(a) && !grid.includes(a)), base)}${pager}</div>
       ${R.rail(data.panel, base, data)}
@@ -245,6 +248,7 @@ a:hover .th img{transform:scale(1.035)}
 .takes .tk b .fn{display:inline;color:var(--ink-3);font-weight:500}
 
 /* snippets */
+.latest{margin-top:2.6rem}
 .snips{margin-top:2.8rem}
 .bubbles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1.4rem;margin-top:1.4rem}
 .bubble{display:flex;flex-direction:column;gap:.85rem;text-decoration:none;color:inherit}

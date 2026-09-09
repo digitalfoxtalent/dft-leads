@@ -334,6 +334,12 @@ async function load() {
   // a Short that produced fewer than 25 is a failed generation, not a take.
   const MIN_SNIPPET_WORDS = 25;
   if (MIN_WORDS > 0) { const kept = arts.filter(a => a.short ? a.w >= MIN_SNIPPET_WORDS : a.w >= MIN_WORDS); arts.length = 0; arts.push(...kept); }
+  // TOPICS SUBPLOT DOES NOT CARRY, 9 Sep 2026. Wrestling arrives through World of Geekdom's
+  // feed and sits wrong beside the rest of the site (Tom). The articles stay in the store and
+  // on MSN; they are simply not rendered here. A topic block, not a creator block, so the same
+  // creator's Marvel and X-Men pieces are untouched. Matched on headline and tags only.
+  const BLOCKED_TOPICS = /\b(?:wwe|aew|wrestling|wrestlers?|wrestlemania|summerslam|smackdown|royal rumble|kenny omega|will ospreay|cody rhodes|cm punk|brock lesnar|roman reigns|eric bischoff|hulk hogan|seth rollins|tony khan|aew dynamite|all in 2026)\b/i;
+  { const kept = arts.filter(a => !BLOCKED_TOPICS.test(a.h + " " + a.t.join(" "))); arts.length = 0; arts.push(...kept); }
   for (const a of arts) a.f = formatOf(a);
   // Snippets live in their own list. They never enter the wire, the threads, the lead or the
   // evergreen shelf: those are built from `arts` below, which from here on is long-form only.
