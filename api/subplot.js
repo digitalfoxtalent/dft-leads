@@ -2,12 +2,12 @@
 // host (and, for preview, the /subplot path on the roster host).
 // Private preview: every response is noindex, and robots.txt lets Google crawl but nobody else.
 // Optional gate: set SUBPLOT_PASS in Vercel env to require a password (user "subplot").
-import { getData } from "./_subplot/data.js";
+import { getData, findArt } from "./_subplot/data.js";
 import { brandFor, setBrand, siteUrl } from "./_subplot/brand.js";
 import { runHealth } from "./_subplot/health.js";
 import { setDesign } from "./_subplot/design.js";
 import { listMonths, readMonth } from "./_subplot/archive.js";
-import { homePage, articlePage, creatorPage, joinPage, aboutPage, threadPage, rssFeed, notFound, legalPage, artPath, revenuePage, sitemap } from "./_subplot/render.js";
+import { homePage, articlePage, snippetsPage, creatorPage, joinPage, aboutPage, threadPage, rssFeed, notFound, legalPage, artPath, revenuePage, sitemap } from "./_subplot/render.js";
 import { CAST } from "./_subplot/cast.js";
 import { faviconSvg, assetKey } from "./_subplot/brand.js";
 import { adsTxt } from "./_subplot/ads.js";
@@ -48,12 +48,15 @@ export default async function handler(req, res) {
   // Design preview. ?d=2 switches on the new look, ?d=1 switches it off, and the choice is
   // remembered in a cookie so links keep it while you click around. Nobody who has not asked
   // for it ever sees it, and the page is identical to production without the flag.
+  // Since 9 Sep 2026 design 3 is what everyone sees. ?d=1 or ?d=2 shows the older looks and
+  // remembers the choice in a cookie; ?d=3 clears it.
   const dq = String(req.query.d || "");
-  if (dq === "1" || dq === "2") {
-    res.setHeader("Set-Cookie", `subplot_design=${dq}; Path=/; Max-Age=${dq === "2" ? 604800 : 0}; SameSite=Lax`);
+  if (dq === "1" || dq === "2" || dq === "3") {
+    res.setHeader("Set-Cookie", `subplot_design=${dq}; Path=/; Max-Age=${dq === "3" ? 0 : 604800}; SameSite=Lax`);
   }
-  const cookieDesign = /(?:^|;\s*)subplot_design=2\b/.test(req.headers.cookie || "") ? 2 : 1;
-  const activeDesign = dq === "2" ? 2 : dq === "1" ? 1 : cookieDesign;
+  const cm = (req.headers.cookie || "").match(/(?:^|;\s*)subplot_design=([12])\b/);
+  const cookieDesign = cm ? Number(cm[1]) : 3;
+  const activeDesign = dq === "1" || dq === "2" ? Number(dq) : dq === "3" ? 3 : cookieDesign;
   setDesign(activeDesign);
 
   // Daily health check, run by cron as /api/subplot?path=__health. Not a page: it is refused
@@ -158,7 +161,7 @@ export default async function handler(req, res) {
   }
   if (path === "/feed.xml") { res.setHeader("Content-Type", "application/rss+xml; charset=utf-8"); res.setHeader("Cache-Control", "public, s-maxage=600"); return res.status(200).send(rssFeed(data, base)); }
   res.setHeader("Content-Type", "text/html; charset=utf-8");
-  res.setHeader("Cache-Control", pass || activeDesign === 2 ? "private, no-store" : "public, s-maxage=300, stale-while-revalidate=3600");
+  res.setHeader("Cache-Control", pass || activeDesign !== 3 ? "private, no-store" : "public, s-maxage=300, stale-while-revalidate=3600");
 
   let html = null; let status = 200;
   const pg = Math.max(1, parseInt(req.query.p, 10) || 1);
@@ -168,7 +171,7 @@ export default async function handler(req, res) {
     // /a/<handle>/<videoId> is canonical; the old /a/<videoId> form 301s to it, as does a
     // stale handle, so an article's earnings only ever accrue under one URL channel.
     const seg = path.slice(3).split("/");
-    const a = data.arts.find(x => x.id === seg[seg.length - 1]);
+    const a = findArt(data, seg[seg.length - 1]);
     if (!a) html = null;
     else {
       const want = base + artPath(a);
@@ -176,6 +179,7 @@ export default async function handler(req, res) {
       else { res.setHeader("Location", want); return res.status(301).end(); }
     }
   }
+  else if (path === "/snippets") html = snippetsPage(data, base);
   else if (path.startsWith("/c/")) html = creatorPage(decodeURIComponent(path.slice(3)), data, base);
   else if (path.startsWith("/t/")) html = threadPage(path.slice(3), data, base);
   else if (path === "/join") html = joinPage(data, base);

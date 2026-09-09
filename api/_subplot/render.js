@@ -7,6 +7,8 @@ import { promoRail, promoCss, joinBlock } from "./promo.js";
 import { CSS2, FONTS2 } from "./design2.js";
 import { ch, CAST_META } from "./cast.js";
 import { headTag as adHead, unit as adUnit } from "./ads.js";
+import { FORMATS, formatCss } from "./formats.js";
+import { homePage3, snippetsPage as snippetsBody, card3, wire3Deps, CSS3 } from "./home3.js";
 
 // Brand-dependent strings resolve per request; see brand.js.
 const BRAND_ = () => brand().name;
@@ -221,7 +223,8 @@ body[data-ads="off"] .ad{display:none}
 
 function shell({ base, title, desc, body, current = "all", bodyClass = "", rule = "", trending = [], jsonld = "" }) {
   const nav = [["all", "All"], ...Object.entries(CATS)].map(([k, n]) =>
-    `<a href="${base}/${k === "all" ? "" : "s/" + k}" ${k === current ? 'aria-current="true"' : ""}>${esc(n)}</a>`).join("");
+    `<a href="${base}/${k === "all" ? "" : "s/" + k}" ${k === current ? 'aria-current="true"' : ""}>${esc(n)}</a>`).join("")
+    + (design() === 3 ? `<a href="${base}/snippets" ${current === "snippets" ? 'aria-current="true"' : ""}>Snippets</a>` : "");
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -242,8 +245,8 @@ ${hasShareCard() ? `<meta property="og:image" content="https://${brand().domain}
 ${jsonld}
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="${design() === 2 ? FONTS2 : fontHref()}">
-<style>${CSS}${EXTRA_CSS}${promoCss}${brandCss()}${design() === 2 ? CSS2 : ""}</style>
+<link rel="stylesheet" href="${design() >= 2 ? FONTS2 : fontHref()}">
+<style>${CSS}${EXTRA_CSS}${promoCss}${brandCss()}${design() >= 2 ? CSS2 : ""}${design() === 3 ? formatCss() + CSS3 : ""}</style>
 <script defer src="/_vercel/insights/script.js"></script>
 ${adHead()}
 </head>
@@ -399,6 +402,12 @@ export function homePage(data, base, section = "all", page = 1) {
   const pager = pages > 1 ? `<nav class="pager"><span>${page < pages ? `<a href="${pageHref(page + 1)}">Older stories &rarr;</a>` : ""}</span><span class="meta">Page ${page} of ${pages}</span><span>${page > 1 ? `<a href="${pageHref(page - 1)}">&larr; Newer stories</a>` : ""}</span></nav>` : "";
   const threads = data.threads.filter(t => section === "all" || t.k === section);
   const byId = id => data.arts.find(a => a.id === id);
+  if (design() === 3) {
+    wire3Deps({ esc, artPath, dayKey, dayLabel, adSlot, fmt, fmtViews, rail, band });
+    const body3 = homePage3(data, base, section, page, { list, lead, rest, pages, wireList: page === 1 ? wireAll.slice(0, PAGE) : wireList, pager, threads });
+    return shell({ base, title: section === "all" ? `${BRAND_()}` : `${CATS[section]} - ${BRAND_()}`, desc: TAG_(), current: section, body: body3, trending: data.threads })
+      .replace('<span id="panelcount-slot"></span>', `<span>${data.panel.length} creators writing here</span>`);
+  }
   const body = `
 <main class="homeview">
   <div class="wrap">
@@ -441,6 +450,7 @@ export function homePage(data, base, section = "all", page = 1) {
 }
 
 export function articlePage(a, data, base) {
+  wire3Deps({ esc, artPath, dayKey, dayLabel, adSlot, fmt, fmtViews, rail, band });
   const more = data.arts.filter(x => x.c === a.c && x.id !== a.id).slice(0, 3);
   const inThread = Object.values(data.subjects || {}).filter(s => s.items.includes(a.id)).sort((x, y) => y.n - x.n)[0];
   const thr = inThread ? inThread.items.filter(id => id !== a.id).map(id => data.arts.find(x => x.id === id)).filter(Boolean).filter(x => x.c !== a.c).slice(0, 3) : [];
@@ -458,13 +468,14 @@ export function articlePage(a, data, base) {
     <a class="back" href="${base}/">&larr; Back to the front page</a>
     <div class="artwrap">
     <div class="artmain">
-      <span class="kicker">${esc(CATS[a.k])}</span>
+      ${design() === 3 ? `<span class="tagrow" style="justify-content:flex-start;gap:1rem"><span class="fmt" style="color:${(FORMATS[a.f] || FORMATS.breakdown).ink}"><i style="background:${(FORMATS[a.f] || FORMATS.breakdown).col}"></i>${(FORMATS[a.f] || FORMATS.breakdown).name}${a.short ? " · Snippet" : ""}</span><span class="kicker" style="color:var(--ink-3)">${esc(CATS[a.k])}</span></span>` : `<span class="kicker">${esc(CATS[a.k])}</span>`}
       <h1 class="headline">${esc(a.h)}</h1>
       <p class="dek">${esc(a.s)}</p>
       <div class="authorbar">${mark(a.b, data.avatars && data.avatars[a.c])}
         <span class="nm"><b><a href="${base}/c/${esc(slugH(a.c))}" style="color:inherit;text-decoration:none">${esc(a.c)}</a></b><span>${esc(fmt(a.p))}</span></span>
         <span class="meta">${a.w.toLocaleString("en-GB")} words · ${a.rt} min read</span></div>
       <div class="prose">${withInArticleAds(a.body)}</div>
+      ${a.short ? `<p class="deckacts" style="margin:1.2rem 0 0"><a href="https://www.youtube.com/shorts/${esc(a.v)}" target="_blank" rel="noopener" style="color:${(FORMATS[a.f] || FORMATS.breakdown).ink}">Watch the Short</a><a class="ghost" href="${base}/snippets#s-${esc(a.id)}">More Snippets</a></p>` : ""}
       <div class="rule-h" style="margin-top:2.6rem"><h2>Watch the original</h2><span class="note">${esc(a.c)} · YouTube</span></div>
       <div class="player" data-v="${esc(a.v)}" style="margin-top:1rem">
         <img alt="" src="${esc(a.thumb)}" onerror="this.onerror=null;this.src='${esc(a.thumbSmall.replace("mqdefault","hqdefault"))}'">
@@ -472,8 +483,8 @@ export function articlePage(a, data, base) {
       </div>
       <p class="disclose">Adapted from ${esc(a.b)}&rsquo;s original video. Written with the help of AI from that video&rsquo;s transcript; the views and analysis are ${esc(a.b)}&rsquo;s own.</p>
       <div class="tags">${a.t.map(t => `<span>${esc(t)}</span>`).join("")}</div>
-      ${thr.length ? `<section class="next"><div class="rule-h"><h2>Also on ${esc(inThread.t)}</h2><span class="note"><a href="${base}/t/${esc(inThread.slug)}" style="color:var(--blue)">${inThread.c} creators, ${inThread.n} takes &rarr;</a></span></div><div class="grid3">${thr.map(x => card(x, base)).join("")}</div></section>` : ""}
-      ${more.length ? `<section class="next"><div class="rule-h"><h2>More from ${esc(a.c)}</h2><span class="note"><a href="${base}/c/${esc(slugH(a.c))}" style="color:var(--blue)">All &rarr;</a></span></div><div class="grid3">${more.map(x => card(x, base)).join("")}</div></section>` : ""}
+      ${thr.length ? `<section class="next"><div class="rule-h"><h2>Also on ${esc(inThread.t)}</h2><span class="note"><a href="${base}/t/${esc(inThread.slug)}" style="color:var(--blue)">${inThread.c} creators, ${inThread.n} takes &rarr;</a></span></div><div class="grid3">${thr.map(x => (design() === 3 ? card3 : card)(x, base)).join("")}</div></section>` : ""}
+      ${more.length ? `<section class="next"><div class="rule-h"><h2>More from ${esc(a.c)}</h2><span class="note"><a href="${base}/c/${esc(slugH(a.c))}" style="color:var(--blue)">All &rarr;</a></span></div><div class="grid3">${more.map(x => (design() === 3 ? card3 : card)(x, base)).join("")}</div></section>` : ""}
       ${joinBlock(base)}
     </div>
     <aside class="artrail">
@@ -484,7 +495,15 @@ export function articlePage(a, data, base) {
     </div>
   </div>
 </article>`;
-  return shell({ base, title: `${a.h} - ${BRAND_()}`, desc: a.s, current: a.k, body, rule: "var(--blue)", trending: data.threads, jsonld })
+  return shell({ base, title: `${a.h} - ${BRAND_()}`, desc: a.s, current: a.k, body, rule: design() === 3 ? (FORMATS[a.f] || FORMATS.breakdown).col : "var(--blue)", trending: data.threads, jsonld })
+    .replace('<span id="panelcount-slot"></span>', `<span>${data.panel.length} creators writing here</span>`);
+}
+
+export function snippetsPage(data, base) {
+  wire3Deps({ esc, artPath, dayKey, dayLabel, adSlot, fmt, fmtViews, rail, band });
+  const body = snippetsBody(data, base);
+  if (!body) return null;
+  return shell({ base, title: `Snippets - ${BRAND_()}`, desc: "Every Short the creators post, in writing. Twenty-second reads, newest first.", current: "snippets", body, trending: data.threads })
     .replace('<span id="panelcount-slot"></span>', `<span>${data.panel.length} creators writing here</span>`);
 }
 
@@ -777,6 +796,10 @@ export function sitemap(data, base) {
   }
   for (const t of (data.threads || [])) out.push(url("/t/" + t.slug, null, "0.5"));
   for (const a of data.arts) out.push(url(artPath(a), a.p, "0.9"));
+  if ((data.snippets || []).length) {
+    out.push(url("/snippets", Math.max(...data.snippets.map(a => +new Date(a.p) || 0)), "0.7"));
+    for (const a of data.snippets) out.push(url(artPath(a), a.p, "0.6"));
+  }
 
   return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${out.join("")}</urlset>`;
 }

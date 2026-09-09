@@ -2,6 +2,8 @@
 // store youtube-mrss-feeds) and shapes it for the site. Server-side only.
 // Cached per lambda instance for TTL_MS; the CDN caches rendered pages on top.
 
+import { formatOf } from "./formats.js";
+
 const STORE = "https://api.apify.com/v2/key-value-stores/5yFLBuHJj59ySXY9e";
 const TTL_MS = 5 * 60 * 1000;
 
@@ -189,6 +191,33 @@ async function addViews(arts) {
   }
 }
 
+// SHORTS, added 9 Sep 2026. A Short becomes a Snippet: a 20-second read with no cover image,
+// shown in its own section rather than in the wire. The feed only marks some of them by link,
+// so every article that could be one (under the long-form floor, or already flagged) has its
+// duration checked once. Three minutes is YouTube's own ceiling for a Short. Without an API
+// key only the link-flagged ones count, which is safe: an unflagged Short simply stays below
+// the floor as it does today.
+const SHORT_MAX_S = 180;
+const isoSeconds = d => { const m = String(d || "").match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/); return m ? (+m[1] || 0) * 3600 + (+m[2] || 0) * 60 + (+m[3] || 0) : 0; };
+async function addDurations(arts, floor) {
+  const key = process.env.YOUTUBE_API_KEY;
+  if (!key) return;
+  const maybe = arts.filter(a => a.short || a.w < floor);
+  for (let i = 0; i < maybe.length; i += 50) {
+    const batch = maybe.slice(i, i + 50);
+    try {
+      const r = await fetch(`https://www.googleapis.com/youtube/v3/videos?part=contentDetails&id=${batch.map(a => a.v).join(",")}&key=${key}`);
+      if (!r.ok) continue;
+      const j = await r.json();
+      for (const it of j.items || []) {
+        const a = batch.find(x => x.v === it.id); if (!a) continue;
+        a.dur = isoSeconds(it.contentDetails?.duration);
+        if (a.dur > 0 && a.dur <= SHORT_MAX_S) a.short = true;
+      }
+    } catch { /* leave the batch alone */ }
+  }
+}
+
 // Articles whose source video has gone (deleted, made private, or pulled) must not stay on the
 // site: the whole premise is that every piece links back to a video you can watch, and a dead
 // link plus YouTube's grey placeholder thumbnail is worse than no article.
@@ -257,6 +286,10 @@ async function load() {
         k: categorise(a.tags, a.headline),
         thumb: `https://i.ytimg.com/vi/${v}/hq720.jpg`,
         thumbSmall: `https://i.ytimg.com/vi/${v}/mqdefault.jpg`,
+        // A Short is a Snippet (see below). The feed link says so for some; the video's
+        // duration settles the rest in addDurations().
+        short: /youtube\.com\/shorts\//i.test(String(a.link || "")),
+        format: a.format || "",
       });
     }
   });
@@ -296,7 +329,16 @@ async function load() {
   // articles and no creator loses all of theirs. Thin pieces are meant to come back by being
   // rewritten longer, not by dropping the floor.
   const MIN_WORDS = Number(process.env.SUBPLOT_MIN_WORDS ?? 400);
-  if (MIN_WORDS > 0) { const kept = arts.filter(a => a.w >= MIN_WORDS); arts.length = 0; arts.push(...kept); }
+  await addDurations(arts, MIN_WORDS);
+  // Snippets are exempt from the long-form floor by definition, but not from having words:
+  // a Short that produced fewer than 25 is a failed generation, not a take.
+  const MIN_SNIPPET_WORDS = 25;
+  if (MIN_WORDS > 0) { const kept = arts.filter(a => a.short ? a.w >= MIN_SNIPPET_WORDS : a.w >= MIN_WORDS); arts.length = 0; arts.push(...kept); }
+  for (const a of arts) a.f = formatOf(a);
+  // Snippets live in their own list. They never enter the wire, the threads, the lead or the
+  // evergreen shelf: those are built from `arts` below, which from here on is long-form only.
+  const snippets = arts.filter(a => a.short);
+  { const kept = arts.filter(a => !a.short); arts.length = 0; arts.push(...kept); }
 
   // CORRECTIONS, 8 Sep 2026. Errors found by auditing every live article, fixed at render rather
   // than in the store, so the source record is untouched, the change is reversible, and the copy
@@ -380,7 +422,7 @@ async function load() {
     .slice(0, 5)
     .map(a => a.id);
 
-  return { arts, panel, threads: chosen, subjects, avatars: av, evergreen, removed, loadedAt: new Date().toISOString() };
+  return { arts, snippets, panel, threads: chosen, subjects, avatars: av, evergreen, removed, loadedAt: new Date().toISOString() };
 }
 
 export async function getData() {
@@ -390,3 +432,7 @@ export async function getData() {
     .catch(err => { cache.pending = null; if (cache.data) return cache.data; throw err; });
   return cache.pending;
 }
+
+// An article by id, long-form or Snippet. Routes and sitemaps use this rather than reaching
+// into data.arts, so a Snippet's URL resolves like any other article's.
+export const findArt = (data, id) => data.arts.find(a => a.id === id) || (data.snippets || []).find(a => a.id === id) || null;
