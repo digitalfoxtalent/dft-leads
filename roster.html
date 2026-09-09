@@ -149,7 +149,15 @@ const dispName=n=>RENAME[n]||n;
 // (board item names are a mix of real names and handles). Normalise the leading @
 // (Instagram and TikTok handles are stored without one) and fall back to the board
 // name only where no handle is recorded.
-const dispHandle=c=>{const h=String(c.handle==null?"":c.handle).trim();return h?(h.charAt(0)==="@"?h:"@"+h):dispName(c.name);};
+const SHORTS_GROUP="group_mm4av3kr";
+const dispHandle=c=>{
+  const h=String(c.handle==null?"":c.handle).trim();
+  if(!h) return dispName(c.name);
+  const at=h.charAt(0)==="@"?h:"@"+h;
+  // A parent channel and its Shorts row share one handle, so tag the Shorts row —
+  // except inside the Shorts tab, where every row is one and the tag is just noise.
+  return (/[-\u2013]\s*shorts\s*$/i.test(c.name) && activeTab!==SHORTS_GROUP) ? at+" \u00b7 Shorts" : at;
+};
 
 // Column layout mirrors the sheet (name is sticky-left).
 const COLS=[
