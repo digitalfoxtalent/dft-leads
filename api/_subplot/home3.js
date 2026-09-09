@@ -19,9 +19,15 @@ const cast = (name, px) => hasCast() ? ch(name, px) : "";
 const esc = s => R.esc(s);
 
 // The format tag: dot plus name, in the format's ink. Optional subject after it.
-export const fmtTag = (a, subject = false) => {
+// The format tag. `px` swaps the small colour dot for the format's CHARACTER at that size, on a
+// chip in the format's wash: the cast belongs to the article (it says what kind of piece this
+// is) rather than to the author, whose own channel logo sits on the byline. Tight rows (the
+// wire) keep the dot, because a chip there would set the row height.
+export const fmtTag = (a, subject = false, px = 0) => {
   const f = fmtOf(a);
-  return `<span class="fmt" style="color:${f.ink}"><i style="background:${f.col}"></i>${f.name}</span>${subject ? `<span class="meta">${esc(CATS[a.k])}</span>` : ""}`;
+  const art = px ? cast(f.cast, px) : "";
+  const mark = art ? `<span class="fmc" style="--fmc:${px}px;background:${f.wash}">${art}</span>` : `<i style="background:${f.col}"></i>`;
+  return `<span class="fmt" style="color:${f.ink}">${mark}${f.name}</span>${subject ? `<span class="meta">${esc(CATS[a.k])}</span>` : ""}`;
 };
 
 const short = t => t.length > 118 ? t.slice(0, 115).replace(/\s+\S*$/, "") + "…" : t;
@@ -42,12 +48,12 @@ const byMark = (a, px = 28) => {
     : `<span class="av ini"${size}>${esc(initials(a.c))}</span>`;
 };
 
-// Grid card. Rule on top, thumbnail, tag row, headline, character and byline.
+// Grid card. Format rule on top, picture with its character, tag row, headline, byline.
 export const card3 = (a, base) => {
   const f = fmtOf(a);
   return `<a class="card3" href="${base}${R.artPath(a)}" style="border-top-color:${f.col}">
     <span class="th" style="--bg:url(${esc(a.thumbSmall)})"><img alt="" loading="lazy" decoding="async" src="${esc(a.thumbSmall)}"></span>
-    <span class="tagrow">${fmtTag(a, true)}</span>
+    <span class="tagrow">${fmtTag(a, true, 26)}</span>
     <span class="headline">${esc(a.h)}</span>
     <span class="by">${byMark(a, 24)}<span class="meta">${esc(a.c)} · ${a.rt} min</span></span>
   </a>`;
@@ -56,7 +62,7 @@ export const card3 = (a, base) => {
 // Rail row, for "Also today".
 const railRow = (a, base) => `<a class="rrow" href="${base}${R.artPath(a)}">
     <span class="th" style="--bg:url(${esc(a.thumbSmall)})"><img alt="" loading="lazy" decoding="async" src="${esc(a.thumbSmall)}"></span>
-    <span class="txt">${fmtTag(a)}<h3>${esc(a.h)}</h3><span class="meta">${esc(a.c)} · ${esc(CATS[a.k])} · ${a.rt} min</span></span>
+    <span class="txt">${fmtTag(a, false, 22)}<h3>${esc(a.h)}</h3><span class="meta">${esc(a.c)} · ${esc(CATS[a.k])} · ${a.rt} min</span></span>
   </a>`;
 
 // Thread take: the stripe and the label carry the format, so a thread shows at a glance that
@@ -136,7 +142,7 @@ export function homePage3(data, base, section, page, ctx) {
     <section class="leadpkg">
       <a class="hero" href="${base}${R.artPath(lead)}">
         <span class="th" style="--bg:url(${esc(lead.thumbSmall)})"><img alt="" src="${esc(lead.thumb)}" onerror="this.onerror=null;this.src='${esc(lead.thumbSmall.replace("mqdefault", "hqdefault"))}'"></span>
-        <span class="tagrow">${fmtTag(lead)}<span class="meta">${esc(CATS[lead.k])}</span></span>
+        <span class="tagrow">${fmtTag(lead, false, 30)}<span class="meta">${esc(CATS[lead.k])}</span></span>
         <h1 class="headline">${esc(lead.h)}</h1>
         <span class="dek">${esc(lead.s)}</span>
         <span class="by">${byMark(lead, 36)}<span class="whotxt"><b>${esc(lead.b)} <span class="meta">${esc(lead.c)}</span></b><span class="meta">${esc(R.fmt(lead.p))} · ${lead.w.toLocaleString("en-GB")} words · ${lead.rt} min read${lead.views ? ` · ${R.fmtViews(lead.views)} views on YouTube` : ""}</span></span></span>
@@ -218,7 +224,9 @@ export function snippetsPage(data, base) {
 // ---------- Stylesheet for design 3. Sits on top of CSS2 (the warm paper, Instrument Sans and
 // Newsreader) and adds only what the new page needs.
 export const CSS3 = String.raw`
-.fmt{display:inline-flex;align-items:center;gap:.45rem;font-family:var(--disp);font-weight:600;font-size:.7rem;letter-spacing:.1em;text-transform:uppercase;white-space:nowrap}
+/* line-height 1 so the label's own line box does not add leading above the capitals; the row
+   then aligns its CAP HEIGHT to the top of the picture beside it (see .rrow .txt). */
+.fmt{display:inline-flex;align-items:center;gap:.45rem;font-family:var(--disp);font-weight:600;font-size:.7rem;line-height:1;letter-spacing:.1em;text-transform:uppercase;white-space:nowrap}
 .fmt i{width:9px;height:9px;border-radius:2px;display:inline-block;flex-shrink:0}
 .tagrow{display:flex;justify-content:space-between;align-items:center;gap:.8rem}
 .tagrow .meta{white-space:nowrap}
@@ -227,6 +235,8 @@ export const CSS3 = String.raw`
 .th img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;display:block;transition:transform .55s cubic-bezier(.2,.7,.3,1)}
 .wire .wthumb{position:relative}.wire .wthumb img{position:relative;object-fit:contain}
 a:hover .th img{transform:scale(1.035)}
+.fmc{width:var(--fmc,26px);height:var(--fmc,26px);border-radius:8px;display:inline-flex;align-items:flex-end;justify-content:center;overflow:hidden;flex-shrink:0;line-height:0}
+.fmc svg{width:78%;height:auto;margin-bottom:-4%}
 .by{display:flex;align-items:center;gap:.5rem}
 .by .cast{flex-shrink:0}
 .whotxt{display:flex;flex-direction:column;gap:.1rem;min-width:0}
@@ -243,14 +253,14 @@ a:hover .th img{transform:scale(1.035)}
 .hero .dek{font-size:1.12rem;color:var(--ink-2);max-width:40rem;line-height:1.5}
 .also .rule-h{margin-top:0}
 .rrow{display:grid;grid-template-columns:104px 1fr;gap:.9rem;padding:.95rem 0;border-bottom:1px solid var(--rule);align-items:start;text-decoration:none;color:inherit}
-.rrow .txt{display:flex;flex-direction:column;gap:.25rem;min-width:0}
+.rrow .txt{display:flex;flex-direction:column;gap:.3rem;min-width:0}
 .rrow h3{font-family:var(--disp);font-weight:600;font-size:1rem;line-height:1.28;letter-spacing:-.014em;margin:0}
 .rrow:hover h3{color:var(--blue)}
 
 /* cards and wire */
 .grid4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1.4rem;padding:1.3rem 0 0}
 .card3{display:flex;flex-direction:column;gap:.55rem;border-top:3px solid var(--blue);padding-top:.8rem;text-decoration:none;color:inherit}
-.card3 .tagrow{margin-top:.3rem}
+.card3 .tagrow{margin-top:.6rem}
 .card3 .headline{font-size:1.12rem;line-height:1.22;letter-spacing:-.018em}
 .card3:hover .headline{color:var(--blue)}
 .wire .txt .fmt{margin:.9rem 0 .15rem}
