@@ -371,6 +371,9 @@ async function load() {
   const panel = [...byC.values()].sort((x, y) => y.n - x.n);
   const av = {};
   for (const p of panel) { const c = channels[p.name]; p.av = (c && c.av) || ""; if (p.av) av[p.handle] = p.av; }
+  // Avatars for creators who appear ONLY in Snippets. The panel above is built from long-form
+  // articles, so a Shorts-only creator would otherwise fall back to initials on their own byline.
+  for (const a of snippets) { if (av[a.c]) continue; const c = channels[a.b]; if (c && c.av) av[a.c] = c.av; }
 
   // threads: one subject, several creators — ranked by what's moving now, not by lifetime size
   const RECENT = 21 * 864e5;

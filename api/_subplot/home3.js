@@ -26,6 +26,22 @@ export const fmtTag = (a, subject = false) => {
 
 const short = t => t.length > 118 ? t.slice(0, 115).replace(/\s+\S*$/, "") + "…" : t;
 
+// THE BYLINE CARRIES THE CREATOR'S OWN CHANNEL PICTURE, never a cast character (Tom, 9 Sep
+// 2026: "here I think it needs to be the logo for the creator, that's what most people will be
+// used to"). The whole promise of the site is that a named person wrote the piece, so a mascot
+// in the author slot works against it. The cast still marks the FORMAT everywhere else: the tag
+// dot, the thread stripe, the Snippet bubble and the deck. Initials are the fallback when a
+// channel picture cannot be resolved.
+const initials = h => String(h || "").replace(/^@/, "").replace(/[^a-z0-9]/gi, "").slice(0, 2).toUpperCase();
+const avatarOf = a => (R.avatars || {})[a.c] || "";
+const byMark = (a, px = 28) => {
+  const url = avatarOf(a);
+  const size = px === 28 ? "" : ` style="--av:${px}px"`;
+  return url
+    ? `<span class="av"${size}><img src="${esc(url)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer"></span>`
+    : `<span class="av ini"${size}>${esc(initials(a.c))}</span>`;
+};
+
 // Grid card. Rule on top, thumbnail, tag row, headline, character and byline.
 export const card3 = (a, base) => {
   const f = fmtOf(a);
@@ -33,7 +49,7 @@ export const card3 = (a, base) => {
     <span class="th" style="--bg:url(${esc(a.thumbSmall)})"><img alt="" loading="lazy" decoding="async" src="${esc(a.thumbSmall)}"></span>
     <span class="tagrow">${fmtTag(a, true)}</span>
     <span class="headline">${esc(a.h)}</span>
-    <span class="by">${cast(f.cast, 22)}<span class="meta">${esc(a.c)} · ${a.rt} min</span></span>
+    <span class="by">${byMark(a, 24)}<span class="meta">${esc(a.c)} · ${a.rt} min</span></span>
   </a>`;
 };
 
@@ -73,12 +89,8 @@ export function wire3(list, base) {
 // ---------- Snippets: a Short as a speech bubble. No cover image, ever.
 // Reading time for a Snippet in seconds, at 240 words a minute, rounded to the nearest five.
 const secs = w => Math.max(10, Math.round(w / 4 / 5) * 5);
-const initials = h => String(h || "").replace(/^@/, "").replace(/[^a-z0-9]/gi, "").slice(0, 2).toUpperCase();
 const clock = p => new Date(p).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/London" });
-const mark = (a, data) => {
-  const av = data.avatars && data.avatars[a.c];
-  return av ? `<span class="av"><img src="${esc(av)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer"></span>` : `<span class="av ini">${esc(initials(a.c))}</span>`;
-};
+const mark = a => byMark(a, 28);
 
 export const bubble = (a, data, base, big = false) => {
   const f = fmtOf(a);
@@ -88,7 +100,7 @@ export const bubble = (a, data, base, big = false) => {
       <span class="bbmeta">${fmtTag(a)}<span class="meta" style="color:${f.ink}">${a.w} words · ${secs(a.w)} sec</span></span>
       <span class="bbcast">${cast(f.cast, 44)}</span>
     </span>
-    <span class="who">${mark(a, data)}<span class="whotxt"><b>${esc(a.b)}</b><span class="meta">${esc(a.c)} · ${clock(a.p)}</span></span></span>
+    <span class="who">${mark(a)}<span class="whotxt"><b>${esc(a.b)}</b><span class="meta">${esc(a.c)} · ${clock(a.p)}</span></span></span>
   </a>`;
 };
 
@@ -127,7 +139,7 @@ export function homePage3(data, base, section, page, ctx) {
         <span class="tagrow">${fmtTag(lead)}<span class="meta">${esc(CATS[lead.k])}</span></span>
         <h1 class="headline">${esc(lead.h)}</h1>
         <span class="dek">${esc(lead.s)}</span>
-        <span class="by">${cast(f.cast, 36)}<span class="whotxt"><b>${esc(lead.b)} <span class="meta">${esc(lead.c)}</span></b><span class="meta">${esc(R.fmt(lead.p))} · ${lead.w.toLocaleString("en-GB")} words · ${lead.rt} min read${lead.views ? ` · ${R.fmtViews(lead.views)} views on YouTube` : ""}</span></span></span>
+        <span class="by">${byMark(lead, 36)}<span class="whotxt"><b>${esc(lead.b)} <span class="meta">${esc(lead.c)}</span></b><span class="meta">${esc(R.fmt(lead.p))} · ${lead.w.toLocaleString("en-GB")} words · ${lead.rt} min read${lead.views ? ` · ${R.fmtViews(lead.views)} views on YouTube` : ""}</span></span></span>
       </a>
       <aside class="also">
         <div class="rule-h"><h2>Also today</h2><span class="note">${esc(new Date().toLocaleDateString("en-GB", { weekday: "long", timeZone: "Europe/London" }))}</span></div>
@@ -179,7 +191,7 @@ export function snippetsPage(data, base) {
           ${fmtTag(a)}
           <h2 class="q">${esc(a.h)}</h2>
           ${a.s ? `<p class="s">${esc(a.s)}</p>` : ""}
-          <div class="who">${mark(a, data)}<span class="whotxt"><b>${esc(a.b)}</b><span class="meta">${esc(a.c)} · ${a.w} words · ${secs(a.w)} sec</span></span></div>
+          <div class="who">${mark(a)}<span class="whotxt"><b>${esc(a.b)}</b><span class="meta">${esc(a.c)} · ${a.w} words · ${secs(a.w)} sec</span></span></div>
           <div class="deckacts"><a style="color:${f.ink}" href="https://www.youtube.com/shorts/${esc(a.v)}" target="_blank" rel="noopener">Watch the Short</a><a class="ghost" href="${base}${R.artPath(a)}">Read it</a></div>
         </div>
         <div class="deckfoot">${cast(f.cast, 96)}</div>
@@ -261,7 +273,7 @@ a:hover .th img{transform:scale(1.035)}
 .bubble .bbcast{position:absolute;right:.9rem;bottom:-.4rem;line-height:0}
 .bubble:hover .q{color:var(--blue)}
 .who{display:flex;align-items:center;gap:.6rem;padding-left:.4rem;min-width:0}
-.av{width:28px;height:28px;border-radius:50%;background:var(--ink);color:#fff;font-family:var(--disp);font-weight:600;font-size:.62rem;display:inline-flex;align-items:center;justify-content:center;letter-spacing:.04em;overflow:hidden;flex-shrink:0}
+.av{width:var(--av,28px);height:var(--av,28px);border-radius:50%;background:var(--paper-3);color:var(--ink);font-family:var(--disp);font-weight:600;font-size:calc(var(--av,28px) * .36);display:inline-flex;align-items:center;justify-content:center;letter-spacing:.02em;overflow:hidden;flex-shrink:0}
 .av img{width:100%;height:100%;object-fit:cover;display:block}
 .whotxt b,.whotxt .meta{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .col{display:flex;flex-direction:column;margin-top:1.6rem;border-top:1px solid var(--rule)}

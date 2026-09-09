@@ -403,7 +403,7 @@ export function homePage(data, base, section = "all", page = 1) {
   const threads = data.threads.filter(t => section === "all" || t.k === section);
   const byId = id => data.arts.find(a => a.id === id);
   if (design() === 3) {
-    wire3Deps({ esc, artPath, dayKey, dayLabel, adSlot, fmt, fmtViews, rail, band });
+    wire3Deps({ esc, artPath, dayKey, dayLabel, adSlot, fmt, fmtViews, rail, band, avatars: data.avatars || {} });
     const body3 = homePage3(data, base, section, page, { list, lead, rest, pages, wireList: page === 1 ? wireAll.slice(0, PAGE) : wireList, pager, threads });
     return shell({ base, title: section === "all" ? `${BRAND_()}` : `${CATS[section]} - ${BRAND_()}`, desc: TAG_(), current: section, body: body3, trending: data.threads })
       .replace('<span id="panelcount-slot"></span>', `<span>${data.panel.length} creators writing here</span>`);
@@ -450,7 +450,7 @@ export function homePage(data, base, section = "all", page = 1) {
 }
 
 export function articlePage(a, data, base) {
-  wire3Deps({ esc, artPath, dayKey, dayLabel, adSlot, fmt, fmtViews, rail, band });
+  wire3Deps({ esc, artPath, dayKey, dayLabel, adSlot, fmt, fmtViews, rail, band, avatars: data.avatars || {} });
   const more = data.arts.filter(x => x.c === a.c && x.id !== a.id).slice(0, 3);
   const inThread = Object.values(data.subjects || {}).filter(s => s.items.includes(a.id)).sort((x, y) => y.n - x.n)[0];
   const thr = inThread ? inThread.items.filter(id => id !== a.id).map(id => data.arts.find(x => x.id === id)).filter(Boolean).filter(x => x.c !== a.c).slice(0, 3) : [];
@@ -500,7 +500,7 @@ export function articlePage(a, data, base) {
 }
 
 export function snippetsPage(data, base) {
-  wire3Deps({ esc, artPath, dayKey, dayLabel, adSlot, fmt, fmtViews, rail, band });
+  wire3Deps({ esc, artPath, dayKey, dayLabel, adSlot, fmt, fmtViews, rail, band, avatars: data.avatars || {} });
   const body = snippetsBody(data, base);
   if (!body) return null;
   return shell({ base, title: `Snippets - ${BRAND_()}`, desc: "Every Short the creators post, in writing. Twenty-second reads, newest first.", current: "snippets", body, trending: data.threads })
