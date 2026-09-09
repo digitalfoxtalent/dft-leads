@@ -30,7 +30,7 @@ const short = t => t.length > 118 ? t.slice(0, 115).replace(/\s+\S*$/, "") + "�
 export const card3 = (a, base) => {
   const f = fmtOf(a);
   return `<a class="card3" href="${base}${R.artPath(a)}" style="border-top-color:${f.col}">
-    <span class="th"><img alt="" loading="lazy" decoding="async" src="${esc(a.thumbSmall)}"></span>
+    <span class="th" style="--bg:url(${esc(a.thumbSmall)})"><img alt="" loading="lazy" decoding="async" src="${esc(a.thumbSmall)}"></span>
     <span class="tagrow">${fmtTag(a, true)}</span>
     <span class="headline">${esc(a.h)}</span>
     <span class="by">${cast(f.cast, 22)}<span class="meta">${esc(a.c)} · ${a.rt} min</span></span>
@@ -39,7 +39,7 @@ export const card3 = (a, base) => {
 
 // Rail row, for "Also today".
 const railRow = (a, base) => `<a class="rrow" href="${base}${R.artPath(a)}">
-    <span class="th"><img alt="" loading="lazy" decoding="async" src="${esc(a.thumbSmall)}"></span>
+    <span class="th" style="--bg:url(${esc(a.thumbSmall)})"><img alt="" loading="lazy" decoding="async" src="${esc(a.thumbSmall)}"></span>
     <span class="txt">${fmtTag(a)}<h3>${esc(a.h)}</h3><span class="meta">${esc(a.c)} · ${esc(CATS[a.k])} · ${a.rt} min</span></span>
   </a>`;
 
@@ -62,7 +62,7 @@ export function wire3(list, base) {
     <section class="daygroup"><div class="daylabel">${esc(R.dayLabel(g.p))}</div><ul class="wire">
     ${g.items.map(a => `
       <li><a href="${base}${R.artPath(a)}">
-        <span class="wthumb"><img src="${esc(a.thumbSmall)}" alt="" loading="lazy" decoding="async"></span>
+        <span class="wthumb" style="--bg:url(${esc(a.thumbSmall)})"><img src="${esc(a.thumbSmall)}" alt="" loading="lazy" decoding="async"></span>
         <span class="txt">${fmtTag(a)}<h3>${esc(a.h)}</h3>
           <span class="sub"><b>${esc(a.c)}</b><span>${esc(CATS[a.k])}</span></span></span>
         <span class="rt">${a.rt} min</span>
@@ -71,6 +71,8 @@ export function wire3(list, base) {
 }
 
 // ---------- Snippets: a Short as a speech bubble. No cover image, ever.
+// Reading time for a Snippet in seconds, at 240 words a minute, rounded to the nearest five.
+const secs = w => Math.max(10, Math.round(w / 4 / 5) * 5);
 const initials = h => String(h || "").replace(/^@/, "").replace(/[^a-z0-9]/gi, "").slice(0, 2).toUpperCase();
 const clock = p => new Date(p).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/London" });
 const mark = (a, data) => {
@@ -83,7 +85,7 @@ export const bubble = (a, data, base, big = false) => {
   return `<a class="bubble${big ? " big" : ""}" href="${base}${R.artPath(a)}">
     <span class="bb" style="background:${f.wash};--tail:${f.wash}">
       <span class="q">${esc(a.h)}</span>
-      <span class="bbmeta">${fmtTag(a)}<span class="meta" style="color:${f.ink}">${a.w} words · 20 sec</span></span>
+      <span class="bbmeta">${fmtTag(a)}<span class="meta" style="color:${f.ink}">${a.w} words · ${secs(a.w)} sec</span></span>
       <span class="bbcast">${cast(f.cast, 44)}</span>
     </span>
     <span class="who">${mark(a, data)}<span class="whotxt"><b>${esc(a.b)}</b><span class="meta">${esc(a.c)} · ${clock(a.p)}</span></span></span>
@@ -100,7 +102,7 @@ export function snippetsSection(data, base) {
   if (list.length < 4) return "";
   return `
     <section class="snips">
-      <div class="rule-h"><h2>Snippets</h2><span class="note">20-second reads from the creators' Shorts · live through the day</span></div>
+      <div class="rule-h"><h2>Snippets</h2><span class="note">the creators' Shorts, in writing · a minute or less each · live through the day</span></div>
       <div class="bubbles">${list.slice(0, 4).map(a => bubble(a, data, base)).join("")}</div>
       ${list.length > 4 ? `<div class="col">${list.slice(4).map(a => colRow(a, base)).join("")}</div>` : ""}
       <a class="morelink" href="${base}/snippets">The whole column, newest first &rarr;</a>
@@ -121,7 +123,7 @@ export function homePage3(data, base, section, page, ctx) {
     ${page > 1 ? `<div class="rule-h" style="margin-top:2rem"><h2>${section === "all" ? "Older stories" : "Older in " + esc(secName)}</h2><span class="note">page ${page} of ${pages}</span></div>` : `
     <section class="leadpkg">
       <a class="hero" href="${base}${R.artPath(lead)}">
-        <span class="th"><img alt="" src="${esc(lead.thumb)}" onerror="this.onerror=null;this.src='${esc(lead.thumbSmall.replace("mqdefault", "hqdefault"))}'"></span>
+        <span class="th" style="--bg:url(${esc(lead.thumbSmall)})"><img alt="" src="${esc(lead.thumb)}" onerror="this.onerror=null;this.src='${esc(lead.thumbSmall.replace("mqdefault", "hqdefault"))}'"></span>
         <span class="tagrow">${fmtTag(lead)}<span class="meta">${esc(CATS[lead.k])}</span></span>
         <h1 class="headline">${esc(lead.h)}</h1>
         <span class="dek">${esc(lead.s)}</span>
@@ -174,7 +176,7 @@ export function snippetsPage(data, base) {
           ${fmtTag(a)}
           <h2 class="q">${esc(a.h)}</h2>
           ${a.s ? `<p class="s">${esc(a.s)}</p>` : ""}
-          <div class="who">${mark(a, data)}<span class="whotxt"><b>${esc(a.b)}</b><span class="meta">${esc(a.c)} · ${a.w} words · 20 sec</span></span></div>
+          <div class="who">${mark(a, data)}<span class="whotxt"><b>${esc(a.b)}</b><span class="meta">${esc(a.c)} · ${a.w} words · ${secs(a.w)} sec</span></span></div>
           <div class="deckacts"><a style="color:${f.ink}" href="https://www.youtube.com/shorts/${esc(a.v)}" target="_blank" rel="noopener">Watch the Short</a><a class="ghost" href="${base}${R.artPath(a)}">Read it</a></div>
         </div>
         <div class="deckfoot">${cast(f.cast, 96)}</div>
@@ -184,8 +186,8 @@ export function snippetsPage(data, base) {
   return `
 <main class="snipview">
   <div class="wrap snipintro">
-    <div class="rule-h"><h2>Snippets</h2><span class="note">${list.length} twenty-second reads · newest first</span></div>
-    <p class="lede">Every Short the creators post, in writing, one take each. No cover, no scroll: the words are the picture. On a phone, flick up for the next one.</p>
+    <div class="rule-h"><h2>Snippets</h2><span class="note">${list.length} quick reads · newest first</span></div>
+    <p class="lede">Every Short the creators post, in writing, one take each, none longer than a minute. No cover, no scroll: the words are the picture. On a phone, flick up for the next one.</p>
   </div>
   <div class="deck">${cards.join("")}</div>
 </main>
@@ -206,7 +208,9 @@ export const CSS3 = String.raw`
 .tagrow{display:flex;justify-content:space-between;align-items:center;gap:.8rem}
 .tagrow .meta{white-space:nowrap}
 .th{display:block;position:relative;overflow:hidden;background:var(--paper-3);aspect-ratio:16/9;border-radius:10px}
-.th img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block;transition:transform .55s cubic-bezier(.2,.7,.3,1)}
+.th::before,.wire .wthumb::before{content:"";position:absolute;inset:-12%;background:var(--bg) center/cover no-repeat;filter:blur(14px) saturate(1.15);opacity:.9}
+.th img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;display:block;transition:transform .55s cubic-bezier(.2,.7,.3,1)}
+.wire .wthumb{position:relative}.wire .wthumb img{position:relative;object-fit:contain}
 a:hover .th img{transform:scale(1.035)}
 .by{display:flex;align-items:center;gap:.5rem}
 .by .cast{flex-shrink:0}
@@ -225,7 +229,7 @@ a:hover .th img{transform:scale(1.035)}
 .also .rule-h{margin-top:0}
 .rrow{display:grid;grid-template-columns:104px 1fr;gap:.9rem;padding:.95rem 0;border-bottom:1px solid var(--rule);align-items:start;text-decoration:none;color:inherit}
 .rrow .txt{display:flex;flex-direction:column;gap:.25rem;min-width:0}
-.rrow h3{font-size:1rem;line-height:1.28;letter-spacing:-.014em;margin:0}
+.rrow h3{font-family:var(--disp);font-weight:600;font-size:1rem;line-height:1.28;letter-spacing:-.014em;margin:0}
 .rrow:hover h3{color:var(--blue)}
 
 /* cards and wire */

@@ -25,13 +25,13 @@ export const FORMATS = {
 export const FORMAT_KEYS = Object.keys(FORMATS);
 
 // Order matters: the first family that matches wins. Theory sits above news so "trailer
-// revealed, and I have a theory why" reads as the theory it is; rankings and reviews sit above
+// revealed, and I have a theory why" reads as the theory it is; reviews sit above rankings so "Night One Review: A vs B" is a review, and both sit above
 // news because "X ranked" or "X review" is unambiguous even when the headline also says
 // "confirmed". Lore is mostly the evergreen feeds and the explainer shapes.
 const RULES = [
   ["theory",   /\btheor(?:y|ies)\b|\bpredict|\bwhat if\b|\bcould (?:be|mean|explain)\b|\bmight (?:be|mean)\b|\bsuggests?\b|\bhere'?s how\b|\bhere'?s why\b/],
-  ["ranking",  /\brank(?:ed|ing|s)?\b|\bvs\.?\b|\bversus\b|\bwho wins\b|\bworst to best\b|\bbest to worst\b|\btier list\b|\btop \d+\b|\bevery .{0,40}\b(?:ranked|rated)\b|\bguide\b|\bhow to\b|\bfastest\b|\bstrongest\b|\bweakest\b/],
   ["review",   /\breview(?:s|ed)?\b|\brecap\b|\bretrospective\b|\bfinale\b|\bepisode \d+\b|\bseason \d+\b|\bverdict\b|\bwas it good\b|\bworth (?:watching|playing)\b/],
+  ["ranking",  /\brank(?:ed|ing|s)?\b|\bvs\.?\b|\bversus\b|\bwho wins\b|\bworst to best\b|\bbest to worst\b|\btier list\b|\btop \d+\b|\bevery .{0,40}\b(?:ranked|rated)\b|\bguide\b|\bhow to\b|\bfastest\b|\bstrongest\b|\bweakest\b/],
   ["news",     /\bleak(?:s|ed)?\b|\breportedly\b|\bconfirm(?:s|ed)?\b|\brumou?rs?\b|\btrailer\b|\bannounc|\breveal(?:s|ed)?\b|\brelease date\b|\bin development\b|\bcast(?:ing)?\b|\bdelay(?:ed|s)?\b|\bfirst look\b|\bbox office\b|\bpresale\b|\btracking\b|\breshoots?\b|\bpanel\b|\bbreaking\b/],
   ["lore",     /\blore\b|\bexplained\b|\bhistory of\b|\bwho is\b|\bwhat is\b|\borigins?\b|\bcanon\b|\btimeline\b|\bthe real reason\b|\bwas never\b|\bremembering\b/],
   ["reaction", /\bi (?:think|don'?t|do not|love|hate|can'?t)\b|\bwhy i\b|\bopinion\b|\bhot take\b|\breaction\b|\bunpopular\b|\boverrated\b|\bunderrated\b|\bproblem\b|\bmistakes?\b|\bwrong\b|\bfailed\b|\bmay be the best\b|\bmy \b/],
