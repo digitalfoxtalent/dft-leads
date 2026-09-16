@@ -126,17 +126,27 @@ async function ytJson(path, key, ids) {
   return r.json();
 }
 
-// Resolves one channel per brand and rewrites each article's handle to the real one.
-// Returns brand -> { handle, av, title }.
+// Resolves one channel per FEED and rewrites each article's handle to the real one.
+// Returns feed key -> { handle, av, title }, where the feed key is the store's creator handle
+// when it has one and the display name otherwise (see feedKey).
+//
+// WHY THE FEED AND NOT THE BRAND, 16 Sep 2026: four different channels publish under the one
+// display name "Chaos" (@chaosgaming, @chaostrektv, @morechaosgaming and @chaoscinemayt). Keyed
+// on the display name, one sample video decided the channel for all 64 of their articles, the
+// other three channels' pieces were rewritten to that handle, and the approved-only filter
+// then dropped the lot: 37 live articles missing from three creators with nothing logged.
+// The store's handle is still not trusted for identity (the video's channel is), it is only
+// the grouping key, so two feeds are never resolved from one another's videos.
+const feedKey = a => (String(a.c || "").startsWith("@") ? a.c : a.b).toLowerCase();
 async function resolveChannels(arts) {
   const out = {};
   const now = Date.now();
-  const sample = new Map();                      // brand -> a video to resolve it from
+  const sample = new Map();                      // feed key -> a video to resolve it from
   for (const a of arts) {
-    const b = a.b.toLowerCase();
+    const b = feedKey(a);
     const hit = chCache.get(b);
-    if (hit && now - hit.at < CH_TTL) { out[a.b] = hit; continue; }
-    if (!sample.has(b) && a.v) sample.set(b, { brand: a.b, v: a.v });
+    if (hit && now - hit.at < CH_TTL) { out[b] = hit; continue; }
+    if (!sample.has(b) && a.v) sample.set(b, { brand: b, v: a.v });
   }
   const key = process.env.YOUTUBE_API_KEY;
   if (key && sample.size) {
@@ -160,12 +170,14 @@ async function resolveChannels(arts) {
         const c = info.get(chByVideo.get(w.v));
         if (!c || !c.handle) continue;
         const rec = { at: Date.now(), handle: c.handle, av: c.av, title: c.title };
-        chCache.set(w.brand.toLowerCase(), rec);
+        chCache.set(w.brand, rec);
         out[w.brand] = rec;
       }
     } catch { /* fall back to whatever the store gave us */ }
   }
-  for (const a of arts) { const c = out[a.b]; if (c) a.c = c.handle; }
+  // Rewrite from the feed's own resolution. The key is taken BEFORE the rewrite, so an
+  // article whose handle the store got wrong still finds the record made for its feed.
+  for (const a of arts) { const c = out[feedKey(a)]; if (c) { a.fk = feedKey(a); a.c = c.handle; } }
   return out;
 }
 
@@ -365,15 +377,15 @@ async function load() {
   // creators
   const byC = new Map();
   for (const a of arts) {
-    const e = byC.get(a.c) || { handle: a.c, name: a.b, n: 0, latest: a.p };
+    const e = byC.get(a.c) || { handle: a.c, name: a.b, fk: a.fk, n: 0, latest: a.p };
     e.n++; byC.set(a.c, e);
   }
   const panel = [...byC.values()].sort((x, y) => y.n - x.n);
   const av = {};
-  for (const p of panel) { const c = channels[p.name]; p.av = (c && c.av) || ""; if (p.av) av[p.handle] = p.av; }
+  for (const p of panel) { const c = channels[p.fk] || channels[p.name.toLowerCase()]; p.av = (c && c.av) || ""; if (p.av) av[p.handle] = p.av; }
   // Avatars for creators who appear ONLY in Snippets. The panel above is built from long-form
   // articles, so a Shorts-only creator would otherwise fall back to initials on their own byline.
-  for (const a of snippets) { if (av[a.c]) continue; const c = channels[a.b]; if (c && c.av) av[a.c] = c.av; }
+  for (const a of snippets) { if (av[a.c]) continue; const c = channels[a.fk] || channels[a.b.toLowerCase()]; if (c && c.av) av[a.c] = c.av; }
 
   // threads: one subject, several creators — ranked by what's moving now, not by lifetime size
   const RECENT = 21 * 864e5;
