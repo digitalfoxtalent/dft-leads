@@ -148,7 +148,7 @@ body[data-view="article"] .homeview{display:none}
 .source{display:flex;gap:1rem;align-items:center;flex-wrap:wrap;background:var(--blue-wash);padding:1.2rem 1.4rem;margin:2.8rem 0 1.4rem}
 .source .lbl{font-family:var(--disp);font-weight:700;font-size:.66rem;letter-spacing:.14em;text-transform:uppercase;color:var(--blue-ink)}
 .source a{color:var(--blue);font-weight:700;text-decoration:none;border-bottom:1.5px solid currentColor}
-.disclose{border-left:3px solid var(--orange);padding:.15rem 0 .15rem 1rem;color:var(--ink-3);font-size:var(--s--1);margin:1.1rem 0 0;line-height:1.55}
+.disclose,.ai-disclosure{border-left:3px solid var(--orange);padding:.15rem 0 .15rem 1rem;color:var(--ink-3);font-size:var(--s--1);margin:1.1rem 0 0;line-height:1.55}
 .tags{display:flex;flex-wrap:wrap;gap:.4rem;margin:1.7rem 0 0}
 .tags span{font-family:var(--mono);font-size:.68rem;color:var(--ink-2);background:var(--paper-2);padding:.22rem .5rem}
 

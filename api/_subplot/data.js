@@ -327,11 +327,15 @@ async function load() {
   // its length rather than on whether the publisher happened to record one.
   const countWords = html => (String(html || "").replace(/<[^>]*>/g, " ").match(/\S+/g) || []).length;
 
-  // Film Paradise's records end with their own "About this article" disclosure paragraph, so those
-  // 37 pages carried the disclosure twice, once inside the article and again in the site's footer.
-  // Strip the in-body copy before anything measures or renders it. No other feed does this.
-  for (const a of arts) a.body = a.body.replace(/(?:<hr\s*\/?>)?\s*<p class="ai-disclosure">[\s\S]*?<\/p>/gi, "");
-  for (const a of arts) if (!a.w) { a.w = countWords(a.body); a.rt = Math.max(1, Math.round(a.w / 220)); }
+  // The publisher's own "About this article" block used to be stripped here, which meant Subplot
+  // wrote its own disclosure instead. Since 19 Sep 2026 (Tom) the shared block is kept, so the
+  // wording cannot drift between Subplot and the syndicated copy, and render.js no longer emits a
+  // second one. It is still removed for MEASUREMENT only, so the disclosure cannot inflate a word
+  // count or read time or lift a thin article over MIN_WORDS. The trailing "Watch the original
+  // video" link is dropped because the page already carries its own player section below it.
+  const DISCLOSURE_RE = /(?:<hr\s*\/?>)?\s*<p class="ai-disclosure">[\s\S]*?<\/p>/gi;
+  for (const a of arts) a.body = a.body.replace(/\s*<a\b[^>]*>Watch the original video\.<\/a>/gi, "");
+  for (const a of arts) if (!a.w) { a.w = countWords(a.body.replace(DISCLOSURE_RE, "")); a.rt = Math.max(1, Math.round(a.w / 220)); }
 
   // The floor. A site is judged on its weakest pages, and a 140-word explainer reads as scaled
   // AI content however honest the disclosure under it is. Articles below MIN_WORDS are simply

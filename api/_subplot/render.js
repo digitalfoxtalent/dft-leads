@@ -481,7 +481,6 @@ export function articlePage(a, data, base) {
         <img alt="" src="${esc(a.thumb)}" onerror="this.onerror=null;this.src='${esc(a.thumbSmall.replace("mqdefault","hqdefault"))}'">
         <button class="play" aria-label="Play the original video"></button>
       </div>
-      <p class="disclose">Adapted from ${esc(a.b)}&rsquo;s original video. Written with the help of AI from that video&rsquo;s transcript; the views and analysis are ${esc(a.b)}&rsquo;s own.</p>
       <div class="tags">${a.t.map(t => `<span>${esc(t)}</span>`).join("")}</div>
       ${thr.length ? `<section class="next"><div class="rule-h"><h2>Also on ${esc(inThread.t)}</h2><span class="note"><a href="${base}/t/${esc(inThread.slug)}" style="color:var(--blue)">${inThread.c} creators, ${inThread.n} takes &rarr;</a></span></div><div class="grid3">${thr.map(x => (design() === 3 ? card3 : card)(x, base)).join("")}</div></section>` : ""}
       ${more.length ? `<section class="next"><div class="rule-h"><h2>More from ${esc(a.c)}</h2><span class="note"><a href="${base}/c/${esc(slugH(a.c))}" style="color:var(--blue)">All &rarr;</a></span></div><div class="grid3">${more.map(x => (design() === 3 ? card3 : card)(x, base)).join("")}</div></section>` : ""}
