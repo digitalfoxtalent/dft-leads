@@ -42,7 +42,7 @@ body{font-size:19px;line-height:1.66;letter-spacing:.002em}
    global value: each letter carries the gap that follows it, so the holes close (L-O worst)
    and the one pair of adjacent straight stems (B-P) gets air back. Scoped to the brand class
    because Wordie shares this sheet and wants its own, positive, tracking. */
-.brand-subplot{--wm-size:clamp(2.2rem,7.4vw,6.2rem);--wm-bar:calc(var(--wm-size) * 4.36)}
+.brand-subplot{--wm-size:clamp(2.2rem,7.4vw,4.6rem);--wm-bar:calc(var(--wm-size) * 4.473)}
 .brand-subplot .wordmark{letter-spacing:0}
 .brand-subplot .wordmark .l-1{letter-spacing:-.036em}  /* S */
 .brand-subplot .wordmark .l-2{letter-spacing:-.040em}  /* U */
