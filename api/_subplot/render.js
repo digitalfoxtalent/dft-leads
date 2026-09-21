@@ -250,11 +250,11 @@ ${jsonld}
 <script defer src="/_vercel/insights/script.js"></script>
 ${adHead()}
 </head>
-<body class="${bodyClass}">
+<body class="${`${bodyClass} brand-${brand().key}`.trim()}">
 <header class="top">
   <div class="wrap top-in">
     <a class="brandblock" href="${base}/">
-      <span class="wordmark">${BRAND_()}</span>
+      <span class="wordmark" role="img" aria-label="${esc(BRAND_())}">${BRAND_().split("").map((c, i) => c === " " ? " " : `<span class="l l-${i + 1}" aria-hidden="true">${esc(c)}</span>`).join("")}</span>
       <span class="plotline">${hasCast() ? `<span class="castline">${["lorekeeper","goblin","theorist","critic","speedrunner","reactor","subplot"].map(n => ch(n, 62)).join("")}</span>` : ""}</span>
       <span class="tagline">${esc(TAG_())}</span>
     </a>

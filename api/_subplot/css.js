@@ -26,13 +26,13 @@ button{font:inherit;color:inherit;background:none;border:0;padding:0;text-align:
 .top-in{display:grid;grid-template-columns:1fr auto;gap:2rem;align-items:end;padding-top:2.6rem;padding-bottom:1.6rem}
 .brandblock{display:block;cursor:pointer;width:100%}
 .wordmark{
-  font-family:var(--disp);font-weight:800;font-size:clamp(2.2rem,7.4vw,4.6rem);
+  font-family:var(--disp);font-weight:800;font-size:var(--wm-size,clamp(2.2rem,7.4vw,4.6rem));
   line-height:.9;letter-spacing:-.005em;text-transform:uppercase;margin:0;color:var(--blue);
 }
 /* the plot line and the sub-plot: main line in ultramarine, a shorter thread in orange beneath */
 .plotline{display:block;position:relative;height:11px;margin:.8rem 0 .8rem}
 .plotline::before{content:"";position:absolute;left:0;right:0;top:0;height:4px;background:var(--blue)}
-.plotline::after{content:"";position:absolute;left:0;top:7px;width:min(38%,15rem);height:4px;background:var(--orange);
+.plotline::after{content:"";position:absolute;left:0;top:7px;width:var(--wm-bar,min(38%,15rem));height:4px;background:var(--orange);
   clip-path:polygon(0 0,100% 0,calc(100% - 4px) 100%,0 100%)}
 .tagline{margin:0;color:var(--ink-2);font-size:var(--s--1);max-width:40rem}
 .top-meta{display:flex;flex-direction:column;align-items:flex-end;gap:.25rem;font-family:var(--mono);font-size:.72rem;color:var(--ink-3);white-space:nowrap}
