@@ -47,9 +47,12 @@ body{font-size:19px;line-height:1.66;letter-spacing:.002em}
 .brand-subplot .wordmark-drawn{display:block;line-height:0;letter-spacing:0;color:var(--blue)}
 .brand-subplot .wordmark-drawn .wm{display:block;width:auto;height:calc(var(--wm-size) * .72 * 752 / 720)}
 .brand-subplot .plotline{margin:.6rem 0 1.15rem}
-/* The short thread under the word follows the day's accent, so the masthead is one colour
-   story rather than the accent plus a fixed orange. */
-.brand-subplot .plotline::after{background:var(--accent-day,var(--orange))}
+/* The day's accent is carried as two custom properties so the same server-rendered markup can
+   serve both colour schemes; --wm-accent is what the mark and the thread under it actually read.
+   On the house day (Sunday) neither is set, the word runs all in ultramarine and the thread falls
+   back to Foxy Orange. */
+.brand-subplot .brandblock{--wm-accent:var(--accent-lt)}
+.brand-subplot .plotline::after{background:var(--wm-accent,var(--orange))}
 .nav{border-top:1px solid var(--rule-2)}
 .nav button,.nav a{
   font-family:var(--disp);font-weight:600;font-size:.95rem;letter-spacing:-.005em;
@@ -124,6 +127,7 @@ body{font-size:19px;line-height:1.66;letter-spacing:.002em}
     --ink:#F2F1EE; --ink-2:#B4B3B0; --ink-3:#86858A;
     --blue:#8C86FF; --blue-ink:#A9A4FF; --blue-wash:#1E1D34;
   }
+  .brand-subplot .brandblock{--wm-accent:var(--accent-dk)}
   .top,.nav{background:var(--paper)}
   .band{background:var(--blue-wash)}
   .band .cta{background:var(--ink);color:var(--paper)}

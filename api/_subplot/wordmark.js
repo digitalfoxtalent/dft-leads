@@ -11,19 +11,25 @@ export const WORDMARK_W = 4401;
 export const WORDMARK_H = 752;
 export const WORDMARK_RATIO = 5.8524; // width / height
 
-// Seven accents, one per weekday. Each was checked as four solid letters: the accent against
-// paper (all >= 3.0:1) and the light tint against ultramarine (all >= 3.7:1). Use the accent on
-// paper, white or dark backgrounds; use the tint when the background is ultramarine itself.
+// The seven days, taken from the GIQUE kit as it already exists in formats.js: one colour per
+// article format, each tied to a cast character. Ultramarine cannot be the accent (SUB is
+// ultramarine), so Sunday is the house day and the whole word runs in one colour.
+//
+// Aqua (Ranking) and yellow (Reaction) at full strength are chips and marks, not text: on paper
+// they carry four letters at about 1.6:1. Both days use that format's own `ink` value, the one
+// formats.js already defines for type. Nothing outside the kit is used.
+//
+// Each row: [day, format, light background, on ultramarine, dark mode]. A null accent means the
+// house day: no split, no colour, the rule under the word falls back to Foxy Orange.
 export const ACCENTS = [
-  ["Sunday","magenta", "#E4239B", "#F086C8"],
-  ["Monday","coral", "#F5502E", "#FA9F8C"],
-  ["Tuesday","amber", "#C87F00", "#E1B973"],
-  ["Wednesday","lime", "#7E9B00", "#B8C873"],
-  ["Thursday","mint", "#109E70", "#7CCAB0"],
-  ["Friday","teal", "#12A0A0", "#7DCBCB"],
-  ["Saturday","pink", "#F53D96", "#FA94C5"],
+  ["Sunday",    "House",     null,      null,      null     ],
+  ["Monday",    "Review",    "#FF8806", "#FF8806", "#FF8806"],
+  ["Tuesday",   "News",      "#F712AE", "#FA65CA", "#F712AE"],
+  ["Wednesday", "Theory",    "#831DCC", "#C799E8", "#AE6CDE"],
+  ["Thursday",  "Ranking",   "#0A8F82", "#47ABA1", "#0A8F82"],
+  ["Friday",    "Reaction",  "#8A6400", "#B39A59", "#A78B40"],
+  ["Saturday",  "Lore",      "#16161C", "#ADADB0", "#7F7F82"],
 ];
-
 // The day turns over at midnight Denver time, where the site is run from.
 export function accentToday(d = new Date()) {
   const day = new Date(d.toLocaleString("en-US", { timeZone: "America/Denver" })).getDay();
@@ -37,19 +43,26 @@ const O_RING = `<path fill-rule="evenodd" transform="translate(3003.0 0)" d="M74
 const O_PATH = `M744.0 360.0L743.9 412.9L743.5 438.6L742.9 459.1L742.1 476.7L741.0 492.4L739.7 506.7L738.1 520.0L736.3 532.4L734.2 544.0L732.0 555.0L729.4 565.4L726.6 575.3L723.6 584.7L720.3 593.7L716.8 602.3L713.0 610.4L708.9 618.3L704.6 625.7L700.1 632.9L695.3 639.7L690.2 646.2L684.8 652.3L679.2 658.2L673.2 663.8L667.0 669.1L660.5 674.2L653.7 678.9L646.5 683.4L639.0 687.6L631.2 691.6L623.0 695.3L614.4 698.7L605.3 701.9L595.9 704.8L585.9 707.4L575.4 709.8L564.2 712.0L552.3 713.8L539.6 715.5L525.9 716.9L510.8 718.0L493.9 718.9L474.3 719.5L449.7 719.9L399.0 720.0L348.3 719.9L323.7 719.5L304.1 718.9L287.2 718.0L272.1 716.9L258.4 715.5L245.7 713.8L233.8 712.0L222.6 709.8L212.1 707.4L202.1 704.8L192.7 701.9L183.6 698.7L175.0 695.3L166.8 691.6L159.0 687.6L151.5 683.4L144.3 678.9L137.5 674.2L131.0 669.1L124.8 663.8L118.8 658.2L113.2 652.3L107.8 646.2L102.7 639.7L97.9 632.9L93.4 625.7L89.1 618.3L85.0 610.4L81.2 602.3L77.7 593.7L74.4 584.7L71.4 575.3L68.6 565.4L66.0 555.0L63.8 544.0L61.7 532.4L59.9 520.0L58.3 506.7L57.0 492.4L55.9 476.7L55.1 459.1L54.5 438.6L54.1 412.9L54.0 360.0L54.1 307.1L54.5 281.4L55.1 260.9L55.9 243.3L57.0 227.6L58.3 213.3L59.9 200.0L61.7 187.6L63.8 176.0L66.0 165.0L68.6 154.6L71.4 144.7L74.4 135.3L77.7 126.3L81.2 117.7L85.0 109.6L89.1 101.7L93.4 94.3L97.9 87.1L102.7 80.3L107.8 73.8L113.2 67.7L118.8 61.8L124.8 56.2L131.0 50.9L137.5 45.8L144.3 41.1L151.5 36.6L159.0 32.4L166.8 28.4L175.0 24.7L183.6 21.3L192.7 18.1L202.1 15.2L212.1 12.6L222.6 10.2L233.8 8.0L245.7 6.2L258.4 4.5L272.1 3.1L287.2 2.0L304.1 1.1L323.7 0.5L348.3 0.1L399.0 0.0L449.7 0.1L474.3 0.5L493.9 1.1L510.8 2.0L525.9 3.1L539.6 4.5L552.3 6.2L564.2 8.0L575.4 10.2L585.9 12.6L595.9 15.2L605.3 18.1L614.4 21.3L623.0 24.7L631.2 28.4L639.0 32.4L646.5 36.6L653.7 41.1L660.5 45.8L667.0 50.9L673.2 56.2L679.2 61.8L684.8 67.7L690.2 73.8L695.3 80.3L700.1 87.1L704.6 94.3L708.9 101.7L713.0 109.6L716.8 117.7L720.3 126.3L723.6 135.3L726.6 144.7L729.4 154.6L732.0 165.0L734.2 176.0L736.3 187.6L738.1 200.0L739.7 213.3L741.0 227.6L742.1 243.3L742.9 260.9L743.5 281.4L743.9 307.1ZM588.0 360.0L587.9 395.0L587.7 412.0L587.4 425.5L586.9 437.1L586.4 447.5L585.6 457.0L584.8 465.8L583.8 474.0L582.7 481.7L581.4 488.9L580.0 495.8L578.5 502.3L576.8 508.6L575.0 514.5L573.1 520.2L571.0 525.6L568.8 530.7L566.4 535.7L563.9 540.4L561.3 544.9L558.5 549.2L555.6 553.3L552.5 557.2L549.2 560.9L545.8 564.4L542.2 567.7L538.5 570.9L534.6 573.8L530.5 576.6L526.2 579.2L521.7 581.7L517.0 583.9L512.0 586.0L506.8 587.9L501.4 589.7L495.6 591.3L489.5 592.7L483.0 593.9L476.0 595.0L468.5 595.9L460.2 596.7L451.0 597.3L440.3 597.7L426.8 597.9L399.0 598.0L371.2 597.9L357.7 597.7L347.0 597.3L337.8 596.7L329.5 595.9L322.0 595.0L315.0 593.9L308.5 592.7L302.4 591.3L296.6 589.7L291.2 587.9L286.0 586.0L281.0 583.9L276.3 581.7L271.8 579.2L267.5 576.6L263.4 573.8L259.5 570.9L255.8 567.7L252.2 564.4L248.8 560.9L245.5 557.2L242.4 553.3L239.5 549.2L236.7 544.9L234.1 540.4L231.6 535.7L229.2 530.7L227.0 525.6L224.9 520.2L223.0 514.5L221.2 508.6L219.5 502.3L218.0 495.8L216.6 488.9L215.3 481.7L214.2 474.0L213.2 465.8L212.4 457.0L211.6 447.5L211.1 437.1L210.6 425.5L210.3 412.0L210.1 395.0L210.0 360.0L210.1 325.0L210.3 308.0L210.6 294.5L211.1 282.9L211.6 272.5L212.4 263.0L213.2 254.2L214.2 246.0L215.3 238.3L216.6 231.1L218.0 224.2L219.5 217.7L221.2 211.4L223.0 205.5L224.9 199.8L227.0 194.4L229.2 189.3L231.6 184.3L234.1 179.6L236.7 175.1L239.5 170.8L242.4 166.7L245.5 162.8L248.8 159.1L252.2 155.6L255.8 152.3L259.5 149.1L263.4 146.2L267.5 143.4L271.8 140.8L276.3 138.3L281.0 136.1L286.0 134.0L291.2 132.1L296.6 130.3L302.4 128.7L308.5 127.3L315.0 126.1L322.0 125.0L329.5 124.1L337.8 123.3L347.0 122.7L357.7 122.3L371.2 122.1L399.0 122.0L426.8 122.1L440.3 122.3L451.0 122.7L460.2 123.3L468.5 124.1L476.0 125.0L483.0 126.1L489.5 127.3L495.6 128.7L501.4 130.3L506.8 132.1L512.0 134.0L517.0 136.1L521.7 138.3L526.2 140.8L530.5 143.4L534.6 146.2L538.5 149.1L542.2 152.3L545.8 155.6L549.2 159.1L552.5 162.8L555.6 166.7L558.5 170.8L561.3 175.1L563.9 179.6L566.4 184.3L568.8 189.3L571.0 194.4L573.1 199.8L575.0 205.5L576.8 211.4L578.5 217.7L580.0 224.2L581.4 231.1L582.7 238.3L583.8 246.0L584.8 254.2L585.6 263.0L586.4 272.5L586.9 282.9L587.4 294.5L587.7 308.0L587.9 325.0Z`;
 
 // Inline wordmark. `accent` is a CSS colour for PLOT; null gives a one-colour mark.
-export function wordmarkSvg(accent = null, { label = "SUBPLOT" } = {}) {
-  const a = accent || "currentColor";
-  return `<svg class="wm" viewBox="-6 -16 4401 752" role="img" aria-label="${label}" preserveAspectRatio="xMinYMid meet">`
+export function wordmarkSvg({ label = "SUBPLOT" } = {}) {
+  // PLOT paints with --wm-accent, set on .brandblock from the day's row. Where it is unset (the
+  // house day) it falls back to currentColor and the word is one colour.
+  return `<svg class="wm" viewBox="-6 -16 ${WORDMARK_W} 752" role="img" aria-label="${label}" preserveAspectRatio="xMinYMid meet">`
     + `<g transform="translate(0 720) scale(1 -1)">`
     + `<g fill="currentColor" stroke="currentColor" ${STROKE}>${SUB}</g>`
-    + `<g fill="${a}" stroke="${a}" ${STROKE}>${PLT}${O_RING}</g>`
+    + `<g fill="var(--wm-accent,currentColor)" stroke="var(--wm-accent,currentColor)" ${STROKE}>${PLT}${O_RING}</g>`
     + `</g></svg>`;
+}
+
+// The inline custom properties for a day. Empty string on the house day.
+export function accentVars(a = accentToday()) {
+  return a[2] ? `--accent-lt:${a[2]};--accent-dk:${a[4]}` : "";
 }
 
 // The monogram: the screen O on a squircle tile, tile in the day's accent. Favicon, avatar,
 // video bug. The same shape at every size, which is what makes it hold at 16px.
 const TILE = "M64.0 32.0L64.0 37.9L63.9 40.8L63.8 43.1L63.6 45.0L63.4 46.8L63.1 48.4L62.8 49.8L62.4 51.1L62.0 52.4L61.5 53.5L60.9 54.6L60.4 55.6L59.7 56.6L59.0 57.4L58.3 58.3L57.4 59.0L56.6 59.7L55.6 60.4L54.6 60.9L53.5 61.5L52.4 62.0L51.1 62.4L49.8 62.8L48.4 63.1L46.8 63.4L45.0 63.6L43.1 63.8L40.8 63.9L37.9 64.0L32.0 64.0L26.1 64.0L23.2 63.9L20.9 63.8L19.0 63.6L17.2 63.4L15.6 63.1L14.2 62.8L12.9 62.4L11.6 62.0L10.5 61.5L9.4 60.9L8.4 60.4L7.4 59.7L6.6 59.0L5.7 58.3L5.0 57.4L4.3 56.6L3.6 55.6L3.1 54.6L2.5 53.5L2.0 52.4L1.6 51.1L1.2 49.8L0.9 48.4L0.6 46.8L0.4 45.0L0.2 43.1L0.1 40.8L0.0 37.9L0.0 32.0L0.0 26.1L0.1 23.2L0.2 20.9L0.4 19.0L0.6 17.2L0.9 15.6L1.2 14.2L1.6 12.9L2.0 11.6L2.5 10.5L3.1 9.4L3.6 8.4L4.3 7.4L5.0 6.6L5.7 5.7L6.6 5.0L7.4 4.3L8.4 3.6L9.4 3.1L10.5 2.5L11.6 2.0L12.9 1.6L14.2 1.2L15.6 0.9L17.2 0.6L19.0 0.4L20.9 0.2L23.2 0.1L26.1 0.0L32.0 0.0L37.9 0.0L40.8 0.1L43.1 0.2L45.0 0.4L46.8 0.6L48.4 0.9L49.8 1.2L51.1 1.6L52.4 2.0L53.5 2.5L54.6 3.1L55.6 3.6L56.6 4.3L57.4 5.0L58.3 5.7L59.0 6.6L59.7 7.4L60.4 8.4L60.9 9.4L61.5 10.5L62.0 11.6L62.4 12.9L62.8 14.2L63.1 15.6L63.4 17.2L63.6 19.0L63.8 20.9L63.9 23.2L64.0 26.1Z";
 export function monogramSvg(tile = "#2218E8", glyph = "#FFFFFF") {
+  tile = tile || "#2218E8";
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><path d="${TILE}" fill="${tile}"/>`
     + `<g transform="translate(9.795 52.035) scale(0.05565 -0.05565)"><path fill="${glyph}" fill-rule="evenodd" d="${O_PATH}"/></g></svg>`;
 }

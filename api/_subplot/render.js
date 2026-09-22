@@ -2,7 +2,7 @@
 import { CSS } from "./css.js";
 import { CATS, slug, slugFor } from "./data.js";
 import { brand, brandCss, member, joinCta, mail, siteUrl, hasCast, audience, fontHref, hasShareCard } from "./brand.js";
-import { wordmarkSvg, accentToday } from "./wordmark.js";
+import { wordmarkSvg, accentToday, accentVars } from "./wordmark.js";
 import { design } from "./design.js";
 import { promoRail, promoCss, joinBlock } from "./promo.js";
 import { CSS2, FONTS2 } from "./design2.js";
@@ -254,9 +254,9 @@ ${adHead()}
 <body class="${`${bodyClass} brand-${brand().key}`.trim()}">
 <header class="top">
   <div class="wrap top-in">
-    <a class="brandblock" href="${base}/"${brand().key === "subplot" ? ` style="--accent-day:${accentToday()[2]}"` : ""}>
+    <a class="brandblock" href="${base}/"${brand().key === "subplot" && accentVars() ? ` style="${accentVars()}"` : ""}>
       ${brand().key === "subplot"
-        ? `<span class="wordmark wordmark-drawn">${wordmarkSvg(accentToday()[2], { label: BRAND_() })}</span>`
+        ? `<span class="wordmark wordmark-drawn">${wordmarkSvg({ label: BRAND_() })}</span>`
         : `<span class="wordmark" role="img" aria-label="${esc(BRAND_())}">${BRAND_().split("").map((c, i) => c === " " ? " " : `<span class="l l-${i + 1}" aria-hidden="true">${esc(c)}</span>`).join("")}</span>`}
       <span class="plotline">${hasCast() ? `<span class="castline">${["lorekeeper","goblin","theorist","critic","speedrunner","reactor","subplot"].map(n => ch(n, 62)).join("")}</span>` : ""}</span>
       <span class="tagline">${esc(TAG_())}</span>
