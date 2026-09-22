@@ -72,6 +72,29 @@ export default async function handler(req, res) {
       });
     });
 
+    // Drop rows with nothing to sell. A row whose View Guarantee is empty or zero is
+    // either BRAND NEW - created after the last sync ran, so its numbers land on the
+    // next one - or DEAD, like Badd Medicine Shorts, which has published no Short
+    // since 27 Jun 2026 and so is correctly written as zeros by the Shorts pass.
+    // Both used to render on the public roster as a creator offering 0 views at $0,
+    // which reads to a brand as a channel we cannot sell rather than a row we have
+    // not finished filling in. It cannot fix itself upstream either: only the
+    // long-form pass moves dormant rows into the Dormant group and it deliberately
+    // skips the Shorts group, so a dead Shorts row never leaves the live tab.
+    // Filtered HERE rather than in the sync on purpose - the board stays complete as
+    // the internal record, and the page stays honest as the shop window.
+    const guaranteeOf = it => {
+      const c = (it.column_values || []).find(x => x && x.id === "numeric_mm49rr3n");
+      const raw = c && c.text != null ? String(c.text).replace(/[^0-9.]/g, "") : "";
+      const n = raw === "" ? NaN : parseFloat(raw);
+      return Number.isFinite(n) ? n : 0;
+    };
+    groups.forEach(grp => {
+      if (grp.items_page && Array.isArray(grp.items_page.items)) {
+        grp.items_page.items = grp.items_page.items.filter(it => guaranteeOf(it) > 0);
+      }
+    });
+
     // The board is rewritten once a day by Shows View Guarantee Sync (08:30 UTC cron,
     // ~16 min run), so the data is static for ~23 hours out of 24. The query itself is
     // slow - 4 groups x 120 items x 27 columns, plus subitems, plus a per-row board
