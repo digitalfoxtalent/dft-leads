@@ -254,7 +254,7 @@ ${adHead()}
 <body class="${`${bodyClass} brand-${brand().key}`.trim()}">
 <header class="top">
   <div class="wrap top-in">
-    <a class="brandblock" href="${base}/">
+    <a class="brandblock" href="${base}/"${brand().key === "subplot" ? ` style="--accent-day:${accentToday()[2]}"` : ""}>
       ${brand().key === "subplot"
         ? `<span class="wordmark wordmark-drawn">${wordmarkSvg(accentToday()[2], { label: BRAND_() })}</span>`
         : `<span class="wordmark" role="img" aria-label="${esc(BRAND_())}">${BRAND_().split("").map((c, i) => c === " " ? " " : `<span class="l l-${i + 1}" aria-hidden="true">${esc(c)}</span>`).join("")}</span>`}

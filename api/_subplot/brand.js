@@ -32,7 +32,7 @@ export const BRANDS = {
     cast: true,                     // the seven characters in cast.js
     accent: null,                   // null = the default palette in css.js
     type: null,                     // null = the default type in css.js
-    favicon: () => monogramSvg(accentToday()[2]),   // the screen O in the day's accent, 22 Sep 2026
+    favicon: () => monogramSvg(accentToday()[2]),   // white screen O on a tile in the day's accent, 22 Sep 2026
     assets: "subplot",              // which pair in images.js
   },
   wordie: {

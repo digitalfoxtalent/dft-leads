@@ -47,6 +47,9 @@ body{font-size:19px;line-height:1.66;letter-spacing:.002em}
 .brand-subplot .wordmark-drawn{display:block;line-height:0;letter-spacing:0;color:var(--blue)}
 .brand-subplot .wordmark-drawn .wm{display:block;width:auto;height:calc(var(--wm-size) * .72 * 752 / 720)}
 .brand-subplot .plotline{margin:.6rem 0 1.15rem}
+/* The short thread under the word follows the day's accent, so the masthead is one colour
+   story rather than the accent plus a fixed orange. */
+.brand-subplot .plotline::after{background:var(--accent-day,var(--orange))}
 .nav{border-top:1px solid var(--rule-2)}
 .nav button,.nav a{
   font-family:var(--disp);font-weight:600;font-size:.95rem;letter-spacing:-.005em;
