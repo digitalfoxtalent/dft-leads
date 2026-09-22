@@ -38,21 +38,15 @@ body{font-size:19px;line-height:1.66;letter-spacing:.002em}
 .top-in{padding-top:3.2rem;padding-bottom:1.9rem}
 .wordmark{letter-spacing:-.035em;font-weight:700}
 
-/* SUBPLOT masthead, 21 Sep 2026. The wordmark is spaced pair by pair rather than with one
-   global value: each letter carries the gap that follows it, so the holes close (L-O worst)
-   and the one pair of adjacent straight stems (B-P) gets air back. Scoped to the brand class
-   because Wordie shares this sheet and wants its own, positive, tracking. */
-.brand-subplot{--wm-size:clamp(2.2rem,7.4vw,4.6rem);--wm-bar:calc(var(--wm-size) * 4.473)}
-.brand-subplot .wordmark{letter-spacing:0}
-.brand-subplot .wordmark .l-1{letter-spacing:-.036em}  /* S */
-.brand-subplot .wordmark .l-2{letter-spacing:-.040em}  /* U */
-.brand-subplot .wordmark .l-3{letter-spacing:-.024em}  /* B */
-.brand-subplot .wordmark .l-4{letter-spacing:-.048em}  /* P */
-.brand-subplot .wordmark .l-5{letter-spacing:-.062em}  /* L */
-.brand-subplot .wordmark .l-6{letter-spacing:-.050em}  /* O */
-.brand-subplot .wordmark .l-7{letter-spacing:0}        /* T, no trailing gap */
-/* The rule belongs to the wordmark, not to the gap between word and tagline. */
-.brand-subplot .plotline{margin:.45rem 0 1.15rem}
+/* SUBPLOT masthead, 22 Sep 2026. The wordmark is a drawn SVG (wordmark.js), not live type:
+   heavier than the 700 cut, spaced pair by pair, with the O redrawn as a squircle screen that
+   takes the day's accent. Sized so the cap height matches what the type gave us: cap height is
+   720 of the 752-unit viewBox, so height = --wm-size * .72 * 752/720. The rule under the word
+   is the ink width of the mark, 4401 units, at the same scale. */
+.brand-subplot{--wm-size:clamp(2.2rem,7.4vw,4.6rem);--wm-bar:calc(var(--wm-size) * .72 * 4401 / 720)}
+.brand-subplot .wordmark-drawn{display:block;line-height:0;letter-spacing:0;color:var(--blue)}
+.brand-subplot .wordmark-drawn .wm{display:block;width:auto;height:calc(var(--wm-size) * .72 * 752 / 720)}
+.brand-subplot .plotline{margin:.6rem 0 1.15rem}
 .nav{border-top:1px solid var(--rule-2)}
 .nav button,.nav a{
   font-family:var(--disp);font-weight:600;font-size:.95rem;letter-spacing:-.005em;

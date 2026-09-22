@@ -13,6 +13,8 @@
 // RULE: nothing outside this file may hardcode a brand name, a member word, an address or a
 // domain. Use the helpers below. Everything here is per-brand or it is a bug.
 
+import { monogramSvg, accentToday } from "./wordmark.js";
+
 const SUBPLOT_GOOGLE = "family=Montserrat:wght@600;700;800&family=DM+Mono:wght@400;500&family=Mulish:wght@400;600;700";
 
 export const BRANDS = {
@@ -30,7 +32,7 @@ export const BRANDS = {
     cast: true,                     // the seven characters in cast.js
     accent: null,                   // null = the default palette in css.js
     type: null,                     // null = the default type in css.js
-    favicon: null,                  // null = the cast favicon in cast.js
+    favicon: () => monogramSvg(accentToday()[2]),   // the screen O in the day's accent, 22 Sep 2026
     assets: "subplot",              // which pair in images.js
   },
   wordie: {
@@ -75,7 +77,7 @@ export const mail = box => `${box}@${active.domain}`;          // hello@ / corre
 export const siteUrl = () => `https://${active.domain}`;
 export const hasCast = () => active.cast !== false;
 export const audience = () => active.audience;
-export const faviconSvg = () => active.favicon;              // null = fall back to the cast favicon
+export const faviconSvg = () => typeof active.favicon === "function" ? active.favicon() : active.favicon;  // null = fall back to the cast favicon
 export const assetKey = () => active.assets;                 // null = this brand has no card yet
 export const hasShareCard = () => !!active.assets;
 

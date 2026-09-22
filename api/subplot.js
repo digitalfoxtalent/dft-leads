@@ -94,7 +94,7 @@ export default async function handler(req, res) {
     }
   }
 
-  if (path === "/favicon.svg") { res.setHeader("Content-Type", "image/svg+xml"); res.setHeader("Cache-Control", "public, max-age=86400"); return res.status(200).send(faviconSvg() || CAST.favicon); }
+  if (path === "/favicon.svg") { res.setHeader("Content-Type", "image/svg+xml"); res.setHeader("Cache-Control", "public, max-age=3600"); return res.status(200).send(faviconSvg() || CAST.favicon); }
   if (path === "/apple-touch-icon.png") { res.setHeader("Content-Type", "image/png"); res.setHeader("Cache-Control", "public, max-age=86400"); const b = TOUCH[assetKey()]; if (!b) return res.status(404).end(); return res.status(200).send(Buffer.from(b, "base64")); }
   if (path === "/og.png") { res.setHeader("Content-Type", "image/png"); res.setHeader("Cache-Control", "public, max-age=86400"); const b = OG[assetKey()]; if (!b) return res.status(404).end(); return res.status(200).send(Buffer.from(b, "base64")); }
   if (path === "/ads.txt") {
