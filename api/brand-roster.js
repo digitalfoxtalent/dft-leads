@@ -22,6 +22,9 @@
 //
 // The pages carry figures baked in as a fallback, so if this endpoint is ever
 // unreachable they still render.
+import { LIVE as SUBPLOT_LIVE, SUBPLOT_ORIGIN } from "./_subplot/crosslinks.js";
+import { getData as getSubplot, APPROVED_HANDLES, slugFor } from "./_subplot/data.js";
+
 const BOARD = 18417663127;
 const GROUP = "topics";                       // "Youtube Shows / Channels"
 const HANDLE = "text_mm49w81b";
@@ -120,6 +123,34 @@ export default async function handler(req, res) {
         ads: String(col(ADS) || "").trim() || null,
       };
     });
+
+    // SUBPLOT articles, for creators approved for SUBPLOT, once crosslinks.js LIVE is on.
+    // The article store is a separate, slower read, so it gets 2.5 seconds; if it is not
+    // back by then the feed goes out without it rather than holding up every page.
+    if (SUBPLOT_LIVE) {
+      try {
+        const data = await Promise.race([getSubplot(), new Promise(r => setTimeout(() => r(null), 2500))]);
+        if (data && Array.isArray(data.arts)) {
+          const approved = new Set(APPROVED_HANDLES.map(h => h.toLowerCase()));
+          const byHandle = {};
+          data.arts
+            .filter(a => approved.has(String(a.c || "").toLowerCase()))
+            .sort((x, y) => new Date(y.p) - new Date(x.p))
+            .forEach(a => {
+              const key = String(a.c).replace(/^@/, "").toLowerCase();
+              (byHandle[key] = byHandle[key] || []).push(a);
+            });
+          Object.entries(byHandle).forEach(([key, arts]) => {
+            if (!out[key]) return;
+            out[key].subplot = {
+              url: SUBPLOT_ORIGIN + "/c/" + key,
+              count: arts.length,
+              articles: arts.slice(0, 3).map(a => ({ h: a.h, url: SUBPLOT_ORIGIN + "/a/" + slugFor(a.c) + "/" + a.id })),
+            };
+          });
+        }
+      } catch (e) { /* the feed never fails because SUBPLOT did */ }
+    }
 
     // The board is rewritten once a day by the sync, so serve from the edge cache
     // and refresh behind the visitor, the same as the sibling endpoint.

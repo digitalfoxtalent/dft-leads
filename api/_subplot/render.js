@@ -9,6 +9,7 @@ import { CSS2, FONTS2 } from "./design2.js";
 import { ch, CAST_META } from "./cast.js";
 import { headTag as adHead, unit as adUnit } from "./ads.js";
 import { FORMATS, formatCss } from "./formats.js";
+import { LIVE as CROSSLINKS_LIVE, dftPageFor } from "./crosslinks.js";
 import { homePage3, snippetsPage as snippetsBody, card3, wire3Deps, CSS3 } from "./home3.js";
 
 // Brand-dependent strings resolve per request; see brand.js.
@@ -509,6 +510,14 @@ export function snippetsPage(data, base) {
     .replace('<span id="panelcount-slot"></span>', `<span>${data.panel.length} creators writing here</span>`);
 }
 
+// "Business enquiries: book <name>" on SUBPLOT only (never Wordie), for creators with a
+// Digital Fox Talent booking page, and only once crosslinks.js LIVE is switched on.
+const bookLink = (h, name) => {
+  if (!CROSSLINKS_LIVE || brand().key !== "subplot") return "";
+  const href = dftPageFor(h);
+  return href ? ` &middot; <a class="yt" href="${esc(href)}">Business enquiries: book ${esc(name)}</a>` : "";
+};
+
 export function creatorPage(handle, data, base) {
   const list = data.arts.filter(a => slugH(a.c).toLowerCase() === handle.toLowerCase());
   if (!list.length) return null;
@@ -519,7 +528,7 @@ export function creatorPage(handle, data, base) {
     <div class="chead">
       ${mark(name, data.avatars && data.avatars[h])}
       <div><h1>${esc(h)}</h1>
-        <p>${list.length} article${list.length === 1 ? "" : "s"} on ${BRAND_()} &middot; <a class="yt" href="https://www.youtube.com/${esc(h)}" target="_blank" rel="noopener">Channel on YouTube</a></p>
+        <p>${list.length} article${list.length === 1 ? "" : "s"} on ${BRAND_()} &middot; <a class="yt" href="https://www.youtube.com/${esc(h)}" target="_blank" rel="noopener">Channel on YouTube</a>${bookLink(h, name)}</p>
         <span class="meta">Every piece below is adapted from one of ${esc(name)}&rsquo;s own videos, with the video at the end.</span></div>
     </div>
     <section class="grid3">${list.slice(0, 3).map(a => card(a, base)).join("")}</section>
