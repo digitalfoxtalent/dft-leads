@@ -17,6 +17,7 @@ const SCOLS = ["numeric_mm495xbb", "numeric_mm49tej8", "numeric_mm49fe4b", "text
 const REL_COL = "board_relation_mm49w1a4";   // "Creator" → board 6160485039, allowMultipleItems: false
 const CREATOR_STATE_COL = "dup__of_email";   // "State" on 6160485039
 const STATE_KEY = "__creator_state";         // synthetic column id emitted on each row
+const CREATOR_BOARD = 6160485039;           // Global Talent Roster, where State lives
 
 // This endpoint returns the whole rates board - names, rates, view guarantees, CPMs,
 // locations - and nothing about it is public. It is reachable on EVERY host attached to
@@ -38,24 +39,43 @@ export default async function handler(req, res) {
     }
     const token = process.env.MONDAY_API_KEY || process.env.MONDAY_API_TOKEN;
     if (!token) return res.status(500).json({ error: "MONDAY_API_KEY env var not set" });
+
+    // SPEED, rebuilt 23 Sep 2026. This used to be ONE query: four groups, 27 columns,
+    // subitems, and the board relation expanded into the Global Talent Roster for
+    // every row (linked_items). It took 5 to 10 seconds cold, and the cache it sat
+    // behind is thrown away on every deploy of this project, which ships several
+    // times a day for Subplot and Wordie. So a brand clicking the link often waited.
+    //
+    // Now: one small query per group, run in parallel, plus ONE query for every
+    // creator's State on the Global Talent Roster. The relation column's own raw
+    // value already carries the linked item id, so nothing is expanded per row; the
+    // State is joined here in code. Same response shape as before.
     const p = PCOLS.concat([REL_COL]).map(x => '"' + x + '"').join(",");
     const s = SCOLS.map(x => '"' + x + '"').join(",");
-    const g = GROUPS.map(x => '"' + x + '"').join(",");
-    const rel = '... on BoardRelationValue{linked_items{id column_values(ids:["' + CREATOR_STATE_COL + '"]){text}}}';
-    const query = "query{boards(ids:[" + BOARD + "]){groups(ids:[" + g + "]){id items_page(limit:120){items{id name column_values(ids:[" + p + "]){id text value " + rel + "} subitems{id name column_values(ids:[" + s + "]){id text}}}}}}}";
-    const r = await fetch("https://api.monday.com/v2", {
+    const ask = query => fetch("https://api.monday.com/v2", {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: token },
+      headers: { "Content-Type": "application/json", Authorization: token, "API-Version": "2024-10" },
       body: JSON.stringify({ query })
-    });
-    const body = await r.json();
-    if (body.errors) return res.status(502).json({ error: body.errors });
+    }).then(r => r.json());
+
+    const groupQuery = g => "query{boards(ids:[" + BOARD + "]){groups(ids:[\"" + g + "\"]){id items_page(limit:120){items{id name column_values(ids:[" + p + "]){id text value} subitems{id name column_values(ids:[" + s + "]){id text}}}}}}}";
+    const stateQuery = "query{boards(ids:[" + CREATOR_BOARD + "]){items_page(limit:500){items{id column_values(ids:[\"" + CREATOR_STATE_COL + "\"]){text}}}}}";
+
+    const results = await Promise.all(GROUPS.map(g => ask(groupQuery(g))).concat([ask(stateQuery)]));
+    const failed = results.find(b => b && b.errors);
+    if (failed) return res.status(502).json({ error: failed.errors });
+
+    const stateBody = results.pop();
+    const stateById = {};
+    (((stateBody.data || {}).boards || [])[0] || { items_page: { items: [] } }).items_page.items
+      .forEach(it => { stateById[String(it.id)] = ((it.column_values || [])[0] || {}).text || ""; });
+
+    const groups = results.map(b => (((b.data || {}).boards || [])[0] || {}).groups || []).map(gs => gs[0]).filter(Boolean);
 
     // Replace the raw relation column with a flat { id: STATE_KEY, text } entry.
-    // An unlinked row, or a linked creator with no State recorded, yields "" —
+    // An unlinked row, or a linked creator with no State recorded, yields "" -
     // the page renders that as an empty cell. Never substitute a placeholder:
     // a blank correctly reads "not recorded", a filler value reads like a claim.
-    const groups = (body.data && body.data.boards && body.data.boards[0] && body.data.boards[0].groups) || [];
     groups.forEach(grp => {
       const items = (grp.items_page && grp.items_page.items) || [];
       items.forEach(it => {
@@ -63,9 +83,12 @@ export default async function handler(req, res) {
         const relIdx = cvs.findIndex(c => c && c.id === REL_COL);
         let state = "";
         if (relIdx >= 0) {
-          const linked = (cvs[relIdx].linked_items || [])[0];
-          const lcv = linked && (linked.column_values || [])[0];
-          state = (lcv && lcv.text) || "";
+          let linkedId = "";
+          try {
+            const v = JSON.parse(cvs[relIdx].value || "{}");
+            linkedId = String(((v.linkedPulseIds || [])[0] || {}).linkedPulseId || "");
+          } catch (e) { linkedId = ""; }
+          state = (linkedId && stateById[linkedId]) || "";
           cvs.splice(relIdx, 1);
         }
         cvs.push({ id: STATE_KEY, text: state, value: null });

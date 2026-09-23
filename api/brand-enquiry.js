@@ -11,7 +11,9 @@ const COL = {
   creators: "long_text_mm714m1b", message: "long_text_mm71nh8r", plan: "link_mm71zqqj",
   received: "date_mm71mnz5", status: "color_mm71ejc3", source: "color_mm71stz1",
 };
-const SOURCES = { roster: "Roster shortlist", brief: "Brief form", email: "Email to brands@" };
+// "creator" is the Book form on a per-creator page (/brands/creators/<slug>), added 23 Sep 2026.
+// Its label did not exist on the board beforehand; create_labels_if_missing adds it on first use.
+const SOURCES = { roster: "Roster shortlist", brief: "Brief form", email: "Email to brands@", creator: "Creator page" };
 const ALLOWED_ORIGINS = ["https://digitalfoxtalent.com", "https://www.digitalfoxtalent.com", "https://dev.digitalfoxtalent.com"];
 
 function cors(req, res) {
@@ -67,10 +69,10 @@ export default async function handler(req, res) {
     [COL.status]: { label: "New" },
     [COL.source]: { label: source },
   };
-  if (/^https:\/\/(www\.)?digitalfoxtalent\.com\//.test(plan)) values[COL.plan] = { url: plan, text: "Open shortlist" };
+  if (/^https:\/\/(www\.)?digitalfoxtalent\.com\//.test(plan)) values[COL.plan] = { url: plan, text: source === "Creator page" ? "Creator page" : "Open shortlist" };
 
   const itemName = creators.length ? `${brand} · ${creators.length} creator${creators.length === 1 ? "" : "s"}` : brand;
-  const query = `mutation($b: ID!, $n: String!, $v: JSON!) { create_item(board_id: $b, item_name: $n, column_values: $v) { id } }`;
+  const query = `mutation($b: ID!, $n: String!, $v: JSON!) { create_item(board_id: $b, item_name: $n, column_values: $v, create_labels_if_missing: true) { id } }`;
   const r = await fetch("https://api.monday.com/v2", {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: token, "API-Version": "2024-10" },
