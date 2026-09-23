@@ -51,6 +51,11 @@ export const CREATORS = [
   // as "ChaosGaming" too, which is why it is easy to mistake for the first one. Same payee.
   { slug: "morechaosgaming", name: "ChaosGaming (second channel)",                 handles: ["@morechaosgaming"] },            // ChaosGaming, 26.7K
   { slug: "beyondthetrailer", name: "Beyond The Trailer",                        handles: ["@beyondthetrailer"] },             // Beyond The Trailer (Grace Randolph), approved 8 Sep 2026
+  // Approved on the Article Rights board 23 Sep 2026 (row 12870062853, Tom's confirmation).
+  // Handle checked against the videos themselves, not the store: all 91 long-form records in
+  // the heavyspoilers feeds resolve to youtube.com/@heavyspoilers and every one is public.
+  // SUBPLOT rate card row created the same day; payee HeavySpoilers LTD.
+  { slug: "heavyspoilers", name: "Heavy Spoilers",                               handles: ["@heavyspoilers"] },                // Heavy Spoilers (Paul), approved 23 Sep 2026
 ];
 
 export const APPROVED_HANDLES = CREATORS.flatMap(c => c.handles);
