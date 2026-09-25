@@ -41,7 +41,8 @@ export const CREATORS = [
   // handle can still be the wrong channel (see the roster's @kristianharloff and Film Paradise
   // lookalike, both fixed 4 Sep).
   { slug: "geekdom101", name: "Geekdom101",                                        handles: ["@geekdom101"] },                 // Geekdom101, 784K
-  { slug: "worldofgeekdom", name: "World of Geekdom",                              handles: ["@worldofgeekdom"] },             // World of Geekdom, 80.6K
+  // REMOVED 25 Sep 2026 (Tom): World of Geekdom cut from article production, articles stay on MSN but not on SUBPLOT. Record kept for the slug.
+  // { slug: "worldofgeekdom", name: "World of Geekdom",                              handles: ["@worldofgeekdom"] },             // World of Geekdom, 80.6K
   { slug: "geekdom101plus", name: "Geekdom101 Plus",                               handles: ["@geekdom101plus"] },             // Geekdom101 Plus, 3.41K
   { slug: "danco", name: "DanCo",                                                  handles: ["@danco"] },                      // DanCo, 583K
   // Better Gaming's HANDLE IS @yu-gg, not @bettergaming - the brand name and the handle differ.
