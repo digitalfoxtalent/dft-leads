@@ -19,6 +19,7 @@ import { mondayToken } from "./_reports/monday.js";
 import { homePage, REPORTS } from "./_reports/home.js";
 import { renderCampaigns, campaignsHealth } from "./_reports/campaigns/load.js";
 import { probe } from "./_reports/megaphone.js";
+import { backfill } from "./_reports/backfill.js";
 
 export const config = { maxDuration: 60 };
 
@@ -67,6 +68,10 @@ export default async function handler(req, res) {
   if (!authed) return html(res, 401, gatePage());
 
   if (route === "campaigns") return html(res, 200, await renderCampaigns(token));
+  if (route === "backfill") {
+    try { return res.status(200).json(await backfill(token, req.query && req.query.h)); }
+    catch (e) { return res.status(500).json({ error: String(e && e.message || e).slice(0, 300) }); }
+  }
   if (route === "home") {
     // While there is only one live report, the front door IS that report (no redirect).
     const live = REPORTS.filter(r => r.live);
