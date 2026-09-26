@@ -52,7 +52,13 @@ export async function probe(mondayTok) {
     groupBys: ["episode_id", "normalized_user_agent"], includeZeroRows: false, limit: 5, offset: 0,
     metrics: ["totalDelivery", "totalDownloads", "totalStreams"] });
   const rows = j => Array.isArray(j) ? j.length : (j.data && Array.isArray(j.data) ? j.data.length : (j.rows && j.rows.length) || null);
-  await call("public API: networks (Token header)", CMS + "/api/networks", { headers: { Authorization: A.token, Accept: "application/json" } }, j => Array.isArray(j) ? j.length : null);
+  const get = (name, path) => call(name, CMS + path, { headers: { Authorization: A.token, Accept: "application/json" } }, j => Array.isArray(j) ? j.length : null);
+  await get("public API: networks list", "/api/networks");
+  await get("public API: our network", "/api/networks/" + ORG);
+  await get("public API: our network's podcasts", "/api/networks/" + ORG + "/podcasts");
+  await get("public API: one podcast (Sideserf)", "/api/podcasts/aa88362a-b050-11f1-ab38-9bd072db8695");
+  await get("public API: episode search by YouTube id", "/api/search/episodes?externalId=yt-30XCPHwC7t8");
+  await get("metrics export", "/api/metrics_export");
   for (const [style, h] of Object.entries(A)) {
     await call("delivery report (" + style + " header)", CMS + "/api/v2/private/reports/organizations/" + ORG + "/delivery/global_delivery.json",
       { method: "POST", headers: { Authorization: h, "Content-Type": "application/json", Accept: "application/json", "X-CmsWeb-CSRF-Protection": "1" }, body }, rows);
