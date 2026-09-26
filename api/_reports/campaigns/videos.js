@@ -1,8 +1,9 @@
 // Per-video detail for the campaign drawer: title, channel, publish date and current views, so
 // anyone can check a campaign's total video by video. READ ONLY.
 //
-// YouTube Data API first (1 unit per 50 videos). If the day's allowance is used up, each video's
-// public watch page is read instead (no allowance). Cached for 3 hours per video.
+// YouTube Data API first (1 unit per 50 videos). If the day's allowance is used up, the watch page
+// is tried, then YouTube's oEmbed (title and channel only, no views). Full results are cached for
+// 3 hours; title-only results are not cached, so views appear as soon as the allowance resets.
 
 const CACHE_MS = 3 * 60 * 60 * 1000;
 const cache = {}; // id -> { at, d }
@@ -18,6 +19,12 @@ async function viaApi(ids, key) {
   const j = await r.json(); const out = {};
   for (const x of (j && j.items) || []) out[x.id] = { t: x.snippet.title, ch: x.snippet.channelTitle, at: String(x.snippet.publishedAt || "").slice(0, 10), v: Number(x.statistics && x.statistics.viewCount || 0), src: "api" };
   return out;
+}
+async function viaOembed(id) {
+  const r = await fetch("https://www.youtube.com/oembed?format=json&url=" + encodeURIComponent("https://www.youtube.com/watch?v=" + id));
+  if (!r.ok) return null;
+  const j = await r.json();
+  return { t: j.title || "", ch: j.author_name || "", at: "", v: null, src: "oembed" };
 }
 async function viaPage(id) {
   const r = await fetch("https://www.youtube.com/watch?v=" + id, { headers: { "Accept-Language": "en-US,en;q=0.9", "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36" } });
@@ -38,11 +45,11 @@ export async function videoDetails(idsParam) {
     try { got = await viaApi(want, process.env.YOUTUBE_API_KEY); } catch (e) {}
     const miss = want.filter(id => !got[id]);
     const pages = await Promise.race([
-      Promise.all(miss.map(id => viaPage(id).then(d => [id, d]).catch(() => [id, null]))),
+      Promise.all(miss.map(id => viaPage(id).catch(() => null).then(d => d || viaOembed(id).catch(() => null)).then(d => [id, d]))),
       new Promise(res => setTimeout(() => res([]), 8000)),
     ]);
     for (const [id, d] of pages) if (d) got[id] = d;
-    for (const id of want) if (got[id]) { cache[id] = { at: Date.now(), d: got[id] }; out[id] = got[id]; }
+    for (const id of want) if (got[id]) { if (got[id].v != null) cache[id] = { at: Date.now(), d: got[id] }; out[id] = got[id]; }
   }
   return { at: new Date().toISOString(), videos: out };
 }
