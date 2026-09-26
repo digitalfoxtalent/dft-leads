@@ -50,7 +50,7 @@ async function viaPage(h) {
   const m = t.match(/<meta property="og:image" content="([^"]+)"/);
   return m && /^https:\/\/yt\d\.(ggpht|googleusercontent)\.com\//.test(m[1]) ? m[1].replace(/=s\d+-/, "=s176-") : null;
 }
-async function loadAvatars(handles) {
+export async function loadAvatars(handles) {
   const key = process.env.YOUTUBE_API_KEY;
   const fresh = Date.now() - avatarCache.at < AVATAR_MS;
   const valid = handles.filter(h => /^@[A-Za-z0-9._-]{2,40}$/.test(h));

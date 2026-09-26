@@ -20,6 +20,7 @@ import { homePage, REPORTS } from "./_reports/home.js";
 import { renderCampaigns, campaignsHealth } from "./_reports/campaigns/load.js";
 import { probe } from "./_reports/megaphone.js";
 import { backfill } from "./_reports/backfill.js";
+import { platformsData } from "./_reports/platforms/load.js";
 
 export const config = { maxDuration: 60 };
 
@@ -68,6 +69,10 @@ export default async function handler(req, res) {
   if (!authed) return html(res, 401, gatePage());
 
   if (route === "campaigns") return html(res, 200, await renderCampaigns(token));
+  if (route === "platforms-data") {
+    try { return res.status(200).json(await platformsData(token)); }
+    catch (e) { return res.status(500).json({ error: String(e && e.message || e).slice(0, 300) }); }
+  }
   if (route === "backfill") {
     try { return res.status(200).json(await backfill(token, req.query && req.query.h, req.query && req.query.pages)); }
     catch (e) { return res.status(500).json({ error: String(e && e.message || e).slice(0, 300) }); }
