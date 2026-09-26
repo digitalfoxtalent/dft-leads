@@ -23,7 +23,7 @@ import { PARTNERS } from "./_reports/partners.js";
 import { mondayToken } from "./_reports/monday.js";
 import { renderCampaigns, campaignsHealth, renderPartner } from "./_reports/campaigns/load.js";
 import { probe } from "./_reports/megaphone.js";
-import { backfill } from "./_reports/backfill.js";
+import { backfill, missingRows } from "./_reports/backfill.js";
 import { platformsData, renderPlatforms } from "./_reports/platforms/load.js";
 import { videoDetails } from "./_reports/campaigns/videos.js";
 
@@ -100,6 +100,13 @@ export default async function handler(req, res) {
   if (route === "platforms-data") {
     try { return res.status(200).json(await platformsData(token)); }
     catch (e) { return res.status(500).json({ error: String(e && e.message || e).slice(0, 300) }); }
+  }
+  if (route === "partner-gaps") { // team only: a partner's creator rows that still have no video link
+    try {
+      const P = PARTNERS[String(req.query && req.query.p || "")]; if (!P) return res.status(404).json({ error: "unknown partner" });
+      const rows = (await missingRows(token)).filter(r => P.match.test(r.client || ""));
+      return res.status(200).json({ partner: P.name, count: rows.length, rows: rows.map(r => ({ id: r.id, deal: r.deal, row: r.row, h: r.h, brand: r.brand, anchor: r.pub || r.live || r.closed, stage: r.stage })) });
+    } catch (e) { return res.status(500).json({ error: String(e && e.message || e).slice(0, 300) }); }
   }
   if (route === "backfill") {
     try { return res.status(200).json(await backfill(token, req.query && req.query.h, req.query && req.query.pages)); }
