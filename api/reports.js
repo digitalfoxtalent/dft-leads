@@ -21,6 +21,7 @@ import { renderCampaigns, campaignsHealth } from "./_reports/campaigns/load.js";
 import { probe } from "./_reports/megaphone.js";
 import { backfill } from "./_reports/backfill.js";
 import { platformsData } from "./_reports/platforms/load.js";
+import { videoDetails } from "./_reports/campaigns/videos.js";
 
 export const config = { maxDuration: 60 };
 
@@ -69,6 +70,10 @@ export default async function handler(req, res) {
   if (!authed) return html(res, 401, gatePage());
 
   if (route === "campaigns") return html(res, 200, await renderCampaigns(token));
+  if (route === "videos") {
+    try { return res.status(200).json(await videoDetails(req.query && req.query.ids)); }
+    catch (e) { return res.status(500).json({ error: String(e && e.message || e).slice(0, 300) }); }
+  }
   if (route === "platforms-data") {
     try { return res.status(200).json(await platformsData(token)); }
     catch (e) { return res.status(500).json({ error: String(e && e.message || e).slice(0, 300) }); }

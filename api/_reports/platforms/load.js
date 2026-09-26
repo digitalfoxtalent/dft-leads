@@ -11,10 +11,12 @@
 //   Articles - Review Queue 18429270496 articles published per brand (reliable from 2 Sep 2026).
 //
 // RULES
-//   - For each platform-month, creator figures come from ONE board: Money In, else Creator
-//     Payments, else the legacy board. Boards are never added together, so nothing is counted twice.
+//   - For each platform-month, creator figures come from ONE board: Money In, else the legacy
+//     deal board, else Creator Payments (which only holds rows that became payouts). Boards are never added together, so nothing is counted twice.
 //   - The platform-month total is the statement (Platform Invoices) when there is one, else the
-//     sum of the creator rows. Any difference is shown as "Not attributed to a creator".
+//     sum of the creator rows. Any shortfall is shown as "Not attributed to a creator". Where the
+//     creator rows are larger than the statement (Spotify: part of it is invoiced through other
+//     partners), the creator rows are used and the page says so.
 //   - A month with no statement and no creator rows is "not reported", never zero.
 //   - MSN is split into video and articles only where Money In has the split (from July 2026).
 //     Earlier MSN months are shown under Video as "MSN (video and articles)", because the
@@ -110,7 +112,7 @@ async function build(token) {
   const cells = []; // { p, m, src, stmt, rows:[{k,n,g,art,vid,adj,pub,pv}] }
   for (const key of keys) {
     const [p, m] = key.split("|");
-    const which = src.money[key] ? "money" : src.pay[key] ? "pay" : src.legacy[key] ? "legacy" : null;
+    const which = src.money[key] ? "money" : src.legacy[key] ? "legacy" : src.pay[key] ? "pay" : null; // Creator Payments only holds rows that became payouts, so it is the last resort
     const rows = which ? src[which][key] : [];
     const merged = {};
     for (const r of rows) {
