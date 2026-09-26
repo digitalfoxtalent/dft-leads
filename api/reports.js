@@ -18,7 +18,7 @@
 // READ ONLY. Nothing here writes to monday or Megaphone.
 
 import { hostOf, isPreview, cookieOk, cleanUrl, gatePage, partnerKey, setPartnerCookie, partnerCookie, partnerGate } from "./_reports/access.js";
-import { handleAuth, newNonce, GOOGLE_CLIENT_ID } from "./_reports/auth.js";
+import { handleAuth } from "./_reports/auth.js";
 import { PARTNERS } from "./_reports/partners.js";
 import { mondayToken } from "./_reports/monday.js";
 import { renderCampaigns, campaignsHealth, renderPartner } from "./_reports/campaigns/load.js";
@@ -88,8 +88,7 @@ export default async function handler(req, res) {
     if (pid) return html(res, 401, partnerGate(PARTNERS[pid].name));
     if (route !== "home" && !/^(campaigns|platforms)$/.test(route)) return res.status(401).json({ error: "Sign in required" });
     const next = "/" + (route === "home" ? "" : route) + (req.query && req.query.tier ? "?tier=" + encodeURIComponent(String(req.query.tier)) : "");
-    const n = newNonce(next); res.setHeader("Set-Cookie", n.cookie);
-    return html(res, 401, gatePage(next, "", n.nonce, GOOGLE_CLIENT_ID));
+    return html(res, 401, gatePage(next));
   }
 
   if (route === "campaigns") return html(res, 200, await renderCampaigns(token));

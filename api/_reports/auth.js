@@ -1,7 +1,7 @@
 // Sign in with Google for the team. Only a verified @digitalfoxtalent.com account is let in.
 //
-// The sign-in page shows Google's own button (Google Identity Services, redirect mode, so it works
-// in the same tab with no pop-up). Google posts a signed ID token to /auth/google, and the server has Google check it
+// The sign-in button sends the browser to Google's sign-in page (OpenID Connect, id_token with
+// form_post, in the same tab). Google posts a signed ID token to /auth/google, and the server has Google check it
 // (tokeninfo: signature and expiry) before looking at the claims: our client, a verified email,
 // the digitalfoxtalent.com Workspace, and the one-time nonce this browser was given.
 // No client secret is involved, so nothing secret is stored for this.
@@ -10,7 +10,8 @@
 // https://reports.digitalfoxtalent.com as an authorised JavaScript origin and
 // https://reports.digitalfoxtalent.com/auth/google as an authorised redirect URI (added 26 Sep 2026).
 //
-//   POST /auth/google   {credential}  -> sets the team cookie
+//   /auth/login?next=/path            -> Google's sign-in page
+//   POST /auth/google   {id_token}    -> sets the team cookie
 //   /auth/logout                      -> signs out
 
 import crypto from "node:crypto";
@@ -35,15 +36,25 @@ const html = (res, code, body, cookies) => { res.setHeader("Set-Cookie", cookies
 
 export async function handleAuth(req, res, route, secret) {
   if (route === "auth/logout") { res.setHeader("Set-Cookie", clearTeamCookie()); res.setHeader("Location", "/"); return res.status(302).end(); }
+  if (route === "auth/login") {
+    const n = newNonce(req.query && req.query.next);
+    const u = new URL("https://accounts.google.com/o/oauth2/v2/auth");
+    u.search = new URLSearchParams({ client_id: GOOGLE_CLIENT_ID, redirect_uri: "https://reports.digitalfoxtalent.com/auth/google",
+      response_type: "id_token", response_mode: "form_post", scope: "openid email", nonce: n.nonce, state: n.nonce,
+      hd: TEAM_DOMAIN, prompt: "select_account" }).toString();
+    res.setHeader("Set-Cookie", n.cookie);
+    res.setHeader("Location", u.toString());
+    return res.status(302).end();
+  }
   if (route !== "auth/google") return null;
   if (req.method !== "POST") { res.setHeader("Location", "/"); return res.status(302).end(); }
   const body = typeof req.body === "string" ? Object.fromEntries(new URLSearchParams(req.body)) : (req.body || {});
-  const cred = String(body.credential || "");
+  const cred = String(body.id_token || body.credential || "");
   const [nonce, nextB64] = readCookie(req, NONCE_COOKIE).split(".");
   const next = safeNext(nextB64 ? Buffer.from(nextB64, "base64url").toString() : "/");
-  // Google's own double-submit check for redirect mode.
-  const csrfOk = body.g_csrf_token && body.g_csrf_token === readCookie(req, "g_csrf_token");
-  const retry = (msg) => { const n = newNonce(next); return html(res, 403, gatePage(next, msg, n.nonce, GOOGLE_CLIENT_ID), n.cookie); };
+  // The state Google echoes back must match this browser's cookie (login CSRF check).
+  const csrfOk = !!nonce && String(body.state || "") === nonce;
+  const retry = (msg) => html(res, 403, gatePage(next, msg), CLEAR);
   if (!cred || !nonce || !csrfOk) return retry("That sign-in expired. Please try again.");
   let c = {};
   try {
