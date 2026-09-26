@@ -69,7 +69,7 @@ export default async function handler(req, res) {
 
   if (route === "campaigns") return html(res, 200, await renderCampaigns(token));
   if (route === "backfill") {
-    try { return res.status(200).json(await backfill(token, req.query && req.query.h)); }
+    try { return res.status(200).json(await backfill(token, req.query && req.query.h, req.query && req.query.pages)); }
     catch (e) { return res.status(500).json({ error: String(e && e.message || e).slice(0, 300) }); }
   }
   if (route === "home") {

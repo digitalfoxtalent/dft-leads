@@ -15,7 +15,7 @@ const WIN_BEFORE = 14, WIN_AFTER = 75; // days around the live or close date
 const norm = s => String(s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
 
 async function missingRows(token) {
-  const fields = "cursor items { id name parent_item { id name group { title } column_values(ids:[\"date__1\",\"dropdown_mm1a3tqp\"]) { id text } } column_values(ids:[\"connect_boards__1\",\"timerange_mm1m50vx\",\"date_mm1mb38m\"]) { id text ... on BoardRelationValue { display_value } } }";
+  const fields = "cursor items { id name parent_item { id name group { title } column_values(ids:[\"date__1\",\"dropdown_mm1a3tqp\"]) { id text } } column_values(ids:[\"connect_boards__1\",\"timerange_mm1m50vx\",\"date_mm1mb38m\",\"color_mm7jh1xw\"]) { id text ... on BoardRelationValue { display_value } } }";
   let d = await monday(token, "query { boards(ids:[" + SUB_BOARD + "]) { items_page(limit:500, query_params:{rules:[{column_id:\"text_mm6aq9qp\", compare_value:[], operator:is_empty}]}) { " + fields + " } } }");
   let page = d.boards[0].items_page, items = page.items.slice(), guard = 0;
   while (page.cursor && guard++ < 10) {
@@ -29,6 +29,7 @@ async function missingRows(token) {
     const pv = {}; for (const c of p.column_values) pv[c.id] = c.text;
     const brand = pv.dropdown_mm1a3tqp || String(p.name).split(/[_]/)[0];
     const live = String(cv.timerange_mm1m50vx || "").slice(0, 10);
+    if (cv.color_mm7jh1xw) continue; // already handled by the nightly backfill
     out.push({ id: it.id, row: it.name, deal: p.name, dealId: p.id, stage: p.group && p.group.title, h: cv.connect_boards__1 || "",
       brand, live, pub: cv.date_mm1mb38m || "", closed: pv.date__1 || "" });
   }
@@ -42,7 +43,8 @@ async function yt(path, key) {
   return j;
 }
 
-export async function backfill(token, handle) {
+export async function backfill(token, handle, maxPages) {
+  const PAGE_CAP = Math.max(1, Math.min(40, Number(maxPages) || 20)); // YouTube quota guard: 1 unit per page
   const rows = await missingRows(token);
   if (!handle) {
     const by = {};
@@ -65,7 +67,7 @@ export async function backfill(token, handle) {
   const earliest = dates.length ? new Date(new Date(dates[0]).getTime() - WIN_BEFORE * 864e5) : null;
   // Walk the uploads playlist newest first until we pass the earliest window.
   const vids = []; let pageToken = "", pages = 0;
-  while (pages++ < 60) {
+  while (pages++ < PAGE_CAP) {
     const pl = await yt("playlistItems?part=contentDetails&maxResults=50&playlistId=" + uploads + (pageToken ? "&pageToken=" + pageToken : ""), key);
     for (const x of pl.items || []) vids.push({ id: x.contentDetails.videoId, at: x.contentDetails.videoPublishedAt });
     const last = pl.items && pl.items.length && pl.items[pl.items.length - 1].contentDetails.videoPublishedAt;
@@ -107,5 +109,5 @@ export async function backfill(token, handle) {
     const conf = !top ? "none" : (top.score >= 3 && (!second || second.score < top.score) ? "strong" : "possible");
     return { id: r.id, deal: r.deal, row: r.row, stage: r.stage, brand: r.brand, anchor: anchor(r), conf, candidates: cands.slice(0, 5) };
   });
-  return { handle, ytHandle, channel: c0.snippet.title, scanned: vids.length, checked: need.length, rows: out };
+  return { handle, ytHandle, channel: c0.snippet.title, scanned: vids.length, checked: need.length, quotaUnits: 2 + pages + Math.ceil(need.length / 50), pageCapHit: pages > PAGE_CAP, rows: out };
 }
