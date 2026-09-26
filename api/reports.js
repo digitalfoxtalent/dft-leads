@@ -18,7 +18,7 @@
 // READ ONLY. Nothing here writes to monday or Megaphone.
 
 import { hostOf, isPreview, cookieOk, cleanUrl, gatePage, partnerKey, setPartnerCookie, partnerCookie, partnerGate } from "./_reports/access.js";
-import { handleAuth } from "./_reports/auth.js";
+import { handleAuth, newNonce, GOOGLE_CLIENT_ID } from "./_reports/auth.js";
 import { PARTNERS } from "./_reports/partners.js";
 import { mondayToken } from "./_reports/monday.js";
 import { renderCampaigns, campaignsHealth, renderPartner } from "./_reports/campaigns/load.js";
@@ -84,7 +84,12 @@ export default async function handler(req, res) {
   if (pid && (authed || partner === pid)) return html(res, 200, await renderPartner(token, pid));
   if (partner && route === "videos") { try { return res.status(200).json(await videoDetails(req.query && req.query.ids)); } catch (e) { return res.status(500).json({ error: "unavailable" }); } }
   if (partner) { res.setHeader("Location", "/campaigns/" + partner); return res.status(302).end(); } // a partner link only opens its own page
-  if (!authed) return html(res, 401, pid ? partnerGate(PARTNERS[pid].name) : gatePage("/" + (route === "home" ? "" : route)));
+  if (!authed) {
+    if (pid) return html(res, 401, partnerGate(PARTNERS[pid].name));
+    if (route !== "home" && !/^(campaigns|platforms)$/.test(route)) return res.status(401).json({ error: "Sign in required" });
+    const n = newNonce(); res.setHeader("Set-Cookie", n.cookie);
+    return html(res, 401, gatePage("/" + (route === "home" ? "" : route), "", n.nonce, GOOGLE_CLIENT_ID));
+  }
 
   if (route === "campaigns") return html(res, 200, await renderCampaigns(token));
   if (route === "platforms") return html(res, 200, await renderPlatforms(token));

@@ -42,11 +42,24 @@ export function setTeamCookie(res, secret, email) {
 export const clearTeamCookie = () => COOKIE + "=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax";
 export const cleanUrl = url => String(url || "/").replace(/([?&])k=[^&]*(&|$)/, "$1").replace(/[?&]$/, "") || "/";
 
-export const gatePage = (next, note) => '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>DFT Reports</title><link rel="icon" type="image/png" href="https://digitalfoxtalent.com/dft/favicon.png">' +
+// The sign-in page. nonce: the one-time value the server set in a cookie for this browser.
+export const gatePage = (next, note, nonce, clientId) => '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>DFT Reports</title><link rel="icon" type="image/png" href="https://digitalfoxtalent.com/dft/favicon.png">' +
   '<style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#F2F3F6;color:#3A3F49;font:16px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;padding:24px}' +
   '@media (prefers-color-scheme:dark){body{background:#0E1014;color:#C8CCD4}h1{color:#F2F3F6!important}}' +
-  'main{max-width:420px;text-align:center}.btn{display:inline-block;margin-top:18px;background:#14161B;color:#fff;text-decoration:none;font-weight:600;padding:11px 20px;border-radius:10px}.note{margin-top:10px;color:#B23A2A;font-size:14px}@media (prefers-color-scheme:dark){.btn{background:#F2F3F6;color:#14161B}}h1{font-size:26px;color:#14161B;margin:14px 0 8px}.m{height:44px;width:auto;margin:0 auto;display:block}@media (prefers-color-scheme:dark){.m{background:#fff;border-radius:8px;padding:2px 6px}}</style></head>' +
-  '<body><main><img class="m" src="https://df-cdn.b-cdn.net/GeneralLendingConfigs/landing_logo/DigitalFoxTalent-TextLogoBLACK-VECTOR.svg" alt="Digital Fox Talent"><h1>DFT Reports</h1><p>These reports are for the Digital Fox Talent team. Sign in with your @digitalfoxtalent.com Google account.</p>' + (note ? '<p class="note">' + note + '</p>' : '') + '<a class="btn" href="/auth/login?next=' + encodeURIComponent(next || "/") + '">Sign in with Google</a></main></body></html>';
+  'main{max-width:420px;text-align:center}h1{font-size:26px;color:#14161B;margin:14px 0 8px}.m{height:44px;width:auto;margin:0 auto;display:block}@media (prefers-color-scheme:dark){.m{background:#fff;border-radius:8px;padding:2px 6px}}' +
+  '#gbtn{display:flex;justify-content:center;margin-top:20px;min-height:44px}.note{margin-top:12px;color:#B23A2A;font-size:14px}</style></head>' +
+  '<body><main><img class="m" src="https://df-cdn.b-cdn.net/GeneralLendingConfigs/landing_logo/DigitalFoxTalent-TextLogoBLACK-VECTOR.svg" alt="Digital Fox Talent"><h1>DFT Reports</h1>' +
+  '<p class="lead">These reports are for the Digital Fox Talent team. Sign in with your @digitalfoxtalent.com Google account.</p>' +
+  (nonce && clientId ? '<div id="gbtn"></div><p class="note" id="note">' + (note || "") + '</p>' +
+    '<script src="https://accounts.google.com/gsi/client" async onload="dftInit()"></script>' +
+    '<script>function dftInit(){google.accounts.id.initialize({client_id:' + JSON.stringify(clientId) + ',nonce:' + JSON.stringify(nonce) + ',ux_mode:"popup",auto_select:false,callback:function(r){' +
+    'var n=document.getElementById("note");n.style.color="#687080";n.textContent="Checking your account...";' +
+    'fetch("/auth/google",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify({credential:r.credential})})' +
+    '.then(function(x){return x.json().then(function(j){return {ok:x.ok,j:j};});}).then(function(o){if(o.ok){location.replace(' + JSON.stringify(next || "/") + ');}else{n.style.color="#B23A2A";n.textContent=o.j.error||"Sign-in failed.";}})' +
+    '.catch(function(){n.style.color="#B23A2A";n.textContent="Sign-in failed. Please try again.";});}});' +
+    'google.accounts.id.renderButton(document.getElementById("gbtn"),{theme:"filled_black",size:"large",shape:"pill",text:"signin_with"});}</script>'
+    : '') +
+  '</main></body></html>';
 
 // ---------- partner links (see partners.js) ----------
 const PCOOKIE = "dft_partner";
@@ -70,4 +83,4 @@ export function partnerCookie(req, secret) {
   const want = psign(body, secret);
   return sig.length === want.length && crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(want)) ? id : null;
 }
-export const partnerGate = name => gatePage("/").replace("These reports are for the Digital Fox Talent team. Sign in with your @digitalfoxtalent.com Google account.", "This report is shared with " + name + " by Digital Fox Talent. Open it with the link you were sent, and your browser will remember you for 90 days.").replace(/<a class="btn"[^>]*>Sign in with Google<\/a>/, "");
+export const partnerGate = name => gatePage("/").replace("These reports are for the Digital Fox Talent team. Sign in with your @digitalfoxtalent.com Google account.", "This report is shared with " + name + " by Digital Fox Talent. Open it with the link you were sent, and your browser will remember you for 90 days.");
