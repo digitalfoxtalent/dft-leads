@@ -86,7 +86,7 @@ export default async function handler(req, res) {
   if (partner && route === "videos") { try { return res.status(200).json(await videoDetails(req.query && req.query.ids)); } catch (e) { return res.status(500).json({ error: "unavailable" }); } }
   if (partner) { res.setHeader("Location", "/campaigns/" + partner); return res.status(302).end(); } // a partner link only opens its own page
   if (!authed) {
-    if (pid) return html(res, 401, partnerGate(PARTNERS[pid].name));
+    if (pid) return html(res, 401, partnerGate(PARTNERS[pid].name, "/campaigns/" + pid));
     if (route !== "home" && !/^(campaigns|platforms)$/.test(route)) return res.status(401).json({ error: "Sign in required" });
     const next = "/" + (route === "home" ? "" : route) + (req.query && req.query.tier ? "?tier=" + encodeURIComponent(String(req.query.tier)) : "");
     return html(res, 401, gatePage(next));

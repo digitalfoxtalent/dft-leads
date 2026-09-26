@@ -76,4 +76,6 @@ export function partnerCookie(req, secret) {
   const want = psign(body, secret);
   return sig.length === want.length && crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(want)) ? id : null;
 }
-export const partnerGate = name => gatePage("/").replace("These reports are for the Digital Fox Talent team. Sign in with your @digitalfoxtalent.com Google account.", "This report is shared with " + name + " by Digital Fox Talent. Open it with the link you were sent, and your browser will remember you for 90 days.").replace(/<a class="btn"[\s\S]*?<\/a>/, "");
+// A partner's page for someone without the partner link: the partner sees the "open it with your link"
+// note, and a DFT team member can still sign in with Google and land straight on the page.
+export const partnerGate = (name, path) => gatePage(path || "/").replace("These reports are for the Digital Fox Talent team. Sign in with your @digitalfoxtalent.com Google account.", "This report is shared with " + name + " by Digital Fox Talent. Open it with the link you were sent, and your browser will remember you for 90 days.</p><p style=\"margin-top:18px;font-size:14px;color:#687080\">Digital Fox Talent team: sign in with your @digitalfoxtalent.com Google account.").replace("Sign in with Google</a>", "Team sign-in with Google</a>");
