@@ -31,6 +31,9 @@ import { missingRows, loadGtr, scanCreator } from "./_reports/backfill.js";
 export const config = { maxDuration: 60 };
 
 const SUB_BOARD = 6162879732;
+// Writes stay off until a dry run has been reviewed by hand after the first YouTube reset.
+// While false, the nightly run only plans (same as ?dry=1) and changes nothing on monday.
+const WRITES_ENABLED = false;
 const MAX_LINKED = 25, MAX_WRITES = 60, UNIT_BUDGET = 1500, TIME_MS = 45000, OLD_DAYS = 45;
 const ID_RE = /(?:v=|youtu\.be\/|shorts\/|live\/|embed\/)([A-Za-z0-9_-]{11})/g;
 const esc = s => String(s == null ? "" : s).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
@@ -117,8 +120,8 @@ export default async function handler(req, res) {
   const token = mondayToken();
   const secret = process.env.CRON_SECRET;
   const fromCron = req.headers["x-vercel-cron"] || (secret && req.headers.authorization === "Bearer " + secret);
-  const dry = String(req.query && req.query.dry || "") === "1";
-  if (!fromCron && !(dry && token && cookieOk(req, token))) return res.status(401).json({ error: "Unauthorized" });
+  const dry = String(req.query && req.query.dry || "") === "1" || !WRITES_ENABLED;
+  if (!fromCron && !(String(req.query && req.query.dry || "") === "1" && token && cookieOk(req, token))) return res.status(401).json({ error: "Unauthorized" });
   const key = process.env.YOUTUBE_API_KEY;
   if (!token || !key) return res.status(500).json({ error: "Setup: monday or YouTube key missing" });
 
