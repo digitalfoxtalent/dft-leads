@@ -23,6 +23,7 @@ const PAR_COLS = ["dropdown_mm1a3tqp", "connect_boards", "deal_value", "status_1
 const CACHE_MS = 10 * 60 * 1000;
 let cache = null;    // { at, payload } - what we serve next
 let lastGood = null; // the last successful live payload on this instance
+let lastError = null; // why the last live read failed, for /status
 
 let avatarCache = { at: 0, map: {} }; // handle (lower case) -> channel picture url, refreshed daily
 const AVATAR_MS = 24 * 60 * 60 * 1000;
@@ -122,6 +123,7 @@ async function getPayload(token) {
     lastGood = payload;
     cache = { at: Date.now(), payload };
   } catch (e) {
+    lastError = { at: new Date().toISOString(), message: String(e && e.message || e).slice(0, 400) };
     console.error("reports/campaigns: live monday read failed:", e && e.message || e);
     payload = lastGood
       ? Object.assign({}, lastGood, { now: now.toISOString(), source: "stale" })
@@ -137,4 +139,16 @@ export async function renderCampaigns(token) {
   const avatars = await loadAvatars(handles).catch(() => ({}));
   const json = JSON.stringify(Object.assign({}, payload, { avatars })).replace(/</g, "\\u003c");
   return TEMPLATE.replace("__DATA__", () => json);
+}
+
+// For /status: try a live read now and report what happened, without the data itself.
+export async function campaignsHealth(token) {
+  const t0 = Date.now();
+  try {
+    const live = await loadLive(token);
+    const snapRows = SNAPSHOT.c.reduce((s, c) => s + c.r.length, 0);
+    return { ok: live.rows >= snapRows * 0.8, rows: live.rows, savedRows: snapRows, campaigns: live.c.length, ms: Date.now() - t0, lastError };
+  } catch (e) {
+    return { ok: false, ms: Date.now() - t0, error: String(e && e.message || e).slice(0, 400), lastError };
+  }
 }

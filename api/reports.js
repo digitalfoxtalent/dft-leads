@@ -17,7 +17,7 @@
 import { hostOf, isPreview, cookieOk, keyOk, setCookie, cleanUrl, gatePage } from "./_reports/access.js";
 import { mondayToken } from "./_reports/monday.js";
 import { homePage, REPORTS } from "./_reports/home.js";
-import { renderCampaigns } from "./_reports/campaigns/load.js";
+import { renderCampaigns, campaignsHealth } from "./_reports/campaigns/load.js";
 import { probe } from "./_reports/megaphone.js";
 
 export const config = { maxDuration: 60 };
@@ -61,7 +61,7 @@ export default async function handler(req, res) {
   // without the cookie. That lets a new build be checked before it goes live.
   const authed = cookieOk(req, token);
   if (route === "status" && (authed || preview)) {
-    if (!probeCache || Date.now() - probeCache.at > 5 * 60 * 1000) probeCache = { at: Date.now(), data: { megaphone: await probe(token) } };
+    if (!probeCache || Date.now() - probeCache.at > 5 * 60 * 1000) probeCache = { at: Date.now(), data: { monday: await campaignsHealth(token), megaphone: await probe(token) } };
     return res.status(200).json(probeCache.data);
   }
   if (!authed) return html(res, 401, gatePage());
