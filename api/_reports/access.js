@@ -52,11 +52,7 @@ export const gatePage = (next, note, nonce, clientId) => '<!doctype html><html l
   '<p class="lead">These reports are for the Digital Fox Talent team. Sign in with your @digitalfoxtalent.com Google account.</p>' +
   (nonce && clientId ? '<div id="gbtn"></div><p class="note" id="note">' + (note || "") + '</p>' +
     '<script src="https://accounts.google.com/gsi/client" async onload="dftInit()"></script>' +
-    '<script>function dftInit(){google.accounts.id.initialize({client_id:' + JSON.stringify(clientId) + ',nonce:' + JSON.stringify(nonce) + ',ux_mode:"popup",auto_select:false,callback:function(r){' +
-    'var n=document.getElementById("note");n.style.color="#687080";n.textContent="Checking your account...";' +
-    'fetch("/auth/google",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify({credential:r.credential})})' +
-    '.then(function(x){return x.json().then(function(j){return {ok:x.ok,j:j};});}).then(function(o){if(o.ok){location.replace(' + JSON.stringify(next || "/") + ');}else{n.style.color="#B23A2A";n.textContent=o.j.error||"Sign-in failed.";}})' +
-    '.catch(function(){n.style.color="#B23A2A";n.textContent="Sign-in failed. Please try again.";});}});' +
+    '<script>function dftInit(){google.accounts.id.initialize({client_id:' + JSON.stringify(clientId) + ',nonce:' + JSON.stringify(nonce) + ',ux_mode:"redirect",login_uri:location.origin+"/auth/google",auto_select:false,hd:"digitalfoxtalent.com"});' +
     'google.accounts.id.renderButton(document.getElementById("gbtn"),{theme:"filled_black",size:"large",shape:"pill",text:"signin_with"});}</script>'
     : '') +
   '</main></body></html>';

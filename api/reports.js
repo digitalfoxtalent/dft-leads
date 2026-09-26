@@ -87,8 +87,9 @@ export default async function handler(req, res) {
   if (!authed) {
     if (pid) return html(res, 401, partnerGate(PARTNERS[pid].name));
     if (route !== "home" && !/^(campaigns|platforms)$/.test(route)) return res.status(401).json({ error: "Sign in required" });
-    const n = newNonce(); res.setHeader("Set-Cookie", n.cookie);
-    return html(res, 401, gatePage("/" + (route === "home" ? "" : route), "", n.nonce, GOOGLE_CLIENT_ID));
+    const next = "/" + (route === "home" ? "" : route) + (req.query && req.query.tier ? "?tier=" + encodeURIComponent(String(req.query.tier)) : "");
+    const n = newNonce(next); res.setHeader("Set-Cookie", n.cookie);
+    return html(res, 401, gatePage(next, "", n.nonce, GOOGLE_CLIENT_ID));
   }
 
   if (route === "campaigns") return html(res, 200, await renderCampaigns(token));
