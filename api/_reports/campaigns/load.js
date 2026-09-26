@@ -89,7 +89,7 @@ async function loadLive(token) {
   const pids = [...new Set(subs.map(s => s.parent_item && s.parent_item.id).filter(Boolean))];
   const chunks = []; for (let i = 0; i < pids.length; i += 100) chunks.push(pids.slice(i, i + 100));
   const parts = await Promise.all(chunks.map(ids => monday(token,
-    "query { items(ids:[" + ids.join(",") + "]) { id name group { title } column_values(ids:" + pc + ") { id text ... on BoardRelationValue { display_value } } } }")));
+    "query { items(ids:[" + ids.join(",") + "], limit:100) { id name group { title } column_values(ids:" + pc + ") { id text ... on BoardRelationValue { display_value } } } }")));
   const pars = {};
   parts.forEach(p => (p.items || []).forEach(it => {
     const c = cvMap(it);
