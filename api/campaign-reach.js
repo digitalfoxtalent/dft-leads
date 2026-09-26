@@ -39,6 +39,36 @@ const SUB_COLS = ["connect_boards__1", "text_mm6aq9qp", "date_mm1mb38m", "numeri
 const PAR_COLS = ["dropdown_mm1a3tqp", "connect_boards", "deal_value", "status_1", "date__1", "deal_owner"];
 const CACHE_MS = 10 * 60 * 1000;
 let cache = null; // { at, payload }
+let avatarCache = { at: 0, map: {} }; // handle (lower case) -> channel picture url, refreshed daily
+const AVATAR_MS = 24 * 60 * 60 * 1000;
+
+// Creator pictures. One YouTube Data API call per handle (1 quota unit each), in parallel,
+// capped at 5 seconds overall. Any failure just means lettered circles on the page;
+// it never blocks or breaks the dashboard.
+async function loadAvatars(handles) {
+  const key = process.env.YOUTUBE_API_KEY;
+  if (!key) return avatarCache.map;
+  const fresh = Date.now() - avatarCache.at < AVATAR_MS;
+  const want = handles.filter(h => /^@[A-Za-z0-9._-]{2,40}$/.test(h) && (!fresh || !(h.toLowerCase() in avatarCache.map)));
+  if (!want.length) return avatarCache.map;
+  const one = async h => {
+    try {
+      const r = await fetch("https://www.googleapis.com/youtube/v3/channels?part=snippet&forHandle=" + encodeURIComponent(h) + "&key=" + key);
+      const d = await r.json();
+      const th = d && d.items && d.items[0] && d.items[0].snippet && d.items[0].snippet.thumbnails;
+      const url = th && ((th.medium && th.medium.url) || (th.default && th.default.url));
+      return [h.toLowerCase(), url || null];
+    } catch (e) { return [h.toLowerCase(), null]; }
+  };
+  const timeout = new Promise(res => setTimeout(() => res(null), 5000));
+  const got = await Promise.race([Promise.all(want.map(one)), timeout]);
+  if (got) {
+    const map = fresh ? Object.assign({}, avatarCache.map) : {};
+    for (const [h, u] of got) if (u) map[h] = u;
+    avatarCache = { at: fresh ? avatarCache.at : Date.now(), map };
+  }
+  return avatarCache.map;
+}
 
 const hostOf = req => String((req.headers["x-forwarded-host"] || req.headers.host || "").split(",")[0])
   .toLowerCase().trim().replace(/^www\./, "").split(":")[0];
@@ -142,7 +172,8 @@ async function getPayload(token) {
     cache = { at: Date.now(), payload };
   } catch (e) {
     payload = Object.assign(base, { c: SNAPSHOT.c, source: "snapshot", asOf: SNAPSHOT.asOf,
-      note: "Live monday data could not load, so the saved copy is shown. (" + String(e && e.message || e).slice(0, 120) + ")" });
+      note: "Live monday data could not load just now, so the saved copy from " + SNAPSHOT.asOf + " is shown. It retries every minute." });
+    console.error("campaign-reach: live monday load failed:", e && e.message || e);
     cache = { at: Date.now() - CACHE_MS + 60 * 1000, payload }; // retry after a minute
   }
   return payload;
@@ -174,7 +205,9 @@ export default async function handler(req, res) {
   if (!cookieOk(req, token)) { res.setHeader("Content-Type", "text/html; charset=utf-8"); return res.status(401).send(gate()); }
 
   const payload = await getPayload(token);
-  const json = JSON.stringify(payload).replace(/</g, "\\u003c");
+  const handles = [...new Set(payload.c.flatMap(c => c.r.map(r => r.h)).filter(Boolean))];
+  const avatars = await loadAvatars(handles).catch(() => ({}));
+  const json = JSON.stringify(Object.assign({}, payload, { avatars })).replace(/</g, "\\u003c");
   res.setHeader("Content-Type", "text/html; charset=utf-8");
   return res.status(200).send(TEMPLATE.replace("__DATA__", () => json));
 }
