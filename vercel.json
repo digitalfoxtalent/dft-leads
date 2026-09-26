@@ -115,6 +115,26 @@
       "destination": "/api/subplot?path=:path*&base=subplot"
     },
     {
+      "source": "/campaigns",
+      "has": [
+        {
+          "type": "host",
+          "value": "roster-viewguarantee.digitalfoxtalent.com"
+        }
+      ],
+      "destination": "/api/campaign-reach"
+    },
+    {
+      "source": "/",
+      "has": [
+        {
+          "type": "host",
+          "value": "reach.digitalfoxtalent.com"
+        }
+      ],
+      "destination": "/api/campaign-reach"
+    },
+    {
       "source": "/",
       "destination": "/roster.html",
       "has": [
