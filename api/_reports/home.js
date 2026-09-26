@@ -16,7 +16,7 @@ export function homePage() {
     '<span class="src">' + r.sources.map(esc).join(" · ") + '</span><span class="go">Open report</span></a>').join("") +
     '<div class="card next"><span class="eyebrow">Next</span><h2>More reports</h2><p>New reports will appear here as they are built.</p></div>';
   return '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow">' +
-    '<title>DFT Reports</title><link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22%3E%3Crect width=%2224%22 height=%2224%22 rx=%226%22 fill=%22%23FF8800%22/%3E%3C/svg%3E">' +
+    '<title>DFT Reports</title><link rel="icon" type="image/png" href="https://digitalfoxtalent.com/dft/favicon.png">' +
     '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&family=Hanken+Grotesk:wght@400;500;600&family=Martian+Mono:wght@400;500&display=swap">' +
     '<style>:root{--bg:#F2F3F6;--surface:#FFF;--ink:#14161B;--body:#3A3F49;--muted:#687080;--line:#DFE2E8;--accent:#C05600;--fill:#FF8800;--good:#2C7A4B;--shadow:0 1px 2px rgba(20,22,27,.05),0 8px 24px -12px rgba(20,22,27,.12)}' +
     '@media (prefers-color-scheme:dark){:root{--bg:#0E1014;--surface:#171A20;--ink:#F2F3F6;--body:#C8CCD4;--muted:#8B919D;--line:#2A2F38;--accent:#FF9A2E;--good:#6FC48E;--shadow:0 10px 30px -14px rgba(0,0,0,.6)}}' +

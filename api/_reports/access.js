@@ -44,8 +44,8 @@ export function setCookie(res, secret) {
 }
 export const cleanUrl = url => String(url || "/").replace(/([?&])k=[^&]*(&|$)/, "$1").replace(/[?&]$/, "") || "/";
 
-export const gatePage = () => '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>DFT Reports</title>' +
+export const gatePage = () => '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>DFT Reports</title><link rel="icon" type="image/png" href="https://digitalfoxtalent.com/dft/favicon.png">' +
   '<style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#F2F3F6;color:#3A3F49;font:16px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;padding:24px}' +
   '@media (prefers-color-scheme:dark){body{background:#0E1014;color:#C8CCD4}h1{color:#F2F3F6!important}}' +
-  'main{max-width:420px;text-align:center}h1{font-size:26px;color:#14161B;margin:14px 0 8px}.m{width:40px;height:40px;border-radius:10px;background:#FF8800;margin:0 auto}</style></head>' +
-  '<body><main><div class="m"></div><h1>DFT Reports</h1><p>These reports are for the Digital Fox Talent team. Open them with the team link Tom shared, and your browser will remember you for 90 days.</p></main></body></html>';
+  'main{max-width:420px;text-align:center}h1{font-size:26px;color:#14161B;margin:14px 0 8px}.m{height:44px;width:auto;margin:0 auto;display:block}@media (prefers-color-scheme:dark){.m{background:#fff;border-radius:8px;padding:2px 6px}}</style></head>' +
+  '<body><main><img class="m" src="https://df-cdn.b-cdn.net/GeneralLendingConfigs/landing_logo/DigitalFoxTalent-TextLogoBLACK-VECTOR.svg" alt="Digital Fox Talent"><h1>DFT Reports</h1><p>These reports are for the Digital Fox Talent team. Open them with the team link Tom shared, and your browser will remember you for 90 days.</p></main></body></html>';

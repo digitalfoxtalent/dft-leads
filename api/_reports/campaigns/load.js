@@ -18,7 +18,7 @@ import { PODCAST, PODCAST_AS_OF } from "./podcast.js";
 import { SNAPSHOT } from "./snapshot.js";
 
 const SUB_BOARD = 6162879732;
-const SUB_COLS = ["connect_boards__1", "text_mm6aq9qp", "date_mm1mb38m", "numeric_mm4bn6yq", "numeric_mm3yxqes", "numeric_mm4b44ta", "color_mm41rsrc"];
+const SUB_COLS = ["connect_boards__1", "text_mm6aq9qp", "date_mm1mb38m", "numeric_mm4bn6yq", "numeric_mm3yxqes", "numeric_mm4b44ta", "color_mm41rsrc", "numeric_mm3vg42g", "timerange_mm1m50vx"];
 const PAR_COLS = ["dropdown_mm1a3tqp", "connect_boards", "deal_value", "status_1", "date__1", "deal_owner"];
 const CACHE_MS = 10 * 60 * 1000;
 let cache = null;    // { at, payload } - what we serve next
@@ -102,7 +102,8 @@ async function loadLive(token) {
     const c = cvMap(s), ids = parseIds(c.text_mm6aq9qp); if (!ids.v.length) continue;
     const cc = byC[pid] = byC[pid] || Object.assign({ id: pid, r: [] }, pars[pid]);
     cc.r.push({ id: s.id, h: c.connect_boards__1 || "", nm: s.name, p: c.date_mm1mb38m || "", y: num(c.numeric_mm4bn6yq),
-      d30: num(c.numeric_mm4b44ta), g: num(c.numeric_mm3yxqes), lk: c.color_mm41rsrc || "", v: ids.v, k: ids.k });
+      d30: num(c.numeric_mm4b44ta), g: num(c.numeric_mm3yxqes), lk: c.color_mm41rsrc || "", v: ids.v, k: ids.k,
+      gr: num(c.numeric_mm3vg42g), ld: String(c.timerange_mm1m50vx || "").slice(0, 10) });
     rows++;
   }
   return { c: Object.values(byC), rows };
