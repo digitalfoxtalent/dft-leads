@@ -45,7 +45,7 @@ export default async function handler(req, res) {
   // team key if the link had one, so old links keep working and sign people in there.
   if (host === "roster-viewguarantee.digitalfoxtalent.com") {
     const k0 = req.query && req.query.k;
-    res.setHeader("Location", "https://reports.digitalfoxtalent.com/campaigns" + (k0 ? "?k=" + encodeURIComponent(String(k0)) : ""));
+    res.setHeader("Location", "https://reports.digitalfoxtalent.com/" + (k0 ? "?k=" + encodeURIComponent(String(k0)) : ""));
     return res.status(302).end();
   }
 
@@ -68,9 +68,9 @@ export default async function handler(req, res) {
 
   if (route === "campaigns") return html(res, 200, await renderCampaigns(token));
   if (route === "home") {
-    // While there is only one live report, the front door opens it directly.
+    // While there is only one live report, the front door IS that report (no redirect).
     const live = REPORTS.filter(r => r.live);
-    if (live.length === 1) { res.setHeader("Location", live[0].path); return res.status(302).end(); }
+    if (live.length === 1 && live[0].path === "/campaigns") return html(res, 200, await renderCampaigns(token));
     return html(res, 200, homePage());
   }
   return res.status(404).json({ error: "Not found" });
