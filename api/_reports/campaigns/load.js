@@ -17,6 +17,7 @@ import { TEMPLATE } from "./page.js";
 import { PODCAST, PODCAST_AS_OF } from "./podcast.js";
 import { SNAPSHOT } from "./snapshot.js";
 
+import { AVATARS } from "./avatars.js";
 const SUB_BOARD = 6162879732;
 const SUB_COLS = ["connect_boards__1", "text_mm6aq9qp", "date_mm1mb38m", "numeric_mm4bn6yq", "numeric_mm3yxqes", "numeric_mm4b44ta", "color_mm41rsrc", "numeric_mm3vg42g", "timerange_mm1m50vx", "dropdown_mm7jd5dk"];
 const PAR_COLS = ["dropdown_mm1a3tqp", "connect_boards", "deal_value", "status_1", "date__1", "deal_owner"];
@@ -27,24 +28,40 @@ let lastError = null; // why the last live read failed, for /status
 
 let avatarCache = { at: 0, map: {} }; // handle (lower case) -> channel picture url, refreshed daily
 const AVATAR_MS = 24 * 60 * 60 * 1000;
+let apiOffUntil = 0; // when the YouTube API allowance is used up, skip it until the next reset
 
-// Creator pictures. One YouTube Data API call per handle (1 quota unit each), in parallel,
-// capped at 5 seconds overall. Any failure just means lettered circles on the page;
-// it never blocks or breaks the dashboard.
+// Creator pictures, in three layers so the rail never falls back to letters:
+//   1. AVATARS (avatars.js): a saved copy of every roster picture, always available.
+//   2. The YouTube Data API (1 unit per handle) for newer or changed pictures.
+//   3. If the API allowance is used up, the channel's public page (its og:image), which uses no allowance.
+// Everything is capped at 5 seconds and any failure keeps the saved picture.
+async function viaApi(h, key) {
+  if (!key || Date.now() < apiOffUntil) return null;
+  const r = await fetch("https://www.googleapis.com/youtube/v3/channels?part=snippet&forHandle=" + encodeURIComponent(h) + "&key=" + key);
+  const d = await r.json();
+  if (r.status === 403) { const n = new Date(); n.setUTCHours(7, 5, 0, 0); if (n <= new Date()) n.setUTCDate(n.getUTCDate() + 1); apiOffUntil = n.getTime(); return null; }
+  const th = d && d.items && d.items[0] && d.items[0].snippet && d.items[0].snippet.thumbnails;
+  return (th && ((th.medium && th.medium.url) || (th.default && th.default.url))) || null;
+}
+async function viaPage(h) {
+  const r = await fetch("https://www.youtube.com/" + encodeURIComponent(h).replace("%40", "@"), { headers: { "Accept-Language": "en-US,en;q=0.9", "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36" } });
+  if (!r.ok) return null;
+  const t = await r.text();
+  const m = t.match(/<meta property="og:image" content="([^"]+)"/);
+  return m && /^https:\/\/yt\d\.(ggpht|googleusercontent)\.com\//.test(m[1]) ? m[1].replace(/=s\d+-/, "=s176-") : null;
+}
 async function loadAvatars(handles) {
   const key = process.env.YOUTUBE_API_KEY;
-  if (!key) return avatarCache.map;
   const fresh = Date.now() - avatarCache.at < AVATAR_MS;
-  const want = handles.filter(h => /^@[A-Za-z0-9._-]{2,40}$/.test(h) && (!fresh || !(h.toLowerCase() in avatarCache.map)));
-  if (!want.length) return avatarCache.map;
+  const valid = handles.filter(h => /^@[A-Za-z0-9._-]{2,40}$/.test(h));
+  const want = valid.filter(h => !fresh || !(h.toLowerCase() in avatarCache.map));
+  const merged = () => Object.assign({}, AVATARS, avatarCache.map);
+  if (!want.length) return merged();
   const one = async h => {
-    try {
-      const r = await fetch("https://www.googleapis.com/youtube/v3/channels?part=snippet&forHandle=" + encodeURIComponent(h) + "&key=" + key);
-      const d = await r.json();
-      const th = d && d.items && d.items[0] && d.items[0].snippet && d.items[0].snippet.thumbnails;
-      const url = th && ((th.medium && th.medium.url) || (th.default && th.default.url));
-      return [h.toLowerCase(), url || null];
-    } catch (e) { return [h.toLowerCase(), null]; }
+    let u = null;
+    try { u = await viaApi(h, key); } catch (e) {}
+    if (!u) { try { u = await viaPage(h); } catch (e) {} }
+    return [h.toLowerCase(), u];
   };
   const timeout = new Promise(res => setTimeout(() => res(null), 5000));
   const got = await Promise.race([Promise.all(want.map(one)), timeout]);
@@ -53,7 +70,7 @@ async function loadAvatars(handles) {
     for (const [h, u] of got) if (u) map[h] = u;
     avatarCache = { at: fresh ? avatarCache.at : Date.now(), map };
   }
-  return avatarCache.map;
+  return merged();
 }
 
 const ID_RE = [
@@ -156,7 +173,7 @@ async function getPayload(token) {
 export async function renderCampaigns(token) {
   const payload = await getPayload(token);
   const handles = [...new Set(payload.c.flatMap(c => c.r.map(r => r.h)).filter(Boolean))];
-  const [avatars, roster] = await Promise.all([loadAvatars(handles).catch(() => ({})), loadRoster(token).catch(() => null)]);
+  const [avatars, roster] = await Promise.all([loadAvatars(handles).catch(() => Object.assign({}, AVATARS)), loadRoster(token).catch(() => null)]);
   const json = JSON.stringify(Object.assign({}, payload, { avatars, roster })).replace(/</g, "\\u003c");
   return TEMPLATE.replace("__DATA__", () => json);
 }
