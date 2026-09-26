@@ -1,7 +1,7 @@
 // Access for every DFT report.
 //
 // TEAM: sign in with Google, and only a verified @digitalfoxtalent.com account gets in
-// (see auth.js). A signed-in team member gets an HttpOnly cookie for 30 days, carrying their email,
+// (see auth.js). A signed-in team member gets an HttpOnly cookie, renewed on every visit, carrying their email,
 // signed with the server's monday token so it cannot be forged. There is no shareable team link:
 // a forwarded URL is useless to anyone outside the Google Workspace.
 // PARTNERS: their own link, which opens only their page (partners.js).
@@ -11,8 +11,10 @@ import { PARTNERS } from "./partners.js";
 
 export const TEAM_DOMAIN = "digitalfoxtalent.com";
 const COOKIE = "dft_team";
-const COOKIE_DAYS = 30;
-const PARTNER_DAYS = 90;
+// Both cookies are renewed on every visit (see reports.js), so anyone who keeps using the reports
+// never loses access. They only lapse after this long with NO visit at all.
+const COOKIE_DAYS = 180;
+const PARTNER_DAYS = 400;
 
 export const hostOf = req => String((req.headers["x-forwarded-host"] || req.headers.host || "").split(",")[0])
   .toLowerCase().trim().replace(/^www\./, "").split(":")[0];
@@ -78,4 +80,4 @@ export function partnerCookie(req, secret) {
 }
 // A partner's page for someone without the partner link: the partner sees the "open it with your link"
 // note, and a DFT team member can still sign in with Google and land straight on the page.
-export const partnerGate = (name, path) => gatePage(path || "/").replace("These reports are for the Digital Fox Talent team. Sign in with your @digitalfoxtalent.com Google account.", "This report is shared with " + name + " by Digital Fox Talent. Open it with the link you were sent, and your browser will remember you for 90 days.</p><p style=\"margin-top:18px;font-size:14px;color:#687080\">Digital Fox Talent team: sign in with your @digitalfoxtalent.com Google account.").replace("Sign in with Google</a>", "Team sign-in with Google</a>");
+export const partnerGate = (name, path) => gatePage(path || "/").replace("These reports are for the Digital Fox Talent team. Sign in with your @digitalfoxtalent.com Google account.", "This report is shared with " + name + " by Digital Fox Talent. Open it with the link you were sent. Your browser remembers you from then on.</p><p style=\"margin-top:18px;font-size:14px;color:#687080\">Digital Fox Talent team: sign in with your @digitalfoxtalent.com Google account.").replace("Sign in with Google</a>", "Team sign-in with Google</a>");

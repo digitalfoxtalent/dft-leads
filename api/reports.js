@@ -17,7 +17,7 @@
 //
 // READ ONLY. Nothing here writes to monday or Megaphone.
 
-import { hostOf, isPreview, cookieOk, cleanUrl, gatePage, partnerKey, setPartnerCookie, partnerCookie, partnerGate } from "./_reports/access.js";
+import { hostOf, isPreview, cookieOk, teamEmail, setTeamCookie, cleanUrl, gatePage, partnerKey, setPartnerCookie, partnerCookie, partnerGate } from "./_reports/access.js";
 import { handleAuth } from "./_reports/auth.js";
 import { PARTNERS } from "./_reports/partners.js";
 import { mondayToken } from "./_reports/monday.js";
@@ -82,6 +82,10 @@ export default async function handler(req, res) {
     return res.status(200).json(probeCache.data);
   }
   const partner = authed ? null : partnerCookie(req, token);
+  // Keep access alive: every page visit renews the visitor's cookie to its full length.
+  const isPage = route === "home" || route === "campaigns" || route === "platforms" || !!pid;
+  if (isPage && authed) res.setHeader("Set-Cookie", setTeamCookie(res, token, teamEmail(req, token)));
+  else if (isPage && partner) setPartnerCookie(res, token, partner);
   if (pid && (authed || partner === pid)) return html(res, 200, await renderPartner(token, pid));
   if (partner && route === "videos") { try { return res.status(200).json(await videoDetails(req.query && req.query.ids)); } catch (e) { return res.status(500).json({ error: "unavailable" }); } }
   if (partner) { res.setHeader("Location", "/campaigns/" + partner); return res.status(302).end(); } // a partner link only opens its own page
