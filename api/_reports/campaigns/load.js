@@ -18,9 +18,10 @@ import { PODCAST, PODCAST_AS_OF } from "./podcast.js";
 import { SNAPSHOT } from "./snapshot.js";
 
 import { AVATARS } from "./avatars.js";
+import { PARTNERS } from "../partners.js";
 const SUB_BOARD = 6162879732;
 const SUB_COLS = ["connect_boards__1", "text_mm6aq9qp", "date_mm1mb38m", "numeric_mm4bn6yq", "numeric_mm3yxqes", "numeric_mm4b44ta", "color_mm41rsrc", "numeric_mm3vg42g", "timerange_mm1m50vx", "dropdown_mm7jd5dk"];
-const PAR_COLS = ["dropdown_mm1a3tqp", "connect_boards", "deal_value", "status_1", "date__1", "deal_owner"];
+const PAR_COLS = ["dropdown_mm1a3tqp", "connect_boards", "deal_value", "status_1", "date__1", "deal_owner", "lookup_mkz6pygk", "lookup_mm5zp13v"]; // the last two: CLIENT (from CONTACTS) and QB Customer mirrors
 const CACHE_MS = 10 * 60 * 1000;
 let cache = null;    // { at, payload } - what we serve next
 let lastGood = null; // the last successful live payload on this instance
@@ -106,12 +107,12 @@ async function loadLive(token) {
   const pids = [...new Set(subs.map(s => s.parent_item && s.parent_item.id).filter(Boolean))];
   const chunks = []; for (let i = 0; i < pids.length; i += 100) chunks.push(pids.slice(i, i + 100));
   const parts = await Promise.all(chunks.map(ids => monday(token,
-    "query { items(ids:[" + ids.join(",") + "], limit:100) { id name group { title } column_values(ids:" + pc + ") { id text ... on BoardRelationValue { display_value } } } }")));
+    "query { items(ids:[" + ids.join(",") + "], limit:100) { id name group { title } column_values(ids:" + pc + ") { id text ... on BoardRelationValue { display_value } ... on MirrorValue { display_value } } } }")));
   const pars = {};
   parts.forEach(p => (p.items || []).forEach(it => {
     const c = cvMap(it);
     pars[it.id] = { n: it.name, grp: it.group && it.group.title, b: c.dropdown_mm1a3tqp || String(it.name).split(/[_ ]/)[0],
-      cl: c.connect_boards || "", val: c.deal_value ? parseFloat(c.deal_value) : null, st: c.status_1 || "", cd: c.date__1 || "", own: c.deal_owner || "" };
+      cl: [...new Set([c.connect_boards, c.lookup_mkz6pygk, c.lookup_mm5zp13v].flatMap(x => String(x || "").split(/,\s*/)).filter(Boolean))].join(", "), val: c.deal_value ? parseFloat(c.deal_value) : null, st: c.status_1 || "", cd: c.date__1 || "", own: c.deal_owner || "" };
   }));
   const byC = {}; let rows = 0;
   for (const s of subs) {
@@ -176,6 +177,25 @@ export async function renderCampaigns(token) {
   const [avatars, roster] = await Promise.all([loadAvatars(handles).catch(() => Object.assign({}, AVATARS)), loadRoster(token).catch(() => null)]);
   const json = JSON.stringify(Object.assign({}, payload, { avatars, roster })).replace(/</g, "\\u003c");
   return TEMPLATE.replace("__DATA__", () => json);
+}
+
+// A partner's own view: only its campaigns, and nothing internal. Everything is removed here,
+// on the server, so none of it reaches the partner's browser.
+export async function renderPartner(token, id) {
+  const P = PARTNERS[id]; if (!P) return null;
+  const payload = await getPayload(token);
+  const c = payload.c.filter(x => P.match.test(x.cl || "")).map(x => ({
+    id: x.id, n: x.n, grp: x.grp, b: x.b, cl: P.name, val: null, st: "", cd: x.cd, own: "",
+    r: x.r.map(r => ({ id: r.id, h: r.h, nm: r.nm, p: r.p, y: r.y, d30: r.d30, g: r.g, lk: "", v: r.v, k: r.k, gr: null, ld: r.ld, cg: r.cg })),
+  }));
+  const vids = new Set(c.flatMap(x => x.r.flatMap(r => r.v)));
+  const pod = {}; for (const v in (payload.pod || {})) if (vids.has(v)) pod[v] = payload.pod[v];
+  const handles = [...new Set(c.flatMap(x => x.r.map(r => r.h)).filter(Boolean))];
+  const avatars = await loadAvatars(handles).catch(() => Object.assign({}, AVATARS));
+  const av = {}; for (const h of handles) { const u = avatars[h.toLowerCase()]; if (u) av[h.toLowerCase()] = u; }
+  const out = { now: payload.now, pod, podAsOf: payload.podAsOf, multi: {}, c, source: payload.source, asOf: payload.asOf, fetchedAt: payload.fetchedAt, avatars: av, roster: null, partner: { id, name: P.name } };
+  const json = JSON.stringify(out).replace(/</g, "\\u003c");
+  return TEMPLATE.replace("__DATA__", () => json).replace("<title>DFT Campaign Reach</title>", "<title>" + P.name + " campaign reach</title>");
 }
 
 // For /status: try a live read now and report what happened, without the data itself.

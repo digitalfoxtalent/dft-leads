@@ -7,6 +7,7 @@
 //   and it never contains the key itself.
 
 import crypto from "node:crypto";
+import { PARTNERS } from "./partners.js";
 
 export const KEY_SHA256 = "3a1334ac1b147ed68598623dd15de31332e44bdc0b977419bd621ee32d027e7c";
 const COOKIE = "dft_reach";
@@ -49,3 +50,30 @@ export const gatePage = () => '<!doctype html><html lang="en"><head><meta charse
   '@media (prefers-color-scheme:dark){body{background:#0E1014;color:#C8CCD4}h1{color:#F2F3F6!important}}' +
   'main{max-width:420px;text-align:center}h1{font-size:26px;color:#14161B;margin:14px 0 8px}.m{height:44px;width:auto;margin:0 auto;display:block}@media (prefers-color-scheme:dark){.m{background:#fff;border-radius:8px;padding:2px 6px}}</style></head>' +
   '<body><main><img class="m" src="https://df-cdn.b-cdn.net/GeneralLendingConfigs/landing_logo/DigitalFoxTalent-TextLogoBLACK-VECTOR.svg" alt="Digital Fox Talent"><h1>DFT Reports</h1><p>These reports are for the Digital Fox Talent team. Open them with the team link Tom shared, and your browser will remember you for 90 days.</p></main></body></html>';
+
+// ---------- partner links (see partners.js) ----------
+const PCOOKIE = "dft_partner";
+const psign = (v, secret) => crypto.createHmac("sha256", secret + "|partner-v1").update(String(v)).digest("base64url");
+export function partnerKey(k) {
+  if (!k) return null;
+  const h = crypto.createHash("sha256").update(String(k)).digest("hex");
+  for (const id in PARTNERS) if (crypto.timingSafeEqual(Buffer.from(h), Buffer.from(PARTNERS[id].keySha))) return id;
+  return null;
+}
+export function setPartnerCookie(res, secret, id) {
+  const exp = Date.now() + COOKIE_DAYS * 864e5, v = exp + "." + id;
+  res.setHeader("Set-Cookie", PCOOKIE + "=" + encodeURIComponent(v + "." + psign(v, secret)) +
+    "; Path=/; Max-Age=" + (COOKIE_DAYS * 86400) + "; HttpOnly; Secure; SameSite=Lax");
+}
+export function partnerCookie(req, secret) {
+  const raw = String(req.headers.cookie || "");
+  const m = raw.split(/;\s*/).find(p => p.startsWith(PCOOKIE + "="));
+  if (!m) return null;
+  const v = decodeURIComponent(m.slice(PCOOKIE.length + 1)), i = v.lastIndexOf(".");
+  if (i < 1) return null;
+  const body = v.slice(0, i), sig = v.slice(i + 1), [exp, id] = body.split(".");
+  if (!PARTNERS[id] || !(Number(exp) > Date.now())) return null;
+  const want = psign(body, secret);
+  return sig.length === want.length && crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(want)) ? id : null;
+}
+export const partnerGate = name => gatePage().replace("These reports are for the Digital Fox Talent team. Open them with the team link Tom shared, and your browser will remember you for 90 days.", "This report is shared with " + name + " by Digital Fox Talent. Open it with the link you were sent, and your browser will remember you for 90 days.");

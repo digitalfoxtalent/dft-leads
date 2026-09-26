@@ -10,15 +10,17 @@
 //
 // ROUTES (vercel.json rewrites send each path here with ?r=)
 //   /  and /campaigns -> Campaign reach     /platforms -> Platform monetization (?tier=written)
+//   /campaigns/rhapsody -> a partner's own view (partner link, see _reports/partners.js)
 //   /status -> source health (JSON)   /videos?ids= -> per-video detail   /platforms-data -> raw JSON
 // Every route is behind the team link. To add a report: a folder under _reports, a card in
 // home.js, a case below, and a rewrite in vercel.json.
 //
 // READ ONLY. Nothing here writes to monday or Megaphone.
 
-import { hostOf, isPreview, cookieOk, keyOk, setCookie, cleanUrl, gatePage } from "./_reports/access.js";
+import { hostOf, isPreview, cookieOk, keyOk, setCookie, cleanUrl, gatePage, partnerKey, setPartnerCookie, partnerCookie, partnerGate } from "./_reports/access.js";
+import { PARTNERS } from "./_reports/partners.js";
 import { mondayToken } from "./_reports/monday.js";
-import { renderCampaigns, campaignsHealth } from "./_reports/campaigns/load.js";
+import { renderCampaigns, campaignsHealth, renderPartner } from "./_reports/campaigns/load.js";
 import { probe } from "./_reports/megaphone.js";
 import { backfill } from "./_reports/backfill.js";
 import { platformsData, renderPlatforms } from "./_reports/platforms/load.js";
@@ -53,9 +55,15 @@ export default async function handler(req, res) {
     return res.status(302).end();
   }
 
+  // Partner pages: /campaigns/<partner>. A partner key opens only its own page.
+  const pm = route.match(/^campaigns\/([a-z0-9-]+)$/);
+  const pid = pm && PARTNERS[pm[1]] ? pm[1] : null;
+
   const k = req.query && req.query.k;
   if (k) {
-    if (!keyOk(k)) return html(res, 403, gatePage());
+    const pk = partnerKey(k);
+    if (pk) { setPartnerCookie(res, token, pk); res.setHeader("Location", "/campaigns/" + pk); return res.status(303).end(); }
+    if (!keyOk(k)) return html(res, 403, pid ? partnerGate(PARTNERS[pid].name) : gatePage());
     setCookie(res, token);
     res.setHeader("Location", cleanUrl(req.url));
     return res.status(303).end();
@@ -68,7 +76,11 @@ export default async function handler(req, res) {
     if (!probeCache || Date.now() - probeCache.at > 5 * 60 * 1000) probeCache = { at: Date.now(), data: { monday: await campaignsHealth(token), megaphone: await probe(token) } };
     return res.status(200).json(probeCache.data);
   }
-  if (!authed) return html(res, 401, gatePage());
+  const partner = authed ? null : partnerCookie(req, token);
+  if (pid && (authed || partner === pid)) return html(res, 200, await renderPartner(token, pid));
+  if (partner && route === "videos") { try { return res.status(200).json(await videoDetails(req.query && req.query.ids)); } catch (e) { return res.status(500).json({ error: "unavailable" }); } }
+  if (partner) { res.setHeader("Location", "/campaigns/" + partner); return res.status(302).end(); } // a partner link only opens its own page
+  if (!authed) return html(res, 401, pid ? partnerGate(PARTNERS[pid].name) : gatePage());
 
   if (route === "campaigns") return html(res, 200, await renderCampaigns(token));
   if (route === "platforms") return html(res, 200, await renderPlatforms(token));
