@@ -52,7 +52,11 @@ export async function backfill(token, handle) {
   const key = process.env.YOUTUBE_API_KEY; if (!key) throw new Error("YOUTUBE_API_KEY missing");
   const mine = rows.filter(r => r.h.toLowerCase() === handle.toLowerCase());
   if (!mine.length) return { handle, rows: [] };
-  const ch = await yt("channels?part=contentDetails,snippet&forHandle=" + encodeURIComponent(handle), key);
+  // The roster row name is not always the real YouTube handle; the GTR YouTube Handle column is.
+  const g = await monday(token, "query { boards(ids:[6160485039]) { items_page(limit:500) { items { name column_values(ids:[\"text_mm6nqp7b\"]) { text } } } } }");
+  const gtr = {}; for (const it of g.boards[0].items_page.items) gtr[String(it.name).toLowerCase()] = (it.column_values[0] && it.column_values[0].text) || "";
+  const ytHandle = gtr[handle.toLowerCase()] || handle;
+  const ch = await yt("channels?part=contentDetails,snippet&forHandle=" + encodeURIComponent(ytHandle), key);
   const c0 = ch.items && ch.items[0];
   if (!c0) return { handle, error: "channel not found for handle", rows: mine.map(r => ({ ...r, candidates: [] })) };
   const uploads = c0.contentDetails.relatedPlaylists.uploads;
@@ -87,5 +91,5 @@ export async function backfill(token, handle) {
     }
     return { id: r.id, deal: r.deal, row: r.row, stage: r.stage, brand: r.brand, anchor: anchor(r), candidates: cands };
   });
-  return { handle, channel: c0.snippet.title, scanned: vids.length, checked: need.length, rows: out };
+  return { handle, ytHandle, channel: c0.snippet.title, scanned: vids.length, checked: need.length, rows: out };
 }
