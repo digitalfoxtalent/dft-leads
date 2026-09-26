@@ -57,7 +57,9 @@ export async function probe(mondayTok) {
   await get("public API: our network", "/api/networks/" + ORG);
   await get("public API: our network's podcasts", "/api/networks/" + ORG + "/podcasts");
   await get("public API: one podcast (Sideserf)", "/api/podcasts/aa88362a-b050-11f1-ab38-9bd072db8695");
-  await get("public API: episode search by YouTube id", "/api/search/episodes?externalId=yt-30XCPHwC7t8");
+  await call("public API: episode search by YouTube id", CMS + "/api/search/episodes?externalId=yt-30XCPHwC7t8",
+    { headers: { Authorization: A.token, Accept: "application/json" } },
+    j => Array.isArray(j) && j[0] ? { fields: Object.keys(j[0]), numericFields: Object.keys(j[0]).filter(k => typeof j[0][k] === "number") } : null);
   await get("metrics export", "/api/metrics_export");
   for (const [style, h] of Object.entries(A)) {
     await call("delivery report (" + style + " header)", CMS + "/api/v2/private/reports/organizations/" + ORG + "/delivery/global_delivery.json",
