@@ -109,6 +109,25 @@ async function loadLive(token) {
   return { c: Object.values(byC), rows };
 }
 
+// Who is on the signed roster: the active groups of the Global Talent Roster 6160485039
+// (Youtube Long Form, Short Form, Need to set up with Suppliers), or Contract Status "Signed".
+// Keyed by the GTR row name, which is what the campaign rows' roster link shows. Cached an hour.
+const GTR_BOARD = 6160485039;
+const ROSTER_GROUPS = new Set(["youtube long form", "short form", "need to set up with suppliers"]);
+let rosterCache = { at: 0, map: null };
+async function loadRoster(token) {
+  if (rosterCache.map && Date.now() - rosterCache.at < 60 * 60 * 1000) return rosterCache.map;
+  const d = await monday(token, "query { boards(ids:[" + GTR_BOARD + "]) { items_page(limit:500) { items { name group { title } column_values(ids:[\"color_mm6cgavk\",\"text_mm6nqp7b\"]) { id text } } } } }");
+  const map = {};
+  for (const it of d.boards[0].items_page.items) {
+    const cv = {}; for (const c of it.column_values) cv[c.id] = c.text || "";
+    const signed = ROSTER_GROUPS.has(String(it.group && it.group.title || "").toLowerCase()) || cv.color_mm6cgavk === "Signed";
+    for (const k of [it.name, cv.text_mm6nqp7b]) if (k) { const key = String(k).toLowerCase().trim(); map[key] = map[key] || signed; }
+  }
+  rosterCache = { at: Date.now(), map };
+  return map;
+}
+
 const stamp = d => d.toLocaleString("en-US", { timeZone: "America/Denver", hour: "numeric", minute: "2-digit", month: "short", day: "numeric" }) + " MT";
 
 async function getPayload(token) {
@@ -137,8 +156,8 @@ async function getPayload(token) {
 export async function renderCampaigns(token) {
   const payload = await getPayload(token);
   const handles = [...new Set(payload.c.flatMap(c => c.r.map(r => r.h)).filter(Boolean))];
-  const avatars = await loadAvatars(handles).catch(() => ({}));
-  const json = JSON.stringify(Object.assign({}, payload, { avatars })).replace(/</g, "\\u003c");
+  const [avatars, roster] = await Promise.all([loadAvatars(handles).catch(() => ({})), loadRoster(token).catch(() => null)]);
+  const json = JSON.stringify(Object.assign({}, payload, { avatars, roster })).replace(/</g, "\\u003c");
   return TEMPLATE.replace("__DATA__", () => json);
 }
 
