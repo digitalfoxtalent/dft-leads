@@ -122,17 +122,17 @@
           "value": "roster-viewguarantee.digitalfoxtalent.com"
         }
       ],
-      "destination": "/api/campaign-reach"
+      "destination": "/api/reports?r=campaigns"
     },
     {
-      "source": "/",
+      "source": "/:path((?!api/|_vercel/).*)",
       "has": [
         {
           "type": "host",
-          "value": "reach.digitalfoxtalent.com"
+          "value": "reports.digitalfoxtalent.com"
         }
       ],
-      "destination": "/api/campaign-reach"
+      "destination": "/api/reports?r=:path"
     },
     {
       "source": "/",
