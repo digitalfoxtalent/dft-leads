@@ -1,55 +1,52 @@
-// Team access for every DFT report. One key, one cookie, shared by all reports on the
-// host, so the team opens one link once and every report works for 90 days.
+// Access for every DFT report.
 //
-// - <any report>?k=<key> checks the key, sets an HttpOnly cookie, redirects to the clean URL.
-// - Only the SHA-256 of the key lives here. To revoke every link, change KEY_SHA256.
-// - The cookie is an expiry time signed with the server's monday token, so it cannot be forged
-//   and it never contains the key itself.
+// TEAM: sign in with Google, and only a verified @digitalfoxtalent.com account gets in
+// (see auth.js). A signed-in team member gets an HttpOnly cookie for 30 days, carrying their email,
+// signed with the server's monday token so it cannot be forged. There is no shareable team link:
+// a forwarded URL is useless to anyone outside the Google Workspace.
+// PARTNERS: their own link, which opens only their page (partners.js).
 
 import crypto from "node:crypto";
 import { PARTNERS } from "./partners.js";
 
-export const KEY_SHA256 = "3a1334ac1b147ed68598623dd15de31332e44bdc0b977419bd621ee32d027e7c";
-const COOKIE = "dft_reach";
-const COOKIE_DAYS = 90;
+export const TEAM_DOMAIN = "digitalfoxtalent.com";
+const COOKIE = "dft_team";
+const COOKIE_DAYS = 30;
+const PARTNER_DAYS = 90;
 
 export const hostOf = req => String((req.headers["x-forwarded-host"] || req.headers.host || "").split(",")[0])
   .toLowerCase().trim().replace(/^www\./, "").split(":")[0];
 export const isPreview = h => /^dft-leads-[a-z0-9-]+\.vercel\.app$/.test(h);
 
-function sign(exp, secret) {
-  return crypto.createHmac("sha256", secret + "|campaign-reach-v1").update(String(exp)).digest("base64url");
-}
-function readCookie(req) {
+const tsign = (v, secret) => crypto.createHmac("sha256", secret + "|team-v2").update(String(v)).digest("base64url");
+function readCookie(req, name) {
   const raw = String(req.headers.cookie || "");
-  const m = raw.split(/;\s*/).find(p => p.startsWith(COOKIE + "="));
-  return m ? decodeURIComponent(m.slice(COOKIE.length + 1)) : "";
+  const m = raw.split(/;\s*/).find(p => p.startsWith(name + "="));
+  return m ? decodeURIComponent(m.slice(name.length + 1)) : "";
 }
-export function cookieOk(req, secret) {
-  const v = readCookie(req); const i = v.indexOf(".");
-  if (i < 1) return false;
-  const exp = Number(v.slice(0, i)); const sig = v.slice(i + 1);
-  if (!Number.isFinite(exp) || exp < Date.now()) return false;
-  const want = sign(exp, secret);
-  return sig.length === want.length && crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(want));
+// The signed-in team member's email, or null.
+export function teamEmail(req, secret) {
+  const v = readCookie(req, COOKIE), i = v.lastIndexOf(".");
+  if (i < 1) return null;
+  const body = v.slice(0, i), sig = v.slice(i + 1), j = body.indexOf(".");
+  const exp = Number(body.slice(0, j)), email = Buffer.from(body.slice(j + 1), "base64url").toString();
+  if (!(exp > Date.now()) || !email.toLowerCase().endsWith("@" + TEAM_DOMAIN)) return null;
+  const want = tsign(body, secret);
+  return sig.length === want.length && crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(want)) ? email : null;
 }
-export function keyOk(k) {
-  if (!k) return false;
-  const h = crypto.createHash("sha256").update(String(k)).digest("hex");
-  return crypto.timingSafeEqual(Buffer.from(h), Buffer.from(KEY_SHA256));
+export const cookieOk = (req, secret) => !!teamEmail(req, secret);
+export function setTeamCookie(res, secret, email) {
+  const body = (Date.now() + COOKIE_DAYS * 864e5) + "." + Buffer.from(email).toString("base64url");
+  return COOKIE + "=" + encodeURIComponent(body + "." + tsign(body, secret)) + "; Path=/; Max-Age=" + (COOKIE_DAYS * 86400) + "; HttpOnly; Secure; SameSite=Lax";
 }
-export function setCookie(res, secret) {
-  const exp = Date.now() + COOKIE_DAYS * 864e5;
-  res.setHeader("Set-Cookie", COOKIE + "=" + encodeURIComponent(exp + "." + sign(exp, secret)) +
-    "; Path=/; Max-Age=" + (COOKIE_DAYS * 86400) + "; HttpOnly; Secure; SameSite=Lax");
-}
+export const clearTeamCookie = () => COOKIE + "=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax";
 export const cleanUrl = url => String(url || "/").replace(/([?&])k=[^&]*(&|$)/, "$1").replace(/[?&]$/, "") || "/";
 
-export const gatePage = () => '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>DFT Reports</title><link rel="icon" type="image/png" href="https://digitalfoxtalent.com/dft/favicon.png">' +
+export const gatePage = (next, note) => '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>DFT Reports</title><link rel="icon" type="image/png" href="https://digitalfoxtalent.com/dft/favicon.png">' +
   '<style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#F2F3F6;color:#3A3F49;font:16px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;padding:24px}' +
   '@media (prefers-color-scheme:dark){body{background:#0E1014;color:#C8CCD4}h1{color:#F2F3F6!important}}' +
-  'main{max-width:420px;text-align:center}h1{font-size:26px;color:#14161B;margin:14px 0 8px}.m{height:44px;width:auto;margin:0 auto;display:block}@media (prefers-color-scheme:dark){.m{background:#fff;border-radius:8px;padding:2px 6px}}</style></head>' +
-  '<body><main><img class="m" src="https://df-cdn.b-cdn.net/GeneralLendingConfigs/landing_logo/DigitalFoxTalent-TextLogoBLACK-VECTOR.svg" alt="Digital Fox Talent"><h1>DFT Reports</h1><p>These reports are for the Digital Fox Talent team. Open them with the team link Tom shared, and your browser will remember you for 90 days.</p></main></body></html>';
+  'main{max-width:420px;text-align:center}.btn{display:inline-block;margin-top:18px;background:#14161B;color:#fff;text-decoration:none;font-weight:600;padding:11px 20px;border-radius:10px}.note{margin-top:10px;color:#B23A2A;font-size:14px}@media (prefers-color-scheme:dark){.btn{background:#F2F3F6;color:#14161B}}h1{font-size:26px;color:#14161B;margin:14px 0 8px}.m{height:44px;width:auto;margin:0 auto;display:block}@media (prefers-color-scheme:dark){.m{background:#fff;border-radius:8px;padding:2px 6px}}</style></head>' +
+  '<body><main><img class="m" src="https://df-cdn.b-cdn.net/GeneralLendingConfigs/landing_logo/DigitalFoxTalent-TextLogoBLACK-VECTOR.svg" alt="Digital Fox Talent"><h1>DFT Reports</h1><p>These reports are for the Digital Fox Talent team. Sign in with your @digitalfoxtalent.com Google account.</p>' + (note ? '<p class="note">' + note + '</p>' : '') + '<a class="btn" href="/auth/login?next=' + encodeURIComponent(next || "/") + '">Sign in with Google</a></main></body></html>';
 
 // ---------- partner links (see partners.js) ----------
 const PCOOKIE = "dft_partner";
@@ -61,19 +58,16 @@ export function partnerKey(k) {
   return null;
 }
 export function setPartnerCookie(res, secret, id) {
-  const exp = Date.now() + COOKIE_DAYS * 864e5, v = exp + "." + id;
+  const exp = Date.now() + PARTNER_DAYS * 864e5, v = exp + "." + id;
   res.setHeader("Set-Cookie", PCOOKIE + "=" + encodeURIComponent(v + "." + psign(v, secret)) +
-    "; Path=/; Max-Age=" + (COOKIE_DAYS * 86400) + "; HttpOnly; Secure; SameSite=Lax");
+    "; Path=/; Max-Age=" + (PARTNER_DAYS * 86400) + "; HttpOnly; Secure; SameSite=Lax");
 }
 export function partnerCookie(req, secret) {
-  const raw = String(req.headers.cookie || "");
-  const m = raw.split(/;\s*/).find(p => p.startsWith(PCOOKIE + "="));
-  if (!m) return null;
-  const v = decodeURIComponent(m.slice(PCOOKIE.length + 1)), i = v.lastIndexOf(".");
+  const v = readCookie(req, PCOOKIE), i = v.lastIndexOf(".");
   if (i < 1) return null;
   const body = v.slice(0, i), sig = v.slice(i + 1), [exp, id] = body.split(".");
   if (!PARTNERS[id] || !(Number(exp) > Date.now())) return null;
   const want = psign(body, secret);
   return sig.length === want.length && crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(want)) ? id : null;
 }
-export const partnerGate = name => gatePage().replace("These reports are for the Digital Fox Talent team. Open them with the team link Tom shared, and your browser will remember you for 90 days.", "This report is shared with " + name + " by Digital Fox Talent. Open it with the link you were sent, and your browser will remember you for 90 days.");
+export const partnerGate = name => gatePage("/").replace("These reports are for the Digital Fox Talent team. Sign in with your @digitalfoxtalent.com Google account.", "This report is shared with " + name + " by Digital Fox Talent. Open it with the link you were sent, and your browser will remember you for 90 days.").replace(/<a class="btn"[^>]*>Sign in with Google<\/a>/, "");
