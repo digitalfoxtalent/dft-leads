@@ -138,8 +138,11 @@ async function build(token) {
 
   // Creator directory: every creator seen, with a handle and roster flag where known.
   const people = {};
-  for (const c of cells) for (const r of c.rows) people[r.k] = people[r.k] || { n: r.n };
-  for (const a of Object.values(arts)) people[a.k] = people[a.k] || { n: a.n };
+  // Prefer the most readable spelling seen: "Definitely Not Definitive" over "Definitelynotdefinitive" or "@definitelynotdefinitive".
+  const score = n => (String(n).startsWith("@") ? 0 : 2) + (/\s/.test(n) ? 2 : 0) + (/[A-Z]/.test(n) ? 1 : 0);
+  const see = (k, n) => { if (!people[k] || score(n) > score(people[k].n)) people[k] = { n }; };
+  for (const c of cells) for (const r of c.rows) see(r.k, r.n);
+  for (const a of Object.values(arts)) see(a.k, a.n);
   for (const k in people) { const g = roster[k]; if (g) { people[k].h = g.h; people[k].s = g.signed; } if (String(people[k].n).startsWith("@") && g && g.h) people[k].n = g.h; }
 
   return { cells, arts: Object.values(arts), people };
