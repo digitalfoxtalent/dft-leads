@@ -16,7 +16,7 @@
 
 import { hostOf, isPreview, cookieOk, keyOk, setCookie, cleanUrl, gatePage } from "./_reports/access.js";
 import { mondayToken } from "./_reports/monday.js";
-import { homePage } from "./_reports/home.js";
+import { homePage, REPORTS } from "./_reports/home.js";
 import { renderCampaigns } from "./_reports/campaigns/load.js";
 import { probe } from "./_reports/megaphone.js";
 
@@ -67,6 +67,11 @@ export default async function handler(req, res) {
   if (!authed) return html(res, 401, gatePage());
 
   if (route === "campaigns") return html(res, 200, await renderCampaigns(token));
-  if (route === "home") return html(res, 200, homePage());
+  if (route === "home") {
+    // While there is only one live report, the front door opens it directly.
+    const live = REPORTS.filter(r => r.live);
+    if (live.length === 1) { res.setHeader("Location", live[0].path); return res.status(302).end(); }
+    return html(res, 200, homePage());
+  }
   return res.status(404).json({ error: "Not found" });
 }
