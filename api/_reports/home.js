@@ -5,6 +5,9 @@ export const REPORTS = [
   { path: "/campaigns", title: "Campaign reach", live: true,
     blurb: "Every sponsor integration's lifetime views and listens, across YouTube and the podcast apps. Filter by creator, open any campaign for the detail.",
     sources: ["monday", "YouTube", "Megaphone"] },
+  { path: "/platforms", title: "Platform monetization", live: true,
+    blurb: "What each platform pays for our creators' video and written content, month by month, per creator.",
+    sources: ["monday"] },
 ];
 
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));

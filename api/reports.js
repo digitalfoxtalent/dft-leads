@@ -5,10 +5,12 @@
 //   monday.js         read-only monday helper
 //   megaphone.js      Megaphone access (token read from the monday API Keys board) + health probe
 //   home.js           the front page listing every report
-//   campaigns/        Campaign reach: load.js (data), page.js (page), podcast.js, snapshot.js
+//   campaigns/        Campaign reach: load.js (data), page.js (page), podcast.js, snapshot.js, avatars.js, videos.js
+//   platforms/        Platform monetization: load.js (data), page.js (page)
 //
 // ROUTES (vercel.json rewrites send each path here with ?r=)
-//   /           -> home       /campaigns -> campaign reach       /status -> source health (JSON)
+//   /  and /campaigns -> Campaign reach     /platforms -> Platform monetization (?tier=written)
+//   /status -> source health (JSON)   /videos?ids= -> per-video detail   /platforms-data -> raw JSON
 // Every route is behind the team link. To add a report: a folder under _reports, a card in
 // home.js, a case below, and a rewrite in vercel.json.
 //
@@ -16,11 +18,10 @@
 
 import { hostOf, isPreview, cookieOk, keyOk, setCookie, cleanUrl, gatePage } from "./_reports/access.js";
 import { mondayToken } from "./_reports/monday.js";
-import { homePage, REPORTS } from "./_reports/home.js";
 import { renderCampaigns, campaignsHealth } from "./_reports/campaigns/load.js";
 import { probe } from "./_reports/megaphone.js";
 import { backfill } from "./_reports/backfill.js";
-import { platformsData } from "./_reports/platforms/load.js";
+import { platformsData, renderPlatforms } from "./_reports/platforms/load.js";
 import { videoDetails } from "./_reports/campaigns/videos.js";
 
 export const config = { maxDuration: 60 };
@@ -70,6 +71,7 @@ export default async function handler(req, res) {
   if (!authed) return html(res, 401, gatePage());
 
   if (route === "campaigns") return html(res, 200, await renderCampaigns(token));
+  if (route === "platforms") return html(res, 200, await renderPlatforms(token));
   if (route === "videos") {
     try { return res.status(200).json(await videoDetails(req.query && req.query.ids)); }
     catch (e) { return res.status(500).json({ error: String(e && e.message || e).slice(0, 300) }); }
@@ -83,10 +85,8 @@ export default async function handler(req, res) {
     catch (e) { return res.status(500).json({ error: String(e && e.message || e).slice(0, 300) }); }
   }
   if (route === "home") {
-    // While there is only one live report, the front door IS that report (no redirect).
-    const live = REPORTS.filter(r => r.live);
-    if (live.length === 1 && live[0].path === "/campaigns") return html(res, 200, await renderCampaigns(token));
-    return html(res, 200, homePage());
+    // The front door is Campaign reach; tabs at the top of every report switch between them.
+    return html(res, 200, await renderCampaigns(token));
   }
   return res.status(404).json({ error: "Not found" });
 }

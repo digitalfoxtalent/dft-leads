@@ -24,6 +24,7 @@
 
 import { monday } from "../monday.js";
 import { loadAvatars } from "../campaigns/load.js";
+import { TEMPLATE } from "./page.js";
 
 const CACHE_MS = 10 * 60 * 1000;
 let cache = null, lastGood = null, lastError = null;
@@ -166,4 +167,10 @@ export async function platformsData(token) {
   const handles = [...new Set(Object.values(payload.people).map(p => p.h).filter(h => h && h.startsWith("@")))];
   const avatars = await loadAvatars(handles).catch(() => ({}));
   return Object.assign({}, payload, { avatars });
+}
+
+export async function renderPlatforms(token) {
+  const data = await platformsData(token);
+  const json = JSON.stringify(data).replace(/</g, "\\u003c");
+  return TEMPLATE.replace("__DATA__", () => json);
 }
