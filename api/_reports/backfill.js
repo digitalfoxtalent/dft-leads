@@ -80,16 +80,32 @@ export async function backfill(token, handle) {
     const vd = await yt("videos?part=snippet,statistics,contentDetails&id=" + need.slice(i, i + 50).map(v => v.id).join(","), key);
     for (const x of vd.items || []) info[x.id] = { title: x.snippet.title, desc: x.snippet.description || "", at: x.snippet.publishedAt, views: Number(x.statistics.viewCount || 0), dur: x.contentDetails.duration };
   }
+  // Scoring. A brand named as a whole word counts; named inside a link counts most (sponsor
+  // links); "sponsor" near the brand adds weight. Among equals, the video closest after the
+  // live date wins. "strong" = one clear winner with a sponsor link or sponsor wording.
+  const words = brand => String(brand || "").replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
   const out = mine.map(r => {
-    const b = norm(r.brand);
+    const w = words(r.brand), squash = w.replace(/ /g, "");
     const cands = [];
-    if (b.length >= 3) for (const v of need) {
-      if (!inWin(v, r) || !info[v.id]) continue;
-      const I = info[v.id];
-      const inTitle = norm(I.title).includes(b), inDesc = norm(I.desc).includes(b);
-      if (inTitle || inDesc) cands.push({ v: v.id, title: I.title.slice(0, 90), at: I.at.slice(0, 10), views: I.views, where: inDesc && inTitle ? "title+description" : inDesc ? "description" : "title", short: /^PT(\d+S|[0-5]?\dS?)$/.test(I.dur) });
+    if (squash.length >= 3) {
+      const re = new RegExp("\\b" + w.split(" ").map(x => x.replace(/[.*+?^${}()|[\]\\]/g, "")).join("[\\s-]*") + "\\b", "i");
+      for (const v of need) {
+        if (!inWin(v, r) || !info[v.id]) continue;
+        const I = info[v.id], desc = I.desc;
+        const inTitle = re.test(I.title);
+        const m = re.exec(desc);
+        const urls = (desc.match(/https?:\/\/[^\s)]+/gi) || []).filter(u => u.toLowerCase().replace(/[^a-z0-9]/g, "").includes(squash));
+        if (!inTitle && !m && !urls.length) continue;
+        const near = m ? /sponsor|partner|thanks to|brought to you|use (my )?code|promo code/i.test(desc.slice(Math.max(0, m.index - 250), m.index + 250)) : false;
+        const score = (urls.length ? 3 : 0) + (near ? 2 : 0) + (m ? 1 : 0) + (inTitle ? 1 : 0);
+        const days = (new Date(I.at) - new Date(anchor(r))) / 864e5;
+        cands.push({ v: v.id, title: I.title.slice(0, 90), at: I.at.slice(0, 10), views: I.views, score, days: Math.round(days), link: urls[0] ? urls[0].slice(0, 80) : "", short: /^PT(\d+S|[0-5]?\dS?)$/.test(I.dur) });
+      }
     }
-    return { id: r.id, deal: r.deal, row: r.row, stage: r.stage, brand: r.brand, anchor: anchor(r), candidates: cands };
+    cands.sort((x, y) => y.score - x.score || Math.abs(x.days - 3) - Math.abs(y.days - 3));
+    const top = cands[0], second = cands[1];
+    const conf = !top ? "none" : (top.score >= 3 && (!second || second.score < top.score) ? "strong" : "possible");
+    return { id: r.id, deal: r.deal, row: r.row, stage: r.stage, brand: r.brand, anchor: anchor(r), conf, candidates: cands.slice(0, 5) };
   });
   return { handle, ytHandle, channel: c0.snippet.title, scanned: vids.length, checked: need.length, rows: out };
 }
