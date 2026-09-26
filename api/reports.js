@@ -24,7 +24,7 @@ export const config = { maxDuration: 60 };
 
 const HOSTS = new Set([
   "reports.digitalfoxtalent.com",
-  "roster-viewguarantee.digitalfoxtalent.com", // first home of /campaigns, kept so old links work
+  "roster-viewguarantee.digitalfoxtalent.com", // first home of /campaigns, now redirects here
   "dft-leads.vercel.app",
 ]);
 let probeCache = null;
@@ -40,6 +40,14 @@ export default async function handler(req, res) {
   const token = mondayToken();
   if (!token) return res.status(500).send("Setup error: monday token missing.");
   const route = String((req.query && req.query.r) || "home");
+
+  // The first home of Campaign reach. Send visitors to the reports address, carrying the
+  // team key if the link had one, so old links keep working and sign people in there.
+  if (host === "roster-viewguarantee.digitalfoxtalent.com") {
+    const k0 = req.query && req.query.k;
+    res.setHeader("Location", "https://reports.digitalfoxtalent.com/campaigns" + (k0 ? "?k=" + encodeURIComponent(String(k0)) : ""));
+    return res.status(302).end();
+  }
 
   const k = req.query && req.query.k;
   if (k) {
@@ -59,6 +67,6 @@ export default async function handler(req, res) {
   if (!authed) return html(res, 401, gatePage());
 
   if (route === "campaigns") return html(res, 200, await renderCampaigns(token));
-  if (route === "home" && host !== "roster-viewguarantee.digitalfoxtalent.com") return html(res, 200, homePage());
+  if (route === "home") return html(res, 200, homePage());
   return res.status(404).json({ error: "Not found" });
 }
