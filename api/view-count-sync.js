@@ -90,6 +90,7 @@ export function parseVideoIds(text) {
       if (m) { found = m[1]; break; }
     }
     if (found) { if (!ids.includes(found)) ids.push(found); }
+    else if (/(tiktok\.com|instagram\.com)\//i.test(entry)) continue; // TikTok / Instagram posts are counted by the social sync (TIKTOK VIEWS, INSTAGRAM VIEWS), not here
     else unparsed++;
   }
   return { ids, unparsed };
