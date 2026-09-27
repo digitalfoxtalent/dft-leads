@@ -8,7 +8,8 @@
 // Matching (music promos and brand posts): a post is a candidate for a row when it was published
 // from 7 days before to 60 days after the row's anchor date (date published, live date or the
 // deal's close date), and the words of the deal name appear in the post's sound, sound artist or
-// caption. Score = share of the deal's words found. Rows are approved by a person before any write.
+// caption. Score = share of the deal's words found, and at least one word must be in the sound's title
+// or the caption and not only in the artist name (so another song by the same artist is not a match). Rows are approved by a person before any write.
 
 import { missingRows } from "./backfill.js";
 
@@ -47,7 +48,7 @@ export async function socialScan(token, dataset, h) {
   const P = posts.map(p => {
     const mm = p.musicMeta || {};
     return { id: String(p.id), d: String(p.createTimeISO || "").slice(0, 10), u: p.webVideoUrl, v: p.playCount || 0, ad: !!(p.isAd || p.isSponsored),
-      mu: [mm.musicName, mm.musicAuthor].filter(Boolean).join(" / "), hay: words([mm.musicName, mm.musicAuthor, p.text].join(" ")), hf: flat([mm.musicName, mm.musicAuthor, p.text].join(" ")) };
+      mu: [mm.musicName, mm.musicAuthor].filter(Boolean).join(" / "), au: new Set(words(mm.musicAuthor)), ti: words([mm.musicName, p.text].join(" ")), hay: words([mm.musicName, mm.musicAuthor, p.text].join(" ")), hf: flat([mm.musicName, mm.musicAuthor, p.text].join(" ")) };
   }).filter(p => p.d);
   const dates = P.map(p => p.d).sort();
   const out = [];
@@ -60,8 +61,9 @@ export async function socialScan(token, dataset, h) {
       const t = day(p.d); if (t < t0 || t > t1) continue;
       const hit = w.filter(x => p.hay.includes(x) || (x.length >= 4 && p.hf.includes(x)));
       const whole = flat(r.deal).length >= 5 && p.hf.includes(flat(r.deal));
+      const strong = hit.some(x => p.ti.includes(x) && !p.au.has(x)); // the artist alone is not enough: the song or brand must be named
       const s = whole ? 1 : hit.length / w.length;
-      if (s >= 0.5) res.c.push([p.id, p.d, +s.toFixed(2), p.mu.slice(0, 60), p.v, p.ad ? 1 : 0]);
+      if (s >= 0.5 && (whole || strong)) res.c.push([p.id, p.d, +s.toFixed(2), p.mu.slice(0, 60), p.v, p.ad ? 1 : 0]);
     }
     res.c.sort((x, y) => y[2] - x[2] || Math.abs(day(x[1]) - day(a)) - Math.abs(day(y[1]) - day(a)));
     out.push(res);
