@@ -83,3 +83,90 @@ export async function socialScan(token, dataset, h) {
   return { h, posts: P.length, from: dates[0], to: dates[dates.length - 1], rows: out.length, matched: out.filter(r => r.c.length).length,
     profile: (posts[0] && posts[0].authorMeta && posts[0].authorMeta.name) || "", out, unmatchedAds: ads };
 }
+
+// ── Views sync ────────────────────────────────────────────────────────────────────────────────
+// socialSync(token, { dataset, dry }) -> TIKTOK VIEWS (numeric_mm7khyj1) and INSTAGRAM VIEWS
+// (numeric_mm7k2ver) on every creator row whose LIVE VIDEO URLS holds TikTok or Instagram posts.
+// It is the only writer of those two columns. Views come from Apify (clockworks/tiktok-scraper by
+// post url, apify/instagram-scraper by post url), or from an existing Apify dataset when `dataset`
+// is given (no new scrape). Rules, the same as the other reach columns:
+//   - all or nothing: if any post on a row does not come back (deleted, private), that row is left alone
+//   - figures only rise: a lower count never replaces a higher one (a figure typed in by hand stays
+//     until the scraped count passes it)
+// ?dry=1 reports and writes nothing.
+const SUB_BOARD = 6162879732;
+const COL = { tt: "numeric_mm7khyj1", ig: "numeric_mm7k2ver" };
+
+async function apifyRun(actor, input, fields, capUsd) {
+  const u = "https://api.apify.com/v2/acts/" + actor + "/run-sync-get-dataset-items?timeout=200&clean=1&maxTotalChargeUsd=" + capUsd + "&fields=" + fields + "&token=" + tok();
+  const r = await fetch(u, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) });
+  if (!r.ok) throw new Error("Apify " + actor + " " + r.status + " " + (await r.text()).slice(0, 160));
+  return r.json();
+}
+
+async function socialRows(token) {
+  const { monday } = await import("./monday.js");
+  const out = new Map();
+  for (const word of ["tiktok.com", "instagram.com"]) {
+    const fields = "cursor items { id name column_values(ids:[\"text_mm6aq9qp\",\"" + COL.tt + "\",\"" + COL.ig + "\"]) { id text } }";
+    let d = await monday(token, "query { boards(ids:[" + SUB_BOARD + "]) { items_page(limit:500, query_params:{rules:[{column_id:\"text_mm6aq9qp\", compare_value:[\"" + word + "\"], operator:contains_text}]}) { " + fields + " } } }");
+    let page = d.boards[0].items_page, items = page.items.slice(), guard = 0;
+    while (page.cursor && guard++ < 10) { d = await monday(token, "query { next_items_page(limit:500, cursor:\"" + page.cursor + "\") { " + fields + " } }"); page = d.next_items_page; items = items.concat(page.items); }
+    for (const it of items) {
+      const cv = {}; for (const c of it.column_values) cv[c.id] = c.text || "";
+      const posts = parseSocial(cv.text_mm6aq9qp); if (!posts.length) continue;
+      out.set(it.id, { id: it.id, name: it.name, posts, cur: { tt: parseFloat(cv[COL.tt]) || 0, ig: parseFloat(cv[COL.ig]) || 0 } });
+    }
+  }
+  return [...out.values()];
+}
+
+export async function socialSync(token, opts) {
+  const { monday } = await import("./monday.js");
+  const dry = !!(opts && opts.dry), dataset = opts && opts.dataset;
+  if (!tok()) throw new Error("APIFY_TOKEN missing");
+  const rows = await socialRows(token);
+  const want = { tt: new Map(), ig: new Map() };
+  for (const r of rows) for (const p of r.posts) want[p.p].set(p.id, p.url);
+  const views = { tt: {}, ig: {} };
+  if (dataset) {
+    for (const it of await datasetItems(dataset)) if (it.id && it.playCount != null) views.tt[String(it.id)] = it.playCount;
+  } else {
+    const [tt, ig] = await Promise.all([
+      want.tt.size ? apifyRun("clockworks~tiktok-scraper", { postURLs: [...want.tt.values()], resultsPerPage: 1, shouldDownloadVideos: false, shouldDownloadCovers: false, shouldDownloadSubtitles: false, shouldDownloadSlideshowImages: false, shouldDownloadAvatars: false, shouldDownloadMusicCovers: false, commentsPerPost: 0 }, "id,playCount", 2) : [],
+      want.ig.size ? apifyRun("apify~instagram-scraper", { directUrls: [...want.ig.values()], resultsType: "posts", resultsLimit: 1, addParentData: false }, "shortCode,videoPlayCount,videoViewCount", 1) : [],
+    ]);
+    for (const it of tt) if (it.id && it.playCount != null) views.tt[String(it.id)] = it.playCount;
+    for (const it of ig) { const n = it.videoPlayCount != null ? it.videoPlayCount : it.videoViewCount; if (it.shortCode && n != null) views.ig[it.shortCode] = n; }
+  }
+  const writes = [], unresolved = [], kept = [];
+  let unchanged = 0;
+  for (const r of rows) {
+    const vals = {};
+    for (const p of ["tt", "ig"]) {
+      const list = r.posts.filter(x => x.p === p); if (!list.length) continue;
+      const miss = list.filter(x => !(x.id in views[p]));
+      if (miss.length) { unresolved.push({ id: r.id, name: r.name, p, missing: miss.map(x => x.id) }); continue; }
+      const total = list.reduce((s, x) => s + views[p][x.id], 0);
+      if (total < r.cur[p]) { kept.push({ id: r.id, p, stored: r.cur[p], scraped: total }); continue; }
+      if (total === r.cur[p]) { unchanged++; continue; }
+      vals[COL[p]] = total;
+    }
+    if (Object.keys(vals).length) writes.push({ id: r.id, name: r.name, vals });
+  }
+  const failed = [];
+  if (!dry) {
+    const batches = []; for (let i = 0; i < writes.length; i += 10) batches.push(writes.slice(i, i + 10));
+    let next = 0;
+    await Promise.all(Array.from({ length: 5 }, async () => {
+      while (next < batches.length) {
+        const b = batches[next++];
+        const q = b.map((w, k) => "m" + k + ":change_multiple_column_values(board_id:" + SUB_BOARD + ",item_id:" + w.id + ",column_values:" + JSON.stringify(JSON.stringify(w.vals)) + "){id}").join(" ");
+        try { await monday(token, "mutation{" + q + "}"); } catch (e) { b.forEach(w => failed.push({ id: w.id, error: String(e && e.message || e).slice(0, 120) })); }
+      }
+    }));
+  }
+  return { dry, source: dataset ? "dataset " + dataset : "apify", rows: rows.length, posts: { tt: want.tt.size, ig: want.ig.size },
+    resolved: { tt: Object.keys(views.tt).filter(k => want.tt.has(k)).length, ig: Object.keys(views.ig).filter(k => want.ig.has(k)).length },
+    changed: writes.length, unchanged, writes, unresolved, kept, failed };
+}

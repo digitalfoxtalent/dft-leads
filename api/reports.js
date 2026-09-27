@@ -30,7 +30,7 @@ import { applyLinks } from "./_reports/apply-links.js";
 import { scanUploads } from "./_reports/scan.js";
 import { reachApply, reachApplyEpisodes } from "./_reports/reach-apply.js";
 import { REFRESH_PAGE } from "./_reports/refresh-page.js";
-import { socialScan } from "./_reports/social.js";
+import { socialScan, socialSync } from "./_reports/social.js";
 
 export const config = { maxDuration: 300 }; // the Reporting refresh write step can take over a minute
 
@@ -139,6 +139,10 @@ export default async function handler(req, res) {
   }
   if (route === "social-scan") { // team only: match a scraped TikTok profile (Apify dataset) to a creator's unlinked rows. Read only
     try { const q = req.query || {}; return res.status(200).json(await socialScan(token, String(q.dataset || ""), String(q.h || ""))); }
+    catch (e) { return res.status(500).json({ error: String(e && e.message || e).slice(0, 300) }); }
+  }
+  if (route === "social-sync") { // team only: TikTok and Instagram views onto creator rows (?dry=1 checks, ?dataset= uses an existing scrape)
+    try { const q = req.query || {}; return res.status(200).json(await socialSync(token, { dry: String(q.dry || "") === "1", dataset: q.dataset ? String(q.dataset) : "" })); }
     catch (e) { return res.status(500).json({ error: String(e && e.message || e).slice(0, 300) }); }
   }
   if (route === "scan") { // team only: one creator's uploads, compact, for matching rows to videos (see _reports/scan.js)
