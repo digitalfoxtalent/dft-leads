@@ -22,7 +22,7 @@ import { applyLinks } from "./_reports/apply-links.js";
 
 export const config = { maxDuration: 300 };
 
-const MODE = "dry";
+const MODE = "dry2";
 const STOP_AFTER = "2026-09-27T16:00:00Z";
 const LOG_BOARD = 18432874155;
 const TIME_MS = 200000, UNIT_BUDGET = 1200;
@@ -43,7 +43,7 @@ const writable = d => {
   return (d.r.pub || d.r.live || monthHint(d.r)) && b.replace(/[^a-z0-9]/gi, "").length >= 6 && !COMMON.test(b);
 };
 const line = d => "<li><b>" + d.act + (d.write ? " (written)" : "") + "</b> " + esc(d.r.deal) + " / " + esc(d.r.row) + " [" + d.r.id + "] - " + esc(d.why || "") +
-  ((d.vids || []).length ? "<br>" + d.vids.map(v => esc(v.v) + " " + v.at + " " + (v.s < 70 ? "(Short) " : "") + Number(v.n || 0).toLocaleString("en-US") + " views - " + esc(v.t) + ((v.u || [])[0] ? " [" + esc(v.u[0]) + "]" : "")).join("<br>") : "") + "</li>";
+  ((d.vids || []).length ? "<br>" + d.vids.map(v => esc(v.v) + " " + v.at + " " + (v.s < 70 ? "(Short) " : "") + Number(v.n || 0).toLocaleString("en-US") + " views - " + esc(v.t) + (v.ev ? " [" + esc(v.ev) + "]" : "")).join("<br>") : "") + "</li>";
 
 export default async function handler(req, res) {
   res.setHeader("Cache-Control", "no-store");
@@ -78,17 +78,17 @@ export default async function handler(req, res) {
       }
       let applied = null;
       const toWrite = plan.filter(writable);
-      for (const d of toWrite) d.write = MODE === "write";
-      if (MODE === "write" && toWrite.length) {
-        applied = await applyLinks(token, { rows: toWrite.map(d => ({ id: d.r.id, v: d.vids.map(v => [v.v, v.t, v.at + ((v.u || [])[0] ? ", link " + v.u[0] : ", brand in the title")]) })),
+      for (const d of toWrite) d.write = MODE.startsWith("write");
+      if (MODE.startsWith("write") && toWrite.length) {
+        applied = await applyLinks(token, { rows: toWrite.map(d => ({ id: d.r.id, v: d.vids.map(v => [v.v, v.t, v.at + ", " + (v.ev || "")]) })),
           rule: "Overnight backfill (Claude, 27 Sep 2026): uploads from this row's date window whose description carries a link naming the brand (or, for a tight window, whose title names it). Several videos means the read ran as a flight across them." }, false);
       }
       const counts = plan.reduce((a, d) => (a[d.act] = (a[d.act] || 0) + 1, a), {});
-      const order = { link: 0, title: 1, weak: 2, none: 3, review: 4, future: 5, skip: 6 };
+      const order = { link: 0, title: 1, weak: 2, none: 3, review: 4, recent: 5, future: 6, skip: 7 };
       plan.sort((a, b) => order[a.act] - order[b.act]);
       const body = "<p><b>" + MODE + " " + esc(h) + "</b>: " + note + " " + Object.entries(counts).map(e => e.join(" ")).join(", ") + ". Would write: " + toWrite.length + " rows.</p>" +
         (applied ? "<p>Written: " + applied.linked + " rows, " + applied.videos + " videos. " + applied.out.filter(o => /skipped/.test(o.result)).map(o => o.id + " " + esc(o.result)).join("; ") + "</p>" : "") +
-        "<ul>" + plan.filter(d => d.act !== "future").map(line).join("") + "</ul>";
+        "<ul>" + plan.filter(d => d.act !== "future" && d.act !== "skip").map(line).join("") + "</ul>";
       const it = await mondayVars(token, "mutation ($b: ID!, $n: String!) { create_item(board_id:$b, item_name:$n) { id } }", { b: String(LOG_BOARD), n: MODE + " " + h });
       await mondayVars(token, "mutation ($i: ID!, $t: String!) { create_update(item_id:$i, body:$t) { id } }", { i: it.create_item.id, t: body.slice(0, 60000) });
       out.done.push(h + " " + JSON.stringify(counts) + (applied ? " wrote " + applied.linked : ""));

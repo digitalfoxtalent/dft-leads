@@ -49,6 +49,8 @@ export function matchRows(vids, rows, now) {
     const w = windowOf(r);
     if (!w) { res.push({ r, act: "review", why: "no date" }); continue; }
     if (w.a > today - 2 * D) { res.push({ r, act: "future", why: w.why }); continue; }
+    // A flight that started in the last 8 days may still be running: wait, so no video is missed.
+    if ((r.live || r.pub) && day(r.live || r.pub) > today - 8 * D) { res.push({ r, act: "recent", why: w.why + " (flight may still be running)" }); continue; }
     (byBrand[sq(r.brand)] = byBrand[sq(r.brand)] || []).push({ r, w });
   }
   for (const bk of Object.keys(byBrand)) {
@@ -72,7 +74,7 @@ export function matchRows(vids, rows, now) {
         const take = (brs.length === 1 && (r.pub || r.live || monthHint(r))) ? inW : cluster(inW, 9)[0];
         if (take.length > 15) { res.push({ r, act: "review", why: take.length + " " + tier + " matches in the window", vids: take.slice(0, 5) }); done = true; break; }
         for (const v of take) claimed.add(v.v);
-        res.push({ r, act: tier, why: w.why + (standing ? "; the brand link is a standing link, so titles only" : ""), vids: take });
+        res.push({ r, act: tier, why: w.why + (standing ? "; the brand link is a standing link, so titles only" : ""), vids: take.map(v => ({ ...v, ev: tier === "link" ? (v.u || []).find(u => sq(u).includes(bk)) : "title names " + r.brand })) });
         done = true; break;
       }
       if (!done) {

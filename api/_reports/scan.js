@@ -24,6 +24,10 @@ export async function scanUploads(token, handle, since, extraBrands, maxPages, c
   const ch = await yt("channels?part=contentDetails,snippet&forHandle=" + encodeURIComponent(ytHandle), key);
   const c0 = ch.items && ch.items[0];
   if (!c0) return { handle, ytHandle, notFound: true, units, brands };
+  // A "brand" that is really the creator's own name (a deal named TheReelRejects_Freecash_... with no
+  // brand set) would match the creator's own links (patreon.com/thereelrejects), so it is dropped.
+  const me = [squash(handle), squash(ytHandle), squash(c0.snippet.title)].map(x => x.replace(/^the/, "")).filter(x => x.length >= 4);
+  for (let i = bre.length - 1; i >= 0; i--) if (me.some(x => bre[i].sq.includes(x) || x.includes(bre[i].sq))) bre.splice(i, 1);
   const up = c0.contentDetails.relatedPlaylists.uploads;
   const from = since ? new Date(since) : new Date(Date.now() - 400 * 864e5);
   const ids = []; let pageToken = "", pages = 0, reachedBack = false;
