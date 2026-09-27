@@ -194,6 +194,8 @@ async function getPayload(token) {
   return payload;
 }
 
+export const campaignPayload = token => getPayload(token);
+
 export async function renderCampaigns(token) {
   const payload = await getPayload(token);
   const handles = [...new Set(payload.c.flatMap(c => c.r.map(r => r.h)).filter(Boolean))];
