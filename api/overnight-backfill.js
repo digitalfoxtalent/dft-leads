@@ -23,7 +23,7 @@ import { applyLinks } from "./_reports/apply-links.js";
 
 export const config = { maxDuration: 300 };
 
-const MODE = "write1";
+const MODE = "off"; // finished 27 Sep 08:35 UTC (write1). Kept for the record; the nightly link finder carries on from here.
 const STOP_AFTER = "2026-09-27T16:00:00Z";
 const LOG_BOARD = 18432874155;
 const TIME_MS = 200000, UNIT_BUDGET = 1200;

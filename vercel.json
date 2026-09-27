@@ -43,10 +43,6 @@
     {
       "path": "/api/link-finder",
       "schedule": "20 7 * * *"
-    },
-    {
-      "path": "/api/overnight-backfill",
-      "schedule": "*/10 * * * *"
     }
   ],
   "rewrites": [
