@@ -27,7 +27,7 @@ import { AVATARS } from "./avatars.js";
 import { PARTNERS } from "../partners.js";
 import { parseSocial } from "../social.js";
 const SUB_BOARD = 6162879732;
-const SUB_COLS = ["connect_boards__1", "text_mm6aq9qp", "date_mm1mb38m", "numeric_mm4bn6yq", "numeric_mm3yxqes", "numeric_mm4b44ta", "color_mm41rsrc", "numeric_mm3vg42g", "timerange_mm1m50vx", "dropdown_mm7jd5dk", "long_text_mm7jfzzx", "numeric_mm7khyj1", "numeric_mm7k2ver"];
+const SUB_COLS = ["connect_boards__1", "text_mm6aq9qp", "date_mm1mb38m", "numeric_mm4bn6yq", "numeric_mm3yxqes", "numeric_mm4b44ta", "color_mm41rsrc", "numeric_mm3vg42g", "timerange_mm1m50vx", "dropdown_mm7jd5dk", "long_text_mm7jfzzx", "numeric_mm7khyj1", "numeric_mm7k2ver", "long_text_mm7kw197"];
 const PAR_COLS = ["dropdown_mm1a3tqp", "connect_boards", "deal_value", "status_1", "date__1", "deal_owner", "lookup_mkz6pygk", "lookup_mm5zp13v"]; // the last two: CLIENT (from CONTACTS) and QB Customer mirrors
 const CACHE_MS = 10 * 60 * 1000;
 let cache = null;    // { at, payload } - what we serve next
@@ -143,7 +143,7 @@ async function loadLive(token) {
     cc.r.push({ id: s.id, h: c.connect_boards__1 || "", nm: s.name, p: c.date_mm1mb38m || "", y: num(c.numeric_mm4bn6yq),
       d30: num(c.numeric_mm4b44ta), g: num(c.numeric_mm3yxqes), lk: c.color_mm41rsrc || "", v: ids.v, k: ids.k,
       gr: num(c.numeric_mm3vg42g), ld: String(c.timerange_mm1m50vx || "").slice(0, 10), cg: c.dropdown_mm7jd5dk || "",
-      tt: num(c.numeric_mm7khyj1), ig: num(c.numeric_mm7k2ver), sv });
+      tt: num(c.numeric_mm7khyj1), ig: num(c.numeric_mm7k2ver), sv, at: c.long_text_mm7kw197 || "" });
     rows++;
   }
   return { c: Object.values(byC), rows, pod, podAsOf };
@@ -211,7 +211,7 @@ export async function renderPartner(token, id) {
   const payload = await getPayload(token);
   const c = payload.c.filter(x => P.match.test(x.cl || "")).map(x => ({
     id: x.id, n: x.n, grp: x.grp, b: x.b, cl: P.name, val: null, st: "", cd: x.cd, own: "",
-    r: x.r.map(r => ({ id: r.id, h: r.h, nm: r.nm, p: r.p, y: r.y, d30: r.d30, g: r.g, lk: "", v: r.v, k: r.k, gr: null, ld: r.ld, cg: r.cg, tt: r.tt, ig: r.ig, sv: r.sv })),
+    r: x.r.map(r => ({ id: r.id, h: r.h, nm: r.nm, p: r.p, y: r.y, d30: r.d30, g: r.g, lk: "", v: r.v, k: r.k, gr: null, ld: r.ld, cg: r.cg, tt: r.tt, ig: r.ig, sv: r.sv, at: r.at })),
   }));
   const vids = new Set(c.flatMap(x => x.r.flatMap(r => r.v)));
   const pod = {}; for (const v in (payload.pod || {})) if (vids.has(v)) pod[v] = payload.pod[v];

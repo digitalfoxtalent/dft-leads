@@ -24,7 +24,7 @@ export async function sponsorSegments(ids) {
   return { segs: out, errors: err };
 }
 
-const mmss = t => Math.floor(t / 60) + ":" + String(t % 60).padStart(2, "0");
+const mmss = t => (t >= 3600 ? Math.floor(t / 3600) + ":" + String(Math.floor(t % 3600 / 60)).padStart(2, "0") : Math.floor(t / 60)) + ":" + String(t % 60).padStart(2, "0");
 
 // Probe: how many of a partner's campaign videos already have a sponsor segment marked.
 export async function timestampProbe(payload, match) {
@@ -63,4 +63,60 @@ export async function timestampCheck(id, brand) {
   const [{ segs }, tr] = await Promise.all([sponsorSegments([id]), transcripts([id])]);
   const t = tr[id] || [];
   return { id, brand, sponsorBlock: (segs[id] || []).map(s => mmss(s.s) + "-" + mmss(s.e) + (s.l ? " locked" : " v" + s.v)), captions: t.length, brandMentions: brandHits(t, brand).map(mmss) };
+}
+
+// ── Write step: AD READ TIMES (long_text_mm7kw197) on each creator row, one line per video ────────
+//   <videoId> read 52:47-54:07 | mention 0:00 | sponsorblock+captions
+// read: a SponsorBlock sponsor segment that the captions confirm names this brand (±15s), else the
+//   only non-intro segment when there are no captions, else the first caption line naming the brand
+//   after the first minute. mention: brand named in the first minute (the "brought to you by" line).
+// Rows are only filled for videos not already listed, so a run can be repeated safely.
+const COL = "long_text_mm7kw197";
+const HEAD = "Ad read times (into the video; the podcast copy has the read at the same point, after any pre-roll)";
+function lineFor(id, segs, tr, brand) {
+  const hits = tr ? brandHits(tr, brand) : [];
+  const intro = hits.filter(h => h < 60), body = hits.filter(h => h >= 60);
+  const main = segs.filter(x => x.e - x.s >= 15);
+  let read = null, src = "";
+  if (tr && tr.length) {
+    const ok = main.filter(x => hits.some(h => h >= x.s - 15 && h <= x.e + 15));
+    if (ok.length) { read = ok.map(x => mmss(x.s) + "-" + mmss(x.e)).join(", "); src = "sponsorblock+captions"; }
+    else if (body.length) { read = "~" + mmss(body[0]); src = "captions"; }
+  } else if (main.length === 1) { read = mmss(main[0].s) + "-" + mmss(main[0].e); src = "sponsorblock"; }
+  else if (main.length > 1) { read = "check " + main.map(x => mmss(x.s) + "-" + mmss(x.e)).join(", "); src = "sponsorblock, several segments"; }
+  const parts = [id, read ? "read " + read : "read not found"];
+  if (intro.length) parts.push("mention " + mmss(intro[0]));
+  parts.push(src || (tr && tr.length ? "captions" : "no captions"));
+  return parts[0] + " " + parts.slice(1).join(" | ");
+}
+export async function timestampApply(token, payload, match, opts) {
+  const { monday } = await import("./monday.js");
+  const dry = !!opts.dry, max = Math.min(60, Math.max(5, parseInt(opts.max, 10) || 30));
+  const rows = [];
+  for (const c of payload.c) if (!match || match.test(c.cl || "")) for (const r of c.r) {
+    const have = new Set(String(r.at || "").split("\n").map(l => (l.trim().match(/^([A-Za-z0-9_-]{11})\s/) || [])[1]).filter(Boolean));
+    const todo = r.v.filter(v => !have.has(v));
+    if (todo.length) rows.push({ id: r.id, b: c.b, at: r.at || "", todo });
+  }
+  const pick = []; let n = 0;
+  for (const r of rows) { if (n && n + r.todo.length > max) break; pick.push(r); n += r.todo.length; }
+  const ids = [...new Set(pick.flatMap(r => r.todo))];
+  const [{ segs }, tr] = await Promise.all([sponsorSegments(ids), ids.length ? transcripts(ids) : {}]);
+  const writes = [];
+  for (const r of pick) {
+    const old = String(r.at || "").split("\n").filter(l => /^[A-Za-z0-9_-]{11}\s/.test(l.trim()));
+    const add = r.todo.map(v => lineFor(v, segs[v] || [], tr[v], r.b));
+    writes.push({ id: r.id, b: r.b, lines: add, text: [HEAD].concat(old, add).join("\n") });
+  }
+  const failed = [];
+  if (!dry) for (let i = 0; i < writes.length; i += 10) {
+    const b = writes.slice(i, i + 10);
+    const q = b.map((w, k) => "m" + k + ":change_multiple_column_values(board_id:6162879732,item_id:" + w.id + ",column_values:" + JSON.stringify(JSON.stringify({ [COL]: { text: w.text } })) + "){id}").join(" ");
+    try { await monday(token, "mutation{" + q + "}"); } catch (e) { b.forEach(w => failed.push(w.id)); }
+  }
+  const all = writes.flatMap(w => w.lines);
+  return { dry, rowsLeft: rows.length - pick.length, rows: pick.length, videos: ids.length,
+    confirmed: all.filter(l => /sponsorblock\+captions/.test(l)).length, captionsOnly: all.filter(l => / \| captions$/.test(l) && /read ~/.test(l)).length,
+    sbOnly: all.filter(l => /sponsorblock$/.test(l)).length, check: all.filter(l => /read check/.test(l)).length, notFound: all.filter(l => /read not found/.test(l)).length,
+    sample: writes.slice(0, 6).map(w => w.b + ": " + w.lines.join(" / ")), failed };
 }
