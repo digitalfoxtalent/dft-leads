@@ -22,6 +22,7 @@
 // REACH SOURCES. ?dry=1 reports what it would do and writes nothing.
 
 import { monday } from "./monday.js";
+import { videoDetails } from "./campaigns/videos.js";
 
 const SUB_BOARD = 6162879732;
 const C = { urls: "text_mm6aq9qp", detail: "long_text_mm7jfzzx", sp: "numeric_mm7j691z", ap: "numeric_mm7j7zbb", am: "numeric_mm7kryz6", ot: "numeric_mm7j74wv", src: "text_mm7j9va" };
@@ -111,5 +112,34 @@ export async function reachApply(token, body, dry) {
     catch (e) { for (const p of b) { try { await mondayVars(token, "mutation ($v: JSON!) { change_multiple_column_values(board_id:" + SUB_BOARD + ", item_id:" + p.id + ", column_values:$v) { id } }", { v: JSON.stringify(p.vals) }); } catch (e2) { out.failed.push(p.id + " " + String(e2.message).slice(0, 120)); } } }
   };
   for (let i = 0; i < batches.length; i += 5) await Promise.all(batches.slice(i, i + 5).map(one));
+  return out;
+}
+
+// From a platform report the team uploaded on /refresh (the page parses the file in the browser and
+// posts one entry per episode): the server matches episodes to campaign videos itself, by exact title
+// (lower-cased letters and digits only), using the YouTube titles it reads for the campaign videos.
+// BODY { asOf, source, episodes: [{ t: title, e: episodeId, p: "YYYY-MM-DD", sp, ap, am, ot }] }
+export const normTitle = s => String(s || "").normalize("NFKD").toLowerCase().replace(/[^a-z0-9]/g, "");
+export async function reachApplyEpisodes(token, body, dry) {
+  const eps = Array.isArray(body && body.episodes) ? body.episodes : [];
+  if (eps.length < 50) throw new Error("the file has too few episodes (" + eps.length + ") - is it the right report?");
+  const rows = await loadRows(token);
+  const vids = [...new Set(rows.flatMap(r => [...String(r[C.urls]).matchAll(ID_RE)].map(m => m[1])))];
+  const chunks = []; for (let i = 0; i < vids.length; i += 50) chunks.push(vids.slice(i, i + 50));
+  const info = {};
+  for (let i = 0; i < chunks.length; i += 5) {
+    const got = await Promise.all(chunks.slice(i, i + 5).map(c => videoDetails(c.join(",")).catch(() => ({ videos: {} }))));
+    for (const g of got) Object.assign(info, g.videos || {});
+  }
+  const vh = {}, vat = {};
+  for (const v of vids) if (info[v] && info[v].t) { vh[v] = normTitle(info[v].t); if (info[v].at) vat[v] = info[v].at; }
+  const want = new Set(Object.values(vh)), stats = {};
+  for (const e of eps) {
+    const k = normTitle(e.t); if (!k || !want.has(k)) continue;
+    (stats[k] = stats[k] || []).push([+e.sp || 0, +e.ap || 0, +e.am || 0, +e.ot || 0, String(e.e || "").slice(0, 36), String(e.p || "").slice(0, 10)]);
+  }
+  const out = await reachApply(token, { asOf: body.asOf, source: body.source, vh, vat, stats }, dry);
+  out.episodes = eps.length; out.titlesRead = Object.keys(vh).length; out.campaignVideos = vids.length;
+  out.episodesMatched = Object.values(stats).reduce((a, l) => a + l.length, 0);
   return out;
 }

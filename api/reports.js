@@ -28,7 +28,8 @@ import { platformsData, renderPlatforms } from "./_reports/platforms/load.js";
 import { videoDetails } from "./_reports/campaigns/videos.js";
 import { applyLinks } from "./_reports/apply-links.js";
 import { scanUploads } from "./_reports/scan.js";
-import { reachApply } from "./_reports/reach-apply.js";
+import { reachApply, reachApplyEpisodes } from "./_reports/reach-apply.js";
+import { REFRESH_PAGE } from "./_reports/refresh-page.js";
 
 export const config = { maxDuration: 60 };
 
@@ -93,7 +94,7 @@ export default async function handler(req, res) {
   if (partner) { res.setHeader("Location", "/campaigns/" + partner); return res.status(302).end(); } // a partner link only opens its own page
   if (!authed) {
     if (pid) return html(res, 401, partnerGate(PARTNERS[pid].name, "/campaigns/" + pid));
-    if (route !== "home" && !/^(campaigns|platforms)$/.test(route)) return res.status(401).json({ error: "Sign in required" });
+    if (route !== "home" && !/^(campaigns|platforms|refresh)$/.test(route)) return res.status(401).json({ error: "Sign in required" });
     const next = "/" + (route === "home" ? "" : route) + (req.query && req.query.tier ? "?tier=" + encodeURIComponent(String(req.query.tier)) : "");
     return html(res, 401, gatePage(next));
   }
@@ -111,6 +112,12 @@ export default async function handler(req, res) {
   if (route === "apply-links") { // team only: write a checked list of video links (see _reports/apply-links.js)
     if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
     try { const b = typeof req.body === "string" ? JSON.parse(req.body) : req.body; return res.status(200).json(await applyLinks(token, b, String(req.query && req.query.dry || "") === "1")); }
+    catch (e) { return res.status(500).json({ error: String(e && e.message || e).slice(0, 300) }); }
+  }
+  if (route === "refresh") return html(res, 200, REFRESH_PAGE); // team only: Reporting refresh page (see _reports/refresh-page.js)
+  if (route === "reach-apply-file") { // team only: the refresh page posts one line per episode from an uploaded platform report
+    if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
+    try { const b = typeof req.body === "string" ? JSON.parse(req.body) : req.body; return res.status(200).json(await reachApplyEpisodes(token, b, String(req.query && req.query.dry || "") === "1")); }
     catch (e) { return res.status(500).json({ error: String(e && e.message || e).slice(0, 300) }); }
   }
   if (route === "reach-apply") { // team only: Reporting refresh write step, Spotify and apps listens per row (see _reports/reach-apply.js)
