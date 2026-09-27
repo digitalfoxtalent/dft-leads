@@ -79,21 +79,36 @@ export async function timestampCheck(id, brand) {
 // Rows are only filled for videos not already listed, so a run can be repeated safely.
 const COL = "long_text_mm7kw197";
 const HEAD = "Ad read times (into the video; the podcast copy has the read at the same point, after any pre-roll)";
+const PHRASES = ["sponsoredby", "sponsorofthis", "todayssponsor", "thisvideosponsor", "broughttoyouby", "partneredwith", "usecode", "promocode", "withcode", "linkinthedescription", "linkdownbelow", "linkbelow"];
+function phraseHits(tr) {
+  const hits = [];
+  for (let i = 0; i < tr.length; i++) {
+    const win = flat((tr[i].text || "") + " " + ((tr[i + 1] || {}).text || ""));
+    if (PHRASES.some(k => win.includes(k))) { const t = Math.round(tr[i].start || 0); if (!hits.length || t - hits[hits.length - 1] > 60) hits.push(t); }
+  }
+  return hits;
+}
 function lineFor(id, segs, tr, brand) {
-  const hits = tr ? brandHits(tr, brand) : [];
+  const hasTr = !!(tr && tr.length);
+  const hits = hasTr ? brandHits(tr, brand) : [];
   const intro = hits.filter(h => h < 60), body = hits.filter(h => h >= 60);
   const main = segs.filter(x => x.e - x.s >= 15);
+  const span = x => mmss(x.s) + "-" + mmss(x.e);
   let read = null, src = "";
-  if (tr && tr.length) {
-    const ok = main.filter(x => hits.some(h => h >= x.s - 15 && h <= x.e + 15));
-    if (ok.length) { read = ok.map(x => mmss(x.s) + "-" + mmss(x.e)).join(", "); src = "sponsorblock+captions"; }
-    else if (body.length) { read = "~" + mmss(body[0]); src = "captions"; }
-  } else if (main.length === 1) { read = mmss(main[0].s) + "-" + mmss(main[0].e); src = "sponsorblock"; }
-  else if (main.length > 1) { read = "check " + main.map(x => mmss(x.s) + "-" + mmss(x.e)).join(", "); src = "sponsorblock, several segments"; }
+  const ok = hasTr ? main.filter(x => hits.some(h => h >= x.s - 15 && h <= x.e + 15)) : [];
+  if (ok.length) { read = ok.map(span).join(", "); src = "sponsorblock+captions"; }
+  else if (main.length === 1) { read = span(main[0]); src = hasTr ? "sponsorblock (captions do not name the brand)" : "sponsorblock"; }
+  else if (main.length > 1) { read = "check " + main.map(span).join(", "); src = "sponsorblock, several segments"; }
+  else if (body.length) { read = "~" + mmss(body[0]); src = "captions"; }
+  else if (hasTr) {
+    const ph = phraseHits(tr).filter(h => h >= 60);
+    if (ph.length === 1) { read = "~" + mmss(ph[0]); src = "captions (sponsor wording, brand name not heard)"; }
+    else if (ph.length > 1) { read = "check ~" + ph.slice(0, 3).map(mmss).join(", ~"); src = "captions (sponsor wording at several points)"; }
+  }
   const parts = [id, read ? "read " + read : "read not found"];
   if (intro.length) parts.push("mention " + mmss(intro[0]));
-  parts.push(src || (tr && tr.length ? "captions" : "no captions"));
-  return parts[0] + " " + parts.slice(1).join(" | ");
+  parts.push(src || (hasTr ? "captions" : "no captions"));
+  return parts[0] + " " + parts.slice(1).join(" | ") + " | v2";
 }
 export async function timestampApply(token, payload, match, opts) {
   const { monday } = await import("./monday.js");
@@ -108,7 +123,8 @@ export async function timestampApply(token, payload, match, opts) {
   const rows = [];
   for (const { c, r: r0 } of cand) {
     const r = Object.assign({}, r0, { at: fresh[r0.id] != null ? fresh[r0.id] : r0.at });
-    const have = new Set(String(r.at || "").split("\n").map(l => (l.trim().match(/^([A-Za-z0-9_-]{11})\s/) || [])[1]).filter(Boolean));
+    const keep = l => /^[A-Za-z0-9_-]{11}\s/.test(l.trim()) && !(/read not found/.test(l) && !/\| v2$/.test(l.trim())); // first-version misses are tried again once
+    const have = new Set(String(r.at || "").split("\n").filter(keep).map(l => l.trim().slice(0, 11)));
     const todo = r.v.filter(v => !have.has(v));
     if (todo.length) rows.push({ id: r.id, b: c.b, at: r.at || "", todo });
   }
@@ -118,7 +134,7 @@ export async function timestampApply(token, payload, match, opts) {
   const [{ segs }, tr] = await Promise.all([sponsorSegments(ids), ids.length ? transcripts(ids) : {}]);
   const writes = [];
   for (const r of pick) {
-    const old = String(r.at || "").split("\n").filter(l => /^[A-Za-z0-9_-]{11}\s/.test(l.trim()));
+    const old = String(r.at || "").split("\n").filter(l => /^[A-Za-z0-9_-]{11}\s/.test(l.trim()) && !r.todo.includes(l.trim().slice(0, 11)));
     const add = r.todo.map(v => lineFor(v, segs[v] || [], tr[v], r.b));
     writes.push({ id: r.id, b: r.b, lines: add, text: [HEAD].concat(old, add).join("\n") });
   }
