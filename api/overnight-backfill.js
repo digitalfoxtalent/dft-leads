@@ -23,7 +23,7 @@ import { applyLinks } from "./_reports/apply-links.js";
 
 export const config = { maxDuration: 300 };
 
-const MODE = "dry5";
+const MODE = "write1";
 const STOP_AFTER = "2026-09-27T16:00:00Z";
 const LOG_BOARD = 18432874155;
 const TIME_MS = 200000, UNIT_BUDGET = 1200;
