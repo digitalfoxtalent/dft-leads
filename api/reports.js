@@ -27,6 +27,7 @@ import { backfill, missingRows } from "./_reports/backfill.js";
 import { platformsData, renderPlatforms } from "./_reports/platforms/load.js";
 import { videoDetails } from "./_reports/campaigns/videos.js";
 import { applyLinks } from "./_reports/apply-links.js";
+import { scanUploads } from "./_reports/scan.js";
 
 export const config = { maxDuration: 60 };
 
@@ -117,6 +118,14 @@ export default async function handler(req, res) {
       const rows = (await missingRows(token)).filter(r => P.match.test(r.client || ""));
       return res.status(200).json({ partner: P.name, count: rows.length, rows: rows.map(r => ({ id: r.id, deal: r.deal, row: r.row, h: r.h, brand: r.brand, anchor: r.pub || r.live || r.closed, stage: r.stage })) });
     } catch (e) { return res.status(500).json({ error: String(e && e.message || e).slice(0, 300) }); }
+  }
+  if (route === "gaps") { // team only: every creator row that still has no video link (for the backfill)
+    try { const rows = await missingRows(token); return res.status(200).json({ count: rows.length, rows }); }
+    catch (e) { return res.status(500).json({ error: String(e && e.message || e).slice(0, 300) }); }
+  }
+  if (route === "scan") { // team only: one creator's uploads, compact, for matching rows to videos (see _reports/scan.js)
+    try { const q = req.query || {}; return res.status(200).json(await scanUploads(token, String(q.h || ""), q.since, q.brands, q.pages)); }
+    catch (e) { return res.status(500).json({ error: String(e && e.message || e).slice(0, 300) }); }
   }
   if (route === "backfill") {
     try { return res.status(200).json(await backfill(token, req.query && req.query.h, req.query && req.query.pages)); }
