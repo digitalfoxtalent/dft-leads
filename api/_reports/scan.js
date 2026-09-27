@@ -12,11 +12,12 @@ const SOCIAL = /(youtube\.com|youtu\.be|instagram\.com|twitter\.com|x\.com|tikto
 const squash = s => String(s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
 const secs = d => { const m = String(d || "").match(/P(?:(\d+)D)?T?(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/); return m ? ((+m[1] || 0) * 86400 + (+m[2] || 0) * 3600 + (+m[3] || 0) * 60 + (+m[4] || 0)) : 0; };
 
-export async function scanUploads(token, handle, since, extraBrands, maxPages) {
+// ctx (optional): { gtr, rows } already loaded, so a nightly run over many creators reads monday once.
+export async function scanUploads(token, handle, since, extraBrands, maxPages, ctx) {
   const key = process.env.YOUTUBE_API_KEY; if (!key) throw new Error("YOUTUBE_API_KEY missing");
-  const gtr = await loadGtr(token);
+  const gtr = (ctx && ctx.gtr) || await loadGtr(token);
   const ytHandle = gtr.handle[String(handle).toLowerCase()] || handle;
-  const rows = (await missingRows(token)).filter(r => r.h.toLowerCase() === String(handle).toLowerCase());
+  const rows = ((ctx && ctx.rows) || await missingRows(token)).filter(r => r.h.toLowerCase() === String(handle).toLowerCase());
   const brands = [...new Set(rows.map(r => r.brand).concat(String(extraBrands || "").split(",")).map(b => String(b || "").trim()).filter(Boolean))];
   const bre = brands.map(b => ({ b, sq: squash(b), re: new RegExp("\\b" + String(b).replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().split(" ").join("[\\s.-]*") + "\\b", "i") })).filter(x => x.sq.length >= 3);
   let units = 1;
