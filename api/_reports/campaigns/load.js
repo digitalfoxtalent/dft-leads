@@ -4,8 +4,12 @@
 // - Campaign rows, creators, videos, guarantees and YouTube views: monday, read live from
 //   US Campaigns 6162879609 and its subitems 6162879732 (cached 10 minutes). YouTube views
 //   are LATEST VIEWS, written daily by api/view-count-sync.js.
-// - Podcast listens: a dated Megaphone snapshot in ./podcast.js until the daily Megaphone
-//   collector writes them to monday columns.
+// - Spotify, Apple Podcasts, Amazon Music and other apps (delivered through Megaphone): each
+//   creator row's REACH DETAIL column on monday (long_text_mm7jfzzx), one line per video, written
+//   by the Reporting refresh task (a hand-run scheduled task) until an automatic feed exists:
+//     as of 2026-09-27 ...
+//     <youtube id> ep:<megaphone episode id> sp:<Spotify> ap:<Apple> am:<Amazon> ot:<other apps> by:<id|title>
+//   Videos with no line there fall back to the dated snapshot in ./podcast.js (26 Sep 2026).
 //
 // IF MONDAY CANNOT BE READ
 // The page still renders. It shows the last good live read this server instance holds, or
@@ -20,7 +24,7 @@ import { SNAPSHOT } from "./snapshot.js";
 import { AVATARS } from "./avatars.js";
 import { PARTNERS } from "../partners.js";
 const SUB_BOARD = 6162879732;
-const SUB_COLS = ["connect_boards__1", "text_mm6aq9qp", "date_mm1mb38m", "numeric_mm4bn6yq", "numeric_mm3yxqes", "numeric_mm4b44ta", "color_mm41rsrc", "numeric_mm3vg42g", "timerange_mm1m50vx", "dropdown_mm7jd5dk"];
+const SUB_COLS = ["connect_boards__1", "text_mm6aq9qp", "date_mm1mb38m", "numeric_mm4bn6yq", "numeric_mm3yxqes", "numeric_mm4b44ta", "color_mm41rsrc", "numeric_mm3vg42g", "timerange_mm1m50vx", "dropdown_mm7jd5dk", "long_text_mm7jfzzx"];
 const PAR_COLS = ["dropdown_mm1a3tqp", "connect_boards", "deal_value", "status_1", "date__1", "deal_owner", "lookup_mkz6pygk", "lookup_mm5zp13v"]; // the last two: CLIENT (from CONTACTS) and QB Customer mirrors
 const CACHE_MS = 10 * 60 * 1000;
 let cache = null;    // { at, payload } - what we serve next
@@ -93,6 +97,18 @@ const cvMap = it => {
   return o;
 };
 const num = x => { const n = parseFloat(x); return Number.isFinite(n) ? n : null; };
+const DETAIL_RE = /^([A-Za-z0-9_-]{11})\s+ep:(\S+)\s+sp:(\d+)\s+ap:(\d+)\s+am:(\d+)\s+ot:(\d+)(?:\s+by:(\w+))?/;
+// One row's REACH DETAIL -> { asOf, vids: { youtubeId: { t, s, a, am, o, m, e } } }
+function parseDetail(text) {
+  const out = { asOf: "", vids: {} };
+  const m0 = String(text || "").match(/as of (\d{4}-\d{2}-\d{2})/); if (m0) out.asOf = m0[1];
+  for (const line of String(text || "").split(/\n/)) {
+    const m = line.trim().match(DETAIL_RE); if (!m) continue;
+    const [s, a, am, o] = [m[3], m[4], m[5], m[6]].map(Number);
+    out.vids[m[1]] = { t: s + a + am + o, s, a, am, o, m: m[7] === "title" ? "t" : "i", e: m[2] };
+  }
+  return out;
+}
 
 
 async function loadLive(token) {
@@ -114,17 +130,19 @@ async function loadLive(token) {
     pars[it.id] = { n: it.name, grp: it.group && it.group.title, b: c.dropdown_mm1a3tqp || String(it.name).split(/[_ ]/)[0],
       cl: [...new Set([c.connect_boards, c.lookup_mkz6pygk, c.lookup_mm5zp13v].flatMap(x => String(x || "").split(/,\s*/)).filter(Boolean))].join(", "), val: c.deal_value ? parseFloat(c.deal_value) : null, st: c.status_1 || "", cd: c.date__1 || "", own: c.deal_owner || "" };
   }));
-  const byC = {}; let rows = 0;
+  const byC = {}; let rows = 0; const pod = {}; let podAsOf = "";
   for (const s of subs) {
     const pid = s.parent_item && s.parent_item.id; if (!pid || !pars[pid]) continue;
     const c = cvMap(s), ids = parseIds(c.text_mm6aq9qp); if (!ids.v.length) continue;
+    const det = parseDetail(c.long_text_mm7jfzzx);
+    if (Object.keys(det.vids).length) { Object.assign(pod, det.vids); if (det.asOf > podAsOf) podAsOf = det.asOf; }
     const cc = byC[pid] = byC[pid] || Object.assign({ id: pid, r: [] }, pars[pid]);
     cc.r.push({ id: s.id, h: c.connect_boards__1 || "", nm: s.name, p: c.date_mm1mb38m || "", y: num(c.numeric_mm4bn6yq),
       d30: num(c.numeric_mm4b44ta), g: num(c.numeric_mm3yxqes), lk: c.color_mm41rsrc || "", v: ids.v, k: ids.k,
       gr: num(c.numeric_mm3vg42g), ld: String(c.timerange_mm1m50vx || "").slice(0, 10), cg: c.dropdown_mm7jd5dk || "" });
     rows++;
   }
-  return { c: Object.values(byC), rows };
+  return { c: Object.values(byC), rows, pod, podAsOf };
 }
 
 // Who is on the signed roster: the active groups of the Global Talent Roster 6160485039
@@ -157,7 +175,8 @@ async function getPayload(token) {
   try {
     const live = await loadLive(token);
     if (live.rows < snapRows * 0.8) throw new Error("short read: " + live.rows + " rows against " + snapRows + " saved");
-    payload = Object.assign(base, { c: live.c, source: "live", asOf: now.toISOString().slice(0, 10), fetchedAt: stamp(now) });
+    payload = Object.assign(base, { c: live.c, source: "live", asOf: now.toISOString().slice(0, 10), fetchedAt: stamp(now),
+      pod: Object.assign({}, PODCAST, live.pod), podAsOf: live.podAsOf || PODCAST_AS_OF });
     lastGood = payload;
     cache = { at: Date.now(), payload };
   } catch (e) {
