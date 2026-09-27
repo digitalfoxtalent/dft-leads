@@ -6,7 +6,7 @@
 //                                       that have no link yet. Suggests, never writes.
 //
 // Matching (music promos and brand posts): a post is a candidate for a row when it was published
-// from 7 days before to 60 days after the row's anchor date (date published, live date or the
+// from 21 days before to 60 days after the row's anchor date (date published, live date or the
 // deal's close date), and the words of the deal name appear in the post's sound, sound artist or
 // caption. Score = share of the deal's words found, and at least one word must be in the sound's title
 // or the caption and not only in the artist name (so another song by the same artist is not a match). Rows are approved by a person before any write.
@@ -27,7 +27,7 @@ export function parseSocial(text) {
   return out;
 }
 
-const STOP = new Set(["ceiling", "fan", "ceo", "ceilingfan", "ceilingfanceo", "bulk", "deal", "ft", "feat", "featuring", "x", "the", "and", "a", "an", "of", "to", "in", "on", "my", "for", "with", "by", "tiktok", "promo", "campaign", "song", "music", "sound"]);
+const STOP = new Set(["ceiling", "fan", "ceo", "ceilingfan", "ceilingfanceo", "bulk", "deal", "ft", "feat", "featuring", "x", "the", "and", "a", "an", "of", "to", "in", "on", "my", "for", "with", "by", "tiktok", "promo", "campaign", "song", "music", "sound", "like", "love", "you", "me", "it", "i", "is", "im"]);
 const words = s => String(s || "").normalize("NFKD").toLowerCase().replace(/[^a-z0-9$ ]+/g, " ").replace(/\$/g, "s").split(/\s+/).filter(w => w && !STOP.has(w));
 const flat = s => String(s || "").normalize("NFKD").toLowerCase().replace(/\$/g, "s").replace(/[^a-z0-9]/g, "");
 const day = s => Date.parse(String(s).slice(0, 10) + "T00:00:00Z");
@@ -53,17 +53,22 @@ export async function socialScan(token, dataset, h) {
   const dates = P.map(p => p.d).sort();
   const out = [];
   for (const r of rows) {
-    const a = r.pub || r.live || r.closed; const w = [...new Set(words(r.deal))];
+    const a = r.pub || r.live || r.closed;
+    const dn = String(r.deal || "").replace(/([a-z])([A-Z])/g, "$1 $2").replace(/_/g, " ");
+    const w = [...new Set(words(dn))];
+    // Parts of the deal name ("Artist - Song", "Song_CeilingFanCEO") written together, creator name removed
+    const parts = String(r.deal || "").split(/[_\-\u2013,+]|\s+x\s+/i).map(x => flat(x).replace(/ceilingfanceo|ceilingfan|tugboatspenny/g, "")).filter(x => x.length >= 5);
     const res = { id: r.id, deal: r.deal, a, c: [] };
     if (!a || !w.length) { out.push(res); continue; }
-    const t0 = day(a) - 7 * 864e5, t1 = day(a) + 60 * 864e5;
+    const t0 = day(a) - 21 * 864e5, t1 = day(a) + 60 * 864e5;
     for (const p of P) {
       const t = day(p.d); if (t < t0 || t > t1) continue;
       const hit = w.filter(x => p.hay.includes(x) || (x.length >= 4 && p.hf.includes(x)));
       const whole = flat(r.deal).length >= 5 && p.hf.includes(flat(r.deal));
       const strong = hit.some(x => p.ti.includes(x) && !p.au.has(x)); // the artist alone is not enough: the song or brand must be named
-      const s = whole ? 1 : hit.length / w.length;
-      if (s >= 0.5 && (whole || strong)) res.c.push([p.id, p.d, +s.toFixed(2), p.mu.slice(0, 60), p.v, p.ad ? 1 : 0]);
+      const part = parts.some(x => p.hf.includes(x) && !flat([...p.au].join("")).includes(x));
+      const s = whole ? 1 : Math.max(hit.length / w.length, part ? 0.8 : 0);
+      if (s >= 0.5 && (whole || strong || part)) res.c.push([p.id, p.d, +s.toFixed(2), p.mu.slice(0, 60), p.v, p.ad ? 1 : 0]);
     }
     res.c.sort((x, y) => y[2] - x[2] || Math.abs(day(x[1]) - day(a)) - Math.abs(day(y[1]) - day(a)));
     out.push(res);
