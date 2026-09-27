@@ -39,7 +39,7 @@ async function mondayVars(token, query, variables) {
 const writable = d => {
   if (!d.vids || !d.vids.length || d.vids.length > 15) return false;
   if (d.act === "link") return true;
-  if (d.act !== "title") return false;
+  if (d.act !== "title" || !d.sole) return false; // title matches only when this is the creator's one open row for the brand
   const b = String(d.r.brand || "").trim();
   const n = b.replace(/[^a-z0-9]/gi, "").length;
   if (COMMON.test(b) || n < 6) return false;

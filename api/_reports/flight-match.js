@@ -82,7 +82,7 @@ export function matchRows(vids, rows, now) {
         const take = (brs.length === 1 && (r.pub || r.live || monthHint(r))) ? inW : flights[0];
         if (take.length > 15) { res.push({ r, act: "review", why: take.length + " " + tier + " matches in the window", vids: take.slice(0, 5) }); done = true; break; }
         for (const v of take) claimed.add(v.v);
-        res.push({ r, act: tier, why: w.why + (standing ? "; the brand link is a standing link, so titles only" : ""), vids: take.map(v => ({ ...v, ev: tier === "link" ? (v.u || []).find(u => sq(u).includes(bk)) : "title names " + r.brand })) });
+        res.push({ r, act: tier, sole: brs.length === 1, why: w.why + (standing ? "; the brand link is a standing link, so titles only" : ""), vids: take.map(v => ({ ...v, ev: tier === "link" ? (v.u || []).find(u => sq(u).includes(bk)) : "title names " + r.brand })) });
         done = true; break;
       }
       if (!done) {
