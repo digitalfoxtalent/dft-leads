@@ -68,7 +68,9 @@ export function brandHits(tr, brand) {
 export async function timestampCheck(id, brand) {
   const [{ segs }, tr] = await Promise.all([sponsorSegments([id]), transcripts([id])]);
   const t = tr[id] || [];
-  return { id, brand, sponsorBlock: (segs[id] || []).map(s => mmss(s.s) + "-" + mmss(s.e) + (s.l ? " locked" : " v" + s.v)), captions: t.length, brandMentions: brandHits(t, brand).map(mmss) };
+  const main = (segs[id] || []).filter(x => x.e - x.s >= 15)[0];
+  const around = main ? t.filter(x => x.start >= main.s - 5 && x.start <= main.s + 35).map(x => x.text).join(" ").slice(0, 400) : "";
+  return { id, brand, sponsorBlock: (segs[id] || []).map(s => mmss(s.s) + "-" + mmss(s.e) + (s.l ? " locked" : " v" + s.v)), captions: t.length, brandMentions: brandHits(t, brand).map(mmss), around, line: lineFor(id, segs[id] || [], t, brand) };
 }
 
 // ── Write step: AD READ TIMES (long_text_mm7kw197) on each creator row, one line per video ────────
