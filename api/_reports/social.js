@@ -30,6 +30,8 @@ export function parseSocial(text) {
 const STOP = new Set(["ceiling", "fan", "ceo", "ceilingfan", "ceilingfanceo", "bulk", "deal", "ft", "feat", "featuring", "x", "the", "and", "a", "an", "of", "to", "in", "on", "my", "for", "with", "by", "tiktok", "promo", "campaign", "song", "music", "sound", "like", "love", "you", "me", "it", "i", "is", "im"]);
 const words = s => String(s || "").normalize("NFKD").toLowerCase().replace(/[^a-z0-9$ ]+/g, " ").replace(/\$/g, "s").split(/\s+/).filter(w => w && !STOP.has(w));
 const flat = s => String(s || "").normalize("NFKD").toLowerCase().replace(/\$/g, "s").replace(/[^a-z0-9]/g, "");
+const MONTHS = /(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sept|sep|oct|nov|dec)(?=\d|$)/g;
+const GENERIC = new Set(["originalsound", "sound", "videos", "video", "promo", "tiktok", "trackpack", "trackpromo", "songs"]);
 const day = s => Date.parse(String(s).slice(0, 10) + "T00:00:00Z");
 
 async function datasetItems(id) {
@@ -47,24 +49,27 @@ export async function socialScan(token, dataset, h) {
   const rows = gaps.filter(r => String(r.h || "").toLowerCase().replace(/^@/, "") === hk || flat(r.h) === flat(h));
   const P = posts.map(p => {
     const mm = p.musicMeta || {};
-    return { id: String(p.id), d: String(p.createTimeISO || "").slice(0, 10), u: p.webVideoUrl, v: p.playCount || 0, ad: !!(p.isAd || p.isSponsored),
+    return { id: String(p.id), d: String(p.createTimeISO || "").slice(0, 10), u: p.webVideoUrl, v: p.playCount || 0, ad: !!(p.isAd || p.isSponsored), sid: String(mm.musicId || ""),
       mu: [mm.musicName, mm.musicAuthor].filter(Boolean).join(" / "), au: new Set(words(mm.musicAuthor)), ti: words([mm.musicName, p.text].join(" ")), hay: words([mm.musicName, mm.musicAuthor, p.text].join(" ")), hf: flat([mm.musicName, mm.musicAuthor, p.text].join(" ")) };
   }).filter(p => p.d);
   const dates = P.map(p => p.d).sort();
   const out = [];
   for (const r of rows) {
     const a = r.pub || r.live || r.closed;
-    const dn = String(r.deal || "").replace(/([a-z])([A-Z])/g, "$1 $2").replace(/_/g, " ");
+    const sid = (String(r.deal || "").match(/tiktok\.com\/music\/[^\s]*?(\d{12,})/) || [])[1] || ""; // a TikTok sound link in the deal name
+    const deal = String(r.deal || "").replace(/https?:\/\/\S+/g, " ");
+    const dn = deal.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/_/g, " ");
     const w = [...new Set(words(dn))];
     // Parts of the deal name ("Artist - Song", "Song_CeilingFanCEO") written together, creator name removed
-    const parts = String(r.deal || "").split(/[_\-\u2013,+]|\s+x\s+/i).map(x => flat(x).replace(/ceilingfanceo|ceilingfan|tugboatspenny/g, "")).filter(x => x.length >= 5);
+    const parts = deal.split(/[_\-\u2013,+]|\s+x\s+/i).map(x => flat(x).replace(/ceilingfanceo|ceilingfan|tugboatspenny/g, "").replace(MONTHS, "").replace(/\d+/g, "")).filter(x => x.length >= 5 && !GENERIC.has(x));
     const res = { id: r.id, deal: r.deal, a, c: [] };
-    if (!a || !w.length) { out.push(res); continue; }
+    if (!a || (!w.length && !sid)) { out.push(res); continue; }
     const t0 = day(a) - 21 * 864e5, t1 = day(a) + 60 * 864e5;
     for (const p of P) {
       const t = day(p.d); if (t < t0 || t > t1) continue;
       const hit = w.filter(x => p.hay.includes(x) || (x.length >= 4 && p.hf.includes(x)));
-      const whole = flat(r.deal).length >= 5 && p.hf.includes(flat(r.deal));
+      if (sid && p.sid === sid) { res.c.push([p.id, p.d, 1, p.mu.slice(0, 60), p.v, p.ad ? 1 : 0]); continue; }
+      const whole = flat(deal).length >= 5 && p.hf.includes(flat(deal));
       const strong = hit.some(x => p.ti.includes(x) && !p.au.has(x)); // the artist alone is not enough: the song or brand must be named
       const part = parts.some(x => p.hf.includes(x) && !flat([...p.au].join("")).includes(x));
       const s = whole ? 1 : Math.max(hit.length / w.length, part ? 0.8 : 0);
