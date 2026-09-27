@@ -28,6 +28,7 @@ import { platformsData, renderPlatforms } from "./_reports/platforms/load.js";
 import { videoDetails } from "./_reports/campaigns/videos.js";
 import { applyLinks } from "./_reports/apply-links.js";
 import { scanUploads } from "./_reports/scan.js";
+import { reachApply } from "./_reports/reach-apply.js";
 
 export const config = { maxDuration: 60 };
 
@@ -110,6 +111,11 @@ export default async function handler(req, res) {
   if (route === "apply-links") { // team only: write a checked list of video links (see _reports/apply-links.js)
     if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
     try { const b = typeof req.body === "string" ? JSON.parse(req.body) : req.body; return res.status(200).json(await applyLinks(token, b, String(req.query && req.query.dry || "") === "1")); }
+    catch (e) { return res.status(500).json({ error: String(e && e.message || e).slice(0, 300) }); }
+  }
+  if (route === "reach-apply") { // team only: Reporting refresh write step, Spotify and apps listens per row (see _reports/reach-apply.js)
+    if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
+    try { const b = typeof req.body === "string" ? JSON.parse(req.body) : req.body; return res.status(200).json(await reachApply(token, b, String(req.query && req.query.dry || "") === "1")); }
     catch (e) { return res.status(500).json({ error: String(e && e.message || e).slice(0, 300) }); }
   }
   if (route === "partner-gaps") { // team only: a partner's creator rows that still have no video link
