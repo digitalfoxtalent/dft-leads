@@ -50,7 +50,8 @@ export async function transcripts(ids) {
   while (!/SUCCEEDED|FAILED|ABORTED|TIMED-OUT/.test(run.status) && Date.now() - t0 < 200000) {
     r = await fetch(A + "/actor-runs/" + run.id + "?waitForFinish=60&token=" + atok()); run = (await r.json()).data;
   }
-  if (!/SUCCEEDED/.test(run.status)) throw new Error("Apify transcripts run " + run.status);
+  if (!run.defaultDatasetId) throw new Error("Apify transcripts run " + run.status);
+  // A failed run still keeps the transcripts it got (one video without captions can fail the run); use those.
   r = await fetch(A + "/datasets/" + run.defaultDatasetId + "/items?clean=1&token=" + atok());
   const out = {};
   for (const it of await r.json()) { const m = String(it.videoUrl || it.inputUrl || "").match(/v=([A-Za-z0-9_-]{11})/); if (m && Array.isArray(it.transcript)) out[m[1]] = it.transcript; }
