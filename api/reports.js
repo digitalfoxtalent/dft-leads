@@ -22,7 +22,7 @@ import { handleAuth } from "./_reports/auth.js";
 import { PARTNERS } from "./_reports/partners.js";
 import { mondayToken } from "./_reports/monday.js";
 import { renderCampaigns, campaignsHealth, renderPartner, campaignPayload } from "./_reports/campaigns/load.js";
-import { timestampProbe } from "./_reports/timestamps.js";
+import { timestampProbe, timestampCheck } from "./_reports/timestamps.js";
 import { probe } from "./_reports/megaphone.js";
 import { backfill, missingRows } from "./_reports/backfill.js";
 import { platformsData, renderPlatforms } from "./_reports/platforms/load.js";
@@ -148,6 +148,10 @@ export default async function handler(req, res) {
   }
   if (route === "ts-probe") { // team only: how many of a partner's videos already have a SponsorBlock sponsor segment. Read only
     try { const P = PARTNERS[String(req.query && req.query.p || "rhapsody")]; if (!P) return res.status(404).json({ error: "unknown partner" }); return res.status(200).json(await timestampProbe(await campaignPayload(token), P.match)); }
+    catch (e) { return res.status(500).json({ error: String(e && e.message || e).slice(0, 300) }); }
+  }
+  if (route === "ts-check") { // team only: one video's SponsorBlock segments and the caption times that name the brand. Read only
+    try { const q = req.query || {}; return res.status(200).json(await timestampCheck(String(q.v || ""), String(q.b || ""))); }
     catch (e) { return res.status(500).json({ error: String(e && e.message || e).slice(0, 300) }); }
   }
   if (route === "scan") { // team only: one creator's uploads, compact, for matching rows to videos (see _reports/scan.js)

@@ -36,3 +36,31 @@ export async function timestampProbe(payload, match) {
     sample: withSeg.slice(0, 12).map(x => [x.v, x.b, x.cr, segs[x.v].map(s => mmss(s.s) + "-" + mmss(s.e) + (s.l ? " locked" : " v" + s.v)).join(" | ")]),
     unmarked: vids.filter(x => !(segs[x.v] || []).length && !errors[x.v]).slice(0, 8).map(x => [x.v, x.b, x.cr]) };
 }
+
+// Source 2: captions. One transcript per video through Apify (supreme_coder/youtube-transcript-scraper,
+// about $0.0007 a video), then every caption line that names the brand.
+const atok = () => process.env.APIFY_TOKEN || "";
+const flat = s => String(s || "").normalize("NFKD").toLowerCase().replace(/[^a-z0-9]/g, "");
+export async function transcripts(ids) {
+  if (!atok()) throw new Error("APIFY_TOKEN missing");
+  const u = "https://api.apify.com/v2/acts/supreme_coder~youtube-transcript-scraper/run-sync-get-dataset-items?timeout=240&clean=1&maxTotalChargeUsd=1&token=" + atok();
+  const r = await fetch(u, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ urls: ids.map(id => ({ url: "https://www.youtube.com/watch?v=" + id })), outputFormat: "json" }) });
+  if (!r.ok) throw new Error("Apify transcripts " + r.status);
+  const out = {};
+  for (const it of await r.json()) { const m = String(it.videoUrl || it.inputUrl || "").match(/v=([A-Za-z0-9_-]{11})/); if (m && Array.isArray(it.transcript)) out[m[1]] = it.transcript; }
+  return out;
+}
+export function brandHits(tr, brand) {
+  const keys = [flat(brand)].concat(String(brand || "").split(/\s+/).map(flat).filter(w => w.length >= 5)).filter(Boolean);
+  const hits = [];
+  for (let i = 0; i < tr.length; i++) {
+    const win = flat((tr[i].text || "") + " " + ((tr[i + 1] || {}).text || "")); // a name split across two caption lines
+    if (keys.some(k => win.includes(k))) { const t = Math.round(tr[i].start || 0); if (!hits.length || t - hits[hits.length - 1] > 20) hits.push(t); }
+  }
+  return hits;
+}
+export async function timestampCheck(id, brand) {
+  const [{ segs }, tr] = await Promise.all([sponsorSegments([id]), transcripts([id])]);
+  const t = tr[id] || [];
+  return { id, brand, sponsorBlock: (segs[id] || []).map(s => mmss(s.s) + "-" + mmss(s.e) + (s.l ? " locked" : " v" + s.v)), captions: t.length, brandMentions: brandHits(t, brand).map(mmss) };
+}
