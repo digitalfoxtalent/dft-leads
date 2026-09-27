@@ -48,7 +48,7 @@ const line = d => "<li><b>" + d.act + (d.write ? " (written)" : "") + "</b> " + 
 export default async function handler(req, res) {
   res.setHeader("Cache-Control", "no-store");
   const secret = process.env.CRON_SECRET;
-  const fromCron = req.headers["x-vercel-cron"] || (secret && req.headers.authorization === "Bearer " + secret);
+  const fromCron = req.headers["x-vercel-cron"] || /^vercel-cron\//.test(String(req.headers["user-agent"] || "")) || (secret && req.headers.authorization === "Bearer " + secret);
   if (!fromCron) return res.status(401).json({ error: "Unauthorized" });
   if (MODE === "off" || Date.now() > new Date(STOP_AFTER).getTime()) return res.status(200).json({ off: true });
   const token = mondayToken();
