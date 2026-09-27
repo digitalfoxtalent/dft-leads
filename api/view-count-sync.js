@@ -201,21 +201,32 @@ export default async function handler(req, res) {
       return res.json({ ...summary, updated: 0, changes: toWrite, unresolved, regressions, malformed });
     }
 
-    // 5. Write.
+    // 5. Write, 20 rows per request (aliased mutations). One request per row with a pause took
+    // about 0.7 s a row, so once ~450 rows changed in a day the run hit the 300 s limit and the
+    // rows near the end of the board were never updated (seen 27 Sep 2026). Batched, it is ~25 requests.
     let updated = 0; const failures = [];
-    for (const w of toWrite) {
-      const vals = { [COL_VIEWS]: w.views, [COL_LATEST]: w.views };
-      if (w.cpm !== null) vals[COL_CPM] = w.cpm;
+    for (let i = 0; i < toWrite.length; i += 20) {
+      const batch = toWrite.slice(i, i + 20);
+      const body = batch.map((w, k) => {
+        const vals = { [COL_VIEWS]: w.views, [COL_LATEST]: w.views };
+        if (w.cpm !== null) vals[COL_CPM] = w.cpm;
+        return "m" + k + ":change_multiple_column_values(board_id:" + BOARD + ",item_id:" + w.itemId + ",column_values:" + JSON.stringify(JSON.stringify(vals)) + "){id}";
+      }).join(" ");
       try {
-        const d = await mondayQuery(MONDAY_API_KEY,
-          "mutation{change_multiple_column_values(board_id:" + BOARD + ",item_id:" + w.itemId +
-          ",column_values:" + JSON.stringify(JSON.stringify(vals)) + "){id}}");
-        if (d && d.data && d.data.change_multiple_column_values) updated++;
-        else failures.push({ itemId: w.itemId, name: w.name, error: "no confirmation returned" });
+        const d = await mondayQuery(MONDAY_API_KEY, "mutation{" + body + "}");
+        batch.forEach((w, k) => { if (d && d.data && d.data["m" + k]) updated++; else failures.push({ itemId: w.itemId, name: w.name, error: "no confirmation returned" }); });
       } catch (e) {
-        failures.push({ itemId: w.itemId, name: w.name, error: String((e && e.message) || e) });
+        // One bad row fails the whole request: retry that batch row by row so the others still land.
+        for (const w of batch) {
+          const vals = { [COL_VIEWS]: w.views, [COL_LATEST]: w.views };
+          if (w.cpm !== null) vals[COL_CPM] = w.cpm;
+          try {
+            const d = await mondayQuery(MONDAY_API_KEY, "mutation{change_multiple_column_values(board_id:" + BOARD + ",item_id:" + w.itemId + ",column_values:" + JSON.stringify(JSON.stringify(vals)) + "){id}}");
+            if (d && d.data && d.data.change_multiple_column_values) updated++;
+            else failures.push({ itemId: w.itemId, name: w.name, error: "no confirmation returned" });
+          } catch (e2) { failures.push({ itemId: w.itemId, name: w.name, error: String((e2 && e2.message) || e2) }); }
+        }
       }
-      await new Promise(r => setTimeout(r, 100));
     }
 
     return res.json({ ...summary, updated, failures, changes: toWrite, unresolved, regressions, malformed });

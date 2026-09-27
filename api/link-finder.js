@@ -28,7 +28,7 @@ export const config = { maxDuration: 60 };
 
 // Set to false to make the nightly run plan only (same as ?dry=1), changing nothing on monday.
 const WRITES_ENABLED = true; // on 27 Sep 2026 after the overnight dry runs (board 18432874155) checked out
-const MAX_ROWS = 25, UNIT_BUDGET = 1500, TIME_MS = 45000;
+const MAX_ROWS = 25, UNIT_BUDGET = 1500, TIME_MS = 30000; // leaves time for the writes inside the 60 s limit
 
 export default async function handler(req, res) {
   res.setHeader("Cache-Control", "no-store");
