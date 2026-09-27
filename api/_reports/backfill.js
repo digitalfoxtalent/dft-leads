@@ -47,15 +47,16 @@ export async function yt(path, key) {
 // GTR: roster row name -> YouTube handle, and whether the creator is on the signed roster.
 const ROSTER_GROUPS = new Set(["youtube long form", "short form", "need to set up with suppliers"]);
 export async function loadGtr(token) {
-  const g = await monday(token, "query { boards(ids:[6160485039]) { items_page(limit:500) { items { name group { title } column_values(ids:[\"text_mm6nqp7b\",\"color_mm6cgavk\"]) { id text } } } } }");
-  const handle = {}, signed = {};
+  const g = await monday(token, "query { boards(ids:[6160485039]) { items_page(limit:500) { items { name group { title } column_values(ids:[\"text_mm6nqp7b\",\"color_mm6cgavk\",\"text_mkwxvv88\"]) { id text } } } } }");
+  const handle = {}, signed = {}, url = {};
   for (const it of g.boards[0].items_page.items) {
     const cv = {}; for (const c of it.column_values) cv[c.id] = c.text || "";
     const k = String(it.name).toLowerCase();
     handle[k] = cv.text_mm6nqp7b || "";
+    if (cv.text_mkwxvv88) url[k] = cv.text_mkwxvv88; // YT URL: the fallback when the handle does not open a channel
     signed[k] = ROSTER_GROUPS.has(String(it.group && it.group.title || "").toLowerCase()) || cv.color_mm6cgavk === "Signed";
   }
-  return { handle, signed };
+  return { handle, signed, url };
 }
 
 export const anchorOf = r => r.pub || r.live || r.closed;

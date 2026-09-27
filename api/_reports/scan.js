@@ -21,9 +21,16 @@ export async function scanUploads(token, handle, since, extraBrands, maxPages, c
   const brands = [...new Set(rows.map(r => r.brand).concat(String(extraBrands || "").split(",")).map(b => String(b || "").trim()).filter(Boolean))];
   const bre = brands.map(b => ({ b, sq: squash(b), re: new RegExp("\\b" + String(b).replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().split(" ").join("[\\s.-]*") + "\\b", "i") })).filter(x => x.sq.length >= 3);
   let units = 1;
-  const ch = await yt("channels?part=contentDetails,snippet&forHandle=" + encodeURIComponent(ytHandle), key);
-  const c0 = ch.items && ch.items[0];
-  if (!c0) return { handle, ytHandle, notFound: true, units, brands };
+  let ch = await yt("channels?part=contentDetails,snippet&forHandle=" + encodeURIComponent(ytHandle), key);
+  let c0 = ch.items && ch.items[0], via = "handle";
+  // The handle did not open a channel: fall back to the roster's YT URL (@handle, /channel/UC..., /user/name).
+  const u = !c0 && gtr.url && gtr.url[String(handle).toLowerCase()];
+  if (u) {
+    const m = String(u).match(/youtube\.com\/(?:(@[\w.\-]+)|channel\/(UC[\w-]{22})|(?:user|c)\/([\w.\-]+))/i);
+    const q = m && (m[1] ? "forHandle=" + encodeURIComponent(m[1]) : m[2] ? "id=" + m[2] : "forUsername=" + encodeURIComponent(m[3]));
+    if (q) { units++; ch = await yt("channels?part=contentDetails,snippet&" + q, key); c0 = ch.items && ch.items[0]; via = "YT URL " + u; }
+  }
+  if (!c0) return { handle, ytHandle, ytUrl: u || "", notFound: true, units, brands };
   // A "brand" that is really the creator's own name (a deal named TheReelRejects_Freecash_... with no
   // brand set) would match the creator's own links (patreon.com/thereelrejects), so it is dropped.
   const me = [squash(handle), squash(ytHandle), squash(c0.snippet.title)].map(x => x.replace(/^the/, "")).filter(x => x.length >= 4);
@@ -55,5 +62,5 @@ export async function scanUploads(token, handle, since, extraBrands, maxPages, c
     }
   }
   vids.sort((a, b) => a.at.localeCompare(b.at));
-  return { handle, ytHandle, channel: c0.snippet.title, since: from.toISOString().slice(0, 10), reachedBack, units, brands, count: vids.length, vids };
+  return { handle, ytHandle, via, channel: c0.snippet.title, since: from.toISOString().slice(0, 10), reachedBack, units, brands, count: vids.length, vids };
 }
