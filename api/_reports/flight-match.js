@@ -47,6 +47,10 @@ export function matchRows(vids, rows, now) {
   const res = [], today = now || Date.now(), byBrand = {};
   for (const r of rows) {
     if (skipRow(r)) { res.push({ r, act: "skip", why: "not a content row" }); continue; }
+    // A deal with no brand set falls back to the first word of its name, which is sometimes the
+    // creator ("Cosmic Wonder_SonyMarvelWolverine_Sept2026"): that would match the creator's own links.
+    const me = sq(r.h).replace(/^the/, ""), bq = sq(r.brand).replace(/^the/, "");
+    if (me.length >= 4 && bq && (bq.includes(me) || me.includes(bq))) { res.push({ r, act: "review", why: "no brand set on the deal" }); continue; }
     const w = windowOf(r);
     if (!w) { res.push({ r, act: "review", why: "no date" }); continue; }
     if (w.a > today - 2 * D) { res.push({ r, act: "future", why: w.why }); continue; }
