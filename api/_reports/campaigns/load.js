@@ -9,6 +9,8 @@
 //   by the Reporting refresh task (a hand-run scheduled task) until an automatic feed exists:
 //     as of 2026-09-27 ...
 //     <youtube id> ep:<megaphone episode id> sp:<Spotify> ap:<Apple> am:<Amazon> ot:<other apps> by:<id|title>
+// - TikTok and Instagram: TIKTOK VIEWS and INSTAGRAM VIEWS (numeric_mm7khyj1, numeric_mm7k2ver), written
+//   daily by the social sync (_reports/social.js) for the TikTok / Instagram posts in LIVE VIDEO URLS.
 //   Videos with no line there fall back to the dated snapshot in ./podcast.js (26 Sep 2026).
 //
 // IF MONDAY CANNOT BE READ
@@ -23,8 +25,9 @@ import { SNAPSHOT } from "./snapshot.js";
 
 import { AVATARS } from "./avatars.js";
 import { PARTNERS } from "../partners.js";
+import { parseSocial } from "../social.js";
 const SUB_BOARD = 6162879732;
-const SUB_COLS = ["connect_boards__1", "text_mm6aq9qp", "date_mm1mb38m", "numeric_mm4bn6yq", "numeric_mm3yxqes", "numeric_mm4b44ta", "color_mm41rsrc", "numeric_mm3vg42g", "timerange_mm1m50vx", "dropdown_mm7jd5dk", "long_text_mm7jfzzx"];
+const SUB_COLS = ["connect_boards__1", "text_mm6aq9qp", "date_mm1mb38m", "numeric_mm4bn6yq", "numeric_mm3yxqes", "numeric_mm4b44ta", "color_mm41rsrc", "numeric_mm3vg42g", "timerange_mm1m50vx", "dropdown_mm7jd5dk", "long_text_mm7jfzzx", "numeric_mm7khyj1", "numeric_mm7k2ver"];
 const PAR_COLS = ["dropdown_mm1a3tqp", "connect_boards", "deal_value", "status_1", "date__1", "deal_owner", "lookup_mkz6pygk", "lookup_mm5zp13v"]; // the last two: CLIENT (from CONTACTS) and QB Customer mirrors
 const CACHE_MS = 10 * 60 * 1000;
 let cache = null;    // { at, payload } - what we serve next
@@ -133,13 +136,14 @@ async function loadLive(token) {
   const byC = {}; let rows = 0; const pod = {}; let podAsOf = "";
   for (const s of subs) {
     const pid = s.parent_item && s.parent_item.id; if (!pid || !pars[pid]) continue;
-    const c = cvMap(s), ids = parseIds(c.text_mm6aq9qp); if (!ids.v.length) continue;
+    const c = cvMap(s), ids = parseIds(c.text_mm6aq9qp), sv = parseSocial(c.text_mm6aq9qp).map(x => [x.p, x.url]); if (!ids.v.length && !sv.length) continue;
     const det = parseDetail(c.long_text_mm7jfzzx);
     if (Object.keys(det.vids).length) { Object.assign(pod, det.vids); if (det.asOf > podAsOf) podAsOf = det.asOf; }
     const cc = byC[pid] = byC[pid] || Object.assign({ id: pid, r: [] }, pars[pid]);
     cc.r.push({ id: s.id, h: c.connect_boards__1 || "", nm: s.name, p: c.date_mm1mb38m || "", y: num(c.numeric_mm4bn6yq),
       d30: num(c.numeric_mm4b44ta), g: num(c.numeric_mm3yxqes), lk: c.color_mm41rsrc || "", v: ids.v, k: ids.k,
-      gr: num(c.numeric_mm3vg42g), ld: String(c.timerange_mm1m50vx || "").slice(0, 10), cg: c.dropdown_mm7jd5dk || "" });
+      gr: num(c.numeric_mm3vg42g), ld: String(c.timerange_mm1m50vx || "").slice(0, 10), cg: c.dropdown_mm7jd5dk || "",
+      tt: num(c.numeric_mm7khyj1), ig: num(c.numeric_mm7k2ver), sv });
     rows++;
   }
   return { c: Object.values(byC), rows, pod, podAsOf };
@@ -205,7 +209,7 @@ export async function renderPartner(token, id) {
   const payload = await getPayload(token);
   const c = payload.c.filter(x => P.match.test(x.cl || "")).map(x => ({
     id: x.id, n: x.n, grp: x.grp, b: x.b, cl: P.name, val: null, st: "", cd: x.cd, own: "",
-    r: x.r.map(r => ({ id: r.id, h: r.h, nm: r.nm, p: r.p, y: r.y, d30: r.d30, g: r.g, lk: "", v: r.v, k: r.k, gr: null, ld: r.ld, cg: r.cg })),
+    r: x.r.map(r => ({ id: r.id, h: r.h, nm: r.nm, p: r.p, y: r.y, d30: r.d30, g: r.g, lk: "", v: r.v, k: r.k, gr: null, ld: r.ld, cg: r.cg, tt: r.tt, ig: r.ig, sv: r.sv })),
   }));
   const vids = new Set(c.flatMap(x => x.r.flatMap(r => r.v)));
   const pod = {}; for (const v in (payload.pod || {})) if (vids.has(v)) pod[v] = payload.pod[v];
