@@ -2,7 +2,8 @@
 // Used by the nightly link finder; the same rules were used by hand for the Sept 2026 backfill.
 //
 // WINDOW per row: DATE PUBLISHED -3/+10 days, else LIVE DATE -5/+35, else a month named in the
-// deal or row name (that month, +/-7 days), else the deal's close date -5/+100.
+// deal or row name (3 days before to 7 after that month), else the deal's close date -5/+100.
+// Apart from a publish date, never more than 7 days before the deal closed.
 // EVIDENCE, strongest first:
 //   link   the description carries a link naming the brand (huel.com/rejects, rula.com/REJECTS)
 //   title  the title names the brand (film and game promos often have no link)
@@ -33,7 +34,7 @@ export function windowOf(r) {
   if (r.pub) return { a: day(r.pub) - 3 * D, b: day(r.pub) + 10 * D, why: "published " + r.pub };
   if (r.live) return { a: day(r.live) - 5 * D, b: day(r.live) + 35 * D, why: "live date " + r.live };
   const h = monthHint(r);
-  if (h) { const a = Date.UTC(h.year, h.mon, 1), b = Date.UTC(h.year, h.mon + 1, 0); return { a: a - 7 * D, b: b + 7 * D, why: "month in the deal name (" + iso(a).slice(0, 7) + ")" }; }
+  if (h) { const a = Date.UTC(h.year, h.mon, 1), b = Date.UTC(h.year, h.mon + 1, 0); return { a: a - 3 * D, b: b + 7 * D, why: "month in the deal name (" + iso(a).slice(0, 7) + ")" }; }
   if (r.closed) return { a: day(r.closed) - 5 * D, b: day(r.closed) + 100 * D, why: "deal closed " + r.closed };
   return null;
 }
@@ -51,6 +52,8 @@ export function matchRows(vids, rows, now) {
     if (w.a > today - 2 * D) { res.push({ r, act: "future", why: w.why }); continue; }
     // A flight that started in the last 8 days may still be running: wait, so no video is missed.
     if ((r.live || r.pub) && day(r.live || r.pub) > today - 8 * D) { res.push({ r, act: "recent", why: w.why + " (flight may still be running)" }); continue; }
+    // Nothing goes live more than a week before the deal closed.
+    if (!r.pub && r.closed) w.a = Math.max(w.a, day(r.closed) - 7 * D);
     (byBrand[sq(r.brand)] = byBrand[sq(r.brand)] || []).push({ r, w });
   }
   for (const bk of Object.keys(byBrand)) {
@@ -71,7 +74,12 @@ export function matchRows(vids, rows, now) {
       for (const [tier, pool] of tiers) {
         const inW = pool.filter(v => !claimed.has(v.v) && day(v.at) >= w.a && day(v.at) <= w.b);
         if (!inW.length) continue;
-        const take = (brs.length === 1 && (r.pub || r.live || monthHint(r))) ? inW : cluster(inW, 9)[0];
+        // Several open rows for this brand: one flight each. A flight is one evidence link (two deals
+        // for the same brand in one month used different links) with no gap over 9 days.
+        const key = v => tier === "link" ? String((v.u || []).find(u => sq(u).includes(bk)) || "").toLowerCase().replace(/[?#].*$/, "").replace(/\/+$/, "") : "t";
+        const groups = {}; for (const v of inW) (groups[key(v)] = groups[key(v)] || []).push(v);
+        const flights = Object.values(groups).flatMap(g => cluster(g, 9)).sort((x, y) => day(x[0].at) - day(y[0].at));
+        const take = (brs.length === 1 && (r.pub || r.live || monthHint(r))) ? inW : flights[0];
         if (take.length > 15) { res.push({ r, act: "review", why: take.length + " " + tier + " matches in the window", vids: take.slice(0, 5) }); done = true; break; }
         for (const v of take) claimed.add(v.v);
         res.push({ r, act: tier, why: w.why + (standing ? "; the brand link is a standing link, so titles only" : ""), vids: take.map(v => ({ ...v, ev: tier === "link" ? (v.u || []).find(u => sq(u).includes(bk)) : "title names " + r.brand })) });
@@ -81,6 +89,15 @@ export function matchRows(vids, rows, now) {
         const weak = nameV.filter(v => day(v.at) >= w.a && day(v.at) <= w.b);
         res.push({ r, act: weak.length ? "weak" : "none", why: w.why, vids: weak.slice(0, 4) });
       }
+    }
+    // Second pass: a matched row with a tight window (publish, live or month date) also takes the
+    // leftover matches in its window that fall in no other open row's window for this brand.
+    if (brs.length > 1) for (const x of res) {
+      if (x.act !== "link" || sq(x.r.brand) !== bk || !(x.r.pub || x.r.live || monthHint(x.r))) continue;
+      const me = brs.find(b => b.r === x.r); if (!me) continue;
+      const extra = strongV.filter(v => !claimed.has(v.v) && day(v.at) >= me.w.a && day(v.at) <= me.w.b && !brs.some(b => b !== me && day(v.at) >= b.w.a && day(v.at) <= b.w.b));
+      for (const v of extra) { claimed.add(v.v); x.vids.push({ ...v, ev: (v.u || []).find(u => sq(u).includes(bk)) }); }
+      x.vids.sort((p, q) => day(p.at) - day(q.at));
     }
   }
   return res;
