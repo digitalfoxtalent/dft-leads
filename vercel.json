@@ -9,6 +9,10 @@
       "schedule": "0 9 * * *"
     },
     {
+      "path": "/api/social-sync",
+      "schedule": "30 9 * * *"
+    },
+    {
       "path": "/api/brand-scraper",
       "schedule": "0 8 * * 1"
     },
