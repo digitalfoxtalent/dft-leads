@@ -56,12 +56,27 @@ export async function transcripts(ids) {
   for (const it of await r.json()) { const m = String(it.videoUrl || it.inputUrl || "").match(/v=([A-Za-z0-9_-]{11})/); if (m && Array.isArray(it.transcript)) out[m[1]] = it.transcript; }
   return out;
 }
+// Auto captions mishear brand names ("Huel's" comes out as "Hules"), so a caption word also counts
+// when, after dropping a plural or possessive s, it is one swap of neighbouring letters away from a
+// brand word, or one letter away for brand words of 6 letters or more.
+function near(w, k) {
+  if (w === k) return true;
+  if (Math.abs(w.length - k.length) > 1) return false;
+  if (w.length === k.length) { const d = []; for (let i = 0; i < w.length; i++) if (w[i] !== k[i]) d.push(i);
+    if (d.length === 2 && d[1] === d[0] + 1 && w[d[0]] === k[d[1]] && w[d[1]] === k[d[0]]) return true;
+    return k.length >= 6 && d.length === 1; }
+  if (k.length < 6) return false;
+  const [a, b] = w.length < k.length ? [w, k] : [k, w]; let i = 0; while (i < a.length && a[i] === b[i]) i++; return a.slice(i) === b.slice(i + 1);
+}
 export function brandHits(tr, brand) {
   const keys = [flat(brand)].concat(String(brand || "").split(/\s+/).map(flat).filter(w => w.length >= 5)).filter(Boolean);
+  const words = String(brand || "").split(/\s+/).map(flat).filter(w => w.length >= 4);
   const hits = [];
   for (let i = 0; i < tr.length; i++) {
-    const win = flat((tr[i].text || "") + " " + ((tr[i + 1] || {}).text || "")); // a name split across two caption lines
-    if (keys.some(k => win.includes(k))) { const t = Math.round(tr[i].start || 0); if (!hits.length || t - hits[hits.length - 1] > 20) hits.push(t); }
+    const text = (tr[i].text || "") + " " + ((tr[i + 1] || {}).text || "");
+    const win = flat(text); // a name split across two caption lines
+    const toks = String(text).toLowerCase().replace(/&#39;|'/g, "").split(/[^a-z0-9]+/).filter(Boolean).map(t => t.length > 4 ? t.replace(/s$/, "") : t);
+    if (keys.some(k => win.includes(k)) || toks.some(t => words.some(k => near(t, k)))) { const t = Math.round(tr[i].start || 0); if (!hits.length || t - hits[hits.length - 1] > 20) hits.push(t); }
   }
   return hits;
 }
@@ -76,8 +91,9 @@ export async function timestampCheck(id, brand, at) {
 // ── Write step: AD READ TIMES (long_text_mm7kw197) on each creator row, one line per video ────────
 //   <videoId> read 52:47-54:07 | mention 0:00 | sponsorblock+captions
 // read: a SponsorBlock sponsor segment that the captions confirm names this brand (±15s), else the
-//   only non-intro segment when there are no captions, else the first caption line naming the brand
-//   after the first minute. mention: brand named in the first minute (the "brought to you by" line).
+//   first caption line naming the brand after the first minute. Unconfirmed SponsorBlock segments are
+//   written as "check" (a multi-sponsor video can carry another brand's segment; seen on TRR 27 Sep),
+//   and only confirmed reads are shown to partners. mention: brand named in the first minute (the "brought to you by" line).
 // Rows are only filled for videos not already listed, so a run can be repeated safely.
 const COL = "long_text_mm7kw197";
 const HEAD = "Ad read times (into the video; the podcast copy has the read at the same point, after any pre-roll)";
@@ -99,9 +115,8 @@ function lineFor(id, segs, tr, brand) {
   let read = null, src = "";
   const ok = hasTr ? main.filter(x => hits.some(h => h >= x.s - 15 && h <= x.e + 15)) : [];
   if (ok.length) { read = ok.map(span).join(", "); src = "sponsorblock+captions"; }
-  else if (main.length === 1) { read = span(main[0]); src = hasTr ? "sponsorblock (captions do not name the brand)" : "sponsorblock"; }
-  else if (main.length > 1) { read = "check " + main.map(span).join(", "); src = "sponsorblock, several segments"; }
   else if (body.length) { read = "~" + mmss(body[0]); src = "captions"; }
+  else if (main.length) { read = "check " + main.map(span).join(", "); src = hasTr ? "sponsorblock, not confirmed by captions" : "sponsorblock, no captions to confirm"; }
   else if (hasTr) {
     const ph = phraseHits(tr).filter(h => h >= 60);
     if (ph.length === 1) { read = "~" + mmss(ph[0]); src = "captions (sponsor wording, brand name not heard)"; }
@@ -110,7 +125,7 @@ function lineFor(id, segs, tr, brand) {
   const parts = [id, read ? "read " + read : "read not found"];
   if (intro.length) parts.push("mention " + mmss(intro[0]));
   parts.push(src || (hasTr ? "captions" : "no captions"));
-  return parts[0] + " " + parts.slice(1).join(" | ") + " | v2";
+  return parts[0] + " " + parts.slice(1).join(" | ") + " | v3";
 }
 export async function timestampApply(token, payload, match, opts) {
   const { monday } = await import("./monday.js");
@@ -125,7 +140,8 @@ export async function timestampApply(token, payload, match, opts) {
   const rows = [];
   for (const { c, r: r0 } of cand) {
     const r = Object.assign({}, r0, { at: fresh[r0.id] != null ? fresh[r0.id] : r0.at });
-    const keep = l => /^[A-Za-z0-9_-]{11}\s/.test(l.trim()) && !(/read not found/.test(l) && !/\| v2$/.test(l.trim())); // first-version misses are tried again once
+    // Kept: confirmed lines, and anything from the current version. Everything else is worked out again once.
+    const keep = l => /^[A-Za-z0-9_-]{11}\s/.test(l.trim()) && (/\| v3$/.test(l.trim()) || (/\| (sponsorblock\+captions|captions)$/.test(l.trim()) && !/read not found/.test(l)));
     const have = new Set(String(r.at || "").split("\n").filter(keep).map(l => l.trim().slice(0, 11)));
     const todo = r.v.filter(v => !have.has(v));
     if (todo.length) rows.push({ id: r.id, b: c.b, at: r.at || "", todo });
