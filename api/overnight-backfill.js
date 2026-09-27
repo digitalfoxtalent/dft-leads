@@ -11,7 +11,8 @@
 //              on another row for the same brand is dropped, every write posts an update with the
 //              evidence). Written: "link" matches (description carries a link naming the brand, 1-15
 //              videos), and "title" matches only when the row has a tight window (publish, live or
-//              month date) and the brand name is distinctive (6+ letters, not a common word).
+//              month date) and the brand name is distinctive (6+ letters, not a common word), or on any
+//              window when the name is long (9+ letters, e.g. a film title in a promo Short).
 // MODE "off"   does nothing.
 
 import { monday, mondayToken } from "./_reports/monday.js";
@@ -40,7 +41,9 @@ const writable = d => {
   if (d.act === "link") return true;
   if (d.act !== "title") return false;
   const b = String(d.r.brand || "").trim();
-  return (d.r.pub || d.r.live || monthHint(d.r)) && b.replace(/[^a-z0-9]/gi, "").length >= 6 && !COMMON.test(b);
+  const n = b.replace(/[^a-z0-9]/gi, "").length;
+  if (COMMON.test(b) || n < 6) return false;
+  return !!(d.r.pub || d.r.live || monthHint(d.r)) || n >= 9; // a long, distinctive name (a film title) holds even on a close-date window
 };
 const line = d => "<li><b>" + d.act + (d.write ? " (written)" : "") + "</b> " + esc(d.r.deal) + " / " + esc(d.r.row) + " [" + d.r.id + "] - " + esc(d.why || "") +
   ((d.vids || []).length ? "<br>" + d.vids.map(v => esc(v.v) + " " + v.at + " " + (v.s < 70 ? "(Short) " : "") + Number(v.n || 0).toLocaleString("en-US") + " views - " + esc(v.t) + (v.ev ? " [" + esc(v.ev) + "]" : "")).join("<br>") : "") + "</li>";
