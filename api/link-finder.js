@@ -6,7 +6,8 @@
 // link naming the brand. That covers single integrations and weekly flights (TRR runs one read
 // across a week of uploads) alike.
 //
-// WRITES only "link" matches (a brand link in the description, 1 to 15 videos), through the same
+// WRITES only the matches flight-match.js calls writable (a brand link in the description, 1 to 15
+// videos; or a distinctive title on a creator's one row for that brand), through the same
 // checks as the hand backfill (_reports/apply-links.js): the row must still be empty, and a video
 // already on another row for the same brand is dropped. Each write posts an update with the evidence.
 // Title-only and weaker matches are listed in the plan for a person; nothing is labelled.
@@ -20,14 +21,13 @@ import { mondayToken } from "./_reports/monday.js";
 import { cookieOk } from "./_reports/access.js";
 import { missingRows, loadGtr } from "./_reports/backfill.js";
 import { scanUploads } from "./_reports/scan.js";
-import { matchRows, sinceFor } from "./_reports/flight-match.js";
+import { matchRows, sinceFor, writable } from "./_reports/flight-match.js";
 import { applyLinks } from "./_reports/apply-links.js";
 
 export const config = { maxDuration: 60 };
 
-// Writes stay off until a dry run has been reviewed by a person.
-// While false, the nightly run only plans (same as ?dry=1) and changes nothing on monday.
-const WRITES_ENABLED = false;
+// Set to false to make the nightly run plan only (same as ?dry=1), changing nothing on monday.
+const WRITES_ENABLED = true; // on 27 Sep 2026 after the overnight dry runs (board 18432874155) checked out
 const MAX_ROWS = 25, UNIT_BUDGET = 1500, TIME_MS = 45000;
 
 export default async function handler(req, res) {
@@ -64,11 +64,11 @@ export default async function handler(req, res) {
         summary.counts[d.act] = (summary.counts[d.act] || 0) + 1;
         if (d.act === "future" || d.act === "skip") continue;
         summary.plan.push({ creator: h, id: d.r.id, deal: d.r.deal, row: d.r.row, act: d.act, why: d.why, videos: (d.vids || []).map(v => v.v + " " + v.at) });
-        if (d.act === "link" && toWrite.length < MAX_ROWS) toWrite.push({ id: d.r.id, v: d.vids.map(v => [v.v, v.t, v.at + ", " + (v.u && v.u[0] || "")]) });
+        if (d.act !== "recent" && writable(d) && toWrite.length < MAX_ROWS) toWrite.push({ id: d.r.id, v: d.vids.map(v => [v.v, v.t, v.at + ", " + (v.ev || "")]) });
       }
     }
     if (toWrite.length) {
-      const r = await applyLinks(token, { rows: toWrite, rule: "Nightly link finder: every upload in the row's window whose description carries a link naming the brand." }, dry);
+      const r = await applyLinks(token, { rows: toWrite, rule: "Nightly link finder: uploads from this row's date window whose description carries a link naming the brand (or whose title names it, when this is the creator's one row for the brand). Several videos means the read ran as a flight across them." }, dry);
       summary.apply = { linked: r.linked, videos: r.videos, skipped: r.out.filter(o => /skipped/.test(o.result)).length };
     }
   } catch (e) { summary.errors.push(String(e.message || e).slice(0, 200)); }

@@ -123,3 +123,18 @@ export function matchRows(vids, rows, now) {
   }
   return res;
 }
+
+// Which matches are safe to write without a person. Shared by the nightly finder and the Sept 2026 backfill.
+//   link   a description link naming the brand, 1-15 videos; a brand that is a common word must be in the link's domain
+//   title  only when this is the creator's one open row for the brand, the name is distinctive (6+ letters,
+//          not a common word) and the window is tight (publish, live or month date), or the name is long (9+)
+export const COMMON = /^(factor|fox|beam|outcome|meta|opera|recall|worthy|backseat|webtoon|warhammer|naruto|pretty woman|addicted|like a prayer|open up|in my room|hairdresser|pomegranate|lemonade|human)$/i;
+export const writable = d => {
+  if (!d.vids || !d.vids.length || d.vids.length > 15) return false;
+  if (d.act === "link") return !COMMON.test(String(d.r.brand || "").trim()) || d.vids.every(v => String(v.ev || "").split("/")[0].toLowerCase().replace(/[^a-z0-9]/g, "").includes(String(d.r.brand).toLowerCase().replace(/[^a-z0-9]/g, ""))); // a common word must be in the link's domain
+  if (d.act !== "title" || !d.sole) return false; // title matches only when this is the creator's one open row for the brand
+  const b = String(d.r.brand || "").trim();
+  const n = b.replace(/[^a-z0-9]/gi, "").length;
+  if (COMMON.test(b) || n < 6) return false;
+  return !!(d.r.pub || d.r.live || monthHint(d.r)) || n >= 9; // a long, distinctive name (a film title) holds even on a close-date window
+};

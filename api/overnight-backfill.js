@@ -18,7 +18,7 @@
 import { monday, mondayToken } from "./_reports/monday.js";
 import { missingRows, loadGtr } from "./_reports/backfill.js";
 import { scanUploads } from "./_reports/scan.js";
-import { matchRows, sinceFor, monthHint } from "./_reports/flight-match.js";
+import { matchRows, sinceFor, writable } from "./_reports/flight-match.js";
 import { applyLinks } from "./_reports/apply-links.js";
 
 export const config = { maxDuration: 300 };
@@ -27,7 +27,6 @@ const MODE = "write1";
 const STOP_AFTER = "2026-09-27T16:00:00Z";
 const LOG_BOARD = 18432874155;
 const TIME_MS = 200000, UNIT_BUDGET = 1200;
-const COMMON = /^(factor|fox|beam|outcome|meta|opera|recall|worthy|backseat|webtoon|warhammer|naruto|pretty woman|addicted|like a prayer|open up|in my room|hairdresser|pomegranate|lemonade|human)$/i;
 
 const esc = s => String(s == null ? "" : s).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
 async function mondayVars(token, query, variables) {
@@ -36,15 +35,6 @@ async function mondayVars(token, query, variables) {
   if (!r.ok || (d && d.errors)) throw new Error("monday: " + JSON.stringify((d && d.errors) || r.status).slice(0, 300));
   return d.data;
 }
-const writable = d => {
-  if (!d.vids || !d.vids.length || d.vids.length > 15) return false;
-  if (d.act === "link") return !COMMON.test(String(d.r.brand || "").trim()) || d.vids.every(v => String(v.ev || "").split("/")[0].toLowerCase().replace(/[^a-z0-9]/g, "").includes(String(d.r.brand).toLowerCase().replace(/[^a-z0-9]/g, ""))); // a common word must be in the link's domain
-  if (d.act !== "title" || !d.sole) return false; // title matches only when this is the creator's one open row for the brand
-  const b = String(d.r.brand || "").trim();
-  const n = b.replace(/[^a-z0-9]/gi, "").length;
-  if (COMMON.test(b) || n < 6) return false;
-  return !!(d.r.pub || d.r.live || monthHint(d.r)) || n >= 9; // a long, distinctive name (a film title) holds even on a close-date window
-};
 const line = d => "<li><b>" + d.act + (d.write ? " (written)" : "") + "</b> " + esc(d.r.deal) + " / " + esc(d.r.row) + " [" + d.r.id + "] - " + esc(d.why || "") +
   ((d.vids || []).length ? "<br>" + d.vids.map(v => esc(v.v) + " " + v.at + " " + (v.s < 70 ? "(Short) " : "") + Number(v.n || 0).toLocaleString("en-US") + " views - " + esc(v.t) + (v.ev ? " [" + esc(v.ev) + "]" : "")).join("<br>") : "") + "</li>";
 
