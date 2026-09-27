@@ -2,7 +2,7 @@
 //
 // Lists a creator's YouTube uploads from `since` to now, compactly, with the evidence needed to
 // match creator rows to videos: publish date, length, views, title, and which of that creator's
-// open-row brands the title or description names (m), plus description links naming a brand (u)
+// open-row brands the title or description names (m; mt = named in the title), plus description links naming a brand (u)
 // and the other non-social links (x), so a standing link can be told apart from a one-off read.
 // Cost: about 2 YouTube units per 50 uploads.
 
@@ -43,10 +43,10 @@ export async function scanUploads(token, handle, since, extraBrands, maxPages) {
     for (const x of vd.items || []) {
       const t = x.snippet.title || "", d = x.snippet.description || "";
       const urls = (d.match(/https?:\/\/[^\s)\]]+/gi) || []).map(u => u.replace(/^https?:\/\/(www\.)?/i, "").replace(/[.,!]+$/, ""));
-      const m = bre.filter(z => z.re.test(t) || z.re.test(d)).map(z => z.b);
+      const m = bre.filter(z => z.re.test(t) || z.re.test(d)).map(z => z.b), mt = bre.filter(z => z.re.test(t)).map(z => z.b);
       const u = urls.filter(x2 => bre.some(z => squash(x2).includes(z.sq))).slice(0, 4);
       const xo = [...new Set(urls.filter(x2 => !SOCIAL.test(x2) && !u.includes(x2)).map(x2 => x2.slice(0, 40)))].slice(0, 6);
-      vids.push({ v: x.id, at: String(x.snippet.publishedAt || "").slice(0, 10), s: secs(x.contentDetails.duration), n: Number(x.statistics && x.statistics.viewCount || 0), t: t.slice(0, 70), m, u, x: xo, live: x.snippet.liveBroadcastContent !== "none" ? x.snippet.liveBroadcastContent : undefined });
+      vids.push({ v: x.id, at: String(x.snippet.publishedAt || "").slice(0, 10), s: secs(x.contentDetails.duration), n: Number(x.statistics && x.statistics.viewCount || 0), t: t.slice(0, 70), m, mt: mt.length ? mt : undefined, u, x: xo, live: x.snippet.liveBroadcastContent !== "none" ? x.snippet.liveBroadcastContent : undefined });
     }
   }
   vids.sort((a, b) => a.at.localeCompare(b.at));
