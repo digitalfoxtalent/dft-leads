@@ -23,7 +23,7 @@ import { applyLinks } from "./_reports/apply-links.js";
 
 export const config = { maxDuration: 300 };
 
-const MODE = "dry4";
+const MODE = "dry5";
 const STOP_AFTER = "2026-09-27T16:00:00Z";
 const LOG_BOARD = 18432874155;
 const TIME_MS = 200000, UNIT_BUDGET = 1200;
@@ -38,7 +38,7 @@ async function mondayVars(token, query, variables) {
 }
 const writable = d => {
   if (!d.vids || !d.vids.length || d.vids.length > 15) return false;
-  if (d.act === "link") return true;
+  if (d.act === "link") return !COMMON.test(String(d.r.brand || "").trim()) || d.vids.every(v => String(v.ev || "").split("/")[0].toLowerCase().replace(/[^a-z0-9]/g, "").includes(String(d.r.brand).toLowerCase().replace(/[^a-z0-9]/g, ""))); // a common word must be in the link's domain
   if (d.act !== "title" || !d.sole) return false; // title matches only when this is the creator's one open row for the brand
   const b = String(d.r.brand || "").trim();
   const n = b.replace(/[^a-z0-9]/gi, "").length;

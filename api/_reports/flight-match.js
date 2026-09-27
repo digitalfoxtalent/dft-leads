@@ -71,6 +71,15 @@ export function matchRows(vids, rows, now) {
       const inSpan = vids.filter(v => day(v.at) >= a && day(v.at) <= b).length;
       if (b - a > 90 * D && strongV.length / Math.max(1, inSpan) > 0.4) standing = true;
     }
+    // A brand link on nearly every upload across these rows' windows (80%+, 6+ videos) says nothing
+    // about which upload carried the read: leave those rows to a person.
+    const spanA = Math.min(...brs.map(b => b.w.a)), spanB = Math.max(...brs.map(b => b.w.b));
+    const upl = vids.filter(v => day(v.at) >= spanA && day(v.at) <= spanB && !(v.s < 70));
+    const lk = upl.filter(v => strongV.includes(v));
+    if (!standing && lk.length >= 6 && lk.length / Math.max(1, upl.length) >= 0.8) {
+      for (const { r, w } of brs) res.push({ r, act: "review", why: w.why + "; the brand link is on " + lk.length + " of " + upl.length + " uploads in the window, so which one carried the read is unclear", vids: lk.slice(0, 5) });
+      continue;
+    }
     const tiers = standing ? [["title", titleV]] : [["link", strongV], ["title", titleV]];
     const claimed = new Set();
     for (const { r, w } of brs) {
@@ -83,7 +92,9 @@ export function matchRows(vids, rows, now) {
         const key = v => tier === "link" ? String((v.u || []).find(u => sq(u).includes(bk)) || "").toLowerCase().replace(/[?#].*$/, "").replace(/\/+$/, "") : "t";
         const groups = {}; for (const v of inW) (groups[key(v)] = groups[key(v)] || []).push(v);
         const flights = Object.values(groups).flatMap(g => cluster(g, 9)).sort((x, y) => day(x[0].at) - day(y[0].at));
-        const take = (brs.length === 1 && (r.pub || r.live || monthHint(r))) ? inW : flights[0];
+        // With several rows, a row with a live date takes its own week first (TRR runs spots two weeks apart).
+        const wk = r.live ? inW.filter(v => day(v.at) >= day(r.live) - 3 * D && day(v.at) <= day(r.live) + 10 * D) : [];
+        const take = (brs.length === 1 && (r.pub || r.live || monthHint(r))) ? inW : (wk.length ? wk : flights[0]);
         if (take.length > 15) { res.push({ r, act: "review", why: take.length + " " + tier + " matches in the window", vids: take.slice(0, 5) }); done = true; break; }
         for (const v of take) claimed.add(v.v);
         res.push({ r, act: tier, sole: brs.length === 1, why: w.why + (standing ? "; the brand link is a standing link, so titles only" : ""), vids: take.map(v => ({ ...v, ev: tier === "link" ? (v.u || []).find(u => sq(u).includes(bk)) : "title names " + r.brand })) });
