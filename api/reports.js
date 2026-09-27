@@ -31,7 +31,7 @@ import { scanUploads } from "./_reports/scan.js";
 import { reachApply, reachApplyEpisodes } from "./_reports/reach-apply.js";
 import { REFRESH_PAGE } from "./_reports/refresh-page.js";
 
-export const config = { maxDuration: 60 };
+export const config = { maxDuration: 300 }; // the Reporting refresh write step can take over a minute
 
 const HOSTS = new Set([
   "reports.digitalfoxtalent.com",
