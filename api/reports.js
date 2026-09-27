@@ -151,7 +151,7 @@ export default async function handler(req, res) {
     catch (e) { return res.status(500).json({ error: String(e && e.message || e).slice(0, 300) }); }
   }
   if (route === "ts-check") { // team only: one video's SponsorBlock segments and the caption times that name the brand. Read only
-    try { const q = req.query || {}; return res.status(200).json(await timestampCheck(String(q.v || ""), String(q.b || ""))); }
+    try { const q = req.query || {}; return res.status(200).json(await timestampCheck(String(q.v || ""), String(q.b || ""), q.at)); }
     catch (e) { return res.status(500).json({ error: String(e && e.message || e).slice(0, 300) }); }
   }
   if (route === "ts-apply") { // team only: fill AD READ TIMES for the next batch of videos (?p=rhapsody or all, ?dry=1 checks, ?max= videos per run)

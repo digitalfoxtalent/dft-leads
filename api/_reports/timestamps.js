@@ -65,11 +65,11 @@ export function brandHits(tr, brand) {
   }
   return hits;
 }
-export async function timestampCheck(id, brand) {
+export async function timestampCheck(id, brand, at) {
   const [{ segs }, tr] = await Promise.all([sponsorSegments([id]), transcripts([id])]);
   const t = tr[id] || [];
-  const main = (segs[id] || []).filter(x => x.e - x.s >= 15)[0];
-  const around = main ? t.filter(x => x.start >= main.s - 5 && x.start <= main.s + 35).map(x => x.text).join(" ").slice(0, 400) : "";
+  const main = at != null && at !== "" ? { s: Number(at) } : (segs[id] || []).filter(x => x.e - x.s >= 15)[0];
+  const around = main ? t.filter(x => x.start >= main.s - 5 && x.start <= main.s + 60).map(x => x.text).join(" ").slice(0, 700) : "";
   return { id, brand, sponsorBlock: (segs[id] || []).map(s => mmss(s.s) + "-" + mmss(s.e) + (s.l ? " locked" : " v" + s.v)), captions: t.length, brandMentions: brandHits(t, brand).map(mmss), around, line: lineFor(id, segs[id] || [], t, brand) };
 }
 
