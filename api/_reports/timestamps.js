@@ -43,9 +43,15 @@ const atok = () => process.env.APIFY_TOKEN || "";
 const flat = s => String(s || "").normalize("NFKD").toLowerCase().replace(/[^a-z0-9]/g, "");
 export async function transcripts(ids) {
   if (!atok()) throw new Error("APIFY_TOKEN missing");
-  const u = "https://api.apify.com/v2/acts/supreme_coder~youtube-transcript-scraper/run-sync-get-dataset-items?timeout=240&clean=1&maxTotalChargeUsd=1&token=" + atok();
-  const r = await fetch(u, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ urls: ids.map(id => ({ url: "https://www.youtube.com/watch?v=" + id })), outputFormat: "json" }) });
-  if (!r.ok) throw new Error("Apify transcripts " + r.status);
+  const A = "https://api.apify.com/v2";
+  let r = await fetch(A + "/acts/supreme_coder~youtube-transcript-scraper/runs?waitForFinish=60&maxTotalChargeUsd=1&token=" + atok(), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ urls: ids.map(id => ({ url: "https://www.youtube.com/watch?v=" + id })), outputFormat: "json" }) });
+  if (!r.ok) throw new Error("Apify transcripts " + r.status + " " + (await r.text()).slice(0, 160));
+  let run = (await r.json()).data; const t0 = Date.now();
+  while (!/SUCCEEDED|FAILED|ABORTED|TIMED-OUT/.test(run.status) && Date.now() - t0 < 200000) {
+    r = await fetch(A + "/actor-runs/" + run.id + "?waitForFinish=60&token=" + atok()); run = (await r.json()).data;
+  }
+  if (!/SUCCEEDED/.test(run.status)) throw new Error("Apify transcripts run " + run.status);
+  r = await fetch(A + "/datasets/" + run.defaultDatasetId + "/items?clean=1&token=" + atok());
   const out = {};
   for (const it of await r.json()) { const m = String(it.videoUrl || it.inputUrl || "").match(/v=([A-Za-z0-9_-]{11})/); if (m && Array.isArray(it.transcript)) out[m[1]] = it.transcript; }
   return out;
@@ -91,7 +97,7 @@ function lineFor(id, segs, tr, brand) {
 }
 export async function timestampApply(token, payload, match, opts) {
   const { monday } = await import("./monday.js");
-  const dry = !!opts.dry, max = Math.min(60, Math.max(5, parseInt(opts.max, 10) || 30));
+  const dry = !!opts.dry; const max = Math.min(60, Math.max(5, parseInt(opts.max, 10) || 30));
   const rows = [];
   for (const c of payload.c) if (!match || match.test(c.cl || "")) for (const r of c.r) {
     const have = new Set(String(r.at || "").split("\n").map(l => (l.trim().match(/^([A-Za-z0-9_-]{11})\s/) || [])[1]).filter(Boolean));
