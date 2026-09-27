@@ -63,7 +63,7 @@ export async function reachApply(token, body, dry) {
   const vh = (body && body.vh) || {}, vat = (body && body.vat) || {}, stats = (body && body.stats) || {};
   if (!Object.keys(vh).length || !Object.keys(stats).length) throw new Error("vh and stats are both required");
   const rows = await loadRows(token);
-  const out = { asOf, dry: !!dry, rows: rows.length, changed: 0, videos: 0, matched: 0, kept: 0, ambiguous: [], tooEarly: [], otherEpisode: [], noTitle: 0, writes: [], failed: [] };
+  const out = { asOf, dry: !!dry, rows: rows.length, changed: 0, videos: 0, matched: 0, kept: 0, ambiguous: [], byDate: [], tooEarly: [], otherEpisode: [], noTitle: 0, writes: [], failed: [] };
   const plans = [];
   for (const r of rows) {
     const vids = [...new Set([...String(r[C.urls]).matchAll(ID_RE)].map(m => m[1]))];
@@ -76,7 +76,19 @@ export async function reachApply(token, body, dry) {
       if (!h) out.noTitle++;
       const cands = (h && stats[h]) || [];
       let hit = null;
-      if (cands.length > 1) out.ambiguous.push(r.id + " " + v + " (" + cands.length + " episodes)");
+      // A title on several episodes of a show (a breakdown re-published later): the video's own copies
+      // are the ones published from 2 days before to 14 days after the video. One -> that one; several
+      // -> all copies of this video, added together; none, or no video date -> left for a person.
+      if (cands.length > 1 && vat[v]) {
+        const own = cands.filter(c => c[5] && day(c[5]) >= day(vat[v]) - 2 * D && day(c[5]) <= day(vat[v]) + 14 * D);
+        if (own.length && !(prev && !own.some(c => String(c[4]) === prev.ep))) {
+          const sum = own.reduce((a, c) => [a[0] + (+c[0] || 0), a[1] + (+c[1] || 0), a[2] + (+c[2] || 0), a[3] + (+c[3] || 0)], [0, 0, 0, 0]);
+          hit = { ep: String(own[0][4]) + (own.length > 1 ? "+" + (own.length - 1) : ""), sp: sum[0], ap: sum[1], am: sum[2], ot: sum[3], by: "title" };
+          if (prev && prev.ep !== hit.ep && own.length > 1) hit.ep = prev.ep;
+          out.byDate.push(r.id + " " + v + " took " + own.length + " of " + cands.length + " episodes (" + own.map(c => c[5]).join(", ") + ")");
+        } else out.ambiguous.push(r.id + " " + v + " (" + cands.length + " episodes, none published within 2 weeks of the video)");
+      }
+      else if (cands.length > 1) out.ambiguous.push(r.id + " " + v + " (" + cands.length + " episodes)");
       else if (cands.length === 1) {
         const [sp, ap, am, ot, ep, pub] = cands[0];
         if (pub && vat[v] && day(pub) < day(vat[v]) - 2 * D) out.tooEarly.push(r.id + " " + v + " episode " + pub + " video " + vat[v]);

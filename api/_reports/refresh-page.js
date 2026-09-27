@@ -47,7 +47,7 @@ function list(t,a){return a&&a.length?'<p style="margin:12px 0 0"><b>'+t+" ("+a.
 function show(o,dry){if(o.error){$("res").innerHTML='<span class="warn">'+o.error+"</span>";return}
 $("res").innerHTML='<div class="big '+(dry?"":"ok")+'">'+(dry?"Ready to write "+o.changed+" creator rows":"Written: "+(o.changed-(o.failed||[]).length)+" creator rows")+'</div>'+
 '<p class="muted">'+o.campaignVideos+" campaign videos, "+o.matched+" matched to an episode ("+o.episodesMatched+" episodes), "+o.kept+" kept from an earlier refresh. Figures as of "+o.asOf+". Figures only ever rise.</p>"+
-list("Rows",o.writes)+list("Same title on more than one episode, left for a person",o.ambiguous)+list("Episode older than the video, not matched",o.tooEarly)+list("Already matched to another episode, kept",o.otherEpisode)+list("Failed to write",o.failed)+
+list("Rows",o.writes)+list("Same title on several episodes, matched by date",o.byDate)+list("Same title on more than one episode, left for a person",o.ambiguous)+list("Episode older than the video, not matched",o.tooEarly)+list("Already matched to another episode, kept",o.otherEpisode)+list("Failed to write",o.failed)+
 (dry&&o.changed?'<p style="margin-top:16px"><button id="go">Write to monday</button></p>':"");if($("go"))$("go").onclick=()=>{$("go").disabled=true;send(false)}}
 const d=$("drop");d.onclick=()=>$("f").click();$("f").onchange=e=>e.target.files[0]&&load(e.target.files[0]);
 d.ondragover=e=>{e.preventDefault();d.classList.add("on")};d.ondragleave=()=>d.classList.remove("on");d.ondrop=e=>{e.preventDefault();d.classList.remove("on");e.dataTransfer.files[0]&&load(e.dataTransfer.files[0])};
