@@ -96,5 +96,9 @@ export default async function handler(req, res) {
     out.left = queue.length - out.done.length;
   } catch (e) { out.errors.push(String(e.message || e).slice(0, 200)); }
   out.ms = Date.now() - t0;
+  try { // one line per run on the log board, so a run that failed is visible
+    const it = await mondayVars(token, "mutation ($b: ID!, $n: String!) { create_item(board_id:$b, item_name:$n) { id } }", { b: String(LOG_BOARD), n: "run " + new Date(t0).toISOString().slice(11, 16) + " " + MODE + " done " + out.done.length + (out.errors.length ? " ERR " + out.errors.length : "") });
+    await mondayVars(token, "mutation ($i: ID!, $t: String!) { create_update(item_id:$i, body:$t) { id } }", { i: it.create_item.id, t: "<pre>" + esc(JSON.stringify(out, null, 1)).slice(0, 20000) + "</pre>" });
+  } catch (e) {}
   return res.status(200).json(out);
 }
