@@ -80,6 +80,12 @@ export function matchRows(vids, rows, now) {
       for (const { r, w } of brs) res.push({ r, act: "review", why: w.why + "; the brand link is on " + lk.length + " of " + upl.length + " uploads in the window, so which one carried the read is unclear", vids: lk.slice(0, 5) });
       continue;
     }
+    // Two or more open rows on the SAME deal for this creator (spot 1, spot 2 of one booking): which
+    // upload was which spot is a judgement call, so those rows go to a person.
+    const perDeal = {}; for (const b of brs) perDeal[b.r.dealId || b.r.deal] = (perDeal[b.r.dealId || b.r.deal] || 0) + 1;
+    const sameDeal = brs.filter(b => perDeal[b.r.dealId || b.r.deal] > 1);
+    for (const b of sameDeal) res.push({ r: b.r, act: "review", why: b.w.why + "; " + perDeal[b.r.dealId || b.r.deal] + " open rows for this creator on one deal", vids: strongV.filter(v => day(v.at) >= b.w.a && day(v.at) <= b.w.b).slice(0, 6) });
+    if (sameDeal.length) { for (const b of sameDeal) brs.splice(brs.indexOf(b), 1); if (!brs.length) continue; }
     const tiers = standing ? [["title", titleV]] : [["link", strongV], ["title", titleV]];
     const claimed = new Set();
     for (const { r, w } of brs) {
