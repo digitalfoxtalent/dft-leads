@@ -98,8 +98,16 @@ function lineFor(id, segs, tr, brand) {
 export async function timestampApply(token, payload, match, opts) {
   const { monday } = await import("./monday.js");
   const dry = !!opts.dry; const max = Math.min(60, Math.max(5, parseInt(opts.max, 10) || 30));
+  // The report payload is cached; read this column fresh so a repeated run moves on.
+  const cand = []; for (const c of payload.c) if (!match || match.test(c.cl || "")) for (const r of c.r) if (r.v.length) cand.push({ c, r });
+  const fresh = {};
+  for (let i = 0; i < cand.length; i += 100) {
+    const d = await monday(token, "query { items(ids:[" + cand.slice(i, i + 100).map(x => x.r.id).join(",") + "], limit:100) { id column_values(ids:[\"" + COL + "\"]) { text } } }");
+    for (const it of d.items) fresh[it.id] = (it.column_values[0] && it.column_values[0].text) || "";
+  }
   const rows = [];
-  for (const c of payload.c) if (!match || match.test(c.cl || "")) for (const r of c.r) {
+  for (const { c, r: r0 } of cand) {
+    const r = Object.assign({}, r0, { at: fresh[r0.id] != null ? fresh[r0.id] : r0.at });
     const have = new Set(String(r.at || "").split("\n").map(l => (l.trim().match(/^([A-Za-z0-9_-]{11})\s/) || [])[1]).filter(Boolean));
     const todo = r.v.filter(v => !have.has(v));
     if (todo.length) rows.push({ id: r.id, b: c.b, at: r.at || "", todo });
