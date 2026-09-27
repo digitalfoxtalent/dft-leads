@@ -13,6 +13,10 @@
       "schedule": "30 9 * * *"
     },
     {
+      "path": "/api/ts-sync",
+      "schedule": "17 * * * *"
+    },
+    {
       "path": "/api/brand-scraper",
       "schedule": "0 8 * * 1"
     },
