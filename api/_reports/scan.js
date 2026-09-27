@@ -37,16 +37,26 @@ export async function scanUploads(token, handle, since, extraBrands, maxPages, c
   for (let i = bre.length - 1; i >= 0; i--) if (me.some(x => bre[i].sq.includes(x) || x.includes(bre[i].sq))) bre.splice(i, 1);
   const up = c0.contentDetails.relatedPlaylists.uploads;
   const from = since ? new Date(since) : new Date(Date.now() - 400 * 864e5);
-  const ids = []; let pageToken = "", pages = 0, reachedBack = false;
+  const ids = []; let pages = 0, reachedBack = true;
   const cap = Math.max(1, Math.min(60, Number(maxPages) || 40));
-  while (pages < cap) {
-    pages++; units++;
-    const pl = await yt("playlistItems?part=contentDetails&maxResults=50&playlistId=" + up + (pageToken ? "&pageToken=" + pageToken : ""), key);
-    for (const x of pl.items || []) if (new Date(x.contentDetails.videoPublishedAt || 0) >= from) ids.push(x.contentDetails.videoId);
-    const last = pl.items && pl.items.length && pl.items[pl.items.length - 1].contentDetails.videoPublishedAt;
-    if (!pl.nextPageToken) { reachedBack = true; break; }
-    if (last && new Date(last) < from) { reachedBack = true; break; }
-    pageToken = pl.nextPageToken;
+  const readList = async listId => {
+    let pageToken = "", done = false;
+    while (pages < cap) {
+      pages++; units++;
+      const pl = await yt("playlistItems?part=contentDetails&maxResults=50&playlistId=" + listId + (pageToken ? "&pageToken=" + pageToken : ""), key);
+      for (const x of pl.items || []) if (new Date(x.contentDetails.videoPublishedAt || 0) >= from) ids.push(x.contentDetails.videoId);
+      const last = pl.items && pl.items.length && pl.items[pl.items.length - 1].contentDetails.videoPublishedAt;
+      if (!pl.nextPageToken || (last && new Date(last) < from)) { done = true; break; }
+      pageToken = pl.nextPageToken;
+    }
+    if (!done) reachedBack = false;
+  };
+  try { await readList(up); }
+  catch (e) {
+    // Some channels' uploads list is refused by the API (404) although the channel has videos
+    // (Elizabeth Rage, 27 Sep 2026). Their long-form (UULF) and Shorts (UUSH) lists still work.
+    if (!/404/.test(String(e.message)) || !/^UU/.test(up)) throw e;
+    for (const pre of ["UULF", "UUSH"]) { try { await readList(pre + up.slice(2)); } catch (e2) { if (!/404/.test(String(e2.message))) throw e2; } }
   }
   const vids = [];
   for (let i = 0; i < ids.length; i += 50) {
