@@ -120,8 +120,9 @@ const createItem = (name, vals) => monday(
   { b: String(BOARD), n: name, v: JSON.stringify(vals) });
 
 // Read the SUBPLOT rates off the rate card. Returns slug -> { pct, fee, status, row }.
-// SUBPLOT is deliberately 60% with NO fee — the fee field is read anyway rather than assumed,
-// so if the terms ever change the board changes and this job follows it without a deploy.
+// SUBPLOT is 60% less a $50 monthly publishing fee (Creator Agreement v3, 28 Sep 2026). The fee
+// is read off the rate card, never assumed, so if a row's fee changes this job follows it
+// without a deploy.
 async function rateCard() {
   const q = `query($b:ID!){boards(ids:[$b]){items_page(limit:500,query_params:{rules:[
     {column_id:"${RC.platform}",compare_value:["${PLATFORM}"]}]}){items{id name column_values(
