@@ -34,6 +34,11 @@ export const BRANDS = {
     type: null,                     // null = the default type in css.js
     favicon: () => monogramSvg(accentToday()[2]),   // white screen O on a tile in the day's colour (ultramarine on the house day)
     assets: "subplot",              // which pair in images.js
+    // Monthly publishing fee, in USD, off the creator's share (Creator Agreement v3), on both
+    // brands. Tom's ruling, 28 Sep 2026: it covers the production cost of each article, which YouTube does
+    // not carry for a video. Payouts read the fee off the rate card, not from here; this
+    // only drives what the terms say.
+    publishingFee: 50,
   },
   wordie: {
     key: "wordie",
@@ -56,6 +61,7 @@ export const BRANDS = {
     // No share card yet. Rather than serve SUBPLOT's - cast, clapperboard and all -
     // Wordie advertises no og:image and 404s /og.png until it has its own.
     assets: null,
+    publishingFee: 50,              // same $50 monthly publishing fee as SUBPLOT (Tom, 28 Sep 2026)
   },
 };
 
@@ -77,6 +83,7 @@ export const mail = box => `${box}@${active.domain}`;          // hello@ / corre
 export const siteUrl = () => `https://${active.domain}`;
 export const hasCast = () => active.cast !== false;
 export const audience = () => active.audience;
+export const pubFee = () => Number(active.publishingFee || 0);   // monthly publishing fee, USD; 0 = none
 export const faviconSvg = () => typeof active.favicon === "function" ? active.favicon() : active.favicon;  // null = fall back to the cast favicon
 export const assetKey = () => active.assets;                 // null = this brand has no card yet
 export const hasShareCard = () => !!active.assets;

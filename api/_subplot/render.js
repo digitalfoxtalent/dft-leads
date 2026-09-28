@@ -1,7 +1,7 @@
 // SUBPLOT page templates. Pure functions: (data, base) -> HTML string.
 import { CSS } from "./css.js";
 import { CATS, slug, slugFor } from "./data.js";
-import { brand, brandCss, member, joinCta, mail, siteUrl, hasCast, audience, fontHref, hasShareCard } from "./brand.js";
+import { brand, brandCss, member, joinCta, mail, siteUrl, hasCast, audience, fontHref, hasShareCard, pubFee } from "./brand.js";
 import { wordmarkSvg, accentToday, accentVars } from "./wordmark.js";
 import { design } from "./design.js";
 import { promoRail, promoCss, joinBlock } from "./promo.js";
@@ -568,7 +568,7 @@ export function joinPage(data, base) {
       <div><h3>What you get</h3><ul>
         <li><b>An audience on top of your views, not instead of them.</b> Google and Discover surface articles, so these are readers your video wasn&rsquo;t going to reach - and every article points them at the video.</li>
         <li><b>A link back on every piece.</b> Each article points at the video it came from.</li>
-        <li><b>60% of what your articles earn.</b> Sixty to you, forty to us. No fees, no minimum term, no exclusivity. Paid monthly once your balance clears $50.</li>
+        <li><b>60% of what your articles earn.</b> Sixty to you, forty to us. ${pubFee() ? `No minimum term` : `No fees, no minimum term`}, no exclusivity. Paid monthly once your balance clears $50.</li>
         <li><b>Company.</b> Your take sits alongside other creators covering the same thing - see Threads on the front page.</li></ul></div>
       <div><h3>What we ask</h3><ul>
         <li><b>The videos are yours.</b> You own them, or hold the rights to have them adapted.</li>
@@ -595,7 +595,7 @@ export function joinPage(data, base) {
             <select id="f-size" name="size"><option value="">Rather not say</option><option>Under 10k</option><option>10k &ndash; 100k</option><option>100k &ndash; 500k</option><option>500k &ndash; 1M</option><option>Over 1M</option></select></div>
         </div>
         <div class="terms"><span class="lbl">Standard terms</span>
-          <p><b>60% to you</b> on everything your articles earn &middot; non-exclusive, so run them anywhere else you like &middot; no fees, no minimum term &middot; leave any time and we take the articles down &middot; paid monthly from $50.</p></div>
+          <p><b>60% to you</b> on everything your articles earn &middot; non-exclusive, so run them anywhere else you like &middot; ${pubFee() ? `a $${pubFee()} monthly publishing fee off your share, never more than your articles earned &middot; no minimum term` : `no fees, no minimum term`} &middot; leave any time and we take the articles down &middot; paid monthly from $50.</p></div>
         <label class="consent"><input type="checkbox" name="consent" value="yes" required><span>I own these videos, or hold the rights to have them adapted. <b>By applying I give ${BRAND_()} permission to turn my public videos into articles, drafted with AI from my transcripts, and publish them under my handle on the standard terms above and the <a href="${base}/creators" target="_blank" style="color:var(--blue)">Creator Agreement</a>.</b> I can withdraw at any time and the articles come down.</span></label>
         <input type="text" name="website" tabindex="-1" autocomplete="off" style="position:absolute;left:-9999px" aria-hidden="true">
         <input type="hidden" name="source" id="f-source" value="direct">
