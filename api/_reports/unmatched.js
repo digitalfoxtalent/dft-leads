@@ -112,7 +112,7 @@ export async function loadData(token) {
     deals[d.id] = { id: d.id, name: d.name, group: d.group, column_values: [c.status_1, c.dropdown_mm1a3tqp, c.date__1, c.board_relation_mm5x8h0y, { id: "lookup_mkz6pygk", text: join("client") }, { id: "lookup_mm5zp13v", text: join("qb") }].filter(Boolean) };
   }
   const rowItems = subItems.map(it => ({ ...it, parent_item: it.parent_item && deals[it.parent_item.id] })).filter(it => it.parent_item);
-  return { rows: parseRows(rowItems), invoices: parseInvoices(arItems), reviewKeys: new Set(revItems.map(i => (i.column_values[0] || {}).text).filter(Boolean)), gtr };
+  return { rows: parseRows(rowItems), invoices: parseInvoices(arItems), reviewKeys: new Set(revItems.flatMap(i => String((i.column_values[0] || {}).text || "").split(/\s+/)).filter(Boolean)), gtr };
 }
 
 // ---------- brands and description parsing ----------
@@ -427,8 +427,28 @@ export async function runUnmatched(token, opts) {
   summary.units += Math.ceil(need.size / 50);
   const res = classify(data, scans, refs);
   summary.skipped = res.skipped; summary.tagsWithoutCustomer = res.tags.noCustomer;
+  // One review row per channel, brand and class: a weekly flight is one question for a person, not seven.
+  // Videos already on the board (by key) are left out; make-goods stay one row per video.
+  const ORDER = ["Make-good", "Deal missing (invoiced)", "Separate buy, deal missing", "Other agency's deal", "Client tag mismatch", "Unknown"];
+  const groups = new Map();
+  for (const f of res.found) {
+    if (data.reviewKeys.has(f.key)) continue;
+    const g = f.cls === "Make-good" ? f.key : f.cls + "|" + f.h + "|" + f.brand;
+    const cur = groups.get(g);
+    if (!cur) { groups.set(g, { ...f, keys: [f.key], vids: [f] }); continue; }
+    cur.keys.push(f.key); cur.vids.push(f);
+  }
+  for (const g of groups.values()) if (g.vids.length > 1) {
+    g.vids.sort((a, b) => a.at.localeCompare(b.at));
+    const first = g.vids[0];
+    Object.assign(g, { url: first.url, title: first.title, at: first.at, video: first.video, code: [...new Set(g.vids.map(x => x.code).filter(Boolean))].join(", "),
+      evidence: g.vids.length + " videos (" + g.vids.map(x => x.at.slice(5) + " youtu.be/" + x.video).join(", ") + "). " + first.evidence });
+  }
+  const fresh = [...groups.values()].map(g => ({ ...g, key: g.keys.join(" ") })).concat(res.tags.mismatches.filter(t => !data.reviewKeys.has(t.key)))
+    .sort((a, b) => ORDER.indexOf(a.cls) - ORDER.indexOf(b.cls));
   const list = res.found.concat(res.tags.mismatches);
   summary.counts = list.reduce((a, f) => (a[f.cls] = (a[f.cls] || 0) + 1, a), {});
+  summary.review = fresh.map(f => ({ cls: f.cls, channel: f.channel, brand: f.brand, suggested: f.suggested, evidence: f.evidence }));
   summary.list = list.map(f => ({ cls: f.cls, channel: f.channel, video: f.url, at: f.at, brand: f.brand, code: f.code, suggested: f.suggested, evidence: f.evidence, new: !data.reviewKeys.has(f.key) }));
   if (dry) { summary.ms = Date.now() - t0; return summary; }
   // Make-goods: append to the deal row, with the same checks as the first pass.
@@ -437,8 +457,8 @@ export async function runUnmatched(token, opts) {
     try { if (await writeMakegood(token, f)) { made.add(f.key); f.written = true; } } catch (e) { summary.errors.push("make-good " + f.video + ": " + String(e.message || e).slice(0, 120)); }
   }
   summary.makegoods = made.size;
+  for (const g of fresh) if (g.cls === "Make-good" && made.has(g.key)) g.written = true;
   // Everything new goes on the review board (make-goods too, as a record, marked Done when written).
-  const fresh = list.filter(f => !data.reviewKeys.has(f.key)).slice(0, 40);
   let added = 0;
   for (const f of fresh) {
     if (Date.now() - t0 > (opts.stopMs || 52000)) { summary.errors.push("out of time: " + (fresh.length - added) + " review rows left for tomorrow"); break; }
