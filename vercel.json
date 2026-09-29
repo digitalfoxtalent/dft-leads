@@ -51,6 +51,10 @@
     {
       "path": "/api/link-finder",
       "schedule": "20 7 * * *"
+    },
+    {
+      "path": "/api/link-finder?pass=unmatched",
+      "schedule": "40 7 * * *"
     }
   ],
   "rewrites": [

@@ -16,6 +16,7 @@
 // daily; signed roster creators first. Runs at 07:20 UTC, after the YouTube allowance resets.
 //
 //   GET /api/link-finder?dry=1   (team cookie or CRON_SECRET) shows the plan, writes nothing.
+//   GET /api/link-finder?pass=unmatched&dry=1   the second pass's classified list, writes nothing.
 
 import { mondayToken } from "./_reports/monday.js";
 import { cookieOk } from "./_reports/access.js";
@@ -23,11 +24,17 @@ import { missingRows, loadGtr } from "./_reports/backfill.js";
 import { scanUploads } from "./_reports/scan.js";
 import { matchRows, sinceFor, writable } from "./_reports/flight-match.js";
 import { applyLinks } from "./_reports/apply-links.js";
+import { runUnmatched } from "./_reports/unmatched.js";
 
 export const config = { maxDuration: 60 };
 
 // Set to false to make the nightly run plan only (same as ?dry=1), changing nothing on monday.
 const WRITES_ENABLED = true; // on 27 Sep 2026 after the overnight dry runs (board 18432874155) checked out
+// Second pass (?pass=unmatched, its own cron at 07:40 UTC): sponsor reads on roster channels that no row
+// links. See _reports/unmatched.js. Review rows always go to board 18433205666; these two switches gate
+// the rest. Both OFF until Tom has checked the first night's list (brief of 28 Sep 2026, tracker d39).
+const MAKEGOOD_WRITES = false; // append make-goods to the deal's LIVE VIDEO URLS
+const NOTIFY_TEAM = false;     // daily monday notification to Margot and Alex with the count
 const MAX_ROWS = 25, UNIT_BUDGET = 1500, TIME_MS = 30000; // leaves time for the writes inside the 60 s limit
 
 export default async function handler(req, res) {
@@ -38,6 +45,10 @@ export default async function handler(req, res) {
   const dry = String(req.query && req.query.dry || "") === "1" || !WRITES_ENABLED;
   if (!fromCron && !(String(req.query && req.query.dry || "") === "1" && token && cookieOk(req, token))) return res.status(401).json({ error: "Unauthorized" });
   if (!token || !process.env.YOUTUBE_API_KEY) return res.status(500).json({ error: "Setup: monday or YouTube key missing" });
+  if (String(req.query && req.query.pass || "") === "unmatched") {
+    try { return res.status(200).json(await runUnmatched(token, { dry: String(req.query.dry || "") === "1", makegoodWrites: MAKEGOOD_WRITES, notify: NOTIFY_TEAM })); }
+    catch (e) { return res.status(200).json({ pass: "unmatched", error: String(e.message || e).slice(0, 300) }); }
+  }
 
   const t0 = Date.now();
   const summary = { dry, units: 0, creators: 0, counts: {}, errors: [], plan: [] };
