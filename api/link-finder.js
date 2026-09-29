@@ -46,7 +46,7 @@ export default async function handler(req, res) {
   if (!fromCron && !(String(req.query && req.query.dry || "") === "1" && token && cookieOk(req, token))) return res.status(401).json({ error: "Unauthorized" });
   if (!token || !process.env.YOUTUBE_API_KEY) return res.status(500).json({ error: "Setup: monday or YouTube key missing" });
   if (String(req.query && req.query.pass || "") === "unmatched") {
-    try { return res.status(200).json(await runUnmatched(token, { dry: String(req.query.dry || "") === "1", makegoodWrites: MAKEGOOD_WRITES, notify: NOTIFY_TEAM })); }
+    try { return res.status(200).json(await runUnmatched(token, { dry: String(req.query.dry || "") === "1", makegoodWrites: MAKEGOOD_WRITES, notify: NOTIFY_TEAM, unlink: req.query.unlink })); }
     catch (e) { return res.status(200).json({ pass: "unmatched", error: String(e.message || e).slice(0, 300) }); }
   }
 

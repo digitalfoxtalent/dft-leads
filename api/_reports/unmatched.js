@@ -334,7 +334,7 @@ function decide(v, rd, s, hk, al, bRows, data, refs, invById, brands) {
   // Rule 1: same link and code as a deal's own video, deal under guarantee, no invoice of its own.
   const deals = new Map(); for (const r of bRows) if (r.vids.length) (deals.get(r.dealId) || deals.set(r.dealId, []).get(r.dealId)).push(r);
   for (const [dealId, rs] of [...deals.entries()].sort((a, b) => Math.max(...b[1].map(r => day(r.pub || r.live || r.closed || "2000-01-01"))) - Math.max(...a[1].map(r => day(r.pub || r.live || r.closed || "2000-01-01"))))) {
-    const refVids = rs.flatMap(r => r.vids).map(id => refs[id]).filter(Boolean).filter(x => x.at <= v.at);
+    const refVids = rs.flatMap(r => r.vids).map(id => refs[id]).filter(Boolean).filter(x => x.at <= v.at && x.v !== v.v);
     const same = refVids.find(x => readsIn(x.d, brands, []).some(q => q.key === rd.key && (rd.link && q.link === rd.link) && sq(q.code) === sq(rd.code)))
       || refVids.find(x => !rd.link && rd.code && readsIn(x.d, brands, []).some(q => q.key === rd.key && sq(q.code) === sq(rd.code)));
     if (!same) continue;
@@ -348,7 +348,7 @@ function decide(v, rd, s, hk, al, bRows, data, refs, invById, brands) {
     if (views >= req) return { ...base, cls: "Separate buy, deal missing", suggested: rs[0].deal, evidence: ev.concat(sameEv + "; but that deal already has " + views.toLocaleString("en-US") + " of " + req.toLocaleString("en-US") + " views, so not a make-good").join("; ") };
     const target = rs.find(r => r.vids.includes(same.v)) || rs[0];
     return { ...base, cls: "Make-good", suggested: rs[0].deal, rowId: target.id, dealId, open: openDeal(target), before: views, req,
-      evidence: ev.concat(sameEv, (ownNums.length === 1 ? "one invoice (" : ownNums.length + " invoices (") + (ownNums.join(", ") || "none") + ")", "deal at " + views.toLocaleString("en-US") + " of " + req.toLocaleString("en-US") + " views, this video adds " + v.n.toLocaleString("en-US")).join("; ") };
+      evidence: ev.concat(sameEv, ...(day(v.at) - Math.max(...refVids.map(x => day(x.at))) <= 10 * D ? ["within 10 days of the deal's last video, so probably the same flight running on"] : []), (ownNums.length === 1 ? "one invoice (" : ownNums.length + " invoices (") + (ownNums.join(", ") || "none") + ")", "deal at " + views.toLocaleString("en-US") + " of " + req.toLocaleString("en-US") + " views, this video adds " + v.n.toLocaleString("en-US")).join("; ") };
   }
   // Rule 2: an invoice names this brand and creator for the month, and no deal row holds the video.
   if (invs.length) {
@@ -409,6 +409,9 @@ export async function runUnmatched(token, opts) {
   const t0 = Date.now(), summary = { pass: "unmatched", dry: !!dry, makegoodWrites: !!makegoodWrites, notify: !!notify, units: 0, channels: 0, errors: [] };
   const data = (opts && opts.data) || await loadData(token);
   summary.loadMs = Date.now() - t0;
+  // Dry-run testing only: treat these videos as if no row linked them (re-runs the 28 Sep worked examples).
+  const unlink = dry ? String(opts.unlink || "").split(",").filter(Boolean) : [];
+  if (unlink.length) for (const r of data.rows) if (r.vids.some(v => unlink.includes(v))) { r.vids = r.vids.filter(v => !unlink.includes(v)); summary.unlinked = (summary.unlinked || []).concat(r.deal); }
   const signed = Object.keys(data.gtr.signed).filter(k => data.gtr.signed[k]);
   const since = Date.now() - STANDING_DAYS * D;
   const scans = (await pool(signed, 8, async h => {
