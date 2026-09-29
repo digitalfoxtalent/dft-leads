@@ -33,8 +33,8 @@ const WRITES_ENABLED = true; // on 27 Sep 2026 after the overnight dry runs (boa
 // Second pass (?pass=unmatched, its own cron at 07:40 UTC): sponsor reads on roster channels that no row
 // links. See _reports/unmatched.js. Review rows always go to board 18433205666; these two switches gate
 // the rest. Both OFF until Tom has checked the first night's list (brief of 28 Sep 2026, tracker d39).
-const MAKEGOOD_WRITES = false; // append make-goods to the deal's LIVE VIDEO URLS
-const NOTIFY_TEAM = false;     // daily monday notification to Margot and Alex with the count
+const MAKEGOOD_WRITES = true;  // on 29 Sep 2026 after Tom checked the first list on board 18433205666
+const NOTIFY_TEAM = true;      // daily monday notification to Margot and Alex with the count (on 29 Sep 2026)
 const MAX_ROWS = 25, UNIT_BUDGET = 1500, TIME_MS = 30000; // leaves time for the writes inside the 60 s limit
 
 export default async function handler(req, res) {
