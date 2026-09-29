@@ -1,9 +1,10 @@
 // SUBPLOT monthly revenue statement.
 //
 // Pulls last month's AdSense earnings broken down by URL channel, maps each channel to the
-// creator whose articles sit under that URL prefix, applies the 60/40 split, and writes one
-// row per creator onto Platform Revenue - Money In (all platforms), the same board MSN and
-// Meta already report into.
+// creator whose articles sit under that URL prefix, applies the split from the rate card, and
+// writes one payout row per creator onto Platform Creator Payments (money OUT, the board MSN
+// and Meta payouts already live on) plus one row for the month's site total onto Platform
+// Invoices (money IN). Repointed 29 Sep 2026 from the retired duplicate board 18427528293.
 //
 // Design rules, because this decides what creators get paid:
 //   - Google is the system of record. We snapshot its numbers; we never recompute a closed
@@ -26,10 +27,10 @@
 import { CREATORS } from "./_subplot/data.js";
 import { archiveMonth } from "./_subplot/archive.js";
 
-const BOARD = 18427528293;
+const BOARD = 18427503091;                      // Platform Creator Payments (money OUT)
+const INVOICES = 18427544285;                   // Platform Invoices (money IN)
 const RATE_CARD = 18427503050;                  // Platform Rate Card — Creator x Platform
 const PLATFORM = "SUBPLOT";
-const HOUSE_ROW = "House (non-article pages)";
 
 // The rate card's columns. Platform Brand ID holds the SUBPLOT slug — it is the join key,
 // pinned to match CREATORS[].slug in _subplot/data.js and the AdSense URL channel.
@@ -38,10 +39,19 @@ const RC = {
   fee: "numeric_mm6dsmpa", status: "color_mm6dg8xv",
 };
 
+// Platform Creator Payments columns. Payout and net go into the STORED twins: the formula
+// columns are unreadable over the API and every reader uses the stored ones.
 const COL = {
-  creator: "text_mm6dvz37", platform: "color_mm6dh8fr", period: "date_mm6dk5y1",
-  total: "numeric_mm6d5zmn", creatorPct: "numeric_mm6dr6mk", payout: "numeric_mm6dq16x",
-  dftNet: "numeric_mm6d7xgs", source: "text_mm6d426t", bill: "color_mm6dcq7d",
+  platform: "color_mm6d7cwg", period: "date_mm6dak13", gross: "numeric_mm6dxxb8",
+  creatorPct: "numeric_mm6d7gw3", fee: "numeric_mm6dqhn3", thirdParty: "numeric_mm6d5w80",
+  payout: "numeric_mm6eqgkn", dftNet: "numeric_mm6e3gv0", brandId: "text_mm6dt7s9",
+  rateCard: "board_relation_mm6da8zd", source: "text_mm6dgt4m", status: "color_mm6dhdr3",
+  notes: "long_text_mm6d3g7y",
+};
+// Platform Invoices columns.
+const INV = {
+  status: "color_mm6ersf0", platform: "color_mm6eg19h", period: "date_mm6ezsh9",
+  amount: "numeric_mm6e8tmm", send: "color_mm6een5s", source: "text_mm6ee1tk", notes: "long_text_mm6ercmk",
 };
 
 const money = n => Math.round((Number(n) || 0) * 100) / 100;
@@ -105,19 +115,21 @@ async function monday(query, variables) {
   return j.data;
 }
 
-// Which creators already have a row for this period? Re-running must never double-pay.
-async function existing(period) {
+// Which rows already exist for this month? Re-running must never double-pay. Rows are named
+// "<creator> — SUBPLOT — <yyyy-mm>", so the creator is the part before the first " — ".
+async function existing(board, label) {
   const q = `query($b:ID!){boards(ids:[$b]){items_page(limit:500,query_params:{rules:[
-    {column_id:"${COL.platform}",compare_value:["${PLATFORM}"]},
-    {column_id:"${COL.period}",compare_value:["${period}"]}]}){items{name column_values(ids:["${COL.creator}"]){text}}}}}`;
-  const d = await monday(q, { b: String(BOARD) });
+    {column_id:"name",compare_value:["— ${PLATFORM} — ${label}"],operator:contains_text}]}){items{name}}}}`;
+  const d = await monday(q, { b: String(board) });
   const items = d.boards?.[0]?.items_page?.items || [];
-  return new Set(items.map(i => (i.column_values?.[0]?.text || "").trim()));
+  return new Set(items.map(i => String(i.name).split(" — ")[0].trim()));
 }
 
-const createItem = (name, vals) => monday(
-  `mutation($b:ID!,$n:String!,$v:JSON!){create_item(board_id:$b,item_name:$n,column_values:$v){id}}`,
-  { b: String(BOARD), n: name, v: JSON.stringify(vals) });
+// create_labels_if_missing lets the SUBPLOT label be created on each board's Platform column
+// the first time this runs, so no hand edit is needed on either board.
+const createItem = (board, name, vals) => monday(
+  `mutation($b:ID!,$n:String!,$v:JSON!){create_item(board_id:$b,item_name:$n,column_values:$v,create_labels_if_missing:true){id}}`,
+  { b: String(board), n: name, v: JSON.stringify(vals) });
 
 // Read the SUBPLOT rates off the rate card. Returns slug -> { pct, fee, status, row }.
 // SUBPLOT is 60% less a $50 monthly publishing fee (Creator Agreement v3, 28 Sep 2026). The fee
@@ -249,31 +261,44 @@ export default async function handler(req, res) {
       });
     }
 
-    const already = await existing(period);
+    const already = await existing(BOARD, label);
     const source = `AdSense URL channels, ${label}, pulled ${new Date().toISOString().slice(0, 10)}`;
     const written = [];
     for (const s of statements) {
       if (already.has(s.creator)) continue;                       // closed months are never rewritten
-      await createItem(`${s.creator} — ${PLATFORM} — ${label}`, {
-        [COL.creator]: s.creator,
+      const rate = card.get(s.slug);
+      if (rate && rate.status === "Internal — no share") continue;  // DFT's own pages: nothing to pay
+      await createItem(BOARD, `${s.creator} — ${PLATFORM} — ${label}`, {
         [COL.platform]: { label: PLATFORM },
         [COL.period]: { date: period },
-        [COL.total]: s.revenue,
+        [COL.gross]: s.revenue,
         [COL.creatorPct]: s.creatorPct,
+        [COL.fee]: s.dftFee,
+        [COL.thirdParty]: 0,
         [COL.payout]: s.payout,
         [COL.dftNet]: s.dftNet,
+        [COL.brandId]: s.slug,
+        [COL.rateCard]: { item_ids: [Number(s.rateCardRow)] },
         [COL.source]: `${source} · rate card row ${s.rateCardRow} (${s.creatorPct}%, fee $${s.dftFee})`,
-        [COL.bill]: { label: s.payout > 0 ? "To raise" : "Not required" },
+        [COL.status]: { label: s.payout > 0 ? "To raise" : "Not required (nets zero)" },
+        [COL.notes]: `${s.pageViews} page views, ${s.impressions} impressions, ${s.clicks} clicks.`,
       });
       written.push(s.creator);
     }
-    if (house > 0 && !already.has(HOUSE_ROW)) {
-      await createItem(`${HOUSE_ROW} — ${PLATFORM} — ${label}`, {
-        [COL.creator]: HOUSE_ROW, [COL.platform]: { label: PLATFORM }, [COL.period]: { date: period },
-        [COL.total]: house, [COL.creatorPct]: 0, [COL.payout]: 0, [COL.dftNet]: house,
-        [COL.source]: source, [COL.bill]: { label: "Not required" },
+
+    // The month's site total is money IN: one row on Platform Invoices, like MSN and Meta.
+    const invoiced = await existing(INVOICES, label);
+    if (!invoiced.has("SUBPLOT")) {
+      await createItem(INVOICES, `SUBPLOT — ${label}`, {
+        [INV.platform]: { label: PLATFORM },
+        [INV.period]: { date: last.toISOString().slice(0, 10) },
+        [INV.amount]: total,
+        [INV.status]: { label: "Draft" },
+        [INV.send]: { label: "No — platform self-pays" },
+        [INV.source]: source,
+        [INV.notes]: `AdSense site total ${total}: ${attributed} attributed to ${statements.length} creators, ${house} house (non-article pages).`,
       });
-      written.push(HOUSE_ROW);
+      written.push("Platform Invoices: SUBPLOT — " + label);
     }
 
     return res.status(200).json({ ...summary, archived, written, skipped: [...already] });

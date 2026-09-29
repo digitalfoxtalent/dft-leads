@@ -3,24 +3,23 @@
 // SOURCES (all monday, read with the server's token)
 //   Platform Invoices 18427544285       one row per platform-month: the statement total. When a
 //                                       month has a statement, that is the platform's figure.
-//   Platform Revenue - Money In 18427528293   creator x platform x month, MSN split by type
-//                                       (article/gallery, embedded video, watch video, adjustment).
+//   (Platform Revenue - Money In 18427528293 was ARCHIVED 29 Sep 2026: a duplicate of the two
+//    boards below. Its MSN July 2026 article/video split is not carried forward.)
 //   Platform Creator Payments 18427503091     creator x platform x month, gross revenue share.
 //   Legacy deal boards: MSN 7238495643 (also content published + page views),
 //                       Facebook Meta 7580684343, Snapchat 6711851296.
 //   Articles - Review Queue 18429270496 articles published per brand (reliable from 2 Sep 2026).
 //
 // RULES
-//   - For each platform-month, creator figures come from ONE board: Money In, else the legacy
+//   - For each platform-month, creator figures come from ONE board: the legacy
 //     deal board, else Creator Payments (which only holds rows that became payouts). Boards are never added together, so nothing is counted twice.
 //   - The platform-month total is the statement (Platform Invoices) when there is one, else the
 //     sum of the creator rows. Any shortfall is shown as "Not attributed to a creator". Where the
 //     creator rows are larger than the statement (Spotify: part of it is invoiced through other
 //     partners), the creator rows are used and the page says so.
 //   - A month with no statement and no creator rows is "not reported", never zero.
-//   - MSN is split into video and articles only where Money In has the split (from July 2026).
-//     Earlier MSN months are shown under Video as "MSN (video and articles)", because the
-//     statement did not separate them (in July 2026 articles were about 7% of MSN).
+//   - MSN is shown under Video as "MSN (video and articles)": no board carries the
+//     article/video split any more (in July 2026 articles were about 7% of MSN).
 
 import { monday } from "../monday.js";
 import { loadAvatars } from "../campaigns/load.js";
@@ -63,9 +62,8 @@ async function allItems(token, board, cols, extra) {
 const PLAT_OF = { "MSN / Start": "msn", "MSN": "msn", "Meta": "meta", "Meta / Facebook": "meta", "Snap": "snap", "Snapchat": "snap", "Spotify / Podcasts": "spotify", "Spotify": "spotify" };
 
 async function build(token) {
-  const [inv, money, pay, msnL, metaL, snapL, queue, gtr] = await Promise.all([
+  const [inv, pay, msnL, metaL, snapL, queue, gtr] = await Promise.all([
     allItems(token, 18427544285, ["color_mm6eg19h", "date_mm6ezsh9", "numeric_mm6e8tmm"]),
-    allItems(token, 18427528293, ["text_mm6dvz37", "color_mm6dh8fr", "date_mm6dk5y1", "numeric_mm6dqy5c", "numeric_mm6d9zd7", "numeric_mm6dtzxt", "numeric_mm6dvhnn", "numeric_mm6d5zmn"]),
     allItems(token, 18427503091, ["color_mm6d7cwg", "date_mm6dak13", "numeric_mm6dxxb8"]),
     allItems(token, 7238495643, ["deal_value", "date0__1", "text_mkvw5d8h", "text_mkxt7spa"]),
     allItems(token, 7580684343, ["deal_value", "date_mktcwthf", "board_relation4__1"]),
@@ -83,15 +81,8 @@ async function build(token) {
   }
 
   // Creator rows by source, keyed platform|month.
-  const src = { money: {}, pay: {}, legacy: {} };
+  const src = { pay: {}, legacy: {} };
   const add = (bucket, p, m, row) => { if (!p || !m) return; (bucket[p + "|" + m] = bucket[p + "|" + m] || []).push(row); };
-  for (const r of money) {
-    const p = PLAT_OF[r.cv.color_mm6dh8fr]; const m = ym(r.cv.date_mm6dk5y1);
-    const total = has(r.cv.numeric_mm6d5zmn) ? num(r.cv.numeric_mm6d5zmn) : num(r.cv.numeric_mm6dqy5c) + num(r.cv.numeric_mm6d9zd7) + num(r.cv.numeric_mm6dtzxt) + num(r.cv.numeric_mm6dvhnn);
-    const row = { n: r.cv.text_mm6dvz37 || String(r.name).split(" — ")[0], g: total };
-    if (p === "msn") { row.art = num(r.cv.numeric_mm6dqy5c); row.vid = num(r.cv.numeric_mm6d9zd7) + num(r.cv.numeric_mm6dtzxt); row.adj = num(r.cv.numeric_mm6dvhnn); }
-    add(src.money, p, m, row);
-  }
   for (const r of pay) {
     if (!has(r.cv.numeric_mm6dxxb8)) continue; // no gross recorded on this payout row
     add(src.pay, PLAT_OF[r.cv.color_mm6d7cwg], ym(r.cv.date_mm6dak13), { n: String(r.name).split(" — ")[0], g: num(r.cv.numeric_mm6dxxb8) });
@@ -108,12 +99,12 @@ async function build(token) {
   }
 
   // One set of creator figures per platform-month, then the statement total on top.
-  const SRC_NAME = { money: "Platform Revenue - Money In", pay: "Platform Creator Payments", legacy: { msn: "MSN deals board", meta: "Facebook Meta deals board", snap: "Snapchat deals board" } };
-  const keys = new Set([...Object.keys(stmt), ...Object.keys(src.money), ...Object.keys(src.pay), ...Object.keys(src.legacy)]);
+  const SRC_NAME = { pay: "Platform Creator Payments", legacy: { msn: "MSN deals board", meta: "Facebook Meta deals board", snap: "Snapchat deals board" } };
+  const keys = new Set([...Object.keys(stmt), ...Object.keys(src.pay), ...Object.keys(src.legacy)]);
   const cells = []; // { p, m, src, stmt, rows:[{k,n,g,art,vid,adj,pub,pv}] }
   for (const key of keys) {
     const [p, m] = key.split("|");
-    const which = src.money[key] ? "money" : src.legacy[key] ? "legacy" : src.pay[key] ? "pay" : null; // Creator Payments only holds rows that became payouts, so it is the last resort
+    const which = src.legacy[key] ? "legacy" : src.pay[key] ? "pay" : null; // Creator Payments only holds rows that became payouts, so it is the last resort
     const rows = which ? src[which][key] : [];
     const merged = {};
     for (const r of rows) {
