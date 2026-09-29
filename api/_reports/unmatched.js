@@ -30,6 +30,11 @@ import { windowOf, monthHint } from "./flight-match.js";
 export const REVIEW_BOARD = 18433205666;
 const SUB_BOARD = 6162879732, AR_BOARD = 18424308590;
 export const NOTIFY_USERS = [100099218, 54957240]; // Margot Grant, Alex Mackenzie
+// Every review row gets an owner and a due date (Tom, 29 Sep 2026: working the board is mandatory).
+// Alex owns them; a client-tag row where the INVOICE looks wrong is a finance flag and goes to Tom.
+// Rows still New or Looking into it after their due date are listed to the owner AND Tom every morning.
+const ALEX = 54957240, TOM = 40241658, DUE_DAYS = 3;
+const ownerOf = f => (f.cls === "Client tag mismatch" && /finance flag/.test(f.evidence || "")) ? TOM : ALEX;
 const D = 864e5, REPORT_DAYS = 14, STANDING_DAYS = 45;
 
 const sq = s => String(s || "").toLowerCase().normalize("NFKD").replace(/[^a-z0-9]/g, "");
@@ -46,7 +51,8 @@ const ROW_FIELDS = "cursor items { id name parent_item { id name group { title }
 export const ROWS_QUERY = "query { boards(ids:[" + SUB_BOARD + "]) { items_page(limit:500) { " + ROW_FIELDS + " } } }";
 const AR_FIELDS = "cursor items { id name group { title } column_values(ids:[\"text_mm5qdm4f\",\"text_mm60e5d9\",\"text_mm5qvwsw\",\"text_mm5qq5q\",\"board_relation_mm5xasjj\",\"date_mm5qwsdn\"]) { id text ... on BoardRelationValue { display_value linked_item_ids } } }";
 export const AR_QUERY = "query { boards(ids:[" + AR_BOARD + "]) { items_page(limit:500) { " + AR_FIELDS + " } } }";
-export const REVIEW_QUERY = "query { boards(ids:[" + REVIEW_BOARD + "]) { items_page(limit:500) { cursor items { id column_values(ids:[\"key\"]) { text } } } } }";
+const REVIEW_FIELDS = "cursor items { id name column_values(ids:[\"key\",\"review\",\"due\",\"owner\"]) { id text ... on PeopleValue { persons_and_teams { id } } } }";
+export const REVIEW_QUERY = "query { boards(ids:[" + REVIEW_BOARD + "]) { items_page(limit:500) { " + REVIEW_FIELDS + " } } }";
 
 async function allPages(token, query, fields) {
   let d = await monday(token, query);
@@ -96,7 +102,7 @@ export async function loadData(token) {
     allPages(token, "query { boards(ids:[" + SUB_BOARD + "]) { items_page(limit:500) { " + SUB_FIELDS + " } } }", SUB_FIELDS),
     allPages(token, "query { boards(ids:[6162879609]) { items_page(limit:500) { " + DEAL_FIELDS + " } } }", DEAL_FIELDS),
     allPages(token, AR_QUERY, AR_FIELDS),
-    allPages(token, REVIEW_QUERY, "cursor items { id column_values(ids:[\"key\"]) { text } }"), loadGtr(token)]);
+    allPages(token, REVIEW_QUERY, REVIEW_FIELDS), loadGtr(token)]);
   // The deals' contacts: which client each contact belongs to, and its QuickBooks name.
   const contactOf = {}, ids = new Set();
   for (const d of dealItems) { const c = cvMap(d.column_values).deal_contact; const l = (c && c.linked_item_ids) || []; contactOf[d.id] = l.map(String); l.forEach(x => ids.add(String(x))); }
@@ -112,7 +118,10 @@ export async function loadData(token) {
     deals[d.id] = { id: d.id, name: d.name, group: d.group, column_values: [c.status_1, c.dropdown_mm1a3tqp, c.date__1, c.board_relation_mm5x8h0y, { id: "lookup_mkz6pygk", text: join("client") }, { id: "lookup_mm5zp13v", text: join("qb") }].filter(Boolean) };
   }
   const rowItems = subItems.map(it => ({ ...it, parent_item: it.parent_item && deals[it.parent_item.id] })).filter(it => it.parent_item);
-  return { rows: parseRows(rowItems), invoices: parseInvoices(arItems), reviewKeys: new Set(revItems.flatMap(i => String((i.column_values[0] || {}).text || "").split(/\s+/)).filter(Boolean)), gtr };
+  return { rows: parseRows(rowItems), invoices: parseInvoices(arItems), reviewKeys: new Set(revItems.flatMap(i => String((cvMap(i.column_values).key || {}).text || "").split(/\s+/)).filter(Boolean)),
+    // Open rows past their due date: the daily nudge lists them until someone closes them.
+    overdue: revItems.map(i => { const c = cvMap(i.column_values); return { id: i.id, name: i.name, review: (c.review || {}).text || "", due: (c.due || {}).text || "", owners: (((c.owner || {}).persons_and_teams) || []).map(p => Number(p.id)) }; })
+      .filter(r => /^(New|Looking into it)$/.test(r.review) && r.due && r.due < iso(Date.now())), gtr };
 }
 
 // ---------- brands and description parsing ----------
@@ -466,10 +475,18 @@ export async function runUnmatched(token, opts) {
     try { await addReviewItem(token, f, makegoodWrites); } catch (e) { summary.errors.push("review " + f.key + ": " + String(e.message || e).slice(0, 120)); }
   }
   summary.added = added;
-  if (notify && fresh.length) {
-    const txt2 = "Unmatched sponsor reads: " + fresh.length + " new on the review board (" + Object.entries(fresh.reduce((a, f) => (a[f.cls] = (a[f.cls] || 0) + 1, a), {})).map(([k, n]) => n + " " + k).join(", ") + ").";
-    for (const u of NOTIFY_USERS) { try { await mondayVars(token, "mutation ($u: ID!, $t: ID!, $x: String!) { create_notification(user_id:$u, target_id:$t, target_type:Project, text:$x) { text } }", { u: String(u), t: String(REVIEW_BOARD), x: txt2 }); } catch (e) { summary.errors.push("notify " + u + ": " + String(e.message || e).slice(0, 100)); } }
-    summary.notified = NOTIFY_USERS.length;
+  const overdue = data.overdue || [];
+  summary.overdue = overdue.length;
+  if (notify && (fresh.length || overdue.length)) {
+    const send = async (u, x) => { try { await mondayVars(token, "mutation ($u: ID!, $t: ID!, $x: String!) { create_notification(user_id:$u, target_id:$t, target_type:Project, text:$x) { text } }", { u: String(u), t: String(REVIEW_BOARD), x }); summary.notified = (summary.notified || 0) + 1; } catch (e) { summary.errors.push("notify " + u + ": " + String(e.message || e).slice(0, 100)); } };
+    const newTxt = fresh.length ? "Unmatched sponsor reads: " + added + " new on the review board (" + Object.entries(fresh.slice(0, added).reduce((a, f) => (a[f.cls] = (a[f.cls] || 0) + 1, a), {})).map(([k, n]) => n + " " + k).join(", ") + "), due in " + DUE_DAYS + " days." : "";
+    const lateFor = u => overdue.filter(r => r.owners.includes(u) || u === TOM);
+    for (const u of [...new Set(NOTIFY_USERS.concat(TOM))]) {
+      const late = lateFor(u);
+      const lateTxt = late.length ? "OVERDUE on the review board: " + late.length + " row" + (late.length === 1 ? "" : "s") + " past due and still open (" + late.slice(0, 4).map(r => r.name).join("; ") + (late.length > 4 ? "; ..." : "") + "). Close each with Done, Not a sponsor read or Billing is correct." : "";
+      const x = [NOTIFY_USERS.includes(u) ? newTxt : "", lateTxt].filter(Boolean).join(" ");
+      if (x) await send(u, x);
+    }
   }
   summary.ms = Date.now() - t0;
   return summary;
@@ -501,7 +518,8 @@ async function writeMakegood(token, f) {
 async function addReviewItem(token, f, writesOn) {
   const name = f.cls === "Client tag mismatch" ? f.deal : (f.brand + " on " + f.channel + " " + f.at);
   const ev = f.cls === "Make-good" ? f.evidence + (f.written ? ". Linked to the deal automatically." : !f.open ? ". Not written: the deal is closed or lost." : !writesOn ? ". Not written: make-good writes are off (dry run)." : ". Not written.") : f.evidence;
-  const cols = { channel: f.channel || "", brand: f.brand || "", code: f.code || "", suggested: String(f.suggested || "").slice(0, 250), evidence: { text: String(ev).slice(0, 1900) }, key: f.key, class: { label: f.cls }, review: { label: f.written ? "Done" : "New" } };
+  const cols = { channel: f.channel || "", brand: f.brand || "", code: f.code || "", suggested: String(f.suggested || "").slice(0, 250), evidence: { text: String(ev).slice(0, 1900) }, key: f.key, class: { label: f.cls }, review: { label: f.written ? "Done" : "New" },
+    owner: { personsAndTeams: [{ id: ownerOf(f), kind: "person" }] }, due: { date: iso(Date.now() + DUE_DAYS * D) } };
   if (f.url) cols.video = { url: f.url, text: f.title ? f.title.slice(0, 60) : f.video };
   if (f.at) cols.published = { date: f.at };
   await mondayVars(token, "mutation ($b: ID!, $n: String!, $v: JSON!) { create_item(board_id:$b, item_name:$n, column_values:$v, create_labels_if_missing:true) { id } }", { b: String(REVIEW_BOARD), n: name.slice(0, 250), v: JSON.stringify(cols) });
