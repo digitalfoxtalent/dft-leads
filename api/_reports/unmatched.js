@@ -87,10 +87,31 @@ export function parseInvoices(items) {
   });
 }
 
+// Loaded in flat pieces and joined here: asking for the deal's mirror columns from every creator row
+// took over 40 seconds on 29 Sep 2026. Rows, deals and the deals' contacts are three cheap reads.
+const SUB_FIELDS = "cursor items { id name parent_item { id } column_values(ids:[\"connect_boards__1\",\"text_mm6aq9qp\",\"numeric_mm3yxqes\",\"numeric_mm4bn6yq\",\"date_mm1mb38m\",\"timerange_mm1m50vx\",\"color_mm7jh1xw\"]) { id text ... on BoardRelationValue { display_value } } }";
+const DEAL_FIELDS = "cursor items { id name group { title } column_values(ids:[\"status_1\",\"dropdown_mm1a3tqp\",\"date__1\",\"board_relation_mm5x8h0y\",\"deal_contact\"]) { id text ... on BoardRelationValue { linked_item_ids } } }";
 export async function loadData(token) {
-  const [rowItems, arItems, revItems, gtr] = await Promise.all([
-    allPages(token, ROWS_QUERY, ROW_FIELDS), allPages(token, AR_QUERY, AR_FIELDS),
+  const [subItems, dealItems, arItems, revItems, gtr] = await Promise.all([
+    allPages(token, "query { boards(ids:[" + SUB_BOARD + "]) { items_page(limit:500) { " + SUB_FIELDS + " } } }", SUB_FIELDS),
+    allPages(token, "query { boards(ids:[6162879609]) { items_page(limit:500) { " + DEAL_FIELDS + " } } }", DEAL_FIELDS),
+    allPages(token, AR_QUERY, AR_FIELDS),
     allPages(token, REVIEW_QUERY, "cursor items { id column_values(ids:[\"key\"]) { text } }"), loadGtr(token)]);
+  // The deals' contacts: which client each contact belongs to, and its QuickBooks name.
+  const contactOf = {}, ids = new Set();
+  for (const d of dealItems) { const c = cvMap(d.column_values).deal_contact; const l = (c && c.linked_item_ids) || []; contactOf[d.id] = l.map(String); l.forEach(x => ids.add(String(x))); }
+  const contacts = {}, list = [...ids];
+  for (let i = 0; i < list.length; i += 100) {
+    const r = await monday(token, "query { items(ids:[" + list.slice(i, i + 100).join(",") + "], limit:100) { id column_values(ids:[\"contact_account\",\"text3\"]) { id text ... on BoardRelationValue { display_value } } } }");
+    for (const it of r.items) { const c = cvMap(it.column_values); contacts[it.id] = { client: txt(c.contact_account), qb: txt(c.text3) }; }
+  }
+  const deals = {};
+  for (const d of dealItems) {
+    const c = cvMap(d.column_values), cs = contactOf[d.id].map(x => contacts[x]).filter(Boolean);
+    const join = k => [...new Set(cs.map(x => x[k]).filter(Boolean))].join(", ");
+    deals[d.id] = { id: d.id, name: d.name, group: d.group, column_values: [c.status_1, c.dropdown_mm1a3tqp, c.date__1, c.board_relation_mm5x8h0y, { id: "lookup_mkz6pygk", text: join("client") }, { id: "lookup_mm5zp13v", text: join("qb") }].filter(Boolean) };
+  }
+  const rowItems = subItems.map(it => ({ ...it, parent_item: it.parent_item && deals[it.parent_item.id] })).filter(it => it.parent_item);
   return { rows: parseRows(rowItems), invoices: parseInvoices(arItems), reviewKeys: new Set(revItems.map(i => (i.column_values[0] || {}).text).filter(Boolean)), gtr };
 }
 
@@ -383,10 +404,11 @@ export function tagCheck(data, aliases, now) {
 
 export async function runUnmatched(token, opts) {
   opts = opts || {};
-  const { dry, makegoodWrites, notify, timeMs = 30000 } = opts;
+  const { dry, makegoodWrites, notify, timeMs = 38000 } = opts;
   const key = process.env.YOUTUBE_API_KEY; if (!key) throw new Error("YOUTUBE_API_KEY missing");
   const t0 = Date.now(), summary = { pass: "unmatched", dry: !!dry, makegoodWrites: !!makegoodWrites, notify: !!notify, units: 0, channels: 0, errors: [] };
   const data = (opts && opts.data) || await loadData(token);
+  summary.loadMs = Date.now() - t0;
   const signed = Object.keys(data.gtr.signed).filter(k => data.gtr.signed[k]);
   const since = Date.now() - STANDING_DAYS * D;
   const scans = (await pool(signed, 8, async h => {
