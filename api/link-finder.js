@@ -43,10 +43,13 @@ export default async function handler(req, res) {
   const secret = process.env.CRON_SECRET;
   const fromCron = req.headers["x-vercel-cron"] || (secret && req.headers.authorization === "Bearer " + secret);
   const dry = String(req.query && req.query.dry || "") === "1" || !WRITES_ENABLED;
-  if (!fromCron && !(String(req.query && req.query.dry || "") === "1" && token && cookieOk(req, token))) return res.status(401).json({ error: "Unauthorized" });
+  // A signed-in team member may also post the second pass's review rows by hand (?pass=unmatched&post=1).
+  // That writes to the review board only: make-goods and notifications stay with the cron.
+  const post = String(req.query && req.query.pass || "") === "unmatched" && String(req.query && req.query.post || "") === "1";
+  if (!fromCron && !((String(req.query && req.query.dry || "") === "1" || post) && token && cookieOk(req, token))) return res.status(401).json({ error: "Unauthorized" });
   if (!token || !process.env.YOUTUBE_API_KEY) return res.status(500).json({ error: "Setup: monday or YouTube key missing" });
   if (String(req.query && req.query.pass || "") === "unmatched") {
-    try { return res.status(200).json(await runUnmatched(token, { dry: String(req.query.dry || "") === "1", makegoodWrites: MAKEGOOD_WRITES, notify: NOTIFY_TEAM, unlink: req.query.unlink })); }
+    try { return res.status(200).json(await runUnmatched(token, { dry: String(req.query.dry || "") === "1", makegoodWrites: MAKEGOOD_WRITES && !!fromCron, notify: NOTIFY_TEAM && !!fromCron, unlink: req.query.unlink })); }
     catch (e) { return res.status(200).json({ pass: "unmatched", error: String(e.message || e).slice(0, 300) }); }
   }
 
