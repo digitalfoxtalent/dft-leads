@@ -57,6 +57,11 @@ export const CREATORS = [
   // the heavyspoilers feeds resolve to youtube.com/@heavyspoilers and every one is public.
   // SUBPLOT rate card row created the same day; payee HeavySpoilers LTD.
   { slug: "heavyspoilers", name: "Heavy Spoilers",                               handles: ["@heavyspoilers"] },                // Heavy Spoilers (Paul), approved 23 Sep 2026
+  // Approved on the Article Rights board 1 Oct 2026 (row 13189658145). Trey Cooper agreed to
+  // MSN, Spotify Video and Subplot in Google Chat on 21 Sep 2026; Tom approved it 1 Oct.
+  // Handle checked on YouTube: @CommentatorsCurseFGC, channel UCWrdZpY_HEdTnmIpjOm3voQ.
+  // SUBPLOT rate card row 13189706168 created the same day.
+  { slug: "commentatorscursefgc", name: "Commentator's Curse FGC",               handles: ["@commentatorscursefgc"] },         // Commentator's Curse FGC (Trey Cooper), approved 1 Oct 2026
 ];
 
 export const APPROVED_HANDLES = CREATORS.flatMap(c => c.handles);
