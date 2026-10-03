@@ -12,11 +12,17 @@
 // already on another row for the same brand is dropped. Each write posts an update with the evidence.
 // Title-only and weaker matches are listed in the plan for a person; nothing is labelled.
 //
-// Caps per night: 25 rows written, about 1,500 YouTube units, 45 seconds. Starting creator rotates
-// daily; signed roster creators first. Runs at 07:20 UTC, after the YouTube allowance resets.
+// Caps per night: 25 rows written, about 1,500 YouTube units, 150 seconds of scanning. Starting creator
+// rotates daily; signed roster creators first. Runs at 07:20 UTC, after the YouTube allowance resets.
+//
+// Scheduled runs are recognised by _reports/cron.js and each one is logged on board 18432874155
+// (_reports/runlog.js). The ?pass=watch cron checks that log every morning and tells Tom if a night is
+// missing or failed. Until 3 Oct 2026 this file checked only an x-vercel-cron header that Vercel does
+// not send here, so every nightly run from 27 Sep to 2 Oct was refused and nobody saw it.
 //
 //   GET /api/link-finder?dry=1   (team cookie or CRON_SECRET) shows the plan, writes nothing.
 //   GET /api/link-finder?pass=unmatched&dry=1   the second pass's classified list, writes nothing.
+//   GET /api/link-finder?pass=watch&dry=1   the morning watchdog's checks, notifies nobody.
 
 import { mondayToken } from "./_reports/monday.js";
 import { cookieOk } from "./_reports/access.js";
@@ -25,8 +31,10 @@ import { scanUploads } from "./_reports/scan.js";
 import { matchRows, sinceFor, writable } from "./_reports/flight-match.js";
 import { applyLinks } from "./_reports/apply-links.js";
 import { runUnmatched } from "./_reports/unmatched.js";
+import { isCron } from "./_reports/cron.js";
+import { recordRun, runWatch, JOBS } from "./_reports/runlog.js";
 
-export const config = { maxDuration: 60 };
+export const config = { maxDuration: 300 };
 
 // Set to false to make the nightly run plan only (same as ?dry=1), changing nothing on monday.
 const WRITES_ENABLED = true; // on 27 Sep 2026 after the overnight dry runs (board 18432874155) checked out
@@ -35,22 +43,34 @@ const WRITES_ENABLED = true; // on 27 Sep 2026 after the overnight dry runs (boa
 // the rest. Both OFF until Tom has checked the first night's list (brief of 28 Sep 2026, tracker d39).
 const MAKEGOOD_WRITES = true;  // on 29 Sep 2026 after Tom checked the first list on board 18433205666
 const NOTIFY_TEAM = true;      // daily monday notification to Margot and Alex with the count (on 29 Sep 2026)
-const MAX_ROWS = 25, UNIT_BUDGET = 1500, TIME_MS = 30000; // leaves time for the writes inside the 60 s limit
+const MAX_ROWS = 25, UNIT_BUDGET = 1500, TIME_MS = 150000; // scanning stops at 150 s, leaving time for the writes and the run log inside the 300 s limit
+// Second pass budgets inside the same 300 s limit: channel scans stop at 150 s, review rows at 240 s.
+const UNMATCHED_TIME_MS = 150000, UNMATCHED_STOP_MS = 240000;
 
 export default async function handler(req, res) {
   res.setHeader("Cache-Control", "no-store");
   const token = mondayToken();
-  const secret = process.env.CRON_SECRET;
-  const fromCron = req.headers["x-vercel-cron"] || (secret && req.headers.authorization === "Bearer " + secret);
+  const fromCron = isCron(req);
   const dry = String(req.query && req.query.dry || "") === "1" || !WRITES_ENABLED;
   // A signed-in team member may also post the second pass's review rows by hand (?pass=unmatched&post=1).
   // That writes to the review board only: make-goods and notifications stay with the cron.
   const post = String(req.query && req.query.pass || "") === "unmatched" && String(req.query && req.query.post || "") === "1";
   if (!fromCron && !((String(req.query && req.query.dry || "") === "1" || post) && token && cookieOk(req, token))) return res.status(401).json({ error: "Unauthorized" });
   if (!token || !process.env.YOUTUBE_API_KEY) return res.status(500).json({ error: "Setup: monday or YouTube key missing" });
+  // Scheduled, writing runs go on the run log so a missing or failed night is noticed (?pass=watch).
+  const logRun = (job, summary) => (fromCron && String(req.query && req.query.dry || "") !== "1") ? recordRun(token, job, summary) : null;
+  // Morning watchdog (?pass=watch, cron 10:15 UTC): tells Tom if a night above is missing or failed,
+  // or the 09:00 YouTube view sync wrote nothing. See _reports/runlog.js.
+  if (String(req.query && req.query.pass || "") === "watch") {
+    try { return res.status(200).json(await runWatch(token, { dry: String(req.query.dry || "") === "1" || !fromCron })); }
+    catch (e) { return res.status(200).json({ pass: "watch", error: String(e.message || e).slice(0, 300) }); }
+  }
   if (String(req.query && req.query.pass || "") === "unmatched") {
-    try { return res.status(200).json(await runUnmatched(token, { dry: String(req.query.dry || "") === "1", makegoodWrites: MAKEGOOD_WRITES && !!fromCron, notify: NOTIFY_TEAM && !!fromCron, unlink: req.query.unlink })); }
-    catch (e) { return res.status(200).json({ pass: "unmatched", error: String(e.message || e).slice(0, 300) }); }
+    let out;
+    try { out = await runUnmatched(token, { dry: String(req.query.dry || "") === "1", makegoodWrites: MAKEGOOD_WRITES && !!fromCron, notify: NOTIFY_TEAM && !!fromCron, unlink: req.query.unlink, timeMs: UNMATCHED_TIME_MS, stopMs: UNMATCHED_STOP_MS }); }
+    catch (e) { out = { pass: "unmatched", error: String(e.message || e).slice(0, 300) }; }
+    await logRun(JOBS.unmatched, out);
+    return res.status(200).json(out);
   }
 
   const t0 = Date.now();
@@ -85,7 +105,8 @@ export default async function handler(req, res) {
       const r = await applyLinks(token, { rows: toWrite, rule: "Nightly link finder: uploads from this row's date window whose description carries a link naming the brand (or whose title names it, when this is the creator's one row for the brand). Several videos means the read ran as a flight across them." }, dry);
       summary.apply = { linked: r.linked, videos: r.videos, skipped: r.out.filter(o => /skipped/.test(o.result)).length };
     }
-  } catch (e) { summary.errors.push(String(e.message || e).slice(0, 200)); }
+  } catch (e) { summary.failed = true; summary.errors.push(String(e.message || e).slice(0, 200)); }
   summary.ms = Date.now() - t0;
+  await logRun(JOBS.links, summary);
   return res.status(200).json(summary);
 }

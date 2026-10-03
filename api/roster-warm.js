@@ -7,12 +7,13 @@
 // visitor gets the cached copy and the monday call happens here instead.
 //
 // It only reads. Refused unless it comes from Vercel's scheduler or carries CRON_SECRET.
+import { isCron } from "./_reports/cron.js";
+
 const HOST = "https://roster-viewguarantee.digitalfoxtalent.com";
 const PATHS = ["/api/roster", "/api/brand-roster"];
 
 export default async function handler(req, res) {
-  const secret = process.env.CRON_SECRET;
-  const fromCron = req.headers["x-vercel-cron"] || (secret && req.headers.authorization === "Bearer " + secret);
+  const fromCron = isCron(req);
   if (!fromCron) return res.status(404).json({ error: "Not found" });
   res.setHeader("Cache-Control", "no-store");
   const results = await Promise.all(PATHS.map(async p => {
