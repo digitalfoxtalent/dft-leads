@@ -3,6 +3,9 @@
 // The first pass starts from deal rows and looks for their videos. This pass looks the other way:
 // every roster channel's uploads from the last 14 days, the sponsor reads in their descriptions, and
 // which of those no creator row links. Each one is classified (first clear answer wins):
+//   0 In-flight        same brand and creator as a deal row, the SAME tracking link and code as that row's
+//                      own video, and posted inside that row's flight (LIVE DATE start - 3 days to end + 10
+//                      days, or DATE PUBLISHED - 3 to + 10), whatever the guarantee (Tom, 3 Oct 2026)
 //   1 Make-good        same brand and creator as a deal, the SAME tracking link and code as that deal's
 //                      video, the deal is under its view guarantee, and no invoice of its own
 //   2 Deal missing     an invoice on Brand Invoices (18424308590) names this brand and creator for the
@@ -18,8 +21,8 @@
 // Client tag check (same pass): for each invoice on Brand Invoices with a QB customer, the deal's CLIENT
 // mirror (from CONTACTS) and QB Customer (auto) should name the same company. Mismatches are listed.
 //
-// Writes: only make-goods touch deals (append to LIVE VIDEO URLS + an update with the evidence), and only
-// when MAKEGOOD_WRITES is on. Everything else goes to the review board "Unmatched sponsor reads"
+// Writes: only in-flight videos and make-goods touch deals (append to LIVE VIDEO URLS + an update with the
+// evidence), and only when MAKEGOOD_WRITES is on. Everything else goes to the review board "Unmatched sponsor reads"
 // (18433205666), one row per video and brand (or per invoice), never twice. Contacts and deals are
 // never created or changed by this pass.
 
@@ -36,6 +39,8 @@ export const NOTIFY_USERS = [100099218, 54957240]; // Margot Grant, Alex Mackenz
 const ALEX = 54957240, TOM = 40241658, DUE_DAYS = 3;
 const ownerOf = f => (f.cls === "Client tag mismatch" && /finance flag/.test(f.evidence || "")) ? TOM : ALEX;
 const D = 864e5, REPORT_DAYS = 14, STANDING_DAYS = 45;
+// Classes the pass writes to the deal row itself (when MAKEGOOD_WRITES is on); everything else is for a person.
+const AUTO = new Set(["In-flight", "Make-good"]);
 
 const sq = s => String(s || "").toLowerCase().normalize("NFKD").replace(/[^a-z0-9]/g, "");
 const day = s => new Date(String(s).slice(0, 10) + "T00:00:00Z").getTime();
@@ -76,7 +81,7 @@ export function parseRows(items) {
       brands, brand: brands[0] || "", h: txt(c.connect_boards__1),
       links: txt(c.text_mm6aq9qp), vids: vidIds(txt(c.text_mm6aq9qp)),
       req: Number(txt(c.numeric_mm3yxqes)) || 0, views: Number(txt(c.numeric_mm4bn6yq)) || 0,
-      pub: txt(c.date_mm1mb38m), live: String(txt(c.timerange_mm1m50vx)).slice(0, 10), closed: txt(pc.date__1), label: txt(c.color_mm7jh1xw),
+      pub: txt(c.date_mm1mb38m), live: String(txt(c.timerange_mm1m50vx)).slice(0, 10), liveEnd: (String(txt(c.timerange_mm1m50vx)).match(/(\d{4}-\d\d-\d\d)\s*$/) || [])[1] || "", closed: txt(pc.date__1), label: txt(c.color_mm7jh1xw),
       client: txt(pc.lookup_mkz6pygk), qbAuto: txt(pc.lookup_mm5zp13v),
       arIds: ((pc.board_relation_mm5x8h0y && pc.board_relation_mm5x8h0y.linked_item_ids) || []).map(String),
     });
@@ -335,20 +340,48 @@ export function classify(data, scans, refs, now) {
   return { found, skipped, tags: tagCheck(data, aliases) };
 }
 
+// The row's own flight, tighter than windowOf (which also has to find a row's FIRST video): creators post
+// a few days late (TRR's Zocdoc September flight was 14-20 Sep; its videos went up 23 and 28 Sep).
+export function flightOf(r) {
+  if (r.live) { const a = day(r.live), b = r.liveEnd ? day(r.liveEnd) : a + 6 * D; return { a: a - 3 * D, b: b + 10 * D, core: [a, b] }; }
+  if (r.pub) { const a = day(r.pub); return { a: a - 3 * D, b: a + 10 * D, core: [a, a] }; }
+  return null;
+}
+const offFlight = (w, t) => t < w.core[0] ? w.core[0] - t : t > w.core[1] ? t - w.core[1] : 0;
+// A deal video carrying the same brand read: same link (and code, if any), or the same code when there is no link.
+const sameRead = (refVids, rd, brands) => refVids.find(x => readsIn(x.d, brands, []).some(q => q.key === rd.key && (rd.link && q.link === rd.link) && sq(q.code) === sq(rd.code)))
+  || refVids.find(x => !rd.link && rd.code && readsIn(x.d, brands, []).some(q => q.key === rd.key && sq(q.code) === sq(rd.code)));
+const dealInvoices = (data, dealId, rs) => new Set(rs.flatMap(r => r.arIds).concat(data.invoices.filter(i => i.dealIds.includes(dealId) || i.name === rs[0].deal).map(i => i.id)));
+
 function decide(v, rd, s, hk, al, bRows, data, refs, invById, brands) {
   const base = { video: v.v, url: "https://www.youtube.com/watch?v=" + v.v, title: v.t, at: v.at, views: v.n, channel: s.title || s.h, h: s.h, brand: rd.brand, code: rd.code, link: rd.link, how: rd.how, key: "read:" + v.v + ":" + rd.key };
   const ev = [rd.how === "code" ? "promo code " + rd.code + " on a line naming " + rd.brand : "description link " + rd.link + (rd.code ? ", code " + rd.code : "")];
   // Invoices that name this brand and creator for the video's month.
   const invs = rd.known ? data.invoices.filter(i => invoiceNames(i, rd.key, al) && monthFits(invoiceMonth(i), v.at)) : [];
+  // Rule 0: inside a linked row's own flight, with that row's link and code: part of that row, guarantee or not.
+  // Several rows (weekly spots) can overlap: the one whose flight dates are nearest wins.
+  const t = day(v.at);
+  const flights = bRows.filter(r => r.vids.length).map(r => ({ r, w: flightOf(r) })).filter(x => x.w && t >= x.w.a && t <= x.w.b)
+    .sort((p, q) => offFlight(p.w, t) - offFlight(q.w, t));
+  for (const { r, w } of flights) {
+    const same = sameRead(r.vids.map(id => refs[id]).filter(Boolean).filter(x => x.v !== v.v), rd, brands);
+    if (!same) continue;
+    const rs = bRows.filter(x => x.dealId === r.dealId);
+    const own = dealInvoices(data, r.dealId, rs);
+    if (invs.some(i => !own.has(i.id))) break; // another invoice names this brand and creator: not this row's
+    const req = rs.reduce((a, x) => a + x.req, 0), views = rs.reduce((a, x) => a + x.views, 0);
+    const iso10 = ms => new Date(ms).toISOString().slice(0, 10);
+    return { ...base, cls: "In-flight", suggested: r.deal, rowId: r.id, dealId: r.dealId, open: openDeal(r), before: views, req,
+      evidence: ev.concat("same " + (rd.link ? "link" : "code") + " as " + same.v + " (" + same.at + ") on " + r.deal, "posted inside that row's flight (" + iso10(w.core[0]) + " to " + iso10(w.core[1]) + ", allowing 3 days before and 10 after)", "deal at " + views.toLocaleString("en-US") + (req ? " of " + req.toLocaleString("en-US") : "") + " views, this video adds " + v.n.toLocaleString("en-US")).join("; ") };
+  }
   // Rule 1: same link and code as a deal's own video, deal under guarantee, no invoice of its own.
   const deals = new Map(); for (const r of bRows) if (r.vids.length) (deals.get(r.dealId) || deals.set(r.dealId, []).get(r.dealId)).push(r);
   for (const [dealId, rs] of [...deals.entries()].sort((a, b) => Math.max(...b[1].map(r => day(r.pub || r.live || r.closed || "2000-01-01"))) - Math.max(...a[1].map(r => day(r.pub || r.live || r.closed || "2000-01-01"))))) {
     const refVids = rs.flatMap(r => r.vids).map(id => refs[id]).filter(Boolean).filter(x => x.at <= v.at && x.v !== v.v);
-    const same = refVids.find(x => readsIn(x.d, brands, []).some(q => q.key === rd.key && (rd.link && q.link === rd.link) && sq(q.code) === sq(rd.code)))
-      || refVids.find(x => !rd.link && rd.code && readsIn(x.d, brands, []).some(q => q.key === rd.key && sq(q.code) === sq(rd.code)));
+    const same = sameRead(refVids, rd, brands);
     if (!same) continue;
     const req = rs.reduce((a, r) => a + r.req, 0), views = rs.reduce((a, r) => a + r.views, 0);
-    const own = new Set(rs.flatMap(r => r.arIds).concat(data.invoices.filter(i => i.dealIds.includes(dealId) || i.name === rs[0].deal).map(i => i.id)));
+    const own = dealInvoices(data, dealId, rs);
     const otherInv = invs.filter(i => !own.has(i.id));
     const ownNums = [...own].map(id => invById.get(id)).filter(Boolean).map(i => i.num || "no number").filter(Boolean);
     const sameEv = "same " + (rd.link ? "link" : "") + (rd.link && rd.code ? " and " : "") + (rd.code ? "code" : "") + " as " + same.v + " (" + same.at + ") on " + rs[0].deal;
@@ -438,11 +471,11 @@ export async function runUnmatched(token, opts) {
   summary.skipped = res.skipped; summary.tagsWithoutCustomer = res.tags.noCustomer;
   // One review row per channel, brand and class: a weekly flight is one question for a person, not seven.
   // Videos already on the board (by key) are left out; make-goods stay one row per video.
-  const ORDER = ["Make-good", "Deal missing (invoiced)", "Separate buy, deal missing", "Other agency's deal", "Client tag mismatch", "Unknown"];
+  const ORDER = ["In-flight", "Make-good", "Deal missing (invoiced)", "Separate buy, deal missing", "Other agency's deal", "Client tag mismatch", "Unknown"];
   const groups = new Map();
   for (const f of res.found) {
     if (data.reviewKeys.has(f.key)) continue;
-    const g = f.cls === "Make-good" ? f.key : f.cls + "|" + f.h + "|" + f.brand;
+    const g = AUTO.has(f.cls) ? f.key : f.cls + "|" + f.h + "|" + f.brand;
     const cur = groups.get(g);
     if (!cur) { groups.set(g, { ...f, keys: [f.key], vids: [f] }); continue; }
     cur.keys.push(f.key); cur.vids.push(f);
@@ -462,11 +495,11 @@ export async function runUnmatched(token, opts) {
   if (dry) { summary.ms = Date.now() - t0; return summary; }
   // Make-goods: append to the deal row, with the same checks as the first pass.
   const made = new Set();
-  if (makegoodWrites) for (const f of res.found.filter(x => x.cls === "Make-good" && x.open).slice(0, 5)) {
+  if (makegoodWrites) for (const f of res.found.filter(x => AUTO.has(x.cls) && x.open).slice(0, 10)) {
     try { if (await writeMakegood(token, f)) { made.add(f.key); f.written = true; } } catch (e) { summary.errors.push("make-good " + f.video + ": " + String(e.message || e).slice(0, 120)); }
   }
   summary.makegoods = made.size;
-  for (const g of fresh) if (g.cls === "Make-good" && made.has(g.key)) g.written = true;
+  for (const g of fresh) if (AUTO.has(g.cls) && made.has(g.key)) g.written = true;
   // Everything new goes on the review board (make-goods too, as a record, marked Done when written).
   let added = 0;
   for (const f of fresh) {
@@ -510,14 +543,14 @@ async function writeMakegood(token, f) {
   if (q.boards[0].items_page.items.length) return false;
   const links = (cur ? cur.replace(/[\s,]+$/, "") + ", " : "") + f.url;
   await mondayVars(token, "mutation ($b: ID!, $i: ID!, $v: JSON!) { change_multiple_column_values(board_id:$b, item_id:$i, column_values:$v) { id } }", { b: String(SUB_BOARD), i: String(f.rowId), v: JSON.stringify({ text_mm6aq9qp: links }) });
-  const body = "<p><b>Make-good linked by the nightly link finder</b></p><p>" + esc(f.at) + " " + esc(f.url.replace(/^https:\/\/(www\.)?/, "")) + " (" + esc(f.title) + ")</p><p>" + esc(f.evidence) + ".</p><p>Views before: " + f.before.toLocaleString("en-US") + " of " + f.req.toLocaleString("en-US") + ". After (with this video's " + f.views.toLocaleString("en-US") + " today): " + (f.before + f.views).toLocaleString("en-US") + ".</p><p>If this is wrong, take the link out of LIVE VIDEO URLS; the view sync corrects the totals the next morning.</p>";
+  const body = "<p><b>" + (f.cls === "In-flight" ? "Video from this row's flight" : "Make-good") + " linked by the nightly link finder</b></p><p>" + esc(f.at) + " " + esc(f.url.replace(/^https:\/\/(www\.)?/, "")) + " (" + esc(f.title) + ")</p><p>" + esc(f.evidence) + ".</p><p>Views before: " + f.before.toLocaleString("en-US") + (f.req ? " of " + f.req.toLocaleString("en-US") : "") + ". After (with this video's " + f.views.toLocaleString("en-US") + " today): " + (f.before + f.views).toLocaleString("en-US") + ".</p><p>If this is wrong, take the link out of LIVE VIDEO URLS; the view sync corrects the totals the next morning.</p>";
   await mondayVars(token, "mutation ($i: ID!, $t: String!) { create_update(item_id:$i, body:$t) { id } }", { i: String(f.rowId), t: body });
   return true;
 }
 
 async function addReviewItem(token, f, writesOn) {
   const name = f.cls === "Client tag mismatch" ? f.deal : (f.brand + " on " + f.channel + " " + f.at);
-  const ev = f.cls === "Make-good" ? f.evidence + (f.written ? ". Linked to the deal automatically." : !f.open ? ". Not written: the deal is closed or lost." : !writesOn ? ". Not written: make-good writes are off (dry run)." : ". Not written.") : f.evidence;
+  const ev = AUTO.has(f.cls) ? f.evidence + (f.written ? ". Linked to the deal automatically." : !f.open ? ". Not written: the deal is closed or lost." : !writesOn ? ". Not written: make-good writes are off (dry run)." : ". Not written.") : f.evidence;
   const cols = { channel: f.channel || "", brand: f.brand || "", code: f.code || "", suggested: String(f.suggested || "").slice(0, 250), evidence: { text: String(ev).slice(0, 1900) }, key: f.key, class: { label: f.cls }, review: { label: f.written ? "Done" : "New" },
     owner: { personsAndTeams: [{ id: ownerOf(f), kind: "person" }] }, due: { date: iso(Date.now() + DUE_DAYS * D) } };
   if (f.url) cols.video = { url: f.url, text: f.title ? f.title.slice(0, 60) : f.video };
