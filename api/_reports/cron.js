@@ -7,10 +7,15 @@
 // header, was refused every night from 27 Sep to 2 Oct 2026 without anyone noticing.
 //
 // Every cron handler should use this one check, so the next job cannot copy the old one.
+//
+// Once CRON_SECRET is set on the project, Vercel sends it with every cron call and it is the ONLY thing
+// accepted: a user agent can be typed by anyone, so without the secret anyone could start a scheduled
+// job and read its summary. Set CRON_SECRET in Vercel (Settings, Environment Variables, Production)
+// to close that; nothing else needs changing.
 export function isCron(req) {
   const h = (req && req.headers) || {};
   const secret = process.env.CRON_SECRET;
-  if (secret && h.authorization === "Bearer " + secret) return true;
+  if (secret) return h.authorization === "Bearer " + secret;
   if (h["x-vercel-cron"]) return true;
   return /^vercel-cron\//.test(String(h["user-agent"] || ""));
 }

@@ -59,6 +59,10 @@
     {
       "path": "/api/link-finder?pass=watch",
       "schedule": "15 10 * * *"
+    },
+    {
+      "path": "/api/podcast-sync",
+      "schedule": "10 13 * * *"
     }
   ],
   "rewrites": [
