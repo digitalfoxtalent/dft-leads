@@ -12,6 +12,7 @@ import { CAST } from "./_subplot/cast.js";
 import { faviconSvg, assetKey } from "./_subplot/brand.js";
 import { adsTxt } from "./_subplot/ads.js";
 import { OG_PNG, APPLE_PNG } from "./_subplot/images.js";
+import { isCron } from "./_reports/cron.js";
 // Share-card assets per brand. A brand with no entry here serves no og.png and no touch icon
 // - better than serving another brand's. Wordie joins this map when it has artwork of its own.
 const OG = { subplot: OG_PNG };
@@ -64,9 +65,10 @@ export default async function handler(req, res) {
   // from the public site path because the host rewrite strips nothing else onto this route.
   if (path === "/__health") {
     const secret = process.env.CRON_SECRET;
-    const fromCron = req.headers["x-vercel-cron"] || (secret && req.headers.authorization === "Bearer " + secret);
-    // Fails closed: with no CRON_SECRET set there is no way to authorise, so the route does
-    // not exist. (An earlier version compared undefined to undefined and let anyone through.)
+    const fromCron = isCron(req);
+    // The scheduler is recognised by _reports/cron.js (its vercel-cron user agent). A manual call needs
+    // ?key=CRON_SECRET, and fails closed when no CRON_SECRET is set. (An earlier version compared
+    // undefined to undefined and let anyone through.)
     if (!fromCron && !(secret && req.query.key === secret)) return res.status(404).send("Not found");
     res.setHeader("Cache-Control", "no-store");
     return runHealth(req, res);
