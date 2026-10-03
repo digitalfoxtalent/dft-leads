@@ -96,6 +96,13 @@ export async function reachApply(token, body, dry) {
           out.byDate.push(r.id + " " + v + " took " + own.length + " of " + cands.length + " episodes (" + own.map(c => c[5]).join(", ") + ")");
         } else out.ambiguous.push(r.id + " " + v + " (" + cands.length + " episodes, none published within 2 weeks of the video)");
       }
+      // No video date (YouTube allowance used up) but the row already names one of these episodes, found by the
+      // daily reader's yt-<id> lookup or an earlier refresh: keep that episode and update its figures.
+      else if (cands.length > 1 && prev && cands.filter(c => String(c[4]) === prev.ep).length === 1) {
+        const [sp, ap, am, ot, ep] = cands.find(c => String(c[4]) === prev.ep);
+        hit = { ep: String(ep), sp: +sp || 0, ap: +ap || 0, am: +am || 0, ot: +ot || 0, by: prev.by === "export" ? "export" : "title" };
+        out.byLine = (out.byLine || 0) + 1;
+      }
       else if (cands.length > 1) out.ambiguous.push(r.id + " " + v + " (" + cands.length + " episodes)");
       else if (cands.length === 1) {
         const [sp, ap, am, ot, ep, pub] = cands[0];
