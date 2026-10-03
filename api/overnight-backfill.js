@@ -15,6 +15,7 @@
 //              window when the name is long (9+ letters, e.g. a film title in a promo Short).
 // MODE "off"   does nothing.
 
+import { isCron } from "./_reports/cron.js";
 import { monday, mondayToken } from "./_reports/monday.js";
 import { missingRows, loadGtr } from "./_reports/backfill.js";
 import { scanUploads } from "./_reports/scan.js";
@@ -40,8 +41,7 @@ const line = d => "<li><b>" + d.act + (d.write ? " (written)" : "") + "</b> " + 
 
 export default async function handler(req, res) {
   res.setHeader("Cache-Control", "no-store");
-  const secret = process.env.CRON_SECRET;
-  const fromCron = req.headers["x-vercel-cron"] || /^vercel-cron\//.test(String(req.headers["user-agent"] || "")) || (secret && req.headers.authorization === "Bearer " + secret);
+  const fromCron = isCron(req); // shared check: CRON_SECRET once it is set, the scheduler's user agent until then
   if (!fromCron) return res.status(401).json({ error: "Unauthorized" });
   if (MODE === "off" || Date.now() > new Date(STOP_AFTER).getTime()) return res.status(200).json({ off: true });
   const token = mondayToken();
