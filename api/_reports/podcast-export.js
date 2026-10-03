@@ -24,7 +24,9 @@
 // NEW VIDEOS: a campaign video with no line yet is looked up in Megaphone by its YouTube id (the yt-<id>
 // stamp the Megaphone sync and the importer put on each episode). Found: it counts every finalized day from
 // the day the episode was created. Not found: "<id> ep:none checked:<date>", looked up again after 3 days.
-// Up to LOOKUPS_PER_RUN lookups a run, newest rows first, about one a second (Megaphone allows 60 a minute).
+// Up to LOOKUPS_PER_RUN lookups a run (stopping after LOOKUP_MS), newest rows first, about one a second
+// (Megaphone allows 60 a minute). The first runs work through the backlog of older videos; after that a
+// day needs a few dozen.
 //
 // Days the bucket lacks (24 to 28 Sep 2026, asked of Megaphone) are not counted; a hand refresh covers them.
 
@@ -45,7 +47,7 @@ const D = 864e5;
 const day = s => new Date(String(s).slice(0, 10) + "T00:00:00Z").getTime();
 const isoDay = ms => new Date(ms).toISOString().slice(0, 10);
 const fmt = s => new Date(day(s)).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
-export const LOOKUPS_PER_RUN = 40, RECHECK_DAYS = 3, NEW_VIDEO_DAYS = 90, MAX_READ_DAYS = 120, STALE_DAYS = 2;
+export const LOOKUPS_PER_RUN = 150, LOOKUP_MS = 180000, RECHECK_DAYS = 3, NEW_VIDEO_DAYS = 90, MAX_READ_DAYS = 120, STALE_DAYS = 2;
 
 export function appOf(ua) {
   const u = String(ua || "");
@@ -150,10 +152,10 @@ async function episodeFor(mTok, vid) {
   } finally { clearTimeout(t); }
 }
 
-// The whole run. opts: { dry, now, s3, lookup, write (test doubles), timeMs }
+// The whole run. opts: { dry, now, s3, lookup, write (test doubles), lookupMs }
 export async function syncPodcastExport(token, opts) {
   opts = opts || {};
-  const t0 = Date.now(), now = opts.now || Date.now(), today = isoDay(now), timeMs = opts.timeMs || 200000;
+  const t0 = Date.now(), now = opts.now || Date.now(), today = isoDay(now), lookupMs = opts.lookupMs || LOOKUP_MS;
   const summary = { pass: "podcast-export", dry: !!opts.dry, lastDay: "", finalizedDays: 0, daysRead: 0, rows: 0, videos: 0, lines: 0, linesInExport: 0, raised: 0, newMatches: 0, notFound: 0, lookups: 0, changed: 0, errors: [] };
   const keyId = process.env.MEGAPHONE_EXPORT_KEY_ID, secret = process.env.MEGAPHONE_EXPORT_SECRET;
   const s3 = opts.s3 || (keyId && secret ? s3Client({ bucket: BUCKET, region: REGION, keyId, secret }) : null);
@@ -192,10 +194,12 @@ export async function syncPodcastExport(token, opts) {
   for (const { v } of want) {
     if (found[v] !== undefined) continue;
     if (summary.lookups >= LOOKUPS_PER_RUN) break;
-    if (Date.now() - t0 > timeMs / 2) { summary.errors.push("out of time: lookups left for the next run"); break; }
+    if (Date.now() - t0 > lookupMs) break; // the rest wait for the next run (counted in lookupsLeft, not an error)
     try { found[v] = await lookup(v); summary.lookups++; }
     catch (e) { summary.errors.push("lookup " + v + ": " + String(e.message || e).slice(0, 80)); if (/429|token/i.test(String(e.message))) break; }
   }
+
+  summary.lookupsLeft = Math.max(0, new Set(want.map(w => w.v)).size - Object.keys(found).length);
 
   // 3. Read the days the lines need (after the oldest base date, at most MAX_READ_DAYS back).
   const newBase = ep => { const c = createdDay(ep); return { date: c ? isoDay(day(c) - D) : "2000-01-01", sp: 0, ap: 0, am: 0, ot: 0 }; };
