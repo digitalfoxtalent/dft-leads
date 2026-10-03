@@ -12,7 +12,7 @@
 // ROUTES (vercel.json rewrites send each path here with ?r=)
 //   /  and /campaigns -> Campaign reach     /platforms -> Platform monetization (?tier=written)
 //   /distribution -> Video distribution (rejected MSN videos, repair feeds)
-//   /campaigns/rhapsody -> a partner's own view (partner link, see _reports/partners.js)
+//   /campaigns/<partner> -> a partner's own view (rows on the monday Report Partners board, see _reports/partners.js)
 //   /status -> source health (JSON)   /videos?ids= -> per-video detail   /platforms-data -> raw JSON
 // Every route needs a signed-in @digitalfoxtalent.com Google account (see _reports/auth.js). To add a report: a folder under _reports, a card in
 // home.js, a case below, and a rewrite in vercel.json.
@@ -21,7 +21,7 @@
 
 import { hostOf, isPreview, cookieOk, teamEmail, setTeamCookie, cleanUrl, gatePage, partnerKey, setPartnerCookie, partnerCookie, partnerGate } from "./_reports/access.js";
 import { handleAuth } from "./_reports/auth.js";
-import { PARTNERS } from "./_reports/partners.js";
+import { PARTNERS, loadPartners } from "./_reports/partners.js";
 import { mondayToken } from "./_reports/monday.js";
 import { renderCampaigns, campaignsHealth, renderPartner, campaignPayload } from "./_reports/campaigns/load.js";
 import { timestampProbe, timestampCheck, timestampApply } from "./_reports/timestamps.js";
@@ -55,6 +55,7 @@ export default async function handler(req, res) {
   if (!HOSTS.has(host) && !preview) return res.status(404).json({ error: "Not found" });
   const token = mondayToken();
   if (!token) return res.status(500).send("Setup error: monday token missing.");
+  await loadPartners(token); // partner pages come from the monday "Report Partners" board
   const route = String((req.query && req.query.r) || "home");
 
   // The first home of Campaign reach. Send visitors to the reports address, carrying the
