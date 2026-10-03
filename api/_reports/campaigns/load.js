@@ -220,7 +220,8 @@ export async function renderPartner(token, id) {
   const av = {}; for (const h of handles) { const u = avatars[h.toLowerCase()]; if (u) av[h.toLowerCase()] = u; }
   const out = { now: payload.now, pod, podAsOf: payload.podAsOf, multi: {}, c, source: payload.source, asOf: payload.asOf, fetchedAt: payload.fetchedAt, avatars: av, roster: null, partner: { id, name: P.name } };
   const json = JSON.stringify(out).replace(/</g, "\\u003c");
-  return TEMPLATE.replace("__DATA__", () => json).replace("<title>DFT Campaign Reach</title>", "<title>" + P.name + " campaign reach</title>");
+  return TEMPLATE.replace("__DATA__", () => json).replace("<title>DFT Campaign Reach</title>", "<title>" + P.name + " campaign reach</title>")
+    .replace(/<nav class="tabs"[\s\S]*?<\/nav>/, ""); // internal report names never reach a partner
 }
 
 // For /status: try a live read now and report what happened, without the data itself.

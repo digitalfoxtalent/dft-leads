@@ -9,6 +9,8 @@ reports.digitalfoxtalent.com - the team's reporting home. Entry point: `api/repo
 | `megaphone.js` | Megaphone access. The token is read from the monday "API Keys (Private)" board at run time, never stored here |
 | `home.js` | Front page, one card per report |
 | `campaigns/` | Campaign reach: `load.js` data, `page.js` page, `podcast.js` Megaphone snapshot, `snapshot.js` saved copy |
+| `platforms/` | Platform monetization: `load.js` data, `page.js` page |
+| `distribution/` | Video distribution: `load.js` reads the `distribution-status` record from the Apify store `dft-msn-rejections` (key read from monday at run time), `page.js` page |
 
 Rules every report follows:
 
