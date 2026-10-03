@@ -27,7 +27,7 @@ export default async function handler(req, res) {
   if (!token) return res.status(500).json({ error: "Setup: monday key missing" });
   const dry = dryAsked || !fromCron || !WRITES_ENABLED;
   let out;
-  try { out = await syncPodcastExport(token, { dry, timeMs: 200000 }); }
+  try { out = await syncPodcastExport(token, { dry }); }
   catch (e) { out = { pass: "podcast-export", error: String(e.message || e).slice(0, 300) }; }
   if (fromCron && !dryAsked) await recordRun(token, JOBS.podcasts, out);
   return res.status(200).json(out);
