@@ -23,7 +23,8 @@
 //
 // NEW VIDEOS: a campaign video with no line yet is looked up in Megaphone by its YouTube id (the yt-<id>
 // stamp the Megaphone sync and the importer put on each episode). Found: it counts every finalized day from
-// the day the episode was created. Not found: "<id> ep:none checked:<date>", looked up again after 3 days.
+// the day the episode was created (older episodes: from the first export day until a hand refresh sets their
+// lifetime). Not found: "<id> ep:none checked:<date>", looked up again after 3 days (30 for videos over 90 days old).
 // Up to LOOKUPS_PER_RUN lookups a run (stopping after LOOKUP_MS), newest rows first, about one a second
 // (Megaphone allows 60 a minute). The first runs work through the backlog of older videos; after that a
 // day needs a few dozen.
@@ -47,7 +48,7 @@ const D = 864e5;
 const day = s => new Date(String(s).slice(0, 10) + "T00:00:00Z").getTime();
 const isoDay = ms => new Date(ms).toISOString().slice(0, 10);
 const fmt = s => new Date(day(s)).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
-export const LOOKUPS_PER_RUN = 150, LOOKUP_MS = 180000, RECHECK_DAYS = 3, NEW_VIDEO_DAYS = 90, MAX_READ_DAYS = 120, STALE_DAYS = 2;
+export const LOOKUPS_PER_RUN = 150, LOOKUP_MS = 180000, RECHECK_DAYS = 3, OLD_RECHECK_DAYS = 30, NEW_VIDEO_DAYS = 90, MAX_READ_DAYS = 120, STALE_DAYS = 2;
 
 export function appOf(ua) {
   const u = String(ua || "");
@@ -178,8 +179,10 @@ export async function syncPodcastExport(token, opts) {
   for (const p of parsed) for (const v of p.vids) {
     if (p.det.lines[v]) continue;
     const checked = p.det.none[v];
-    if (checked && day(checked) > now - RECHECK_DAYS * D) continue;
-    if (p.when && p.when < now - NEW_VIDEO_DAYS * D) continue; // rows with no date are still looked up (TRR rows often have none)
+    // Every video is looked up once, whatever its age. A miss is looked up again after RECHECK_DAYS while the
+    // video is recent (or undated: TRR rows often have no date), and after OLD_RECHECK_DAYS once it is older.
+    const old = p.when && p.when < now - NEW_VIDEO_DAYS * D;
+    if (checked && day(checked) > now - (old ? OLD_RECHECK_DAYS : RECHECK_DAYS) * D) continue;
     want.push({ p, v });
   }
   want.sort((a, b) => (b.p.when || 1) - (a.p.when || 1)); // newest first, undated last
