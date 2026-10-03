@@ -7,9 +7,11 @@
 //   home.js           the front page listing every report
 //   campaigns/        Campaign reach: load.js (data), page.js (page), podcast.js, snapshot.js, avatars.js, videos.js
 //   platforms/        Platform monetization: load.js (data), page.js (page)
+//   distribution/     Video distribution (DFT's own MSN video pipeline): load.js (data), page.js (page)
 //
 // ROUTES (vercel.json rewrites send each path here with ?r=)
 //   /  and /campaigns -> Campaign reach     /platforms -> Platform monetization (?tier=written)
+//   /distribution -> Video distribution (rejected MSN videos, repair feeds)
 //   /campaigns/rhapsody -> a partner's own view (partner link, see _reports/partners.js)
 //   /status -> source health (JSON)   /videos?ids= -> per-video detail   /platforms-data -> raw JSON
 // Every route needs a signed-in @digitalfoxtalent.com Google account (see _reports/auth.js). To add a report: a folder under _reports, a card in
@@ -26,6 +28,7 @@ import { timestampProbe, timestampCheck, timestampApply } from "./_reports/times
 import { probe } from "./_reports/megaphone.js";
 import { backfill, missingRows } from "./_reports/backfill.js";
 import { platformsData, renderPlatforms } from "./_reports/platforms/load.js";
+import { renderDistribution } from "./_reports/distribution/load.js";
 import { videoDetails } from "./_reports/campaigns/videos.js";
 import { applyLinks } from "./_reports/apply-links.js";
 import { scanUploads } from "./_reports/scan.js";
@@ -88,7 +91,7 @@ export default async function handler(req, res) {
   }
   const partner = authed ? null : partnerCookie(req, token);
   // Keep access alive: every page visit renews the visitor's cookie to its full length.
-  const isPage = route === "home" || route === "campaigns" || route === "platforms" || !!pid;
+  const isPage = route === "home" || route === "campaigns" || route === "platforms" || route === "distribution" || !!pid;
   if (isPage && authed) res.setHeader("Set-Cookie", setTeamCookie(res, token, teamEmail(req, token)));
   else if (isPage && partner) setPartnerCookie(res, token, partner);
   if (pid && (authed || partner === pid)) return html(res, 200, await renderPartner(token, pid));
@@ -96,13 +99,14 @@ export default async function handler(req, res) {
   if (partner) { res.setHeader("Location", "/campaigns/" + partner); return res.status(302).end(); } // a partner link only opens its own page
   if (!authed) {
     if (pid) return html(res, 401, partnerGate(PARTNERS[pid].name, "/campaigns/" + pid));
-    if (route !== "home" && !/^(campaigns|platforms|refresh)$/.test(route)) return res.status(401).json({ error: "Sign in required" });
+    if (route !== "home" && !/^(campaigns|platforms|distribution|refresh)$/.test(route)) return res.status(401).json({ error: "Sign in required" });
     const next = "/" + (route === "home" ? "" : route) + (req.query && req.query.tier ? "?tier=" + encodeURIComponent(String(req.query.tier)) : "");
     return html(res, 401, gatePage(next));
   }
 
   if (route === "campaigns") return html(res, 200, await renderCampaigns(token));
   if (route === "platforms") return html(res, 200, await renderPlatforms(token));
+  if (route === "distribution") return html(res, 200, await renderDistribution(token));
   if (route === "videos") {
     try { return res.status(200).json(await videoDetails(req.query && req.query.ids)); }
     catch (e) { return res.status(500).json({ error: String(e && e.message || e).slice(0, 300) }); }

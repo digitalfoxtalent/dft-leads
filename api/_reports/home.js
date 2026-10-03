@@ -8,6 +8,9 @@ export const REPORTS = [
   { path: "/platforms", title: "Platform monetization", live: true,
     blurb: "What each platform pays for our creators' video and written content, month by month, per creator.",
     sources: ["monday"] },
+  { path: "/distribution", title: "Video distribution", live: true,
+    blurb: "DFT's own MSN video pipeline: videos MSN rejected, the repair feeds sending them back, and what has gone live again.",
+    sources: ["MSN Partner Hub", "Apify"] },
 ];
 
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
