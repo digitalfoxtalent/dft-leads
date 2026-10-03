@@ -24,6 +24,7 @@
 // Env: GOOGLE_OAUTH_CLIENT_ID, GOOGLE_OAUTH_CLIENT_SECRET, ADSENSE_REFRESH_TOKEN, MONDAY_API_KEY.
 // Manual run: /api/adsense-monthly?month=2026-08&dry=1  (dry returns the statement, writes nothing)
 
+import { isCron } from "./_reports/cron.js";
 import { CREATORS } from "./_subplot/data.js";
 import { archiveMonth } from "./_subplot/archive.js";
 
@@ -167,8 +168,8 @@ function payoutFor(gross, rate) {
 // ---- handler
 
 export default async function handler(req, res) {
-  const secret = process.env.CRON_SECRET;
-  const authed = !secret || req.headers.authorization === "Bearer " + secret || req.headers["x-vercel-cron"];
+  // Shared check (_reports/cron.js). Before 3 Oct 2026 this let anyone in while CRON_SECRET was unset.
+  const authed = isCron(req);
   if (!authed) return res.status(401).json({ error: "unauthorized" });
 
   const dry = req.query.dry === "1";
