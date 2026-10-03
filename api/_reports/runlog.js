@@ -1,6 +1,6 @@
 // Run log for the nightly campaign-link jobs, so a job that stops running is noticed the next morning.
 //
-// Each scheduled run of the link finder (both passes) adds one item to the monday board
+// Each scheduled run of the link finder (both passes) and the podcast export reader adds one item to the monday board
 // "Campaign link backfill log" (18432874155): name "nightly <job> <YYYY-MM-DD HH:MM> <status>",
 // with the run's summary as an update. The watchdog below (cron /api/link-finder?pass=watch) reads them every morning and
 // notifies Tom when a job has no run in the last 26 hours, or its last run failed.
@@ -8,7 +8,8 @@
 // Logging is best effort: it never throws and never holds a run up for more than a few seconds.
 
 export const RUN_BOARD = 18432874155;
-export const JOBS = { links: "link-finder", unmatched: "unmatched-reads" };
+export const JOBS = { links: "link-finder", unmatched: "unmatched-reads", podcasts: "podcast-export" };
+const LABEL = { "link-finder": "Link finder (empty rows)", "unmatched-reads": "Make-good and unmatched reads pass", "podcast-export": "Podcast reach from the Megaphone export" };
 
 async function mondayCall(token, query, variables, ms) {
   const ctl = new AbortController();
@@ -58,22 +59,32 @@ export async function recordRun(token, job, summary) {
 // Checks, for the last 26 hours:
 //   1. the link finder logged a run, and it did not fail
 //   2. the unmatched sponsor reads pass logged a run, and it did not fail
-//   3. the YouTube view sync wrote LATEST VIEWS on the creator rows (it changes hundreds every day)
+//   3. the podcast export reader (/api/podcast-sync) logged a run, and it did not fail
+//   4. the YouTube view sync wrote LATEST VIEWS on the creator rows (it changes hundreds every day)
+// A run that finished with errors ("partial", e.g. the YouTube allowance ran out) counts as a problem
+// when the run before it was not clean either: two days in a row means it is not catching up by itself.
 // Anything wrong: one alert item on the run log board and a monday notification to Tom.
 // A clean morning logs "nightly cron-watch ... ok" and sends nothing.
 export const WATCH_USERS = [40241658]; // Tom James
 const SUB_BOARD = 6162879732, LATEST_VIEWS = "numeric_mm4bn6yq", WINDOW_H = 26;
+const NEW_JOB_GRACE = { "podcast-export": "2026-10-10T00:00:00Z" };
 
 export async function runWatch(token, opts) {
   opts = opts || {};
   const now = Date.now(), since = now - WINDOW_H * 36e5, problems = [], seen = {};
   const d = await mondayCall(token, "query { boards(ids:[" + RUN_BOARD + "]) { items_page(limit:100, query_params:{order_by:[{column_id:\"__creation_log__\", direction:desc}]}) { items { id name created_at } } } }", {}, 20000);
-  const items = (d.boards[0].items_page.items || []).filter(i => new Date(i.created_at).getTime() >= since);
-  for (const job of [JOBS.links, JOBS.unmatched]) {
-    const runs = items.filter(i => String(i.name).startsWith("nightly " + job + " "));
+  const all = d.boards[0].items_page.items || [];
+  const items = all.filter(i => new Date(i.created_at).getTime() >= since);
+  for (const job of [JOBS.links, JOBS.unmatched, JOBS.podcasts]) {
+    const mine = i => String(i.name).startsWith("nightly " + job + " ");
+    const runs = items.filter(mine);
     seen[job] = runs.map(i => i.name);
-    if (!runs.length) problems.push(job === JOBS.links ? "Link finder (empty rows) did not run in the last " + WINDOW_H + " hours" : "Make-good and unmatched reads pass did not run in the last " + WINDOW_H + " hours");
-    else if (/ failed$/.test(runs[0].name)) problems.push((job === JOBS.links ? "Link finder" : "Make-good pass") + " ran but failed: " + runs[0].name);
+    // A new job gets until NEW_JOB_GRACE to log its first run, so the morning before its first run is quiet.
+    if (!runs.length && NEW_JOB_GRACE[job] && now < Date.parse(NEW_JOB_GRACE[job]) && !all.some(mine)) { seen[job] = "not started yet"; continue; }
+    if (!runs.length) { problems.push(LABEL[job] + " did not run in the last " + WINDOW_H + " hours"); continue; }
+    if (/ failed$/.test(runs[0].name)) { problems.push(LABEL[job] + " ran but failed: " + runs[0].name); continue; }
+    const prev = all.filter(mine).find(i => i.id !== runs[0].id);
+    if (/ partial$/.test(runs[0].name) && prev && !/ ok$/.test(prev.name)) problems.push(LABEL[job] + " finished with errors two runs in a row: " + runs[0].name + " (open it for the errors)");
   }
   const a = await mondayCall(token, "query { boards(ids:[" + SUB_BOARD + "]) { activity_logs(from:\"" + new Date(since).toISOString() + "\", column_ids:[\"" + LATEST_VIEWS + "\"], limit:1) { id } } }", {}, 20000);
   const viewWrites = (a.boards[0].activity_logs || []).length;
@@ -82,11 +93,11 @@ export async function runWatch(token, opts) {
   if (opts.dry) return summary;
   const day = new Date(now).toISOString().slice(0, 10);
   if (problems.length) {
-    const alert = await mondayCall(token, "mutation ($b: ID!, $n: String!) { create_item(board_id:$b, item_name:$n) { id } }", { b: String(RUN_BOARD), n: "ALERT " + day + ": campaign link jobs need a look" });
+    const alert = await mondayCall(token, "mutation ($b: ID!, $n: String!) { create_item(board_id:$b, item_name:$n) { id } }", { b: String(RUN_BOARD), n: "ALERT " + day + ": campaign reporting jobs need a look" });
     const id = alert && alert.create_item && alert.create_item.id;
     if (id) {
-      await mondayCall(token, "mutation ($i: ID!, $t: String!) { create_update(item_id:$i, body:$t) { id } }", { i: String(id), t: "<ul>" + problems.map(p => "<li>" + esc(p) + "</li>").join("") + "</ul><p>Logs: Vercel project dft-leads, Logs, filter /api/link-finder or /api/view-count-sync.</p>" });
-      const text = "Campaign link jobs need a look: " + day + "\n" + problems.slice(0, 4).join("\n") + "\nCampaign reporting may be missing links or views until fixed.\nCheck the Vercel dft-leads logs. Tom";
+      await mondayCall(token, "mutation ($i: ID!, $t: String!) { create_update(item_id:$i, body:$t) { id } }", { i: String(id), t: "<ul>" + problems.map(p => "<li>" + esc(p) + "</li>").join("") + "</ul><p>Logs: Vercel project dft-leads, Logs, filter /api/link-finder, /api/podcast-sync or /api/view-count-sync.</p>" });
+      const text = "Campaign reporting jobs need a look: " + day + "\n" + problems.slice(0, 4).join("\n") + "\nCampaign reporting may be missing links, views or podcast numbers until fixed.\nCheck the Vercel dft-leads logs. Tom";
       for (const u of WATCH_USERS) {
         try { await mondayCall(token, "mutation ($u: ID!, $t: ID!, $x: String!) { create_notification(user_id:$u, target_id:$t, target_type:Project, text:$x) { text } }", { u: String(u), t: String(id), x: text }); summary.notified = (summary.notified || 0) + 1; }
         catch (e) { summary.notifyError = String(e.message || e).slice(0, 200); }

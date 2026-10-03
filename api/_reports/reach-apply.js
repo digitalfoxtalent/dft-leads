@@ -18,6 +18,8 @@
 //   - a video already matched to a different episode keeps its first match (listed)
 //   - figures only ever rise: each platform keeps the higher of the old and new number
 //   - videos not in this report keep their old line; rows with nothing to change are not written
+//   - a line whose figures are not simply "as of" this report's date carries a base token, so the daily
+//     export reader (podcast-export.js) counts on from the right day and never twice
 // WRITES per changed row: REACH DETAIL, SPOTIFY / APPLE PODCASTS / AMAZON MUSIC / OTHER APPS LISTENS,
 // REACH SOURCES. ?dry=1 reports what it would do and writes nothing.
 
@@ -48,11 +50,17 @@ async function loadRows(token) {
   return items.map(it => { const o = { id: it.id, name: it.name }; for (const c of it.column_values) o[c.id] = c.text || ""; return o; });
 }
 
+// Each line also keeps its base: the date its figures are counted from, either its own
+// "base:<date>:<sp>/<ap>/<am>/<ot>" token or the row's "as of" date. The daily Megaphone export reader
+// (podcast-export.js) adds the days after that date, so the base has to survive a hand refresh.
 function parseDetail(text) {
   const vids = {};
+  const asOf = (String(text || "").match(/^as of (\d{4}-\d\d-\d\d)/) || [])[1] || "";
   for (const line of String(text || "").split(/\n/)) {
     const m = line.trim().match(DETAIL_RE); if (!m) continue;
-    vids[m[1]] = { ep: m[2], sp: +m[3], ap: +m[4], am: +m[5], ot: +m[6], by: m[7] || "id" };
+    const tok = (line.match(/\sbase:(\d{4}-\d\d-\d\d:\d+\/\d+\/\d+\/\d+)/) || [])[1] || "";
+    vids[m[1]] = { ep: m[2], sp: +m[3], ap: +m[4], am: +m[5], ot: +m[6], by: m[7] || "id",
+      base: tok || (asOf ? asOf + ":" + [m[3], m[4], m[5], m[6]].map(Number).join("/") : "") };
   }
   return vids;
 }
@@ -95,6 +103,7 @@ export async function reachApply(token, body, dry) {
         else if (prev && prev.ep !== String(ep)) out.otherEpisode.push(r.id + " " + v + " kept " + prev.ep);
         else hit = { ep: String(ep), sp: +sp || 0, ap: +ap || 0, am: +am || 0, ot: +ot || 0, by: "title" };
       }
+      if (hit) hit.base = asOf + ":" + [hit.sp, hit.ap, hit.am, hit.ot].join("/"); // this report's own figures, as of its date
       if (hit && prev) for (const k of ["sp", "ap", "am", "ot"]) hit[k] = Math.max(hit[k], prev[k]);
       if (hit) { out.matched++; lines[v] = hit; }
       else if (prev) { out.kept++; lines[v] = prev; }
@@ -104,7 +113,8 @@ export async function reachApply(token, body, dry) {
     for (const l of Object.values(lines)) for (const k in sum) sum[k] += l[k];
     for (const k in sum) { const was = parseFloat(r[C[k]]); if (Number.isFinite(was)) sum[k] = Math.max(sum[k], was); }
     const detail = "as of " + asOf + " (Spotify and apps, from the " + source + " report; figures only rise)\n" +
-      Object.entries(lines).map(([v, l]) => v + " ep:" + l.ep + " sp:" + l.sp + " ap:" + l.ap + " am:" + l.am + " ot:" + l.ot + " by:" + l.by).join("\n");
+      Object.entries(lines).map(([v, l]) => v + " ep:" + l.ep + " sp:" + l.sp + " ap:" + l.ap + " am:" + l.am + " ot:" + l.ot + " by:" + l.by +
+        (l.base && l.base !== asOf + ":" + [l.sp, l.ap, l.am, l.ot].join("/") ? " base:" + l.base : "")).join("\n");
     const same = String(r[C.detail]).replace(/^as of [^\n]*\n?/, "").trim() === detail.replace(/^as of [^\n]*\n?/, "").trim() &&
       ["sp", "ap", "am", "ot"].every(k => parseFloat(r[C[k]]) === sum[k]);
     if (same) continue;
