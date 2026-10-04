@@ -378,6 +378,15 @@ async function load() {
   const snippets = SNIPPETS_LIVE ? arts.filter(a => a.short) : [];
   { const kept = arts.filter(a => !a.short); arts.length = 0; arts.push(...kept); }
 
+  // REVIEW SET FOR THE ADSENSE RE-REVIEW, 3 Oct 2026 (Tom: "Let's do 30"). While REVIEW_SET_ON is
+  // true the site shows ONLY these 30 long-form articles; every other article is held back
+  // exactly like the word floor holds pieces back - nothing is deleted from the store, MSN is
+  // untouched, and their URLs simply 404 until this is switched off. Picked from all 734 live
+  // articles: 1,300+ words, video from March 2026 on, no time-relative wording, editor Checked
+  // OK and approved by Tom on the Review Queue (not auto-approved), no repeat-coverage flag,
+  // video embedded and AI note present. 11 creators. To restore the full site, set false.
+  if (REVIEW_SET_ON) { const keep = new Set(REVIEW_SET); const kept = arts.filter(a => keep.has(a.id)); arts.length = 0; arts.push(...kept); }
+
   // CORRECTIONS, 8 Sep 2026. Errors found by auditing every live article, fixed at render rather
   // than in the store, so the source record is untouched, the change is reversible, and the copy
   // MSN holds does not move. Keyed on article id, applied to headline, standfirst and body.
@@ -392,6 +401,8 @@ async function load() {
   CORRECTIONS["3SMf4bx1Rgc"] = [[/Granola(?!h)/g, "Granolah"]];
   CORRECTIONS["3deOpyoExa4"] = [[/one-and-one/g, "one and done"]];
   CORRECTIONS.zyN527oP580 = [[/the core/g, "the Corps"]];
+  // Star Trek: First Contact was written by Brannon Braga and Ronald D. Moore (3 Oct 2026).
+  CORRECTIONS.JOFMVYJFVR4 = [[/Brannon Braga and his co-writer/g, "Brannon Braga and Ronald D. Moore"]];
   for (const a of arts) for (const [re, to] of CORRECTIONS[a.id] || []) { a.h = a.h.replace(re, to); a.s = a.s.replace(re, to); a.body = a.body.replace(re, to); }
 
   // creators
@@ -473,6 +484,16 @@ export async function getData() {
     .catch(err => { cache.pending = null; if (cache.data) return cache.data; throw err; });
   return cache.pending;
 }
+
+// See the REVIEW SET note in loadData. true = only these 30 article ids render.
+export const REVIEW_SET_ON = true;
+export const REVIEW_SET = [
+  "JOFMVYJFVR4", "dVDVnbpeco4", "jkJfhdqfSrE", "QKEOyUJ5oJQ", "ECdZTmkiN5U", "tmdRhQm4Ask",
+  "N69s8oDSD-E", "ZHMmndWNelQ", "hVHYb8lZKhk", "RcyW0YLDxYU", "1yeVdXjnPMM", "dVpDUQoeM_Q",
+  "gkkljDxvtgE", "KJsvGbE3E1o", "QHXt9HKjQM4", "1IMNyHGtPNY", "-bX68Czfv_Y", "gtyOJoXBlAY",
+  "90Wco6PuQC4", "byyS9TCgbB8", "fPLUODZ_1sI", "m2LbWXdEHBk", "bbHmfxZlzVo", "rdjLDT557yM",
+  "nL1QUuc2kdA", "kyAq4hV3DOU", "ed8YLzWYQTY", "Xd8ArT-MeMM", "JOdLqPumrL0", "2N30ikVRPjQ",
+];
 
 // See the SNIPPETS OFF note in loadData. false = Snippets hidden site-wide.
 export const SNIPPETS_LIVE = false;
