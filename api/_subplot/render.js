@@ -2,6 +2,7 @@
 import { CSS } from "./css.js";
 import { CATS, slug, slugFor, SNIPPETS_LIVE } from "./data.js";
 import { NOTES, NOTE_SIGNOFF } from "./notes.js";
+import { bioFor } from "./bios.js";
 import { brand, brandCss, member, joinCta, mail, siteUrl, hasCast, audience, fontHref, hasShareCard, pubFee } from "./brand.js";
 import { wordmarkSvg, accentToday, accentVars } from "./wordmark.js";
 import { design } from "./design.js";
@@ -477,7 +478,7 @@ export function articlePage(a, data, base) {
   const jsonld = `<script type="application/ld+json">${JSON.stringify({
     "@context": "https://schema.org", "@type": "Article", headline: a.h, description: a.s,
     datePublished: a.p, dateModified: a.p, image: [a.thumb], wordCount: a.w, articleSection: CATS[a.k], keywords: a.t.join(", "),
-    author: { "@type": "Person", name: a.b, alternateName: a.c, url: "https://www.youtube.com/" + a.c },
+    author: { "@type": "Person", name: a.b, alternateName: a.c, url: "https://www.youtube.com/" + a.c, ...(bioFor(a.c) ? { description: bioFor(a.c) } : {}) },
     publisher: { "@type": "Organization", name: BRAND_() },
     ...(NOTES[a.id] ? { editor: { "@type": "Person", name: NOTE_SIGNOFF.split(",")[0] } } : {}),
     isBasedOn: "https://www.youtube.com/watch?v=" + a.v,
@@ -498,6 +499,10 @@ export function articlePage(a, data, base) {
       ${editorNote(a, data, base)}
       <div class="prose">${withInArticleAds(a.body)}</div>
       ${a.short ? `<p class="deckacts" style="margin:1.2rem 0 0"><a href="https://www.youtube.com/shorts/${esc(a.v)}" target="_blank" rel="noopener" style="color:${(FORMATS[a.f] || FORMATS.breakdown).ink}">Watch the Short</a><a class="ghost" href="${base}/snippets#s-${esc(a.id)}">More Snippets</a></p>` : ""}
+      ${bioFor(a.c) ? `<aside class="crbio" aria-label="About the creator" style="margin:2.4rem 0 0;padding:1rem 1.25rem;border:1px solid var(--rule-2);border-radius:4px">
+        <p style="margin:0 0 .5rem;font-size:.72rem;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3)">About the creator</p>
+        <p style="margin:0">${esc(bioFor(a.c))} <a href="${base}/c/${esc(slugH(a.c))}" style="color:var(--blue)">More from ${esc(a.b)} &rarr;</a></p>
+      </aside>` : ""}
       <div class="rule-h" style="margin-top:2.6rem"><h2>Watch the original</h2><span class="note">${esc(a.c)} · YouTube</span></div>
       <div class="player" data-v="${esc(a.v)}" style="margin-top:1rem">
         <img alt="" src="${esc(a.thumb)}" onerror="this.onerror=null;this.src='${esc(a.thumbSmall.replace("mqdefault","hqdefault"))}'">
@@ -547,7 +552,8 @@ export function creatorPage(handle, data, base) {
       ${mark(name, data.avatars && data.avatars[h])}
       <div><h1>${esc(h)}</h1>
         <p>${list.length} article${list.length === 1 ? "" : "s"} on ${BRAND_()} &middot; <a class="yt" href="https://www.youtube.com/${esc(h)}" target="_blank" rel="noopener">Channel on YouTube</a>${bookLink(h, name)}</p>
-        <span class="meta">Every piece below is adapted from one of ${esc(name)}&rsquo;s own videos, with the video at the end.</span></div>
+        <span class="meta">Every piece below is adapted from one of ${esc(name)}&rsquo;s own videos, with the video at the end.</span>
+        ${bioFor(h) ? `<p class="bio" style="margin:.9rem 0 0;max-width:62ch">${esc(bioFor(h))}</p>` : ""}</div>
     </div>
     <section class="grid3">${list.slice(0, 3).map(a => card(a, base)).join("")}</section>
     <div class="cols">
