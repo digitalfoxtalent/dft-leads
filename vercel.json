@@ -63,6 +63,18 @@
     {
       "path": "/api/podcast-sync",
       "schedule": "10 13 * * *"
+    },
+    {
+      "path": "/api/breaks-scan?part=0",
+      "schedule": "0 22 * * *"
+    },
+    {
+      "path": "/api/breaks-scan?part=1",
+      "schedule": "6 22 * * *"
+    },
+    {
+      "path": "/api/breaks-scan?part=2",
+      "schedule": "12 22 * * *"
     }
   ],
   "rewrites": [
