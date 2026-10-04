@@ -1,6 +1,7 @@
 // SUBPLOT page templates. Pure functions: (data, base) -> HTML string.
 import { CSS } from "./css.js";
 import { CATS, slug, slugFor, SNIPPETS_LIVE } from "./data.js";
+import { NOTES, NOTE_SIGNOFF } from "./notes.js";
 import { brand, brandCss, member, joinCta, mail, siteUrl, hasCast, audience, fontHref, hasShareCard, pubFee } from "./brand.js";
 import { wordmarkSvg, accentToday, accentVars } from "./wordmark.js";
 import { design } from "./design.js";
@@ -453,6 +454,21 @@ export function homePage(data, base, section = "all", page = 1) {
     .replace('<span id="panelcount-slot"></span>', `<span>${data.panel.length} creators writing here</span>`);
 }
 
+// Editor's note (see notes.js): SUBPLOT's own short framing of a piece, signed by the person who
+// approved it. Links are only rendered when the target article is live on the site.
+function editorNote(a, data, base) {
+  const n = NOTES[a.id]; if (!n) return "";
+  const [text, links] = n;
+  const live = (links || []).filter(([, href]) => data.arts.some(x => artPath(x) === href));
+  const read = live.length ? `<p style="margin:0 0 .7rem">Read it alongside ${live.map(([label, href]) => `<a href="${base}${esc(href)}" style="color:var(--blue)">${esc(label)}</a>`).join(" and ")}.</p>` : "";
+  return `<aside class="ednote" aria-label="Editor's note" style="margin:1.6rem 0 2.2rem;padding:1.1rem 1.3rem;border-left:3px solid var(--blue);background:var(--paper-3)">
+        <p style="margin:0 0 .55rem;font-size:.72rem;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3)">Editor's note</p>
+        <p style="margin:0 0 .7rem">${esc(text)}</p>
+        ${read}
+        <p style="margin:0;font-size:.85rem;color:var(--ink-3)">${esc(NOTE_SIGNOFF)}</p>
+      </aside>`;
+}
+
 export function articlePage(a, data, base) {
   wire3Deps({ esc, artPath, dayKey, dayLabel, adSlot, fmt, fmtViews, rail, band, avatars: data.avatars || {} });
   const more = data.arts.filter(x => x.c === a.c && x.id !== a.id).slice(0, 3);
@@ -463,6 +479,7 @@ export function articlePage(a, data, base) {
     datePublished: a.p, dateModified: a.p, image: [a.thumb], wordCount: a.w, articleSection: CATS[a.k], keywords: a.t.join(", "),
     author: { "@type": "Person", name: a.b, alternateName: a.c, url: "https://www.youtube.com/" + a.c },
     publisher: { "@type": "Organization", name: BRAND_() },
+    ...(NOTES[a.id] ? { editor: { "@type": "Person", name: NOTE_SIGNOFF.split(",")[0] } } : {}),
     isBasedOn: "https://www.youtube.com/watch?v=" + a.v,
     mainEntityOfPage: siteUrl() + base + artPath(a),
   }).replace(/</g, "\\u003c")}</script>`;
@@ -478,6 +495,7 @@ export function articlePage(a, data, base) {
       <div class="authorbar">${mark(a.b, data.avatars && data.avatars[a.c])}
         <span class="nm"><b><a href="${base}/c/${esc(slugH(a.c))}" style="color:inherit;text-decoration:none">${esc(a.c)}</a></b><span>${esc(fmt(a.p))}</span></span>
         <span class="meta">${a.w.toLocaleString("en-GB")} words · ${a.rt} min read</span></div>
+      ${editorNote(a, data, base)}
       <div class="prose">${withInArticleAds(a.body)}</div>
       ${a.short ? `<p class="deckacts" style="margin:1.2rem 0 0"><a href="https://www.youtube.com/shorts/${esc(a.v)}" target="_blank" rel="noopener" style="color:${(FORMATS[a.f] || FORMATS.breakdown).ink}">Watch the Short</a><a class="ghost" href="${base}/snippets#s-${esc(a.id)}">More Snippets</a></p>` : ""}
       <div class="rule-h" style="margin-top:2.6rem"><h2>Watch the original</h2><span class="note">${esc(a.c)} · YouTube</span></div>
