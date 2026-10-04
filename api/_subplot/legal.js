@@ -39,6 +39,7 @@ export function contactBody(base) {
       ["Corrections", `If an article has something wrong in it, write to <a href="mailto:${mail("corrections")}">${mail("corrections")}</a> with the link and what needs fixing. We correct it and note the correction on the article. If you are the creator and want a piece taken down, the same address works and it comes down.`],
       ["Creators", `Make videos ${audience()} and want them here under your name? <a href="${base}/join">${joinCta()}</a>. It takes about a minute and you only need your YouTube handle.`],
       ["Advertising", `Ads on ${esc(B())} are served by advertising networks. To reach our readers directly, email <a href="mailto:${mail("hello")}">${mail("hello")}</a>.`],
+      ...(brand().key === "subplot" ? [["Publisher", `${esc(B())} is owned and published by ${OPERATOR}, a creator management agency based in Denver, Colorado.`]] : []),
     ],
     aside: railBox("Response time", `<p class="note" style="border:0;padding:0;margin:0">Usually within two working days. Corrections faster.</p>`),
   });
