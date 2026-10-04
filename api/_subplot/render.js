@@ -1,6 +1,6 @@
 // SUBPLOT page templates. Pure functions: (data, base) -> HTML string.
 import { CSS } from "./css.js";
-import { CATS, slug, slugFor } from "./data.js";
+import { CATS, slug, slugFor, SNIPPETS_LIVE } from "./data.js";
 import { brand, brandCss, member, joinCta, mail, siteUrl, hasCast, audience, fontHref, hasShareCard, pubFee } from "./brand.js";
 import { wordmarkSvg, accentToday, accentVars } from "./wordmark.js";
 import { design } from "./design.js";
@@ -226,7 +226,7 @@ body[data-ads="off"] .ad{display:none}
 function shell({ base, title, desc, body, current = "all", bodyClass = "", rule = "", trending = [], jsonld = "" }) {
   const nav = [["all", "All"], ...Object.entries(CATS)].map(([k, n]) =>
     `<a href="${base}/${k === "all" ? "" : "s/" + k}" ${k === current ? 'aria-current="true"' : ""}>${esc(n)}</a>`).join("")
-    + (design() === 3 ? `<a href="${base}/snippets" ${current === "snippets" ? 'aria-current="true"' : ""}>Snippets</a>` : "");
+    + (design() === 3 && SNIPPETS_LIVE ? `<a href="${base}/snippets" ${current === "snippets" ? 'aria-current="true"' : ""}>Snippets</a>` : "");
   return `<!doctype html>
 <html lang="en">
 <head>
