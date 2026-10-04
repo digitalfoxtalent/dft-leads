@@ -370,7 +370,12 @@ async function load() {
   for (const a of arts) a.f = formatOf(a);
   // Snippets live in their own list. They never enter the wire, the threads, the lead or the
   // evergreen shelf: those are built from `arts` below, which from here on is long-form only.
-  const snippets = arts.filter(a => a.short);
+  // SNIPPETS OFF FOR THE ADSENSE RE-REVIEW, 3 Oct 2026 (Tom). AdSense rejected the site for
+  // policy violations; Snippet pages are 120-190 words carrying four ad units, the clearest
+  // low-value signal on the site. With SNIPPETS_LIVE false the list is empty, so the front-page
+  // column, the /snippets page, the nav link and the sitemap entries all drop out and Snippet
+  // URLs 404. Nothing is deleted from the store or MSN. To restore, set this back to true.
+  const snippets = SNIPPETS_LIVE ? arts.filter(a => a.short) : [];
   { const kept = arts.filter(a => !a.short); arts.length = 0; arts.push(...kept); }
 
   // CORRECTIONS, 8 Sep 2026. Errors found by auditing every live article, fixed at render rather
@@ -468,6 +473,9 @@ export async function getData() {
     .catch(err => { cache.pending = null; if (cache.data) return cache.data; throw err; });
   return cache.pending;
 }
+
+// See the SNIPPETS OFF note in loadData. false = Snippets hidden site-wide.
+export const SNIPPETS_LIVE = false;
 
 // An article by id, long-form or Snippet. Routes and sitemaps use this rather than reaching
 // into data.arts, so a Snippet's URL resolves like any other article's.
