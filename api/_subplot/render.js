@@ -44,6 +44,16 @@ export function adSlot(name, desktop, mobile = desktop, extraClass = "") {
     <span class="ad-lbl">Ad</span><span class="ad-meta">${name} · ${desktop}${mobile !== desktop ? " / " + mobile : ""}</span></div>`;
 }
 // Insert an in-article slot after every `every` paragraphs, never right after a heading, never in the last 2.
+// The shared "About this article" note is written by the publisher for MSN, so it gives DFT's
+// contact points (corrections@digitalfoxtalent.com and digitalfoxtalent.com/editorial-standards).
+// The wording stays shared (Tom, 19 Sep 2026); only those two contact points are swapped for this
+// site's own, so the note agrees with the About page and the footer. 4 Oct 2026 (Tom).
+function siteContacts(bodyHtml) {
+  return String(bodyHtml || "")
+    .replace(/https?:\/\/(?:www\.)?digitalfoxtalent\.com\/editorial-standards\/?/gi, `https://${brand().domain}/about#standards`)
+    .replace(/corrections@digitalfoxtalent\.com/gi, mail("corrections"));
+}
+
 function withInArticleAds(bodyHtml, every = 5) {
   const parts = bodyHtml.split(/(?<=<\/p>)/);
   const paras = parts.filter(p => /<p>/.test(p)).length;
@@ -501,7 +511,7 @@ export function articlePage(a, data, base) {
         <span class="nm"><b><a href="${base}/c/${esc(slugH(a.c))}" style="color:inherit;text-decoration:none">${esc(a.c)}</a></b><span>${esc(fmt(a.p))}</span></span>
         <span class="meta">${a.w.toLocaleString("en-GB")} words · ${a.rt} min read</span></div>
       ${editorNote(a, data, base)}
-      <div class="prose">${withInArticleAds(a.body)}</div>
+      <div class="prose">${withInArticleAds(siteContacts(a.body))}</div>
       ${a.short ? `<p class="deckacts" style="margin:1.2rem 0 0"><a href="https://www.youtube.com/shorts/${esc(a.v)}" target="_blank" rel="noopener" style="color:${(FORMATS[a.f] || FORMATS.breakdown).ink}">Watch the Short</a><a class="ghost" href="${base}/snippets#s-${esc(a.id)}">More Snippets</a></p>` : ""}
       ${bioFor(a.c) ? `<aside class="crbio" aria-label="About the creator" style="margin:2.4rem 0 0;padding:1rem 1.25rem;border:1px solid var(--rule-2);border-radius:4px">
         <p style="margin:0 0 .5rem;font-size:.72rem;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3)">About the creator</p>

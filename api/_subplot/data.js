@@ -331,6 +331,19 @@ async function load() {
   const removed = await pruneMissing(arts);
   if (APPROVED) { const kept = arts.filter(a => APPROVED.includes(a.c)); arts.length = 0; arts.push(...kept); }
 
+  // DISPLAY NAMES, 4 Oct 2026 (Tom). The feed's displayName is wrong on some records: one
+  // Breakdowns & Blockbusters article carries "Breakdownsandblockbusters", and the ChaosTrek feed
+  // shares "Chaos" with Chaos Gaming. Those two creators take their name from CREATORS instead.
+  // Everyone else keeps the feed's name, which is right for them. Runs after resolveChannels, so
+  // feed grouping (feedKey) is untouched.
+  const NAME_FROM_CREATORS = new Set(["breakdownsandblockbusters", "chaostrektv"]);
+  for (const a of arts) {
+    const s = slugFor(a.c);
+    if (!NAME_FROM_CREATORS.has(s)) continue;
+    const rec = CREATORS.find(r => r.slug === s);
+    if (rec && rec.name) a.b = rec.name;
+  }
+
   // WORD COUNTS AND THE THIN-PAGE FLOOR, both added 8 Sep 2026.
   // Some store records carry no word_count. Those rendered as "0 words - 1 min read" and were
   // quietly disqualified from the lead, the secondary slots and the evergreen rail, all of which
