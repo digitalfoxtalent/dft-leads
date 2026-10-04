@@ -1,4 +1,5 @@
-// Video distribution: DFT's own MSN video pipeline (rejection import, repair feeds). READ ONLY.
+// Video distribution: DFT's own MSN video pipeline (rejection import, repair feeds), plus breaks on every
+// channel (breaks.js: MSN, Megaphone, Facebook planned). READ ONLY.
 //
 // SOURCE
 //   Apify key-value store "dft-msn-rejections" (EyrrhXh9rjPUAQ7ee), record "distribution-status".
@@ -13,6 +14,8 @@
 
 import { monday } from "../monday.js";
 import { TEMPLATE } from "./page.js";
+import { breaksData } from "./breaks.js";
+import { breaksSection } from "./breaks-section.js";
 
 const KEY_ITEM = 12634208127;
 const KEY_COL = "text_mm5bcxe7";
@@ -51,8 +54,16 @@ export async function distributionData(mondayTok) {
   }
 }
 
+// The multi-channel breaks section (breaks.js, breaks-section.js) goes under the MSN headline figures.
+// If it fails for any reason the MSN page still renders, with a note in place of the section.
+const BREAKS_ANCHOR = '<section class="kpis" id="kpis" aria-live="polite"></section>';
+
 export async function renderDistribution(mondayTok) {
   const payload = await distributionData(mondayTok);
   const json = JSON.stringify(payload).replace(/</g, "\\u003c");
-  return TEMPLATE.replace("__DATA__", () => json);
+  const page = TEMPLATE.replace("__DATA__", () => json);
+  let section;
+  try { section = breaksSection(await breaksData(mondayTok, payload)); }
+  catch (e) { section = '<div class="notice">The breaks section could not load just now. The MSN figures below are unaffected.</div>'; }
+  return page.includes(BREAKS_ANCHOR) ? page.replace(BREAKS_ANCHOR, () => BREAKS_ANCHOR + section) : page.replace("</body>", () => section + "</body>");
 }

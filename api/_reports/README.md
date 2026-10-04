@@ -10,7 +10,7 @@ reports.digitalfoxtalent.com - the team's reporting home. Entry point: `api/repo
 | `home.js` | Front page, one card per report |
 | `campaigns/` | Campaign reach: `load.js` data, `page.js` page, `podcast.js` Megaphone snapshot, `snapshot.js` saved copy |
 | `platforms/` | Platform monetization: `load.js` data, `page.js` page |
-| `distribution/` | Video distribution: `load.js` reads the `distribution-status` record from the Apify store `dft-msn-rejections` (key read from monday at run time), `page.js` page |
+| `distribution/` | Video distribution: `load.js` reads the `distribution-status` record from the Apify store `dft-msn-rejections` (key read from monday at run time), `page.js` page; `breaks.js` reads Megaphone live (key from monday) and maps MSN rows into one shared breaks shape, `breaks-section.js` draws it (Facebook planned) |
 
 Rules every report follows:
 
