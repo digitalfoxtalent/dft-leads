@@ -115,6 +115,10 @@ body[data-ads="off"] .ad{display:none}
 .ad.live.ad-anchor{height:auto;padding:.2rem 0 .1rem}
 .ad.live.ad-anchor::before{display:none}
 .ad.live:has(ins[data-ad-status="unfilled"]){display:none}
+/* 4 Oct 2026, AdSense re-review: a live unit keeps zero height until Google marks it filled, so pages never
+   show blank reserved boxes (an "under construction" look). The ad code still loads and requests normally;
+   the box opens the moment data-ad-status="filled" is set. */
+.ad.live:not(:has(ins[data-ad-status="filled"])){height:0;min-height:0;margin:0;padding:0;overflow:hidden}
 .ad.live:has(ins[data-ad-status="filled"])::before{display:block}
 /* cast-influenced: soft corners, thin ink line, pill buttons */
 .thumb,.lead .plate,.player,.thread,.box,.ad,.honest,.terms,.done,.source,.field input,.field select,.field .handle span,.band,.step{border-radius:14px}
@@ -281,7 +285,7 @@ ${body}
     <div><p class="fm">${art("subplot", 44)}${BRAND_()}</p><p>${esc(TAG_())}</p></div>
     <div><h3>About</h3><ul><li><a href="${base}/join">${joinCta()}</a></li><li><a href="${base}/about">Who we are</a></li><li><a href="${base}/about#standards">Editorial standards</a></li><li><a href="${base}/about#ai">How we use AI</a></li></ul></div>
     <div><h3>Sections</h3><ul>${Object.entries(CATS).map(([k, n]) => `<li><a href="${base}/s/${k}">${esc(n)}</a></li>`).join("")}</ul></div>
-    <div><h3>Contact</h3><p>${mail("hello")}</p><p>${mail("corrections")}</p><p class="legal"><a href="${base}/contact">Contact</a> &middot; <a href="${base}/terms">Terms</a> &middot; <a href="${base}/privacy">Privacy</a> &middot; <a href="${base}/creators">Creator agreement</a></p></div>
+    <div><h3>Contact</h3><p>${mail("hello")}</p><p>${mail("corrections")}</p><p class="legal"><a href="${base}/contact">Contact</a> &middot; <a href="${base}/terms">Terms</a> &middot; <a href="${base}/privacy">Privacy</a> &middot; <a href="${base}/creators">Creator agreement</a></p>${brand().key === "subplot" ? `<p class="legal">Owned and published by <a href="https://digitalfoxtalent.com" rel="noopener">Digital Fox Talent LLC</a>, Denver, Colorado</p>` : ""}</div>
   </div>
   ${brand().key === "subplot" ? "" : `<div class="protolabel"><div class="wrap">Private preview &middot; not indexed &middot; articles read live from the production feed</div></div>`}
 </footer>
@@ -689,6 +693,8 @@ export function aboutPage(data, base) {
     <h1 class="headline" style="font-size:clamp(1.9rem,4vw,2.8rem);margin-top:1rem">Who we are</h1>
     <p>${BRAND_()} is a publication written by the people who actually watch the things it covers. Every article here started life as a video by one of the ${data.panel.length} creators on <a href="${base}/#panel" style="color:var(--blue)">The Panel</a>, and runs under that creator&rsquo;s name with a link to the video it came from. We don&rsquo;t have staff writers. We don&rsquo;t have anonymous bylines.</p>
     <p>The name is the idea: the story under the story. Breakdowns, theories, reactions, opinions, reviews and lore - the second layer that people who love this stuff actually talk about.</p>
+    ${brand().key === "subplot" ? `<h2 id="publisher">Who publishes ${BRAND_()}</h2>
+    <p>${BRAND_()} is owned and published by <a href="https://digitalfoxtalent.com" rel="noopener" style="color:var(--blue)">Digital Fox Talent LLC</a>, a creator management agency based in Denver, Colorado. It is edited by Tom James, who reads and approves the editor&rsquo;s notes that sit on its articles. Questions about the site go to ${mail("hello")}.</p>` : ""}
 
     <h2 id="standards">Editorial standards</h2>
     <p><b>One creator, one byline.</b> Each article is adapted from a single creator&rsquo;s own video and published under their handle. If it isn&rsquo;t theirs, it isn&rsquo;t here.</p>
