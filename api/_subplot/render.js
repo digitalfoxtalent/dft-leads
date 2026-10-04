@@ -281,7 +281,7 @@ ${body}
     <div><h3>Sections</h3><ul>${Object.entries(CATS).map(([k, n]) => `<li><a href="${base}/s/${k}">${esc(n)}</a></li>`).join("")}</ul></div>
     <div><h3>Contact</h3><p>${mail("hello")}</p><p>${mail("corrections")}</p><p class="legal"><a href="${base}/contact">Contact</a> &middot; <a href="${base}/terms">Terms</a> &middot; <a href="${base}/privacy">Privacy</a> &middot; <a href="${base}/creators">Creator agreement</a></p></div>
   </div>
-  <div class="protolabel"><div class="wrap">Private preview &middot; not indexed &middot; articles read live from the production feed</div></div>
+  ${brand().key === "subplot" ? "" : `<div class="protolabel"><div class="wrap">Private preview &middot; not indexed &middot; articles read live from the production feed</div></div>`}
 </footer>
 ${adSlot("mobile-anchor", "320×50", "320×50", "ad-anchor")}
 <script>
