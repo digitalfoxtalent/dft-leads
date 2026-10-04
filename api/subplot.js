@@ -2,7 +2,7 @@
 // host (and, for preview, the /subplot path on the roster host).
 // Private preview: every response is noindex, and robots.txt lets Google crawl but nobody else.
 // Optional gate: set SUBPLOT_PASS in Vercel env to require a password (user "subplot").
-import { getData, findArt } from "./_subplot/data.js";
+import { getData, findArt, SNIPPETS_LIVE } from "./_subplot/data.js";
 import { brandFor, setBrand, siteUrl } from "./_subplot/brand.js";
 import { runHealth } from "./_subplot/health.js";
 import { setDesign } from "./_subplot/design.js";
@@ -181,7 +181,7 @@ export default async function handler(req, res) {
       else { res.setHeader("Location", want); return res.status(301).end(); }
     }
   }
-  else if (path === "/snippets") html = snippetsPage(data, base);
+  else if (path === "/snippets") html = SNIPPETS_LIVE ? snippetsPage(data, base) : null;
   else if (path.startsWith("/c/")) html = creatorPage(decodeURIComponent(path.slice(3)), data, base);
   else if (path.startsWith("/t/")) html = threadPage(path.slice(3), data, base);
   else if (path === "/join") html = joinPage(data, base);
