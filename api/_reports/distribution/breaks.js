@@ -18,8 +18,9 @@
 // say so; an empty or short read is a fault, never the truth; every source shows when it was read.
 
 import { megaphoneToken } from "../megaphone.js";
+import { PARTS, readRecord } from "./breaks-store.js";
 
-const NET = "1b171fa4-a905-11f0-9d4f-a77759d99516";
+export const NET = "1b171fa4-a905-11f0-9d4f-a77759d99516";
 const CMS = "https://cms.megaphone.fm/api";
 const CACHE_MS = 10 * 60 * 1000;
 const STUCK_MS = 3 * 60 * 60 * 1000;
@@ -53,7 +54,7 @@ const YT_TOTALS = {
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const day = d => new Date(d).toISOString().slice(0, 10);
 
-async function mget(tok, path) {
+export async function mget(tok, path) {
   let last = "";
   for (let a = 0; a < 4; a++) {
     const r = await fetch(CMS + path, { headers: { Authorization: 'Token token="' + tok + '"', Accept: "application/json" } });
@@ -64,7 +65,7 @@ async function mget(tok, path) {
   throw new Error("Megaphone busy (" + last + ")");
 }
 
-async function pool(list, n, fn) {
+export async function pool(list, n, fn) {
   const out = new Array(list.length); let i = 0;
   await Promise.all(Array.from({ length: Math.min(n, list.length) }, async () => {
     while (i < list.length) { const k = i++; out[k] = await fn(list[k]); }
@@ -72,7 +73,7 @@ async function pool(list, n, fn) {
   return out;
 }
 
-const ytOf = ext => { const m = /^(?:yt|failed)-([A-Za-z0-9_-]{11})/.exec(ext || ""); return m ? m[1] : null; };
+export const ytOf = ext => { const m = /^(?:yt|failed)-([A-Za-z0-9_-]{11})/.exec(ext || ""); return m ? m[1] : null; };
 
 async function unpublished(tok, pid) {
   const out = [];
@@ -174,14 +175,61 @@ export async function breaksData(mondayTok, dist) {
       mega = lastGoodMega ? Object.assign({}, lastGoodMega, { stale: true, error }) : { items: [], coverage: [], stale: true, error, updated: null };
     }
   }
+  const night = await nightly(mondayTok);
+  const items = msnRows(dist).concat(mega.items, night.adRows);
+  // first_seen for overnight rows comes from the history: the earliest night the item was open.
+  const firstNight = {};
+  night.nights.slice().reverse().forEach(n => Object.keys(n.open || {}).forEach(k => { if (!firstNight[k]) firstNight[k] = n.date; }));
+  night.adRows.forEach(r => { const f = firstNight[r.channel + ":" + r.item_id]; if (f) r.first_seen = f; });
   return {
     generated: new Date().toISOString(),
     channels: CHANNELS,
     sources: {
       megaphone: { updated: mega.updated, stale: !!mega.stale, error: mega.error || null, shows: mega.shows || null },
-      msn: { updated: dist && (dist.summary && dist.summary.updated || dist.fetchedAt) || null, stale: !!(dist && dist.stale), error: dist && dist.error || null }
+      msn: { updated: dist && (dist.summary && dist.summary.updated || dist.fetchedAt) || null, stale: !!(dist && dist.stale), error: dist && dist.error || null },
+      scan: night.scan
     },
-    items: msnRows(dist).concat(mega.items),
+    items,
+    fixed: fixedSince(night.nights, items, { megaphone: !!(mega.error || mega.stale), msn: !(dist && Array.isArray(dist.videos)) || !!(dist && dist.error), scan: night.scan.stale }),
     coverage: mega.coverage
   };
+}
+
+// OVERNIGHT RECORDS (breaks-scan.js writes them, this only reads). Cached like the live read.
+let nightCache = null;
+const SCAN_STALE_MS = 36 * 60 * 60 * 1000;
+async function nightly(mondayTok) {
+  if (nightCache && Date.now() - nightCache.at < CACHE_MS) return nightCache.v;
+  const recs = await Promise.all(Array.from({ length: PARTS }, (_, i) => readRecord(mondayTok, "adgaps-" + i)).concat([readRecord(mondayTok, "history")]));
+  const hist = recs.pop();
+  const seen = {}, adRows = [], notes = [];
+  let oldest = null, shows = 0, unread = 0;
+  recs.forEach((r, i) => {
+    if (!r) { notes.push("part " + (i + 1) + " has not run yet"); return; }
+    if (r.error) { notes.push("part " + (i + 1) + ": " + r.error); return; }
+    if (!oldest || r.at < oldest) oldest = r.at;
+    if (Date.now() - new Date(r.at).getTime() > SCAN_STALE_MS) notes.push("part " + (i + 1) + " last ran " + r.at.slice(0, 10));
+    (r.shows || []).forEach(sh => { shows++; if (sh.error) unread++; });
+    (r.rows || []).forEach(row => { if (!seen[row.item_id]) { seen[row.item_id] = 1; adRows.push(row); } });
+  });
+  if (unread) notes.push(unread + " show" + (unread === 1 ? "" : "s") + " could not be read in full");
+  const nights = hist && Array.isArray(hist.nights) ? hist.nights : [];
+  const v = { adRows, nights, scan: { updated: oldest, stale: notes.length > 0, error: notes.length ? notes.join("; ").slice(0, 200) : null, shows } };
+  nightCache = { at: Date.now(), v };
+  return v;
+}
+
+// Anything open on one of the last 7 nights that is not open, sent or waiting now was fixed or cleared
+// (published, rebuilt, given its ad breaks, or deleted as a duplicate).
+// A source that could not be read tonight says nothing about what was fixed, so its items are left out.
+function fixedSince(nights, items, unreadable) {
+  const srcOf = k => k.startsWith("megaphone:ads:") ? "scan" : k.split(":")[0];
+  const now = new Set(items.filter(r => r.status !== "fixed" && r.status !== "wont_fix").map(r => r.channel + ":" + r.item_id));
+  const cutoff = new Date(Date.now() - 7 * 864e5).toISOString().slice(0, 10);
+  const out = {};
+  nights.filter(n => n.date >= cutoff).forEach(n => Object.keys(n.open || {}).forEach(k => {
+    if (now.has(k) || out[k] || unreadable[srcOf(k)]) return;
+    const o = n.open[k]; out[k] = { channel: o.c, brand: o.b, title: o.t, issue: o.i, last_seen: n.date };
+  }));
+  return Object.values(out).sort((a, b) => String(b.last_seen).localeCompare(String(a.last_seen)));
 }
