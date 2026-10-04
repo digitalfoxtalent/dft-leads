@@ -485,7 +485,7 @@ export async function getData() {
   return cache.pending;
 }
 
-// See the REVIEW SET note in loadData. true = only these 30 article ids render.
+// See the REVIEW SET note in loadData. true = only these article ids render (43 as at 3 Oct 2026).
 export const REVIEW_SET_ON = true;
 export const REVIEW_SET = [
   "JOFMVYJFVR4", "dVDVnbpeco4", "jkJfhdqfSrE", "QKEOyUJ5oJQ", "ECdZTmkiN5U", "tmdRhQm4Ask",
@@ -493,6 +493,10 @@ export const REVIEW_SET = [
   "gkkljDxvtgE", "KJsvGbE3E1o", "QHXt9HKjQM4", "1IMNyHGtPNY", "-bX68Czfv_Y", "gtyOJoXBlAY",
   "90Wco6PuQC4", "byyS9TCgbB8", "fPLUODZ_1sI", "m2LbWXdEHBk", "bbHmfxZlzVo", "rdjLDT557yM",
   "nL1QUuc2kdA", "kyAq4hV3DOU", "ed8YLzWYQTY", "Xd8ArT-MeMM", "JOdLqPumrL0", "2N30ikVRPjQ",
+  // Added 3 Oct 2026 (Tom: go to 50 if they pass; 13 more passed the same checks).
+  "gy673tq6CR4", "0Iz3a1Jd1Ok", "N_iOHF2a2K8", "_VdSv4t-S-Q", "c9hqOnFYpBQ", "rztW3ozx-_k",
+  "nsrUPTJ-XEg", "tPuQhyOkyuU", "8tiGf8QMOwU", "_ahRLcUA7z0", "X5psFyTuA1s", "w2EwJGZNOMY",
+  "REqdcJvHgUA",
 ];
 
 // See the SNIPPETS OFF note in loadData. false = Snippets hidden site-wide.
