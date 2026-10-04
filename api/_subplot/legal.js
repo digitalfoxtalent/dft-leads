@@ -9,6 +9,7 @@ const DOMAIN = () => brand().domain;
 export const OPERATOR = "Digital Fox Talent LLC";
 export const OPERATOR_SHORT = "the operator";
 const UPDATED = "3 September 2026";
+const PRIVACY_UPDATED = "3 October 2026";
 
 // Simple document page: title, dek, then prose sections.
 function docPage({ base, title, dek, sections, aside }) {
@@ -45,11 +46,11 @@ export function contactBody(base) {
 
 export function privacyBody(base) {
   return docPage({
-    base, title: "Privacy", dek: `How ${B()} handles your data. Last updated ${UPDATED}.`,
+    base, title: "Privacy", dek: `How ${B()} handles your data. Last updated ${PRIVACY_UPDATED}.`,
     sections: [
       ["Who we are", `${B()} (${DOMAIN()}) is published by ${OPERATOR}. Questions about this policy go to <a href="mailto:${mail("hello")}">${mail("hello")}</a>.`],
       ["What we collect when you read", `Reading ${B()} does not require an account and we do not ask you for anything. We use Vercel Web Analytics, which counts visits and page views without cookies and without identifying you. Videos are embedded through YouTube's privacy-enhanced player and only load after you press play; from that point YouTube's own <a href="https://policies.google.com/privacy" rel="noopener">privacy policy</a> applies.`],
-      ["Advertising", `We show ads served by third-party advertising networks, which may use cookies or similar technologies to measure ads and, where you have consented, to personalise them. Where the law requires it (including the UK and EEA) you will see a consent banner before any such cookie is set, and you can change your choice at any time from the link in the footer. Google's use of advertising data is described at <a href="https://policies.google.com/technologies/ads" rel="noopener">policies.google.com/technologies/ads</a>.`],
+      ["Advertising", `We show ads served by third-party advertising networks, which may use cookies or similar technologies to measure ads and, where you have consented, to personalise them. Where the law requires it (including the UK and EEA) you will see a consent banner before any such cookie is set, and you can change your choice at any time from the link in the footer. Third-party vendors, including Google, use cookies to serve ads based on your prior visits to this website or other websites. Google's use of advertising cookies enables it and its partners to serve ads to you based on your visits to this site and/or other sites on the Internet. You can opt out of personalised advertising by visiting Google's <a href="https://adssettings.google.com" rel="noopener">Ads Settings</a>, and you can opt out of other vendors' use of cookies for personalised advertising at <a href="https://www.aboutads.info/choices" rel="noopener">aboutads.info</a>. Google's use of advertising data is described at <a href="https://policies.google.com/technologies/ads" rel="noopener">policies.google.com/technologies/ads</a>.`],
       ["What we collect when you apply as a creator", `The application form asks for your YouTube handle, your name, an email address, what you make and roughly how big your channel is. We keep that in our work-management system (monday.com) to review the application, contact you, and, if you join, to run and pay your account. We do not sell or share it with anyone else, and if you ask us to delete it we will, unless we need to keep a record of a payment.`],
       ["Email", `If you email us we keep the message for as long as we need it to reply and act on it.`],
       ["Your rights", `You can ask what we hold about you, ask us to correct or delete it, or object to how we use it, by emailing <a href="mailto:${mail("hello")}">${mail("hello")}</a>. If you are in the UK or EEA you also have the right to complain to your data-protection regulator.`],
