@@ -206,6 +206,7 @@ const BRAND_COLS=[
   {key:"rate",   head:"Rate",        w:92,  fmt:"money"},
   {key:"vg",     head:"View Guarantee", w:128, fmt:"int", longOnly:true},
   {key:"cpm",    head:"CPM",         w:64,  fmt:"money2", longOnly:true},
+  {key:"simulcast",head:"Simulcast",  w:100, longOnly:true, tip:"Also published to Spotify Video, Apple Podcasts and other podcast apps. That extra reach is included at the same rate."},
   {key:"category",head:"Category",   w:116},
   {key:"host",   head:"Host",        w:138},
   {key:"adEx",   head:"Ad Examples", w:108},
@@ -231,7 +232,7 @@ const BRAND_COLS=[
 ];
 // Team-only columns, always first after the name.
 const TEAM_COLS=[
-  {key:"status", head:"Brands see it?", w:178, t:1},
+  {key:"status", head:"Brands see it?", w:236, t:1},
   {key:"bvg",    head:"Brand VG ✎",  w:116, t:1, fmt:"int", edit:"vg"},
   {key:"bcpm",   head:"Brand CPM ✎", w:118,  t:1, fmt:"money2", edit:"cpm"},
   {key:"brate",  head:"Brand Rate",  w:106,  t:1, fmt:"money"},
@@ -303,6 +304,7 @@ function fmtCell(c,col,isShow){
   if(col.fmt==="money") return money(v);
   if(col.fmt==="money2") return money2(v);
   if(col.fmt==="int") return int(v);
+  if(col.key==="simulcast") return v?`<span class="pill ok" title="Also on Spotify Video and podcast apps, included at this rate">${esc(v)}</span>`:"";
   if(col.key==="adEx") return v?`<a class="exlink" href="${esc(v)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">Examples ↗</a>`:"";
   return esc(v);
 }
@@ -394,7 +396,7 @@ function render(){
     const active=c.key===sortKey;
     const car=active?`<span class="sortcar">${sortDir==="desc"?"▼":"▲"}</span>`:`<span class="sortcar dim">▼</span>`;
     const drag=mode==="team"&&!c.t&&c.key!=="name"?` draggable="true"`:"";
-    return `<th class="${c.cls||""}${c.t?" tcol":""}" data-key="${c.key}"${drag} title="${c.t?"DFT only":"Click to sort"}${drag?" · drag to move":""}">${esc(c.head)}${car}</th>`;
+    return `<th class="${c.cls||""}${c.t?" tcol":""}" data-key="${c.key}"${drag} title="${c.tip?esc(c.tip)+" ":""}${c.t?"DFT only":"Click to sort"}${drag?" · drag to move":""}">${esc(c.head)}${car}</th>`;
   }).join("")}</tr></thead>`;
   const totalW=cols.reduce((a,c)=>a+c.w,0);
   $("#scroll").innerHTML=list.length

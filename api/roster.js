@@ -35,6 +35,12 @@ const BOARD = 18417663127;          // Rates - View Guarantee Model
 const SUB_BOARD = 18417669961;      // its show subitems
 const LISTS_BOARD = 18434088297;    // Roster - Saved Pitch Lists
 const CREATOR_BOARD = 6160485039;   // Global Talent Roster (State lives there)
+// Simulcast (Tom, 5 Oct 2026): a YouTube show that is also published to Spotify Video and
+// the podcast apps is marked "Simulcast" - extra reach at the same rate, not a separate
+// price. The record of who is live as Simulcast is the Creator x Supplier Setup Register:
+// rows with Supplier Libsyn, Listing type Simulcast, Setup state Live, joined on YouTube handle.
+const REGISTER_BOARD = 18430229380;
+const REG = { handle: "text_mm70axtt", supplier: "color_mm70wx2a", state: "color_mm708t66", type: "color_mm70bcs0" };
 const HOST = "roster-viewguarantee.digitalfoxtalent.com";
 
 const GROUPS = [
@@ -135,11 +141,19 @@ async function loadBoard() {
   const groupQ = g => `query{boards(ids:[${BOARD}]){groups(ids:["${g}"]){id items_page(limit:200){items{id name column_values(ids:${p}){id text value} subitems{id name column_values(ids:${s}){id text}}}}}}}`;
   const stateQ = `query{boards(ids:[${CREATOR_BOARD}]){items_page(limit:500){items{id column_values(ids:["dup__of_email"]){text}}}}}`;
   const listsQ = `query{boards(ids:[${LISTS_BOARD}]){items_page(limit:500){items{id name column_values(ids:${JSON.stringify(Object.values(L))}){id text}}}}}`;
-  const [groups, state, lists] = await Promise.all([
+  const regQ = `query{boards(ids:[${REGISTER_BOARD}]){items_page(limit:500){items{column_values(ids:${JSON.stringify(Object.values(REG))}){id text}}}}}`;
+  const [groups, state, lists, register] = await Promise.all([
     Promise.all(GROUPS.map(g => monday(groupQ(g.id)))),
     monday(stateQ).catch(() => null),
     monday(listsQ).catch(() => null),
+    monday(regQ).catch(() => null),
   ]);
+  const simulcast = new Set();
+  ((((register || {}).boards || [])[0] || {}).items_page || { items: [] }).items.forEach(it => {
+    const v = {}; (it.column_values || []).forEach(c => { v[c.id] = c.text || ""; });
+    if (v[REG.supplier] === "Libsyn" && v[REG.type] === "Simulcast" && v[REG.state] === "Live" && v[REG.handle])
+      simulcast.add(v[REG.handle].replace(/^@/, "").toLowerCase());
+  });
   const stateById = {};
   ((((state || {}).boards || [])[0] || {}).items_page || { items: [] }).items
     .forEach(it => { stateById[String(it.id)] = ((it.column_values || [])[0] || {}).text || ""; });
@@ -159,7 +173,8 @@ async function loadBoard() {
         const sc = {}; (sv.column_values || []).forEach(c => { sc[c.id] = c.text || ""; });
         return { id: String(sv.id), name: sv.name, cv: sc };
       });
-      rows.push({ id: String(it.id), name: it.name, group: GROUPS[gi].id, kind, cv, creator, adEx, state: creator ? (stateById[creator] || "") : "", shows });
+      const sim = kind === "long" && simulcast.has(String(cv[C.handle] || "").replace(/^@/, "").toLowerCase());
+      rows.push({ id: String(it.id), name: it.name, group: GROUPS[gi].id, kind, cv, creator, adEx, state: creator ? (stateById[creator] || "") : "", shows, simulcast: sim });
     });
   });
 
@@ -188,6 +203,7 @@ function baseFields(r) {
   const cv = r.cv, o = {
     id: r.id, name: r.name, handle: cv[C.handle] || "", url: cv[C.url] || "", logo: r.logo, kind: r.kind, group: r.group,
     subs: pos(cv[C.subs]), videos: pos(cv[C.videos]), adEx: r.adEx, state: r.state,
+    simulcast: r.simulcast ? "Included" : "",
   };
   TEXT_FIELDS.forEach(k => { o[k] = /^(male|female|a\d|us|uk)/.test(k) ? pct(cv[C[k]]) : (cv[C[k]] || ""); });
   return o;
