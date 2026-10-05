@@ -37,7 +37,12 @@ const ADS = "long_text_mm5n8f4t";             // Ad Type Available
 const AUD = { m: "text_mm5nkdfn", f: "text_mm5nb2t7", us: "text_mm5nsagz", uk: "text_mm5n7ybc" };
 const AGES = [["13-17", "text_mm5n6m90"], ["18-24", "text_mm5n69hv"], ["25-34", "text_mm5nbatb"],
   ["35-44", "text_mm5n7syq"], ["45-54", "text_mm5n5cc8"], ["55-64", "text_mm5nzj3n"]];
-const COLS = [HANDLE, GUARANTEE, SUBS, CPM, RATE, ADS, AUD.m, AUD.f, AUD.us, AUD.uk].concat(AGES.map(a => a[1]));
+// Since 5 Oct 2026 brands see numbers that change once a quarter (Tom's rule): the frozen
+// Brand VG / CPM / Rate written by renewal-sync brand_quarter_snapshot.py. The live columns
+// are only a fallback for a row the snapshot has not reached yet.
+const B_GUARANTEE = "numeric_mm7vxae8", B_CPM = "numeric_mm7vm3hw", B_RATE = "numeric_mm7vx77g";
+const B_SHOW_GUARANTEE = "numeric_mm7vzc0y";
+const COLS = [HANDLE, GUARANTEE, SUBS, CPM, RATE, ADS, AUD.m, AUD.f, AUD.us, AUD.uk, B_GUARANTEE, B_CPM, B_RATE].concat(AGES.map(a => a[1]));
 
 // Answer only on the roster host, like the sibling. The Host header is the URL the
 // page fetched, so a request from digitalfoxtalent.com still carries this host.
@@ -74,7 +79,7 @@ export default async function handler(req, res) {
     const query =
       "query{boards(ids:[" + BOARD + "]){groups(ids:[\"" + GROUP + "\"]){items_page(limit:120){items{" +
       "column_values(ids:[" + COLS.map(c => '"' + c + '"').join(",") + "]){id text} " +
-      "subitems{name column_values(ids:[\"" + SHOW_GUARANTEE + "\"]){text}}}}}}}";
+      "subitems{name column_values(ids:[\"" + SHOW_GUARANTEE + "\",\"" + B_SHOW_GUARANTEE + "\"]){id text}}}}}}}";
     const r = await fetch("https://api.monday.com/v2", {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: token },
@@ -87,7 +92,10 @@ export default async function handler(req, res) {
     const items = (groups[0] && groups[0].items_page && groups[0].items_page.items) || [];
     const rows = items.map(it => {
       const cvs = it.column_values || [];
-      const col = id => (cvs.find(c => c && c.id === id) || {}).text;
+      const raw = id => (cvs.find(c => c && c.id === id) || {}).text;
+      // Frozen quarter numbers first, live only where none are frozen yet.
+      const frozen = num(raw(B_GUARANTEE)) > 0;
+      const col = id => frozen && id === GUARANTEE ? raw(B_GUARANTEE) : frozen && id === CPM ? raw(B_CPM) : frozen && id === RATE ? raw(B_RATE) : raw(id);
       return { it, col };
     });
 
@@ -107,7 +115,7 @@ export default async function handler(req, res) {
       // those too, so the brand page shows no figure rather than a zero.
       if (!handle || g <= 0) return;
       const shows = (it.subitems || [])
-        .map(s => [s.name, num(((s.column_values || [])[0] || {}).text)])
+        .map(s => { const v = id => num(((s.column_values || []).find(c => c.id === id) || {}).text); return [s.name, v(B_SHOW_GUARANTEE) || v(SHOW_GUARANTEE)]; })
         .filter(s => s[1] > 0);
       const cpm = num(col(CPM));
       const floored = cpm > base + 0.5;

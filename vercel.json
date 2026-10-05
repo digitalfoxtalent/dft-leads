@@ -191,6 +191,36 @@
       ]
     },
     {
+      "source": "/auth/handoff",
+      "has": [
+        {
+          "type": "host",
+          "value": "roster-viewguarantee.digitalfoxtalent.com"
+        }
+      ],
+      "destination": "/api/roster?op=handoff"
+    },
+    {
+      "source": "/auth/signout",
+      "has": [
+        {
+          "type": "host",
+          "value": "roster-viewguarantee.digitalfoxtalent.com"
+        }
+      ],
+      "destination": "/api/roster?op=signout"
+    },
+    {
+      "source": "/r/:slug",
+      "has": [
+        {
+          "type": "host",
+          "value": "roster-viewguarantee.digitalfoxtalent.com"
+        }
+      ],
+      "destination": "/roster.html"
+    },
+    {
       "source": "/api/apply",
       "destination": "/api/apply"
     },
@@ -210,6 +240,17 @@
       ],
       "destination": "https://subplot.tv/:path*",
       "permanent": true
+    },
+    {
+      "source": "/signin",
+      "has": [
+        {
+          "type": "host",
+          "value": "roster-viewguarantee.digitalfoxtalent.com"
+        }
+      ],
+      "destination": "https://reports.digitalfoxtalent.com/roster-signin",
+      "permanent": false
     }
   ]
 }

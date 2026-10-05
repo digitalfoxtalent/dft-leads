@@ -1,6 +1,7 @@
 <!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
 <title>DFT Creator Roster</title>
 <link rel="icon" type="image/png" href="https://digitalfoxtalent.com/dft/favicon.png">
 <style>
@@ -8,62 +9,89 @@
     color-scheme: light;
     --orange:#ff8800; --charcoal:#15110e; --peach:#fceedf; --namebg:#f9cb9c;
     --child:#4a4640; --grid:#e6d9c8; --muted:#8a7d70; --bg:#f4f1ec;
+    --team:#2f5d8a; --teambg:#eaf1f8; --ok:#2f7d4f; --hide:#b23a2a;
     --font:"Poppins", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-    --rowh:34px;
+    --rowh:36px;
   }
   *{ box-sizing:border-box; }
   html,body{ margin:0; height:100%; }
   body{ font-family:var(--font); color:var(--charcoal); background:var(--bg); -webkit-font-smoothing:antialiased; }
   a{ color:inherit; text-decoration:none; }
-
+  button{ font-family:var(--font); }
   .app{ display:flex; flex-direction:column; height:100vh; }
 
   /* Toolbar */
-  .toolbar{ display:flex; align-items:center; gap:12px; padding:12px 16px; background:#fff; border-bottom:1px solid #e9e0d3; flex-wrap:wrap; }
-  .brand{ display:flex; align-items:center; gap:10px; }
-  .mark{ display:grid; place-items:center; }
+  .toolbar{ display:flex; align-items:center; gap:10px; padding:12px 16px; background:#fff; border-bottom:1px solid #e9e0d3; flex-wrap:wrap; }
+  .brand{ display:flex; align-items:center; gap:10px; min-width:0; }
   .mark img{ height:26px; width:auto; display:block; }
   .brand .t{ font-size:15px; font-weight:700; letter-spacing:-.2px; }
   .brand .s{ font-size:11px; color:var(--muted); font-weight:500; margin-top:1px; }
   .spacer{ flex:1; }
   .count{ font-size:11.5px; font-weight:600; color:var(--muted); }
   .search{ position:relative; }
-  .search input{ font-family:var(--font); font-size:12.5px; color:var(--charcoal); border:1px solid #e4d8c7; background:#fff; border-radius:8px; padding:8px 12px 8px 31px; outline:none; width:230px; }
+  .search input{ font-family:var(--font); font-size:12.5px; color:var(--charcoal); border:1px solid #e4d8c7; background:#fff; border-radius:8px; padding:8px 12px 8px 31px; outline:none; width:220px; max-width:100%; }
   .search input:focus{ border-color:var(--orange); box-shadow:0 0 0 3px rgba(255,136,0,.12); }
   .search svg{ position:absolute; left:10px; top:50%; transform:translateY(-50%); color:var(--muted); }
+  .btn{ border:1px solid #e4d8c7; background:#fff; color:#a85f00; font-size:11.5px; font-weight:600; border-radius:8px; padding:7px 10px; cursor:pointer; white-space:nowrap; }
+  .btn:hover{ background:#fff5ea; }
+  .btn.team{ color:var(--team); border-color:#c9d8e8; }
+  .btn.team:hover{ background:var(--teambg); }
+  .btn.primary{ background:var(--orange); border-color:var(--orange); color:var(--charcoal); }
+  .btn.primary:hover{ background:#ff9a2e; }
+  .signin{ font-size:11px; color:var(--muted); font-weight:600; }
+  .signin:hover{ color:var(--charcoal); text-decoration:underline; }
+  .seg{ display:inline-flex; border:1px solid #c9d8e8; border-radius:8px; overflow:hidden; }
+  .seg button{ border:0; background:#fff; color:var(--team); font-size:11.5px; font-weight:600; padding:7px 10px; cursor:pointer; }
+  .seg button.on{ background:var(--team); color:#fff; }
+
+  /* Banner (team identity / saved list) */
+  .banner{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:8px 16px; font-size:12px; background:var(--teambg); color:var(--team); border-bottom:1px solid #d5e2ef; }
+  .banner.list{ background:#fff5ea; color:#8a4a00; border-bottom-color:#f0dcc2; }
+  .banner b{ font-weight:700; }
 
   /* Grid */
   .scroll{ flex:1; overflow:auto; background:#fff; }
   table{ border-collapse:separate; border-spacing:0; font-size:12.5px; table-layout:fixed; }
   th,td{ border-right:1px solid var(--grid); border-bottom:1px solid var(--grid); padding:0 10px; height:var(--rowh); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; text-align:center; vertical-align:middle; }
-  thead th{ position:sticky; top:0; z-index:3; background:var(--orange); color:var(--charcoal); font-weight:600; letter-spacing:.01em; box-shadow:0 1px 0 rgba(0,0,0,.06); cursor:pointer; user-select:none; }
+  thead th{ position:sticky; top:0; z-index:3; background:var(--orange); color:var(--charcoal); font-weight:600; box-shadow:0 1px 0 rgba(0,0,0,.06); cursor:pointer; user-select:none; }
   thead th:hover{ background:#ff9a2e; }
-  .sortcar{ font-size:8px; margin-left:5px; vertical-align:middle; color:var(--charcoal); }
-  .sortcar.dim{ opacity:0; transition:opacity .12s; }
+  thead th.tcol{ background:#d6e3f0; color:var(--team); }
+  thead th.tcol:hover{ background:#c7d9eb; }
+  thead th.dragging{ opacity:.45; }
+  thead th.drop-l{ box-shadow: inset 3px 0 0 0 var(--charcoal); }
+  thead th.drop-r{ box-shadow: inset -3px 0 0 0 var(--charcoal); }
+  .sortcar{ font-size:8px; margin-left:5px; vertical-align:middle; }
+  .sortcar.dim{ opacity:0; }
   thead th:hover .sortcar.dim{ opacity:.4; }
-
-  /* Sticky first (name) column */
-  col.cName{ width:200px; }
   th.name, td.name{ position:sticky; left:0; z-index:2; text-align:left; box-shadow:1px 0 0 var(--grid); }
   thead th.name{ z-index:4; }
+  th.sel, td.sel{ position:sticky; left:0; z-index:2; padding:0; }
+  thead th.sel{ z-index:4; }
+  .hasSel th.name, .hasSel td.name{ left:34px; }
 
-  /* Channel rows */
-  tr.chan > td{ background:var(--peach); color:var(--charcoal); }
+  tr.chan > td{ background:var(--peach); }
   tr.chan > td.name{ background:var(--namebg); font-weight:600; }
+  tr.chan > td.sel{ background:var(--namebg); }
   tr.chan{ cursor:pointer; }
   tr.chan:hover > td{ background:#fbe6cf; }
-  tr.chan:hover > td.name{ background:#f6c191; }
-
-  /* Show (sub) rows */
+  tr.chan:hover > td.name, tr.chan:hover > td.sel{ background:#f6c191; }
+  tr.chan.hidden > td{ background:#f3efea; color:#8c847b; }
+  tr.chan.hidden > td.name, tr.chan.hidden > td.sel{ background:#e9e2d9; }
+  tr.chan.picked > td.sel, tr.chan.picked > td.name{ background:#ffd9a8; }
   tr.show > td{ background:#fff; color:var(--child); }
   tr.show > td.name{ background:#fff; }
+  tr.show.hidden > td{ color:#a39b92; background:#faf8f5; }
   tr.show .nmwrap{ padding-left:22px; }
+  td.tcol{ background-clip:padding-box; }
+  tr.chan > td.tcol{ background:#f4f8fc; }
+  tr.chan.hidden > td.tcol{ background:#eef1f4; }
 
-  /* Name cell internals */
   .nmwrap{ display:flex; align-items:center; gap:7px; }
-  .chev{ flex:0 0 auto; width:16px; height:16px; display:grid; place-items:center; color:#b45c00; transition:transform .18s; }
+  .chev{ flex:0 0 auto; width:14px; height:14px; display:grid; place-items:center; color:#b45c00; transition:transform .18s; }
   .chev.spacer-ic{ visibility:hidden; }
   tr.chan.open .chev{ transform:rotate(90deg); }
+  .av{ flex:0 0 auto; width:24px; height:24px; border-radius:50%; object-fit:cover; background:#fff; border:1px solid rgba(0,0,0,.08); }
+  .avx{ flex:0 0 auto; width:24px; height:24px; border-radius:50%; display:grid; place-items:center; background:#fff; color:#a85f00; font-size:11px; font-weight:700; border:1px solid #f0d3ac; }
   .nmtext{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .nmtext a:hover{ text-decoration:underline; }
   .arrow{ color:var(--orange); margin-right:5px; }
@@ -71,378 +99,508 @@
   .exlink:hover{ text-decoration:underline; }
   td.wide{ text-align:left; }
   td.wide.clickable{ cursor:pointer; }
-  td.wide.exp{ white-space:normal; word-break:break-word; vertical-align:top; padding-top:8px; padding-bottom:8px; background:#fff7ee; }
-  tr.chan > td.wide.exp{ background:#fbe6cf; }
-  .grip{ display:inline-block; cursor:grab; user-select:none; margin-right:1px; color:#c9a37a; font-size:12px; line-height:1; }
-  tr.chan:hover .grip{ color:#a85f00; }
-  tr.chan.dragging > td{ opacity:.45; }
-  tr.chan.drop-before > td{ box-shadow: inset 0 2px 0 0 var(--orange); }
-  tr.chan.drop-after > td{ box-shadow: inset 0 -2px 0 0 var(--orange); }
-  .reset{ border:1px solid #e4d8c7; background:#fff; color:#a85f00; font-family:var(--font); font-size:11.5px; font-weight:600; border-radius:8px; padding:7px 10px; cursor:pointer; white-space:nowrap; }
-  .reset:hover{ background:#fff5ea; }
-  .tag{ display:inline-block; font-size:10px; font-weight:700; color:#a85f00; background:#fff; border:1px solid #f0d3ac; border-radius:5px; padding:0 5px; margin-left:6px; vertical-align:middle; }
+  td.wide.exp{ white-space:normal; word-break:break-word; vertical-align:top; padding-top:8px; padding-bottom:8px; }
+  .tag{ display:inline-block; font-size:10px; font-weight:700; color:#a85f00; background:#fff; border:1px solid #f0d3ac; border-radius:5px; padding:0 5px; margin-left:6px; }
+  .pill{ display:inline-block; font-size:10.5px; font-weight:700; border-radius:999px; padding:2px 8px; }
+  .pill.ok{ background:#e3f3e9; color:var(--ok); }
+  .pill.no{ background:#f9e3df; color:var(--hide); }
+  .pill.prov{ background:#fff1d6; color:#8a5a00; margin-left:4px; }
+  select.ovr{ font-family:var(--font); font-size:11px; border:1px solid #c9d8e8; border-radius:6px; background:#fff; color:var(--team); padding:2px 4px; margin-left:4px; max-width:96px; }
+  td.edit{ cursor:text; color:var(--team); font-weight:600; text-decoration:underline dotted #9db6cf; text-underline-offset:3px; }
+  td.edit:hover{ background:#e1ecf7 !important; }
+  td.edit input{ width:100%; font:inherit; text-align:center; border:1px solid var(--team); border-radius:5px; padding:3px; }
+  td.saving{ opacity:.5; }
+  input.pick{ width:15px; height:15px; accent-color:var(--orange); cursor:pointer; }
 
-  /* Bottom sheet-style tabs */
-  .tabbar{ display:flex; align-items:stretch; gap:2px; background:#fff; border-top:1px solid #e9e0d3; padding:0 10px; height:40px; }
-  .tab{ border:0; background:transparent; font-family:var(--font); font-size:12.5px; font-weight:600; color:var(--muted); padding:0 16px; cursor:pointer; display:flex; align-items:center; gap:7px; border-top:3px solid transparent; }
+  /* Tabs */
+  .tabbar{ display:flex; align-items:stretch; gap:2px; background:#fff; border-top:1px solid #e9e0d3; padding:0 10px; min-height:40px; overflow-x:auto; }
+  .tab{ border:0; background:transparent; font-size:12.5px; font-weight:600; color:var(--muted); padding:0 16px; cursor:pointer; display:flex; align-items:center; gap:7px; border-top:3px solid transparent; white-space:nowrap; }
   .tab .n{ font-size:10.5px; font-weight:700; opacity:.65; }
   .tab:hover{ color:var(--charcoal); background:#faf6f0; }
   .tab.active{ color:var(--charcoal); border-top-color:var(--orange); background:#fff5ea; }
 
-  /* States */
-  .state{ display:grid; place-items:center; height:100%; color:var(--muted); text-align:center; }
-  .spinner{ width:24px; height:24px; border:3px solid #f0dcc2; border-top-color:var(--orange); border-radius:50%; animation:spin .8s linear infinite; margin-bottom:12px; }
+  /* Selection bar */
+  .selbar{ display:none; align-items:center; gap:8px; flex-wrap:wrap; padding:10px 16px; background:var(--charcoal); color:#fff; font-size:12.5px; }
+  .selbar.on{ display:flex; }
+  .selbar input{ font-family:var(--font); font-size:12.5px; border:0; border-radius:7px; padding:7px 10px; width:240px; max-width:100%; }
+  .selbar .btn{ background:#fff; }
+  .selbar .msg{ color:#ffcf99; font-weight:600; }
+
+  /* Lists panel */
+  .panel{ position:fixed; right:16px; top:60px; width:420px; max-width:calc(100vw - 32px); max-height:70vh; overflow:auto; background:#fff; border:1px solid #e4d8c7; border-radius:12px; box-shadow:0 18px 50px rgba(0,0,0,.18); z-index:20; display:none; }
+  .panel.on{ display:block; }
+  .panel h3{ margin:0; padding:14px 16px 8px; font-size:13px; }
+  .panel .li{ padding:10px 16px; border-top:1px solid #f1e8dc; font-size:12px; }
+  .panel .li .tt{ font-weight:700; font-size:12.5px; }
+  .panel .li .mm{ color:var(--muted); font-size:11px; margin:2px 0 6px; }
+  .panel .li .acts{ display:flex; gap:6px; flex-wrap:wrap; }
+  .panel .empty{ padding:12px 16px 16px; color:var(--muted); font-size:12px; }
+
+  .toast{ position:fixed; left:50%; bottom:64px; transform:translateX(-50%); background:var(--charcoal); color:#fff; font-size:12.5px; font-weight:600; padding:10px 16px; border-radius:10px; box-shadow:0 10px 30px rgba(0,0,0,.25); z-index:30; opacity:0; transition:opacity .2s; pointer-events:none; }
+  .toast.on{ opacity:1; }
+  .toast.err{ background:var(--hide); }
+
+  .state{ display:grid; place-items:center; height:100%; color:var(--muted); text-align:center; padding:24px; }
+  .spinner{ width:24px; height:24px; border:3px solid #f0dcc2; border-top-color:var(--orange); border-radius:50%; animation:spin .8s linear infinite; margin:0 auto 12px; }
   @keyframes spin{ to{ transform:rotate(360deg); } }
+  @media (max-width:640px){
+    .toolbar{ padding:10px 16px; }
+    .brand .s{ display:none; }
+    .search input{ width:160px; }
+  }
 </style>
 
 <div class="app">
   <div class="toolbar">
     <div class="brand">
       <div class="mark"><img src="https://df-cdn.b-cdn.net/GeneralLendingConfigs/landing_logo/DigitalFoxTalent-TextLogoBLACK-VECTOR.svg" alt="Digital Fox Talent"></div>
-      <div><div class="t">Creator Roster</div><div class="s">Live from the View Guarantee model · updates automatically</div></div>
+      <div><div class="t" id="title">Creator Roster</div><div class="s" id="subtitle">&nbsp;</div></div>
     </div>
     <div class="spacer"></div>
     <div class="count" id="count">Loading…</div>
-    <button id="resetOrder" class="reset" style="display:none" title="Clear your custom order">↺ Reset order</button>
-    <button id="exportCsv" class="reset" title="Export the current tab's channel rows (not shows) as a CSV">⭳ Export CSV</button>
+    <span id="teamTools" style="display:none;gap:8px;align-items:center;flex-wrap:wrap">
+      <span class="seg"><button id="vTeam" class="on" title="Live numbers, edits and hidden creators">DFT view</button><button id="vBrand" title="Exactly what brands see">Brand preview</button></span>
+      <button class="btn team" id="listsBtn">Saved lists</button>
+      <button class="btn team" id="saveCols" style="display:none" title="Every viewer, brands included, sees the columns in this order">Save column order</button>
+    </span>
+    <button class="btn" id="exportCsv" title="Export this tab as a CSV">Export CSV</button>
     <label class="search">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
       <input id="search" type="text" placeholder="Search creator, host, category…" autocomplete="off">
     </label>
+    <a class="signin" id="signin" href="/signin" style="display:none">DFT sign in</a>
   </div>
+  <div class="banner" id="banner" style="display:none"></div>
 
   <div class="scroll" id="scroll">
     <div class="state"><div><div class="spinner"></div>Loading roster…</div></div>
   </div>
 
+  <div class="selbar" id="selbar">
+    <span id="selCount"></span>
+    <input id="listName" placeholder="Name this list, e.g. Marvel pitch - Disney" maxlength="80">
+    <button class="btn" id="saveList">Save list</button>
+    <button class="btn" id="saveAsNew" style="display:none">Save as new</button>
+    <button class="btn" id="clearSel">Clear</button>
+    <span class="msg" id="selMsg"></span>
+  </div>
   <div class="tabbar" id="tabs"></div>
 </div>
+<div class="panel" id="panel"></div>
+<div class="toast" id="toast"></div>
 
 <script>
 const GROUPS=[
-  {id:"topics",         label:"YouTube Channels"},
-  {id:"group_mm4av3kr", label:"YouTube Shorts"},
-  {id:"group_mm4a1fe0", label:"Instagram"},
-  {id:"group_mm4bd5tk", label:"TikTok"},
+  {id:"topics",         label:"YouTube Channels", kind:"long"},
+  {id:"group_mm4av3kr", label:"YouTube Shorts",   kind:"short"},
+  {id:"group_mm4a1fe0", label:"Instagram",        kind:"short"},
+  {id:"group_mm4bd5tk", label:"TikTok",           kind:"short"},
 ];
-
-const P={ subs:"numeric_mm49cx8f", rate:"numeric_mm497vsg", vg:"numeric_mm49rr3n", cpm:"numeric_mm49bb66",
-  host:"text_mm4944gw", category:"text_mm49j2nf", location:"text_mm49s85f", handle:"text_mm49w81b",
-  about:"long_text_mm492hxg", url:"text_mm499xez",
-  hostGender:"text_mm5nmtz1", hostRead:"text_mm5n7q86", exclusive:"text_mm5n8zh3",
-  adTypes:"long_text_mm5n8f4t", adEx:"link_mm5n1zej", videos:"numeric_mm5nn2wj", audience:"long_text_mm5nw1s9",
-  male:"text_mm5nkdfn", female:"text_mm5nb2t7",
-  a1317:"text_mm5n6m90", a1824:"text_mm5n69hv", a2534:"text_mm5nbatb", a3544:"text_mm5n7syq",
-  a4554:"text_mm5n5cc8", a5564:"text_mm5nzj3n", us:"text_mm5nsagz", uk:"text_mm5n7ybc" };
-const S={ rate:"numeric_mm495xbb", vg:"numeric_mm49tej8", cpm:"numeric_mm49fe4b", url:"text_mm49bb5z" };
-
-// Synthesised server-side by /api/roster from the linked creator's State on Global
-// Talent Roster (6160485039 · dup__of_email), reached via the "Creator" board relation.
-// It is deliberately NOT in P: P's values are real column ids on the rates board and
-// are used to build the GraphQL id list. "" means no state recorded — render it blank.
-const STATE_KEY="__creator_state";
-
-// Display-name overrides (shorten unwieldy board names for the brand-facing view).
-const RENAME={ "Down To Earth With Kristian Harloff (UAP NEWS)":"Down to Earth" };
-const dispName=n=>RENAME[n]||n;
-// The Creator / Shows column shows the @handle so every row reads the same way
-// (board item names are a mix of real names and handles). Normalise the leading @
-// (Instagram and TikTok handles are stored without one) and fall back to the board
-// name only where no handle is recorded.
 const SHORTS_GROUP="group_mm4av3kr";
-const dispHandle=c=>{
-  const h=String(c.handle==null?"":c.handle).trim();
-  if(!h) return dispName(c.name);
-  const at=h.charAt(0)==="@"?h:"@"+h;
-  // A parent channel and its Shorts row share one handle, so tag the Shorts row —
-  // except inside the Shorts tab, where every row is one and the tag is just noise.
-  return (/[-\u2013]\s*shorts\s*$/i.test(c.name) && activeTab!==SHORTS_GROUP) ? at+" \u00b7 Shorts" : at;
-};
+const RENAME={ "Down To Earth With Kristian Harloff (UAP NEWS)":"Down to Earth" };
 
-// Column layout mirrors the sheet (name is sticky-left).
-const COLS=[
-  {key:"name",   head:"Creator / Shows",   w:220, cls:"name"},
-  {key:"subs",   head:"Subscribers",       w:100, fmt:"int"},
-  {key:"rate",   head:"Rate",              w:88,  fmt:"money"},
-  {key:"vg",     head:"View Guarantee",    w:108, fmt:"int"},
-  {key:"cpm",    head:"CPM",               w:60,  fmt:"money"},
-  {key:"host",   head:"Host",              w:138},
-  {key:"adEx",   head:"Ad Examples",       w:90},
-  {key:"category",head:"Category",         w:116},
-  {key:"location",head:"Location",         w:124},
-  {key:"state",  head:"State / Region",    w:112},
-  {key:"about",  head:"About",             w:200, cls:"wide"},
-  {key:"hostGender",head:"Host Gender",    w:90},
-  {key:"hostRead",head:"Host Read",        w:78},
-  {key:"exclusive",head:"Exclusive",       w:80},
-  {key:"adTypes",head:"Ad Types",          w:150, cls:"wide"},
-  {key:"videos", head:"Videos / mo",       w:82,  fmt:"int"},
-  {key:"audience",head:"Audience",         w:190, cls:"wide"},
-  {key:"male",   head:"Male %",            w:64},
-  {key:"female", head:"Female %",          w:70},
-  {key:"a1317",  head:"13-17",             w:56},
-  {key:"a1824",  head:"18-24",             w:56},
-  {key:"a2534",  head:"25-34",             w:56},
-  {key:"a3544",  head:"35-44",             w:56},
-  {key:"a4554",  head:"45-54",             w:56},
-  {key:"a5564",  head:"55-64",             w:56},
-  {key:"us",     head:"US %",              w:62},
-  {key:"uk",     head:"UK %",              w:62},
+// Brand-facing columns. The order can be changed by the team (drag a header, then
+// "Save column order") and is then the same for every viewer.
+const BRAND_COLS=[
+  {key:"subs",   head:"Subscribers", w:112, fmt:"int"},
+  {key:"rate",   head:"Rate",        w:92,  fmt:"money"},
+  {key:"vg",     head:"View Guarantee", w:128, fmt:"int", longOnly:true},
+  {key:"cpm",    head:"CPM",         w:64,  fmt:"money2", longOnly:true},
+  {key:"category",head:"Category",   w:116},
+  {key:"host",   head:"Host",        w:138},
+  {key:"adEx",   head:"Ad Examples", w:108},
+  {key:"location",head:"Location",   w:124},
+  {key:"state",  head:"State / Region", w:126},
+  {key:"about",  head:"About",       w:200, cls:"wide"},
+  {key:"hostGender",head:"Host Gender", w:90},
+  {key:"hostRead",head:"Host Read",  w:78},
+  {key:"exclusive",head:"Exclusive", w:80},
+  {key:"adTypes",head:"Ad Types",    w:150, cls:"wide"},
+  {key:"videos", head:"Videos / mo", w:82, fmt:"int"},
+  {key:"audience",head:"Audience",   w:190, cls:"wide"},
+  {key:"male",   head:"Male %",      w:64},
+  {key:"female", head:"Female %",    w:70},
+  {key:"a1317",  head:"13-17",       w:56},
+  {key:"a1824",  head:"18-24",       w:56},
+  {key:"a2534",  head:"25-34",       w:56},
+  {key:"a3544",  head:"35-44",       w:56},
+  {key:"a4554",  head:"45-54",       w:56},
+  {key:"a5564",  head:"55-64",       w:56},
+  {key:"us",     head:"US %",        w:62},
+  {key:"uk",     head:"UK %",        w:62},
+];
+// Team-only columns, always first after the name.
+const TEAM_COLS=[
+  {key:"status", head:"Brands see it?", w:178, t:1},
+  {key:"bvg",    head:"Brand VG ✎",  w:116, t:1, fmt:"int", edit:"vg"},
+  {key:"bcpm",   head:"Brand CPM ✎", w:118,  t:1, fmt:"money2", edit:"cpm"},
+  {key:"brate",  head:"Brand Rate",  w:106,  t:1, fmt:"money"},
+  {key:"lavg",   head:"Live avg",    w:96, t:1, fmt:"int"},
+  {key:"lvg",    head:"Live VG",     w:92,  t:1, fmt:"int"},
+  {key:"lrate",  head:"Live Rate",   w:96,  t:1, fmt:"money"},
+  {key:"lcpm",   head:"Live CPM",    w:92,  t:1, fmt:"money2"},
+  {key:"basis",  head:"Brand basis", w:220, t:1, cls:"wide"},
 ];
 
-let DATA={}, activeTab="topics", query="";
-let sortKey="vg", sortDir="desc";
-let manualOrder = {};
-try { manualOrder = JSON.parse(localStorage.getItem("dftRosterOrder")||"{}") || {}; } catch(e){ manualOrder = {}; }
-const persistOrder = () => { try { localStorage.setItem("dftRosterOrder", JSON.stringify(manualOrder)); } catch(e){} };
-const openSet=new Set();
+let PAYLOAD=null, TEAM=null, BRAND=null, mode="brand", activeTab="topics", query="";
+let sortKey=null, sortDir="desc";
+let colOrder=null, colDirty=false;
+const openSet=new Set(), picked=new Set();
+let editingList=null; // {slug,title} when the selection came from a saved list
+const LIST_SLUG=(location.pathname.match(/^\/r\/([a-z0-9-]+)$/)||[])[1]||null;
 
 const $=s=>document.querySelector(s);
-const numv=v=>{const n=parseFloat(String(v==null?"":v).replace(/[^0-9.\-]/g,""));return isNaN(n)?null:n;};
 const money=v=>v==null?"":"$"+Math.round(v).toLocaleString();
+const money2=v=>v==null?"":"$"+(Math.round(v*100)/100).toLocaleString(undefined,{maximumFractionDigits:2});
 const int=v=>v==null?"":Math.round(v).toLocaleString();
 const esc=s=>String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
-const pct=v=>{const s=String(v==null?"":v).trim();return s?(s.endsWith("%")?s:s+"%"):"";};
-function cmap(cvs){const o={};(cvs||[]).forEach(c=>{o[c.id]={text:c.text||"",value:c.value||""};});return o;}
-function linkUrl(v){try{const j=JSON.parse(v||"null");return j&&j.url?j.url:"";}catch(e){return"";}}
+const numv=v=>{const n=parseFloat(String(v==null?"":v).replace(/[^0-9.\-]/g,""));return isNaN(n)?null:n;};
+function toast(msg,err){const t=$("#toast");t.textContent=msg;t.className="toast on"+(err?" err":"");clearTimeout(toast._t);toast._t=setTimeout(()=>t.className="toast",err?5000:2600);}
 
-function parse(groups){
-  const out={}; GROUPS.forEach(g=>out[g.id]=[]);
-  (groups||[]).forEach(g=>{
-    const items=(g.items_page&&g.items_page.items)||[];
-    out[g.id]=items.map(it=>{
-      const m=cmap(it.column_values); const gv=id=>(m[id]?m[id].text:"")||"";
-      const shows=(it.subitems||[]).map(s=>{const sm=cmap(s.column_values);const sg=id=>(sm[id]?sm[id].text:"")||"";
-        return{name:s.name,rate:numv(sg(S.rate)),vg:numv(sg(S.vg)),cpm:numv(sg(S.cpm)),url:sg(S.url)};
-      }).sort((a,b)=>(b.vg||0)-(a.vg||0));
-      return{ id:it.id, name:it.name,
-        subs:numv(gv(P.subs)), rate:numv(gv(P.rate)), vg:numv(gv(P.vg)), cpm:numv(gv(P.cpm)),
-        host:gv(P.host), category:gv(P.category), location:gv(P.location), state:gv(STATE_KEY), handle:gv(P.handle),
-        about:gv(P.about), url:gv(P.url),
-        hostGender:gv(P.hostGender), hostRead:gv(P.hostRead), exclusive:gv(P.exclusive),
-        adTypes:gv(P.adTypes), adEx:linkUrl(m[P.adEx]?m[P.adEx].value:""), videos:numv(gv(P.videos)), audience:gv(P.audience),
-        male:pct(gv(P.male)), female:pct(gv(P.female)),
-        a1317:pct(gv(P.a1317)), a1824:pct(gv(P.a1824)), a2534:pct(gv(P.a2534)),
-        a3544:pct(gv(P.a3544)), a4554:pct(gv(P.a4554)), a5564:pct(gv(P.a5564)),
-        us:pct(gv(P.us)), uk:pct(gv(P.uk)),
-        shows:shows };
-    }).sort((a,b)=>(b.vg||0)-(a.vg||0));
-  });
-  return out;
+const kindOf=()=>(GROUPS.find(g=>g.id===activeTab)||{}).kind||"long";
+const dispName=n=>RENAME[n]||n;
+function dispHandle(c){
+  const h=String(c.handle||"").trim();
+  if(!h) return dispName(c.name);
+  const at=h.charAt(0)==="@"?h:"@"+h;
+  return (/[-–]\s*shorts\s*$/i.test(c.name)&&activeTab!==SHORTS_GROUP)?at+" · Shorts":at;
 }
 
-function fmtCell(c,col){
-  let v=c[col.key];
+// Column set for the current tab and mode.
+function brandColsFor(){
+  const k=kindOf();
+  // In the DFT view the brand Rate / VG / CPM already sit in the blue team columns.
+  let cols=BRAND_COLS.filter(c=>!(c.longOnly&&k!=="long")&&!(mode==="team"&&["rate","vg","cpm"].includes(c.key)));
+  if(colOrder&&colOrder.length){
+    const pos={}; colOrder.forEach((key,i)=>pos[key]=i);
+    cols=cols.slice().sort((a,b)=>(pos[a.key]??999)-(pos[b.key]??999));
+  }
+  return cols.map(c=>c.key==="subs"&&(activeTab==="group_mm4a1fe0"||activeTab==="group_mm4bd5tk")?Object.assign({},c,{head:"Followers"}):c);
+}
+function columns(){
+  const name={key:"name",head:"Creator / Shows",w:240,cls:"name"};
+  if(mode!=="team") return [name].concat(brandColsFor());
+  const tc=TEAM_COLS.map(c=>c.key==="bvg"&&kindOf()!=="long"?Object.assign({},c,{head:"Views basis ✎"}):c);
+  return [{key:"sel",head:"",w:34,cls:"sel"},name].concat(tc,brandColsFor());
+}
+
+function cellVal(c,col){
+  switch(col.key){
+    case "bvg": return c.brand?c.brand.vg:null;
+    case "bcpm": return c.brand?c.brand.cpm:null;
+    case "brate": return c.brand?c.brand.rate:null;
+    case "lavg": return c.live?c.live.avg:null;
+    case "lvg": return c.live?c.live.vg:null;
+    case "lrate": return c.live?c.live.rate:null;
+    case "lcpm": return c.live?c.live.cpm:null;
+    case "basis": return c.brand?((c.brand.quarter?c.brand.quarter+": ":"")+(c.brand.note||"")):"";
+    default: return c[col.key];
+  }
+}
+function fmtCell(c,col,isShow){
+  if(col.key==="status") return statusCell(c,isShow);
+  const v=cellVal(c,col);
   if(col.fmt==="money") return money(v);
+  if(col.fmt==="money2") return money2(v);
   if(col.fmt==="int") return int(v);
   if(col.key==="adEx") return v?`<a class="exlink" href="${esc(v)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">Examples ↗</a>`:"";
   return esc(v);
 }
-
+function statusCell(c,isShow){
+  const pill=c.show?`<span class="pill ok">Shown</span>`:`<span class="pill no" title="${esc(c.why)}">Hidden</span>`;
+  const prov=c.brand&&c.brand.provisional?`<span class="pill prov" title="Not frozen yet: priced from today's average until tomorrow's snapshot">Provisional</span>`:"";
+  const opts=["Auto","Always show","Hide"].map(o=>`<option ${o===(c.override||"Auto")?"selected":""}>${o}</option>`).join("");
+  return `${pill}${prov}<select class="ovr" data-id="${c.id}" data-show="${isShow?1:0}" title="${esc(c.why||"Shown to brands")}" onclick="event.stopPropagation()">${opts}</select>`;
+}
+function logoHtml(c){
+  const letter=esc((dispHandle(c).replace(/^@/,"")[0]||"?").toUpperCase());
+  return c.logo?`<img class="av" src="${esc(c.logo)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.outerHTML='<span class=avx>${letter}</span>'">`:`<span class="avx">${letter}</span>`;
+}
 function nameCell(c){
-  const has=c.shows.length;
+  const has=(c.shows||[]).length;
   const chev=`<span class="chev ${has?"":"spacer-ic"}"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg></span>`;
-  const dn=dispHandle(c);
-  const real=dispName(c.name);
+  const dn=dispHandle(c), real=dispName(c.name);
   const ttl=(real&&real!==dn)?` title="${esc(real)}"`:"";
   const nm=c.url?`<a href="${esc(c.url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${esc(dn)}</a>`:esc(dn);
-  const tag=has?`<span class="tag">+${c.shows.length}</span>`:"";
-  return `<div class="nmwrap"><span class="grip" title="Drag to reorder">⠿</span>${chev}<span class="nmtext"${ttl}>${nm}${tag}</span></div>`;
+  const tag=has?`<span class="tag">+${has}</span>`:"";
+  return `<div class="nmwrap">${chev}${logoHtml(c)}<span class="nmtext"${ttl}>${nm}${tag}</span></div>`;
 }
 function showNameCell(s){
   const nm=s.url?`<a href="${esc(s.url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${esc(s.name)}</a>`:esc(s.name);
   return `<div class="nmwrap"><span class="nmtext"><span class="arrow">&#8627;</span>${nm}</span></div>`;
 }
 
-function rowsFor(list){
+function rowsFor(list,cols){
   let html="";
   list.forEach(c=>{
     const open=openSet.has(c.id);
-    html+=`<tr class="chan ${open?"open":""}" data-id="${c.id}" draggable="false">`;
-    COLS.forEach(col=>{
-      const cls=(col.cls||"");
-      const title=(col.cls==="wide"&&c[col.key])?` title="${esc(c[col.key])}"`:"";
-      const inner=col.key==="name"?nameCell(c):fmtCell(c,col);
-      html+=`<td class="${cls}"${title}>${inner}</td>`;
+    const cls=["chan",open?"open":"",mode==="team"&&!c.show?"hidden":"",picked.has(c.id)?"picked":""].join(" ");
+    html+=`<tr class="${cls}" data-id="${c.id}">`;
+    cols.forEach(col=>{
+      let inner, cl=(col.cls||"")+(col.t?" tcol":"")+(col.edit?" edit":"");
+      if(col.key==="sel") inner=`<input type="checkbox" class="pick" data-id="${c.id}" ${picked.has(c.id)?"checked":""} onclick="event.stopPropagation()" title="Add to a list">`;
+      else if(col.key==="name") inner=nameCell(c);
+      else inner=fmtCell(c,col,false);
+      const title=(col.cls==="wide"&&cellVal(c,col))?` title="${esc(cellVal(c,col))}"`:"";
+      html+=`<td class="${cl}" data-k="${col.key}"${col.edit?` data-edit="${col.edit}" data-id="${c.id}"`:""}${title}>${inner}</td>`;
     });
     html+=`</tr>`;
-    if(open){
-      c.shows.forEach(s=>{
-        html+=`<tr class="show">`;
-        COLS.forEach(col=>{
-          let inner="";
-          if(col.key==="name") inner=showNameCell(s);
-          else if(col.key==="rate") inner=money(s.rate);
-          else if(col.key==="vg") inner=int(s.vg);
-          else if(col.key==="cpm") inner=money(s.cpm);
-          html+=`<td class="${col.cls||""}">${inner}</td>`;
-        });
-        html+=`</tr>`;
+    if(open) (c.shows||[]).forEach(s=>{
+      html+=`<tr class="show ${mode==="team"&&!s.show?"hidden":""}">`;
+      cols.forEach(col=>{
+        let inner="", cl=(col.cls||"")+(col.t?" tcol":"");
+        if(col.key==="name") inner=showNameCell(s);
+        else if(col.key==="rate"||col.key==="vg"||col.key==="cpm"||col.t) inner=fmtCell(s,col,true);
+        if(col.edit&&mode==="team"){ cl+=" edit"; html+=`<td class="${cl}" data-edit="${col.edit}" data-id="${s.id}" data-show="1">${inner}</td>`; }
+        else html+=`<td class="${cl}">${inner}</td>`;
       });
-    }
+      html+=`</tr>`;
+    });
   });
   return html;
 }
 
-function cmpChannels(a,b){
-  const col=COLS.find(c=>c.key===sortKey)||{};
+function cmp(a,b){
+  if(!sortKey) return 0;
+  const col=columns().find(c=>c.key===sortKey)||{};
   let r;
-  if(sortKey==="name"){ r=dispHandle(a).localeCompare(dispHandle(b)); }
-  else if(col.fmt==="int"||col.fmt==="money"){
-    const av=a[sortKey], bv=b[sortKey];
-    r=(av==null?-Infinity:av)-(bv==null?-Infinity:bv);
-  } else {
-    const an=numv(a[sortKey]), bn=numv(b[sortKey]);
+  if(sortKey==="name") r=dispHandle(a).localeCompare(dispHandle(b));
+  else{
+    const av=cellVal(a,col), bv=cellVal(b,col);
+    const an=typeof av==="number"?av:numv(av), bn=typeof bv==="number"?bv:numv(bv);
     if(an!=null||bn!=null) r=(an==null?-Infinity:an)-(bn==null?-Infinity:bn);
-    else r=String(a[sortKey]||"").localeCompare(String(b[sortKey]||""));
+    else r=String(av||"").localeCompare(String(bv||""));
   }
   return sortDir==="desc"?-r:r;
 }
-
-function effectiveList(all){
-  const mo=manualOrder[activeTab];
-  if(mo&&mo.length){
-    const pos={}; mo.forEach((id,i)=>pos[id]=i);
-    return all.slice().sort((a,b)=>{
-      const pa=pos[a.id]!=null?pos[a.id]:1e9, pb=pos[b.id]!=null?pos[b.id]:1e9;
-      return pa!==pb ? pa-pb : cmpChannels(a,b);
-    });
-  }
-  return all.slice().sort(cmpChannels);
+function currentList(){
+  const all=(PAYLOAD&&PAYLOAD.groups[activeTab])||[];
+  const q=query.trim().toLowerCase();
+  let list=q?all.filter(c=>[c.name,c.host,c.category,c.handle,c.location,c.state].join(" ").toLowerCase().includes(q)):all.slice();
+  if(sortKey) list.sort(cmp);
+  return list;
 }
 
 function render(){
-  const all=effectiveList(DATA[activeTab]||[]);
-  const q=query.trim().toLowerCase();
-  let list=q?all.filter(c=>(c.name+" "+c.host+" "+c.category+" "+c.handle+" "+c.location+" "+c.state).toLowerCase().includes(q)):all;
-  const allC=GROUPS.reduce((a,g)=>a.concat(DATA[g.id]||[]),[]);
-  const total=allC.length;
-  const uniq=new Set(allC.map(c=>c.name)).size;
-  $("#count").textContent=uniq+" creators · "+total+" profiles across "+GROUPS.length+" platforms · "+list.length+" shown";
-  const rb=$("#resetOrder"); if(rb) rb.style.display=(manualOrder[activeTab]&&manualOrder[activeTab].length)?"":"none";
-
-  const colgroup=`<colgroup>${COLS.map(c=>`<col class="${c.key==="name"?"cName":""}" style="width:${c.w}px">`).join("")}</colgroup>`;
-  const thead=`<thead><tr>${COLS.map(c=>{
+  const cols=columns(), list=currentList();
+  const all=GROUPS.reduce((a,g)=>a.concat((PAYLOAD&&PAYLOAD.groups[g.id])||[]),[]);
+  const shown=mode==="team"?all.filter(c=>c.show).length:all.length;
+  $("#count").textContent=mode==="team"
+    ?`${all.length} profiles · ${shown} shown to brands · ${list.length} in view`
+    :`${all.length} profiles across ${GROUPS.filter(g=>(PAYLOAD.groups[g.id]||[]).length).length} platforms`;
+  const colgroup=`<colgroup>${cols.map(c=>`<col style="width:${c.w}px">`).join("")}</colgroup>`;
+  const thead=`<thead><tr>${cols.map(c=>{
+    if(c.key==="sel") return `<th class="sel" title="Pick creators for a list"></th>`;
     const active=c.key===sortKey;
     const car=active?`<span class="sortcar">${sortDir==="desc"?"▼":"▲"}</span>`:`<span class="sortcar dim">▼</span>`;
-    return `<th class="${c.cls||""}" data-key="${c.key}" title="Click to sort">${esc(c.head)}${car}</th>`;
+    const drag=mode==="team"&&!c.t&&c.key!=="name"?` draggable="true"`:"";
+    return `<th class="${c.cls||""}${c.t?" tcol":""}" data-key="${c.key}"${drag} title="${c.t?"DFT only":"Click to sort"}${drag?" · drag to move":""}">${esc(c.head)}${car}</th>`;
   }).join("")}</tr></thead>`;
-  const tbody=`<tbody>${rowsFor(list)}</tbody>`;
-  const totalW=COLS.reduce((a,c)=>a+c.w,0);
-  $("#scroll").innerHTML= list.length ? `<table style="width:${totalW}px">${colgroup}${thead}${tbody}</table>` :
-    `<div class="state"><div>No creators match your search.</div></div>`;
+  const totalW=cols.reduce((a,c)=>a+c.w,0);
+  $("#scroll").innerHTML=list.length
+    ?`<table class="${mode==="team"?"hasSel":""}" style="width:${totalW}px">${colgroup}${thead}<tbody>${rowsFor(list,cols)}</tbody></table>`
+    :`<div class="state"><div>${query?"No creators match your search.":"No creators on this tab."}</div></div>`;
+  wire();
+  renderSelbar();
+}
 
-  $("#scroll").querySelectorAll("tr.chan").forEach(tr=>{
-    tr.addEventListener("click",()=>{
-      const id=tr.dataset.id;
-      if(openSet.has(id)) openSet.delete(id); else openSet.add(id);
-      render();
-    });
-  });
-  $("#scroll").querySelectorAll("th[data-key]").forEach(th=>{
-    th.addEventListener("click",()=>{
-      const k=th.dataset.key;
-      if(k===sortKey) sortDir=(sortDir==="desc"?"asc":"desc"); else { sortKey=k; sortDir="desc"; }
-      if(manualOrder[activeTab]){ delete manualOrder[activeTab]; persistOrder(); }   // sorting overrides a manual drag order
-      render();
-    });
-  });
-  // Click a long-text cell (About / Audience / Ad Types) to expand its full text in place.
-  $("#scroll").querySelectorAll("td.wide").forEach(td=>{
-    if(!td.textContent.trim()) return;              // skip empty cells (e.g. show rows)
-    td.classList.add("clickable");
-    td.title = "Click to expand";
-    td.addEventListener("click", e=>{ e.stopPropagation(); td.classList.toggle("exp"); });
-  });
-
-  // Drag-to-reorder (per viewer; grip handle keeps it separate from row/cell clicks).
-  let dragId=null;
-  const clearDropMarks=()=>$("#scroll").querySelectorAll(".drop-before,.drop-after").forEach(x=>x.classList.remove("drop-before","drop-after"));
-  $("#scroll").querySelectorAll("tr.chan").forEach(tr=>{
-    const grip=tr.querySelector(".grip");
-    if(grip){
-      grip.addEventListener("mousedown", ()=>tr.setAttribute("draggable","true"));
-      grip.addEventListener("click", e=>e.stopPropagation());
-    }
-    tr.addEventListener("dragstart", e=>{ dragId=tr.dataset.id; tr.classList.add("dragging"); e.dataTransfer.effectAllowed="move"; try{e.dataTransfer.setData("text/plain",dragId);}catch(_){} });
-    tr.addEventListener("dragend", ()=>{ tr.setAttribute("draggable","false"); tr.classList.remove("dragging"); clearDropMarks(); dragId=null; });
-    tr.addEventListener("dragover", e=>{ if(!dragId||tr.dataset.id===dragId) return; e.preventDefault(); const r=tr.getBoundingClientRect(); const after=(e.clientY-r.top)>r.height/2; tr.classList.toggle("drop-after",after); tr.classList.toggle("drop-before",!after); });
-    tr.addEventListener("dragleave", ()=>tr.classList.remove("drop-before","drop-after"));
-    tr.addEventListener("drop", e=>{
-      e.preventDefault();
-      const targetId=tr.dataset.id;
-      if(!dragId||targetId===dragId) return;
-      const r=tr.getBoundingClientRect(); const after=(e.clientY-r.top)>r.height/2;
-      const order=effectiveList(DATA[activeTab]||[]).map(c=>c.id);
-      const from=order.indexOf(dragId); if(from<0) return;
-      order.splice(from,1);
-      let idx=order.indexOf(targetId); if(idx<0) idx=order.length-1;
-      order.splice(after?idx+1:idx, 0, dragId);
-      manualOrder[activeTab]=order; persistOrder(); dragId=null; render();
+function wire(){
+  const sc=$("#scroll");
+  sc.querySelectorAll("tr.chan").forEach(tr=>tr.addEventListener("click",()=>{const id=tr.dataset.id; openSet.has(id)?openSet.delete(id):openSet.add(id); render();}));
+  sc.querySelectorAll("th[data-key]").forEach(th=>th.addEventListener("click",()=>{
+    const k=th.dataset.key; if(k===sortKey) sortDir=sortDir==="desc"?"asc":"desc"; else {sortKey=k; sortDir="desc";} render();
+  }));
+  sc.querySelectorAll("td.wide").forEach(td=>{ if(!td.textContent.trim()) return; td.classList.add("clickable"); td.addEventListener("click",e=>{e.stopPropagation();td.classList.toggle("exp");}); });
+  if(mode!=="team") return;
+  sc.querySelectorAll("input.pick").forEach(cb=>cb.addEventListener("change",()=>{ cb.checked?picked.add(cb.dataset.id):picked.delete(cb.dataset.id); render(); }));
+  sc.querySelectorAll("select.ovr").forEach(s=>s.addEventListener("change",()=>save({op:"edit",id:s.dataset.id,show:s.dataset.show==="1",override:s.value})));
+  sc.querySelectorAll("td.edit").forEach(td=>td.addEventListener("click",e=>{e.stopPropagation(); startEdit(td);}));
+  // Column drag (brand columns only).
+  let dragKey=null;
+  sc.querySelectorAll("th[draggable]").forEach(th=>{
+    th.addEventListener("dragstart",e=>{dragKey=th.dataset.key; th.classList.add("dragging"); try{e.dataTransfer.setData("text/plain",dragKey);}catch(_){}});
+    th.addEventListener("dragend",()=>{th.classList.remove("dragging"); sc.querySelectorAll(".drop-l,.drop-r").forEach(x=>x.classList.remove("drop-l","drop-r"));});
+    th.addEventListener("dragover",e=>{ if(!dragKey||th.dataset.key===dragKey) return; e.preventDefault(); const r=th.getBoundingClientRect(); const right=e.clientX-r.left>r.width/2; th.classList.toggle("drop-r",right); th.classList.toggle("drop-l",!right); });
+    th.addEventListener("dragleave",()=>th.classList.remove("drop-l","drop-r"));
+    th.addEventListener("drop",e=>{
+      e.preventDefault(); const target=th.dataset.key; if(!dragKey||target===dragKey) return;
+      const right=e.clientX-th.getBoundingClientRect().left>th.getBoundingClientRect().width/2;
+      const keys=(colOrder&&colOrder.length?colOrder:BRAND_COLS.map(c=>c.key)).slice();
+      BRAND_COLS.forEach(c=>{ if(!keys.includes(c.key)) keys.push(c.key); });
+      keys.splice(keys.indexOf(dragKey),1);
+      keys.splice(keys.indexOf(target)+(right?1:0),0,dragKey);
+      colOrder=keys; colDirty=true; $("#saveCols").style.display=""; dragKey=null; render();
     });
   });
 }
 
+function findRow(id){
+  for(const g of GROUPS) for(const c of (TEAM.groups[g.id]||[])){ if(c.id===id) return {row:c,kind:g.kind}; for(const s of (c.shows||[])) if(s.id===id) return {row:s,kind:"long",parent:c}; }
+  return null;
+}
+function startEdit(td){
+  if(td.querySelector("input")) return;
+  const f=findRow(td.dataset.id); if(!f) return;
+  const field=td.dataset.edit, cur=f.row.brand?f.row.brand[field]:"";
+  td.innerHTML=`<input type="number" min="0" step="${field==="cpm"?"0.01":"1"}" value="${cur==null?"":cur}">`;
+  const inp=td.querySelector("input"); inp.focus(); inp.select();
+  let done=false;
+  const finish=commit=>{ if(done) return; done=true;
+    const v=numv(inp.value);
+    if(!commit||v==null||v===cur){ render(); return; }
+    td.classList.add("saving");
+    save({op:"edit",id:td.dataset.id,show:td.dataset.show==="1",[field]:v});
+  };
+  inp.addEventListener("keydown",e=>{ if(e.key==="Enter") finish(true); if(e.key==="Escape") finish(false); });
+  inp.addEventListener("blur",()=>finish(true));
+  inp.addEventListener("click",e=>e.stopPropagation());
+}
+
+async function post(body){
+  const r=await fetch("/api/roster",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(body),credentials:"same-origin"});
+  const j=await r.json().catch(()=>({}));
+  if(!r.ok) throw new Error(j.error||("HTTP "+r.status));
+  return j;
+}
+async function save(body){
+  try{
+    await post(body);
+    toast(body.override?"Saved: "+body.override:"Saved · resets at the start of next quarter");
+    await loadTeam(true);
+  }catch(e){ toast(e.message,true); render(); }
+}
+
+// ---------- lists ----------
+function renderSelbar(){
+  const on=mode==="team"&&picked.size>0;
+  $("#selbar").classList.toggle("on",on);
+  if(!on) return;
+  $("#selCount").textContent=picked.size+" selected"+(editingList?" · editing “"+editingList.title+"”":"");
+  $("#saveList").textContent=editingList?"Update list":"Save list";
+  $("#saveAsNew").style.display=editingList?"":"none";
+}
+async function saveList(asNew){
+  const title=$("#listName").value.trim()||(editingList&&editingList.title)||"";
+  if(!title){ toast("Give the list a name first",true); $("#listName").focus(); return; }
+  // Keep the on-screen order: tab by tab, as currently sorted.
+  const ids=[]; GROUPS.forEach(g=>(TEAM.groups[g.id]||[]).forEach(c=>{ if(picked.has(c.id)) ids.push(c.id); }));
+  try{
+    const j=await post({op:"save-list",title,ids,slug:asNew?null:(editingList&&editingList.slug)});
+    try{ await navigator.clipboard.writeText(j.url); }catch(_){}
+    $("#selMsg").innerHTML=`Saved. Link copied: <a href="${esc(j.url)}" target="_blank" style="text-decoration:underline">${esc(j.url.replace(/^https:\/\//,""))}</a>`;
+    editingList={slug:j.slug,title};
+    await loadTeam(true);
+  }catch(e){ toast(e.message,true); }
+}
+function renderPanel(){
+  const lists=(TEAM&&TEAM.lists)||[];
+  $("#panel").innerHTML=`<h3>Saved lists</h3>`+(lists.length?lists.map(l=>`<div class="li">
+    <div class="tt">${esc(l.title)}</div>
+    <div class="mm">${l.ids.length} creators · ${esc(l.by||"")}${l.updated?" · updated "+esc(l.updated):""}</div>
+    <div class="acts">
+      <button class="btn" data-a="copy" data-s="${esc(l.slug)}">Copy link</button>
+      <a class="btn" href="/r/${esc(l.slug)}" target="_blank">Open as brand</a>
+      <button class="btn team" data-a="edit" data-s="${esc(l.slug)}">Edit</button>
+      <button class="btn" data-a="del" data-s="${esc(l.slug)}" style="color:var(--hide)">Delete</button>
+    </div></div>`).join(""):`<div class="empty">No saved lists yet. Tick creators in the DFT view, name the list and save it.</div>`);
+  $("#panel").querySelectorAll("button[data-a]").forEach(b=>b.addEventListener("click",async()=>{
+    const l=lists.find(x=>x.slug===b.dataset.s); if(!l) return;
+    const url=location.origin+"/r/"+l.slug;
+    if(b.dataset.a==="copy"){ try{await navigator.clipboard.writeText(url); toast("Link copied");}catch(_){ prompt("Copy this link",url); } }
+    if(b.dataset.a==="edit"){ picked.clear(); l.ids.forEach(id=>picked.add(String(id))); editingList={slug:l.slug,title:l.title}; $("#listName").value=l.title; $("#panel").classList.remove("on"); setMode("team"); toast("Loaded “"+l.title+"”. Tick or untick creators, then Update list"); }
+    if(b.dataset.a==="del"){ if(!confirm("Delete “"+l.title+"”? Its link will stop working. (It is archived on monday and can be restored there.)")) return; try{ await post({op:"delete-list",slug:l.slug}); toast("List deleted"); await loadTeam(true); renderPanel(); }catch(e){ toast(e.message,true); } }
+  }));
+}
+
+// ---------- modes / loading ----------
+function setMode(m){
+  mode=m; PAYLOAD=m==="team"?TEAM:BRAND;
+  $("#vTeam").classList.toggle("on",m==="team"); $("#vBrand").classList.toggle("on",m!=="team");
+  renderBanner(); renderTabs(); render();
+}
+function renderBanner(){
+  const b=$("#banner");
+  if(TEAM){
+    b.className="banner"; b.style.display="";
+    b.innerHTML=`Signed in as <b>${esc(TEAM.email)}</b> · ${mode==="team"
+      ?"DFT view: live numbers and hidden creators are visible to you only. Click a blue number to edit it (edits hold until the quarter resets)."
+      :"Brand preview: exactly what brands see."} <span class="spacer"></span><a href="/auth/signout" style="text-decoration:underline">Sign out</a>`;
+  } else if(BRAND&&BRAND.list){
+    b.className="banner list"; b.style.display="";
+    b.innerHTML=`Prepared for you by Digital Fox Talent: <b>${esc(BRAND.list.title)}</b>`;
+  } else b.style.display="none";
+}
 function renderTabs(){
-  $("#tabs").innerHTML=GROUPS.map(g=>{
-    const n=(DATA[g.id]||[]).length;
-    return `<button class="tab ${g.id===activeTab?"active":""}" data-g="${g.id}">${esc(g.label)}<span class="n">${n}</span></button>`;
-  }).join("");
-  $("#tabs").querySelectorAll(".tab").forEach(b=>b.onclick=()=>{activeTab=b.dataset.g;renderTabs();render();$("#scroll").scrollTop=0;});
+  const vis=GROUPS.filter(g=>(PAYLOAD.groups[g.id]||[]).length||!(BRAND&&BRAND.list));
+  if(!vis.find(g=>g.id===activeTab)&&vis.length) activeTab=vis[0].id;
+  $("#tabs").innerHTML=vis.map(g=>`<button class="tab ${g.id===activeTab?"active":""}" data-g="${g.id}">${esc(g.label)}<span class="n">${(PAYLOAD.groups[g.id]||[]).length}</span></button>`).join("");
+  $("#tabs").querySelectorAll(".tab").forEach(b=>b.onclick=()=>{activeTab=b.dataset.g; sortKey=null; renderTabs(); render(); $("#scroll").scrollTop=0;});
 }
-
-// Paint from this browser's last copy straight away, then refresh from the API behind
-// it. A returning visitor sees the roster instantly even when the API is cold; a first
-// visit waits for the API as before. The copy is only a convenience: if storage is
-// blocked or empty, the page simply behaves as it always did.
-const CACHE_KEY="dft-roster-v1";
-function applyGroups(groups){
-  if(!Array.isArray(groups)) throw new Error("bad payload");
-  DATA = parse(groups);
-  renderTabs(); render();
+function applyBrand(p){
+  BRAND=p; colOrder=colOrder||p.columns||null;
+  $("#subtitle").textContent=`Rates valid for ${p.quarter} · ${p.list?"a selection from our roster":"updated once a quarter"}`;
+  if(p.list) $("#title").textContent=p.list.title;
+  if(mode!=="team"){ PAYLOAD=BRAND; renderBanner(); renderTabs(); render(); }
+}
+async function loadBrand(){
+  const url=LIST_SLUG?"/api/roster?list="+encodeURIComponent(LIST_SLUG):"/api/roster";
+  const r=await fetch(url,{headers:{accept:"application/json"}});
+  const j=await r.json().catch(()=>({}));
+  if(!r.ok) throw new Error(j.error||"Could not load the roster right now.");
+  applyBrand(j);
+}
+async function loadTeam(fresh){
+  const r=await fetch("/api/roster?view=team"+(fresh?"&fresh=1":""),{headers:{accept:"application/json"},credentials:"same-origin",cache:"no-store"});
+  if(r.status===401) return false;
+  if(!r.ok) throw new Error("team view unavailable");
+  const first=!TEAM;
+  TEAM=await r.json();
+  if(!colDirty) colOrder=TEAM.columns||colOrder;
+  $("#teamTools").style.display="inline-flex"; $("#signin").style.display="none";
+  if(first&&!LIST_SLUG) mode="team";
+  if(fresh){ try{ await loadBrand(); }catch(_){} }
+  setMode(mode);
+  return true;
 }
 async function load(){
-  let painted=false;
-  try{ const c=localStorage.getItem(CACHE_KEY); if(c){ applyGroups(JSON.parse(c)); painted=true; } }catch(e){}
-  try{
-    const r = await fetch("/api/roster", { headers:{ "accept":"application/json" } });
-    if(!r.ok) throw new Error("HTTP "+r.status);
-    const text = await r.text();
-    applyGroups(JSON.parse(text));
-    try{ localStorage.setItem(CACHE_KEY, text); }catch(e){}
-  }catch(e){
-    if(painted) return;
-    document.querySelector("#scroll").innerHTML = "<div class=\"state\"><div>Could not load the roster right now.</div></div>";
-    document.querySelector("#count").textContent = "Error";
-  }
+  const team=loadTeam(false).catch(()=>false);
+  try{ await loadBrand(); }
+  catch(e){ if(!(await team)){ $("#scroll").innerHTML=`<div class="state"><div>${esc(e.message)}</div></div>`; $("#count").textContent=""; } }
+  const signedIn=await team;
+  if(!signedIn&&!LIST_SLUG) $("#signin").style.display="";
+  if(/signin=failed/.test(location.search)) toast("Sign-in did not complete. Please try again.",true);
 }
-document.querySelector("#search").addEventListener("input",function(e){query=e.target.value;render();});
-document.querySelector("#resetOrder").addEventListener("click",function(){ delete manualOrder[activeTab]; persistOrder(); render(); });
 
-// CSV export — current tab's channel rows only (shows/sub-items are intentionally excluded to keep it flat).
+// ---------- toolbar ----------
+$("#search").addEventListener("input",e=>{query=e.target.value; render();});
+$("#vTeam").addEventListener("click",()=>setMode("team"));
+$("#vBrand").addEventListener("click",()=>setMode("brand"));
+$("#listsBtn").addEventListener("click",e=>{e.stopPropagation(); renderPanel(); $("#panel").classList.toggle("on");});
+document.addEventListener("click",e=>{ if(!e.target.closest("#panel")&&!e.target.closest("#listsBtn")) $("#panel").classList.remove("on"); });
+$("#saveList").addEventListener("click",()=>saveList(false));
+$("#saveAsNew").addEventListener("click",()=>saveList(true));
+$("#clearSel").addEventListener("click",()=>{picked.clear(); editingList=null; $("#listName").value=""; $("#selMsg").textContent=""; render();});
+$("#saveCols").addEventListener("click",async()=>{
+  try{ await post({op:"columns",columns:colOrder}); colDirty=false; $("#saveCols").style.display="none"; toast("Column order saved for everyone"); }
+  catch(e){ toast(e.message,true); }
+});
+
 function csvEscape(v){ v=(v==null?"":String(v)); return /[",\n\r]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; }
-function currentChannels(){
-  const all=effectiveList(DATA[activeTab]||[]);
-  const q=query.trim().toLowerCase();
-  return q?all.filter(c=>(c.name+" "+c.host+" "+c.category+" "+c.handle+" "+c.location+" "+c.state).toLowerCase().includes(q)):all;
-}
-function exportCSV(){
-  const header=COLS.map(c=>c.head==="Creator / Shows"?"Creator (@handle)":c.head);
-  const rows=currentChannels().map(c=>COLS.map(col=>{
+$("#exportCsv").addEventListener("click",()=>{
+  const cols=columns().filter(c=>c.key!=="sel"&&c.key!=="status");
+  const header=cols.map(c=>c.key==="name"?"Creator (@handle)":c.head.replace(" ✎",""));
+  const rows=currentList().map(c=>cols.map(col=>{
     if(col.key==="name") return dispHandle(c);
-    const v=c[col.key];
+    const v=cellVal(c,col);
     if(col.fmt==="money"||col.fmt==="int") return v==null?"":Math.round(v);
     return v==null?"":v;
   }));
   const csv=[header,...rows].map(r=>r.map(csvEscape).join(",")).join("\r\n");
   const blob=new Blob(["﻿"+csv],{type:"text/csv;charset=utf-8;"});
-  const url=URL.createObjectURL(blob);
-  const label=((GROUPS.find(g=>g.id===activeTab)||{}).label||"roster").toLowerCase().replace(/[^a-z0-9]+/g,"-");
-  const a=document.createElement("a"); a.href=url; a.download="dft-roster-"+label+".csv";
-  document.body.appendChild(a); a.click(); document.body.removeChild(a);
-  setTimeout(()=>URL.revokeObjectURL(url),1000);
-}
-document.querySelector("#exportCsv").addEventListener("click",exportCSV);
-load();
+  const a=document.createElement("a"); a.href=URL.createObjectURL(blob);
+  a.download="dft-roster-"+((GROUPS.find(g=>g.id===activeTab)||{}).label||"roster").toLowerCase().replace(/[^a-z0-9]+/g,"-")+(mode==="team"?"-dft":"")+".csv";
+  document.body.appendChild(a); a.click(); a.remove();
+});
 
+load();
 </script>

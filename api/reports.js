@@ -19,7 +19,7 @@
 //
 // READ ONLY. Nothing here writes to monday or Megaphone.
 
-import { hostOf, isPreview, cookieOk, teamEmail, setTeamCookie, cleanUrl, gatePage, partnerKey, setPartnerCookie, partnerCookie, partnerGate } from "./_reports/access.js";
+import { hostOf, isPreview, cookieOk, teamEmail, setTeamCookie, cleanUrl, gatePage, partnerKey, setPartnerCookie, partnerCookie, partnerGate, handoffToken, ROSTER_ORIGIN } from "./_reports/access.js";
 import { handleAuth } from "./_reports/auth.js";
 import { PARTNERS, loadPartners } from "./_reports/partners.js";
 import { mondayToken } from "./_reports/monday.js";
@@ -89,6 +89,13 @@ export default async function handler(req, res) {
   if (route === "status" && (authed || preview)) {
     if (!probeCache || Date.now() - probeCache.at > 5 * 60 * 1000) probeCache = { at: Date.now(), data: { monday: await campaignsHealth(token), megaphone: await probe(token) } };
     return res.status(200).json(probeCache.data);
+  }
+  // Sign-in for the roster site (see handoffToken in access.js). Signed in here already ->
+  // straight back to the roster, signed in there too. Not yet -> Google first, then back here.
+  if (route === "roster-signin") {
+    if (!authed) { res.setHeader("Location", "/auth/login?next=" + encodeURIComponent("/roster-signin")); return res.status(302).end(); }
+    res.setHeader("Location", ROSTER_ORIGIN + "/auth/handoff?t=" + encodeURIComponent(handoffToken(token, teamEmail(req, token))));
+    return res.status(302).end();
   }
   const partner = authed ? null : partnerCookie(req, token);
   // Keep access alive: every page visit renews the visitor's cookie to its full length.
