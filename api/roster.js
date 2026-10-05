@@ -1,133 +1,425 @@
-// Vercel serverless function — returns the DFT creator roster from monday.com.
-// Reads the Monday token server-side (MONDAY_API_KEY) so it is never exposed to the browser.
-const BOARD = 18417663127;
-const GROUPS = ["topics", "group_mm4av3kr", "group_mm4a1fe0", "group_mm4bd5tk"];
-const PCOLS = ["numeric_mm49cx8f", "numeric_mm497vsg", "numeric_mm49rr3n", "numeric_mm49bb66", "text_mm4944gw", "text_mm49j2nf", "text_mm49s85f", "text_mm49w81b", "long_text_mm492hxg", "text_mm499xez", "text_mm5nmtz1", "text_mm5n7q86", "text_mm5n8zh3", "long_text_mm5n8f4t", "link_mm5n1zej", "numeric_mm5nn2wj", "long_text_mm5nw1s9", "text_mm5nkdfn", "text_mm5nb2t7", "text_mm5n6m90", "text_mm5n69hv", "text_mm5nbatb", "text_mm5n7syq", "text_mm5n5cc8", "text_mm5nzj3n", "text_mm5nsagz", "text_mm5n7ybc"];
-const SCOLS = ["numeric_mm495xbb", "numeric_mm49tej8", "numeric_mm49fe4b", "text_mm49bb5z"];
+// roster-viewguarantee.digitalfoxtalent.com - the creator roster, in two views.
+//
+// REBUILT 5 Oct 2026 on Tom's brief:
+//   * BRAND VIEW (anyone): the quarter's frozen numbers only - Brand VG / CPM / Rate on the
+//     rates board, written once a quarter by renewal-sync brand_quarter_snapshot.py (from the
+//     previous quarter's average) and editable by the team on this site until the next reset.
+//     Hidden from brands: floored CPM over $30 (long-form) or $50 (Shorts, Instagram, TikTok),
+//     shows/feeds that published nothing last quarter, and anything set to "Hide".
+//     Shorts, Instagram and TikTok carry no view guarantee or CPM in this view - a rate only.
+//   * DFT VIEW (signed in with an @digitalfoxtalent.com Google account): everything, with the
+//     live daily averages beside the brand numbers, edits, visibility overrides, saved lists
+//     and the column order.
+//   * SAVED LISTS (/r/<slug>): a list a team member saved, shown in the brand view. A list can
+//     include creators the cap would hide (Margot's call for that pitch); "Hide" still wins.
+//
+// Before this rebuild the endpoint returned the whole board to anyone, live averages included.
+// It must never do that again: the brand payload is built field by field below.
+//
+// Routes (vercel.json, roster host):
+//   GET  /api/roster                 brand payload (edge cached)
+//   GET  /api/roster?list=<slug>     a saved list, brand payload
+//   GET  /api/roster?view=team       team payload (cookie required, never cached)
+//   POST /api/roster  {op:...}       team only: edit | save-list | delete-list | columns
+//   GET  /auth/handoff?t=            sign-in handoff from reports.digitalfoxtalent.com/roster-signin
+//   GET  /auth/signout
+//
+// Sign-in happens on reports.digitalfoxtalent.com (the Google client's registered redirect),
+// which hands a 60-second signed token back here; this host then sets its own team cookie.
 
-// State / Region is NOT on the rates board. The rates board's own Location column
-// (text_mm49s85f) is country-level — 99 of 132 rows read exactly "United States" —
-// so the state cannot be split out of it. The value lives on Global Talent Roster
-// (board 6160485039) in column dup__of_email (title "State"; the id is a leftover
-// from a duplicated email column). We reach it through the single-valued board
-// relation "Creator" that already exists on the rates board, then flatten the
-// linked creator's State onto the row as a synthetic column value so the page can
-// read it exactly like any other column. Adding CREATOR_STATE_COL to PCOLS would
-// NOT work — that column is not on the board being fetched.
-const REL_COL = "board_relation_mm49w1a4";   // "Creator" → board 6160485039, allowMultipleItems: false
-const CREATOR_STATE_COL = "dup__of_email";   // "State" on 6160485039
-const STATE_KEY = "__creator_state";         // synthetic column id emitted on each row
-const CREATOR_BOARD = 6160485039;           // Global Talent Roster, where State lives
+import crypto from "node:crypto";
+import { teamEmail, setTeamCookie, clearTeamCookie, isPreview, handoffEmail } from "./_reports/access.js";
+import { AVATARS } from "./_reports/campaigns/avatars.js";
 
-// This endpoint returns the whole rates board - names, rates, view guarantees, CPMs,
-// locations - and nothing about it is public. It is reachable on EVERY host attached to
-// this Vercel project, so it must decide for itself who may read it rather than relying
-// on a rewrite to hide it. On 4 Sep 2026 it was answering unauthenticated on subplot.tv,
-// wordie.media and dft-leads.vercel.app because only the "/" rewrite had been
-// host-conditioned. Guard fails CLOSED: an unrecognised or absent host gets a 404.
-const ROSTER_HOSTS = new Set(["roster-viewguarantee.digitalfoxtalent.com"]);
-const hostOf = req => String(
-  (req.headers["x-forwarded-host"] || req.headers.host || "").split(",")[0]
-).toLowerCase().trim().replace(/^www\./, "").split(":")[0];
+const BOARD = 18417663127;          // Rates - View Guarantee Model
+const SUB_BOARD = 18417669961;      // its show subitems
+const LISTS_BOARD = 18434088297;    // Roster - Saved Pitch Lists
+const CREATOR_BOARD = 6160485039;   // Global Talent Roster (State lives there)
+const HOST = "roster-viewguarantee.digitalfoxtalent.com";
+
+const GROUPS = [
+  { id: "topics", kind: "long" },          // YouTube channels
+  { id: "group_mm4av3kr", kind: "short" }, // YouTube Shorts
+  { id: "group_mm4a1fe0", kind: "short" }, // Instagram
+  { id: "group_mm4bd5tk", kind: "short" }, // TikTok
+];
+const CAP = { long: 30, short: 50 };
+const PRICE = { long: { mult: 1.5, cpm: 25 }, short: { mult: 1, cpm: 50 } };
+const FLOOR = 1500;
+
+const C = {
+  subs: "numeric_mm49cx8f", rate: "numeric_mm497vsg", vg: "numeric_mm49rr3n", cpm: "numeric_mm49bb66", avg: "numeric_mm49b3y2",
+  host: "text_mm4944gw", category: "text_mm49j2nf", location: "text_mm49s85f", handle: "text_mm49w81b",
+  about: "long_text_mm492hxg", url: "text_mm499xez", hostGender: "text_mm5nmtz1", hostRead: "text_mm5n7q86",
+  exclusive: "text_mm5n8zh3", adTypes: "long_text_mm5n8f4t", adEx: "link_mm5n1zej", videos: "numeric_mm5nn2wj",
+  audience: "long_text_mm5nw1s9", male: "text_mm5nkdfn", female: "text_mm5nb2t7",
+  a1317: "text_mm5n6m90", a1824: "text_mm5n69hv", a2534: "text_mm5nbatb", a3544: "text_mm5n7syq",
+  a4554: "text_mm5n5cc8", a5564: "text_mm5nzj3n", us: "text_mm5nsagz", uk: "text_mm5n7ybc",
+  lastPub: "date_mm4an586", rel: "board_relation_mm49w1a4",
+  bvg: "numeric_mm7vxae8", bcpm: "numeric_mm7vm3hw", brate: "numeric_mm7vx77g", bbasis: "numeric_mm7vec5",
+  bq: "text_mm7v252f", bnote: "text_mm7vn2c", logo: "text_mm7v2qns", vis: "color_mm7vb4nb",
+};
+const SC = {
+  rate: "numeric_mm495xbb", vg: "numeric_mm49tej8", cpm: "numeric_mm49fe4b", avg: "numeric_mm4957y3", url: "text_mm49bb5z",
+  bvg: "numeric_mm7vzc0y", bcpm: "numeric_mm7vjh1a", brate: "numeric_mm7vm5z8", bbasis: "numeric_mm7vhe7f",
+  bq: "text_mm7v1hhz", bnote: "text_mm7vjp1y", vis: "color_mm7vvvfz",
+};
+const L = { slug: "text_mm7vgrr5", items: "long_text_mm7vtnkw", by: "text_mm7v2v06", link: "link_mm7vwxw0", updated: "text_mm7vj42p" };
+const TEXT_FIELDS = ["host", "category", "location", "about", "hostGender", "hostRead", "exclusive", "adTypes", "audience",
+  "male", "female", "a1317", "a1824", "a2534", "a3544", "a4554", "a5564", "us", "uk"];
+
+// ---------------------------------------------------------------- helpers
+
+const token = () => process.env.MONDAY_API_KEY || process.env.MONDAY_API_TOKEN || "";
+const hostOf = req => String((req.headers["x-forwarded-host"] || req.headers.host || "").split(",")[0])
+  .toLowerCase().trim().replace(/^www\./, "").split(":")[0];
+const num = t => { const raw = t == null ? "" : String(t).replace(/[^0-9.\-]/g, ""); const n = raw === "" ? NaN : parseFloat(raw); return Number.isFinite(n) ? n : null; };
+const pos = t => { const n = num(t); return n && n > 0 ? n : null; };
+const pct = t => { const s = String(t == null ? "" : t).trim(); return s ? (s.endsWith("%") ? s : s + "%") : ""; };
+const r2 = n => Math.round(n * 100) / 100;
+
+async function monday(query, variables) {
+  const r = await fetch("https://api.monday.com/v2", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: token(), "API-Version": "2024-10" },
+    body: JSON.stringify({ query, variables: variables || {} }),
+  });
+  const d = await r.json();
+  if (!r.ok || d.errors) throw new Error("monday: " + JSON.stringify(d.errors || r.status).slice(0, 300));
+  return d.data;
+}
+
+export function quarterLabel(d = new Date()) {
+  return "Q" + (Math.floor(d.getUTCMonth() / 3) + 1) + " " + d.getUTCFullYear();
+}
+
+// Price a basis the same way the quarterly snapshot does.
+export function priceFrom(avg, kind) {
+  const p = PRICE[kind];
+  const vg = Math.round(avg * p.mult);
+  let rate = Math.round(vg * p.cpm / 1000);
+  if (rate < FLOOR) rate = FLOOR;
+  return { vg, rate, cpm: vg ? r2(rate * 1000 / vg) : 0 };
+}
+
+// What brands are quoted for a row: the frozen quarter numbers, or (for a row the
+// snapshot has not reached yet, e.g. signed this morning) a provisional price built
+// the same way from today's average.
+function brandNumbers(cv, K, kind) {
+  const vg = pos(cv[K.bvg]), rate = pos(cv[K.brate]);
+  if (vg && rate) return { vg, rate, cpm: pos(cv[K.bcpm]) || r2(rate * 1000 / vg), basis: pos(cv[K.bbasis]), quarter: cv[K.bq] || "", note: cv[K.bnote] || "", provisional: false };
+  const avg = pos(cv[K.avg]);
+  if (!avg) return null;
+  return Object.assign(priceFrom(avg, kind), { basis: avg, quarter: "", note: "Provisional: today's average, until the quarterly snapshot runs", provisional: true });
+}
+
+function visibility(b, override, note, kind) {
+  if (override === "Always show") return { show: true, why: "Always show (set by DFT)" };
+  if (override === "Hide") return { show: false, why: "Hidden by DFT" };
+  if (!b) return { show: false, why: "No figures yet" };
+  if (/^No uploads in/i.test(note || "")) return { show: false, why: String(note).split(";")[0] };
+  if (b.cpm > CAP[kind] + 0.005) return { show: false, why: "CPM $" + b.cpm + " is over the $" + CAP[kind] + " cap" };
+  return { show: true, why: "" };
+}
+
+const normName = n => String(n || "").toLowerCase().replace(/\s*[-–]\s*shorts\s*$/i, "").replace(/[^a-z0-9]/g, "");
+
+// ---------------------------------------------------------------- load
+
+const PCOLS = Object.values(C), SCOLS = Object.values(SC);
+let cache = null; // { at, data } per warm instance
+
+async function loadBoard() {
+  if (cache && Date.now() - cache.at < 60 * 1000) return cache.data;
+  const p = JSON.stringify(PCOLS), s = JSON.stringify(SCOLS);
+  const groupQ = g => `query{boards(ids:[${BOARD}]){groups(ids:["${g}"]){id items_page(limit:200){items{id name column_values(ids:${p}){id text value} subitems{id name column_values(ids:${s}){id text}}}}}}}`;
+  const stateQ = `query{boards(ids:[${CREATOR_BOARD}]){items_page(limit:500){items{id column_values(ids:["dup__of_email"]){text}}}}}`;
+  const listsQ = `query{boards(ids:[${LISTS_BOARD}]){items_page(limit:500){items{id name column_values(ids:${JSON.stringify(Object.values(L))}){id text}}}}}`;
+  const [groups, state, lists] = await Promise.all([
+    Promise.all(GROUPS.map(g => monday(groupQ(g.id)))),
+    monday(stateQ).catch(() => null),
+    monday(listsQ).catch(() => null),
+  ]);
+  const stateById = {};
+  ((((state || {}).boards || [])[0] || {}).items_page || { items: [] }).items
+    .forEach(it => { stateById[String(it.id)] = ((it.column_values || [])[0] || {}).text || ""; });
+
+  const rows = [];
+  groups.forEach((d, gi) => {
+    const kind = GROUPS[gi].kind;
+    const items = ((((d.boards || [])[0] || {}).groups || [])[0] || { items_page: { items: [] } }).items_page.items || [];
+    items.forEach(it => {
+      const cv = {}, raw = {};
+      (it.column_values || []).forEach(c => { cv[c.id] = c.text || ""; raw[c.id] = c.value || ""; });
+      let creator = "";
+      try { creator = String((((JSON.parse(raw[C.rel] || "{}").linkedPulseIds) || [])[0] || {}).linkedPulseId || ""); } catch (e) {}
+      let adEx = "";
+      try { adEx = (JSON.parse(raw[C.adEx] || "null") || {}).url || ""; } catch (e) {}
+      const shows = (it.subitems || []).map(sv => {
+        const sc = {}; (sv.column_values || []).forEach(c => { sc[c.id] = c.text || ""; });
+        return { id: String(sv.id), name: sv.name, cv: sc };
+      });
+      rows.push({ id: String(it.id), name: it.name, group: GROUPS[gi].id, kind, cv, creator, adEx, state: creator ? (stateById[creator] || "") : "", shows });
+    });
+  });
+
+  // Logos: the snapshot writes each YouTube channel's picture. Instagram/TikTok rows and
+  // Shorts rows borrow it from the same creator (board relation first, then the name).
+  const logoByCreator = {}, logoByName = {};
+  rows.forEach(r => { const l = r.cv[C.logo]; if (l) { if (r.creator) logoByCreator[r.creator] = logoByCreator[r.creator] || l; logoByName[normName(r.name)] = logoByName[normName(r.name)] || l; } });
+  // Last resort: the saved channel pictures the Campaign reach report keeps by handle.
+  const saved = h => AVATARS[("@" + String(h || "").replace(/^@/, "")).toLowerCase()] || "";
+  rows.forEach(r => { r.logo = r.cv[C.logo] || (r.creator && logoByCreator[r.creator]) || logoByName[normName(r.name)] || saved(r.cv[C.handle]) || ""; });
+
+  const listItems = ((((lists || {}).boards || [])[0] || {}).items_page || { items: [] }).items.map(it => {
+    const cv = {}; (it.column_values || []).forEach(c => { cv[c.id] = c.text || ""; });
+    let body = {}; try { body = JSON.parse(cv[L.items] || "{}"); } catch (e) {}
+    return { id: String(it.id), name: it.name, slug: cv[L.slug], body, by: cv[L.by], updated: cv[L.updated] };
+  });
+  const settings = listItems.find(x => x.name === "__settings");
+  const data = { rows, lists: listItems.filter(x => x.name !== "__settings" && x.slug), columns: (settings && settings.body.columns) || null, settingsId: settings && settings.id };
+  cache = { at: Date.now(), data };
+  return data;
+}
+
+// ---------------------------------------------------------------- shaping
+
+function baseFields(r) {
+  const cv = r.cv, o = {
+    id: r.id, name: r.name, handle: cv[C.handle] || "", url: cv[C.url] || "", logo: r.logo, kind: r.kind, group: r.group,
+    subs: pos(cv[C.subs]), videos: pos(cv[C.videos]), adEx: r.adEx, state: r.state,
+  };
+  TEXT_FIELDS.forEach(k => { o[k] = /^(male|female|a\d|us|uk)/.test(k) ? pct(cv[C[k]]) : (cv[C[k]] || ""); });
+  return o;
+}
+
+function brandRow(r, includeHiddenByRule) {
+  const b = brandNumbers(r.cv, C, r.kind);
+  const v = visibility(b, r.cv[C.vis], r.cv[C.bnote], r.kind);
+  const allowed = v.show || (includeHiddenByRule && b && r.cv[C.vis] !== "Hide");
+  if (!allowed) return null;
+  const o = baseFields(r);
+  o.rate = b.rate;
+  if (r.kind === "long") { o.vg = b.vg; o.cpm = b.cpm; }
+  o.shows = r.kind !== "long" ? [] : r.shows.map(s => {
+    const sb = brandNumbers(s.cv, SC, "long");
+    const sv = visibility(sb, s.cv[SC.vis], s.cv[SC.bnote], "long");
+    if (!(sv.show || (includeHiddenByRule && sb && s.cv[SC.vis] !== "Hide"))) return null;
+    return { id: s.id, name: s.name, url: s.cv[SC.url] || "", rate: sb.rate, vg: sb.vg, cpm: sb.cpm };
+  }).filter(Boolean).sort((a, b) => b.vg - a.vg);
+  return o;
+}
+
+function teamRow(r) {
+  const o = baseFields(r);
+  const b = brandNumbers(r.cv, C, r.kind);
+  const v = visibility(b, r.cv[C.vis], r.cv[C.bnote], r.kind);
+  Object.assign(o, {
+    brand: b, override: r.cv[C.vis] || "Auto", show: v.show, why: v.why,
+    live: { avg: pos(r.cv[C.avg]), vg: pos(r.cv[C.vg]), rate: pos(r.cv[C.rate]), cpm: pos(r.cv[C.cpm]), lastPub: r.cv[C.lastPub] || "" },
+    rate: b ? b.rate : null, vg: b ? b.vg : null, cpm: b ? b.cpm : null,
+  });
+  o.shows = r.shows.map(s => {
+    const sb = brandNumbers(s.cv, SC, "long");
+    const sv = visibility(sb, s.cv[SC.vis], s.cv[SC.bnote], "long");
+    return { id: s.id, name: s.name, url: s.cv[SC.url] || "", brand: sb, override: s.cv[SC.vis] || "Auto", show: sv.show, why: sv.why,
+      rate: sb ? sb.rate : null, vg: sb ? sb.vg : null, cpm: sb ? sb.cpm : null,
+      live: { avg: pos(s.cv[SC.avg]), vg: pos(s.cv[SC.vg]), rate: pos(s.cv[SC.rate]), cpm: pos(s.cv[SC.cpm]) } };
+  }).sort((a, b) => (b.vg || 0) - (a.vg || 0));
+  return o;
+}
+
+function brandPayload(data, list) {
+  const ids = list ? new Set((list.body.ids || []).map(String)) : null;
+  const groups = {};
+  GROUPS.forEach(g => { groups[g.id] = []; });
+  data.rows.forEach(r => {
+    if (ids && !ids.has(r.id)) return;
+    const o = brandRow(r, !!ids);
+    if (o) groups[r.group].push(o);
+  });
+  if (ids) { // keep the order the list was saved in
+    const order = {}; (list.body.ids || []).forEach((id, i) => { order[String(id)] = i; });
+    Object.values(groups).forEach(a => a.sort((x, y) => order[x.id] - order[y.id]));
+  } else Object.values(groups).forEach(a => a.sort((x, y) => (y.vg || y.rate || 0) - (x.vg || x.rate || 0)));
+  return { view: "brand", quarter: quarterLabel(), columns: data.columns, list: list ? { title: list.name, slug: list.slug, manual: !!list.body.manual } : null, groups };
+}
+
+function teamPayload(data, email) {
+  const groups = {};
+  GROUPS.forEach(g => { groups[g.id] = []; });
+  data.rows.forEach(r => groups[r.group].push(teamRow(r)));
+  Object.values(groups).forEach(a => a.sort((x, y) => (y.vg || 0) - (x.vg || 0)));
+  return { view: "team", email, quarter: quarterLabel(), columns: data.columns, groups,
+    lists: data.lists.map(l => ({ id: l.id, title: l.name, slug: l.slug, ids: l.body.ids || [], by: l.by, updated: l.updated })) };
+}
+
+// ---------------------------------------------------------------- writes (team only)
+
+async function readBody(req) {
+  if (req.body && typeof req.body === "object") return req.body;
+  if (typeof req.body === "string") { try { return JSON.parse(req.body); } catch (e) { return {}; } }
+  return {};
+}
+const stamp = () => new Date().toISOString().slice(0, 10);
+
+async function editRow(b, email) {
+  const isShow = !!b.show;
+  const board = isShow ? SUB_BOARD : BOARD, K = isShow ? SC : C;
+  const id = String(b.id || "");
+  if (!/^\d+$/.test(id)) throw new Error("bad id");
+  const data = await loadBoard();
+  let row = null, kind = "long";
+  data.rows.forEach(r => {
+    if (!isShow && r.id === id) { row = r; kind = r.kind; }
+    if (isShow) r.shows.forEach(s => { if (s.id === id) { row = s; kind = "long"; } });
+  });
+  if (!row) throw new Error("row not found");
+  const values = {};
+  if (b.override != null) {
+    if (!["Auto", "Always show", "Hide"].includes(b.override)) throw new Error("bad override");
+    values[K.vis] = { label: b.override };
+  }
+  if (b.vg != null || b.cpm != null) {
+    const cur = brandNumbers(row.cv, K, kind) || {};
+    const vg = Math.round(num(b.vg != null ? b.vg : cur.vg) || 0);
+    const cpm = num(b.cpm != null ? b.cpm : cur.cpm) || 0;
+    if (!(vg > 0) || !(cpm > 0) || cpm > 10000 || vg > 1e9) throw new Error("View guarantee and CPM must be positive numbers");
+    let rate = Math.round(vg * cpm / 1000);
+    if (rate < FLOOR) rate = FLOOR;
+    const eff = r2(rate * 1000 / vg);
+    Object.assign(values, {
+      [K.bvg]: String(vg), [K.bcpm]: String(eff), [K.brate]: String(rate), [K.bq]: quarterLabel(),
+      [K.bnote]: "Edited by " + email + " on " + stamp() + " (was VG " + (cur.vg || "-") + ", CPM $" + (cur.cpm || "-") + "); resets next quarter",
+    });
+  }
+  if (!Object.keys(values).length) throw new Error("nothing to change");
+  await monday("mutation($b:ID!,$i:ID!,$v:JSON!){change_multiple_column_values(board_id:$b,item_id:$i,column_values:$v){id}}",
+    { b: String(board), i: id, v: JSON.stringify(values) });
+  cache = null;
+  return { ok: true };
+}
+
+const slugify = s => String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "roster";
+
+async function saveList(b, email) {
+  const title = String(b.title || "").trim().slice(0, 80);
+  const ids = (Array.isArray(b.ids) ? b.ids : []).map(String).filter(x => /^\d+$/.test(x)).slice(0, 300);
+  if (!title) throw new Error("Give the list a name");
+  if (!ids.length) throw new Error("Pick at least one creator");
+  const data = await loadBoard();
+  const existing = b.slug ? data.lists.find(l => l.slug === b.slug) : null;
+  const items = JSON.stringify({ ids });
+  if (existing) {
+    await monday("mutation($b:ID!,$i:ID!,$v:JSON!){change_multiple_column_values(board_id:$b,item_id:$i,column_values:$v){id}}",
+      { b: String(LISTS_BOARD), i: existing.id, v: JSON.stringify({ name: title, [L.items]: { text: items }, [L.updated]: email + " " + stamp() }) });
+    cache = null;
+    return { ok: true, slug: existing.slug, url: "https://" + HOST + "/r/" + existing.slug };
+  }
+  // A random tail so one brand cannot guess another brand's list from its name.
+  const slug = slugify(title) + "-" + crypto.randomBytes(3).toString("hex");
+  const url = "https://" + HOST + "/r/" + slug;
+  await monday("mutation($b:ID!,$n:String!,$v:JSON!){create_item(board_id:$b,item_name:$n,column_values:$v){id}}",
+    { b: String(LISTS_BOARD), n: title, v: JSON.stringify({ [L.slug]: slug, [L.items]: { text: items }, [L.by]: email + " " + stamp(), [L.link]: { url, text: "Open list" } }) });
+  cache = null;
+  return { ok: true, slug, url };
+}
+
+async function deleteList(b) {
+  const data = await loadBoard();
+  const l = data.lists.find(x => x.slug === String(b.slug || ""));
+  if (!l) throw new Error("list not found");
+  // Archived, not deleted: it can be restored from the board's archive.
+  await monday("mutation($i:ID!){archive_item(item_id:$i){id}}", { i: l.id });
+  cache = null;
+  return { ok: true };
+}
+
+async function saveColumns(b, email) {
+  const cols = (Array.isArray(b.columns) ? b.columns : []).map(String).filter(x => /^[a-zA-Z0-9]+$/.test(x)).slice(0, 60);
+  if (!cols.length) throw new Error("no columns");
+  const data = await loadBoard();
+  const v = { [L.items]: { text: JSON.stringify({ columns: cols }) }, [L.updated]: email + " " + stamp() };
+  if (data.settingsId) {
+    await monday("mutation($b:ID!,$i:ID!,$v:JSON!){change_multiple_column_values(board_id:$b,item_id:$i,column_values:$v){id}}",
+      { b: String(LISTS_BOARD), i: data.settingsId, v: JSON.stringify(v) });
+  } else {
+    await monday("mutation($b:ID!,$n:String!,$v:JSON!){create_item(board_id:$b,item_name:$n,column_values:$v){id}}",
+      { b: String(LISTS_BOARD), n: "__settings", v: JSON.stringify(v) });
+  }
+  cache = null;
+  return { ok: true };
+}
+
+// ---------------------------------------------------------------- handler
 
 export default async function handler(req, res) {
   try {
-    if (!ROSTER_HOSTS.has(hostOf(req))) {
-      // 404 not 403: an endpoint that answers "forbidden" confirms it exists.
+    const host = hostOf(req);
+    if (host !== HOST && !isPreview(host)) {
       res.setHeader("Cache-Control", "no-store");
-      return res.status(404).json({ error: "Not found" });
+      return res.status(404).json({ error: "Not found" }); // 404 not 403: do not confirm it exists
     }
-    const token = process.env.MONDAY_API_KEY || process.env.MONDAY_API_TOKEN;
-    if (!token) return res.status(500).json({ error: "MONDAY_API_KEY env var not set" });
+    if (!token()) return res.status(500).json({ error: "MONDAY_API_KEY env var not set" });
+    res.setHeader("X-Robots-Tag", "noindex, nofollow");
+    const q = req.query || {};
+    const secret = token();
+    const email = teamEmail(req, secret);
 
-    // SPEED, rebuilt 23 Sep 2026. This used to be ONE query: four groups, 27 columns,
-    // subitems, and the board relation expanded into the Global Talent Roster for
-    // every row (linked_items). It took 5 to 10 seconds cold, and the cache it sat
-    // behind is thrown away on every deploy of this project, which ships several
-    // times a day for Subplot and Wordie. So a brand clicking the link often waited.
-    //
-    // Now: one small query per group, run in parallel, plus ONE query for every
-    // creator's State on the Global Talent Roster. The relation column's own raw
-    // value already carries the linked item id, so nothing is expanded per row; the
-    // State is joined here in code. Same response shape as before.
-    const p = PCOLS.concat([REL_COL]).map(x => '"' + x + '"').join(",");
-    const s = SCOLS.map(x => '"' + x + '"').join(",");
-    const ask = query => fetch("https://api.monday.com/v2", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: token, "API-Version": "2024-10" },
-      body: JSON.stringify({ query })
-    }).then(r => r.json());
+    if (q.op === "handoff") {
+      res.setHeader("Cache-Control", "private, no-store");
+      const who = handoffEmail(q.t, secret);
+      if (!who) { res.setHeader("Location", "/?signin=failed"); return res.status(302).end(); }
+      res.setHeader("Set-Cookie", setTeamCookie(res, secret, who));
+      res.setHeader("Location", "/");
+      return res.status(302).end();
+    }
+    if (q.op === "signout") {
+      res.setHeader("Cache-Control", "private, no-store");
+      res.setHeader("Set-Cookie", clearTeamCookie());
+      res.setHeader("Location", "/");
+      return res.status(302).end();
+    }
 
-    const groupQuery = g => "query{boards(ids:[" + BOARD + "]){groups(ids:[\"" + g + "\"]){id items_page(limit:120){items{id name column_values(ids:[" + p + "]){id text value} subitems{id name column_values(ids:[" + s + "]){id text}}}}}}}";
-    const stateQuery = "query{boards(ids:[" + CREATOR_BOARD + "]){items_page(limit:500){items{id column_values(ids:[\"" + CREATOR_STATE_COL + "\"]){text}}}}}";
-
-    const results = await Promise.all(GROUPS.map(g => ask(groupQuery(g))).concat([ask(stateQuery)]));
-    const failed = results.find(b => b && b.errors);
-    if (failed) return res.status(502).json({ error: failed.errors });
-
-    const stateBody = results.pop();
-    const stateById = {};
-    (((stateBody.data || {}).boards || [])[0] || { items_page: { items: [] } }).items_page.items
-      .forEach(it => { stateById[String(it.id)] = ((it.column_values || [])[0] || {}).text || ""; });
-
-    const groups = results.map(b => (((b.data || {}).boards || [])[0] || {}).groups || []).map(gs => gs[0]).filter(Boolean);
-
-    // Replace the raw relation column with a flat { id: STATE_KEY, text } entry.
-    // An unlinked row, or a linked creator with no State recorded, yields "" -
-    // the page renders that as an empty cell. Never substitute a placeholder:
-    // a blank correctly reads "not recorded", a filler value reads like a claim.
-    groups.forEach(grp => {
-      const items = (grp.items_page && grp.items_page.items) || [];
-      items.forEach(it => {
-        const cvs = it.column_values || [];
-        const relIdx = cvs.findIndex(c => c && c.id === REL_COL);
-        let state = "";
-        if (relIdx >= 0) {
-          let linkedId = "";
-          try {
-            const v = JSON.parse(cvs[relIdx].value || "{}");
-            linkedId = String(((v.linkedPulseIds || [])[0] || {}).linkedPulseId || "");
-          } catch (e) { linkedId = ""; }
-          state = (linkedId && stateById[linkedId]) || "";
-          cvs.splice(relIdx, 1);
-        }
-        cvs.push({ id: STATE_KEY, text: state, value: null });
-      });
-    });
-
-    // Drop rows with nothing to sell. A row whose View Guarantee is empty or zero is
-    // either BRAND NEW - created after the last sync ran, so its numbers land on the
-    // next one - or DEAD, like Badd Medicine Shorts, which has published no Short
-    // since 27 Jun 2026 and so is correctly written as zeros by the Shorts pass.
-    // Both used to render on the public roster as a creator offering 0 views at $0,
-    // which reads to a brand as a channel we cannot sell rather than a row we have
-    // not finished filling in. It cannot fix itself upstream either: only the
-    // long-form pass moves dormant rows into the Dormant group and it deliberately
-    // skips the Shorts group, so a dead Shorts row never leaves the live tab.
-    // Filtered HERE rather than in the sync on purpose - the board stays complete as
-    // the internal record, and the page stays honest as the shop window.
-    const guaranteeOf = it => {
-      const c = (it.column_values || []).find(x => x && x.id === "numeric_mm49rr3n");
-      const raw = c && c.text != null ? String(c.text).replace(/[^0-9.]/g, "") : "";
-      const n = raw === "" ? NaN : parseFloat(raw);
-      return Number.isFinite(n) ? n : 0;
-    };
-    groups.forEach(grp => {
-      if (grp.items_page && Array.isArray(grp.items_page.items)) {
-        grp.items_page.items = grp.items_page.items.filter(it => guaranteeOf(it) > 0);
+    if (req.method === "POST") {
+      res.setHeader("Cache-Control", "private, no-store");
+      const origin = String(req.headers.origin || "");
+      if (!email) return res.status(401).json({ error: "Sign in with your DFT Google account" });
+      if (origin && origin !== "https://" + host) return res.status(403).json({ error: "Bad origin" });
+      const b = await readBody(req);
+      try {
+        if (b.op === "edit") return res.status(200).json(await editRow(b, email));
+        if (b.op === "save-list") return res.status(200).json(await saveList(b, email));
+        if (b.op === "delete-list") return res.status(200).json(await deleteList(b));
+        if (b.op === "columns") return res.status(200).json(await saveColumns(b, email));
+      } catch (e) {
+        return res.status(400).json({ error: String(e && e.message || e) });
       }
-    });
+      return res.status(400).json({ error: "unknown op" });
+    }
 
-    // The board is rewritten once a day by Shows View Guarantee Sync (08:30 UTC cron,
-    // ~16 min run), so the data is static for ~23 hours out of 24. The query itself is
-    // slow - 4 groups x 120 items x 27 columns, plus subitems, plus a per-row board
-    // relation into the Global Talent Roster for State - and took 60-90s cold, which a
-    // brand opening the link had to sit through. A long stale-while-revalidate means a
-    // visitor is served instantly from cache and the refresh happens behind them; only
-    // a link left untouched for a full day can still go cold.
-    res.setHeader("Cache-Control", "s-maxage=1800, stale-while-revalidate=86400");
-    return res.status(200).json(groups);
+    if (q.view === "team") {
+      res.setHeader("Cache-Control", "private, no-store");
+      if (!email) return res.status(401).json({ error: "signin" });
+      if (q.fresh) cache = null;
+      const data = await loadBoard();
+      res.setHeader("Set-Cookie", setTeamCookie(res, secret, email)); // keep the session alive while used
+      return res.status(200).json(teamPayload(data, email));
+    }
+
+    const data = await loadBoard();
+    if (q.list) {
+      const list = data.lists.find(l => l.slug === String(q.list));
+      if (!list) { res.setHeader("Cache-Control", "s-maxage=30"); return res.status(404).json({ error: "This list is no longer available" }); }
+      res.setHeader("Cache-Control", "s-maxage=60, stale-while-revalidate=600");
+      return res.status(200).json(brandPayload(data, list));
+    }
+    // Brand numbers change once a quarter or when the team edits one, so a short edge
+    // cache with a long stale window keeps the page instant without hiding an edit for long.
+    res.setHeader("Cache-Control", "s-maxage=120, stale-while-revalidate=86400");
+    return res.status(200).json(brandPayload(data, null));
   } catch (e) {
+    res.setHeader("Cache-Control", "no-store");
     return res.status(500).json({ error: String(e && e.message || e) });
   }
 }

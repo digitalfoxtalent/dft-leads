@@ -44,6 +44,29 @@ export function setTeamCookie(res, secret, email) {
 export const clearTeamCookie = () => COOKIE + "=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax";
 export const cleanUrl = url => String(url || "/").replace(/([?&])k=[^&]*(&|$)/, "$1").replace(/[?&]$/, "") || "/";
 
+// ---------- roster sign-in handoff ----------
+// The Google client only redirects back to reports.digitalfoxtalent.com, so the roster site
+// (roster-viewguarantee.digitalfoxtalent.com) signs people in here: /roster-signin on this
+// host checks the team cookie, then sends the browser to the roster's /auth/handoff with a
+// token that is signed, carries the email and dies after 60 seconds. The roster then sets
+// its own team cookie. Same secret as the team cookie, different purpose string.
+export const ROSTER_ORIGIN = "https://roster-viewguarantee.digitalfoxtalent.com";
+const hsign = (v, secret) => crypto.createHmac("sha256", secret + "|roster-handoff").update(String(v)).digest("base64url");
+export function handoffToken(secret, email) {
+  const body = (Date.now() + 60 * 1000) + "." + Buffer.from(String(email)).toString("base64url");
+  return body + "." + hsign(body, secret);
+}
+export function handoffEmail(t, secret) {
+  const s = String(t || ""), i = s.lastIndexOf(".");
+  if (i < 1) return null;
+  const body = s.slice(0, i), sig = s.slice(i + 1), j = body.indexOf(".");
+  const want = hsign(body, secret);
+  if (sig.length !== want.length || !crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(want))) return null;
+  if (!(Number(body.slice(0, j)) > Date.now())) return null;
+  const email = Buffer.from(body.slice(j + 1), "base64url").toString().toLowerCase();
+  return email.endsWith("@" + TEAM_DOMAIN) ? email : null;
+}
+
 // The sign-in page: one button that goes to Google's sign-in, then back to next.
 export const gatePage = (next, note) => '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>DFT Reports</title><link rel="icon" type="image/png" href="https://digitalfoxtalent.com/dft/favicon.png">' +
   '<style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#F2F3F6;color:#3A3F49;font:16px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;padding:24px}' +
