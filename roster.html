@@ -105,11 +105,19 @@
   .pill.ok{ background:#e3f3e9; color:var(--ok); }
   .pill.no{ background:#f9e3df; color:var(--hide); }
   .pill.prov{ background:#fff1d6; color:#8a5a00; margin-left:4px; }
-  select.ovr{ font-family:var(--font); font-size:11px; border:1px solid #c9d8e8; border-radius:6px; background:#fff; color:var(--team); padding:2px 4px; margin-left:4px; max-width:96px; }
   td.edit{ cursor:text; color:var(--team); font-weight:600; text-decoration:underline dotted #9db6cf; text-underline-offset:3px; }
   td.edit:hover{ background:#e1ecf7 !important; }
   td.edit input{ width:100%; font:inherit; text-align:center; border:1px solid var(--team); border-radius:5px; padding:3px; }
   td.saving{ opacity:.5; }
+  .grip{ flex:0 0 auto; cursor:grab; user-select:none; color:#c9a37a; font-size:12px; line-height:1; }
+  tr.chan:hover .grip{ color:#a85f00; }
+  tr.chan.dragging > td{ opacity:.45; }
+  tr.chan.drop-before > td{ box-shadow: inset 0 2px 0 0 var(--orange); }
+  tr.chan.drop-after > td{ box-shadow: inset 0 -2px 0 0 var(--orange); }
+  button.eye{ margin-left:auto; flex:0 0 auto; display:inline-flex; align-items:center; gap:1px; border:1px solid #e4d8c7; background:#fff; border-radius:6px; padding:2px 4px; cursor:pointer; }
+  button.eye b{ font-size:10px; }
+  button.eye:hover{ background:#fff5ea; }
+  .why{ display:inline-block; max-width:110px; overflow:hidden; text-overflow:ellipsis; vertical-align:middle; font-size:11px; color:var(--hide); margin-left:6px; }
   input.pick{ width:15px; height:15px; accent-color:var(--orange); cursor:pointer; }
 
   /* Tabs */
@@ -161,8 +169,9 @@
     <span id="teamTools" style="display:none;gap:8px;align-items:center;flex-wrap:wrap">
       <span class="seg"><button id="vTeam" class="on" title="Live numbers, edits and hidden creators">DFT view</button><button id="vBrand" title="Exactly what brands see">Brand preview</button></span>
       <button class="btn team" id="listsBtn">Saved lists</button>
-      <button class="btn team" id="saveCols" style="display:none" title="Every viewer, brands included, sees the columns in this order">Save column order</button>
+      <button class="btn team" id="saveCols" style="display:none" title="Every viewer, brands included, gets this row and column order">Save order for everyone</button>
     </span>
+    <button class="btn" id="resetLayout" style="display:none" title="Go back to the standard order">Reset order</button>
     <button class="btn" id="exportCsv" title="Export this tab as a CSV">Export CSV</button>
     <label class="search">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
@@ -230,12 +239,10 @@ const BRAND_COLS=[
   {key:"us",     head:"US %",        w:62},
   {key:"uk",     head:"UK %",        w:62},
 ];
-// Team-only columns, always first after the name.
+// DFT-only columns (blue), read-only: what the live data says and why a row is shown or hidden.
+// Everything brands see is edited in the orange columns instead (View Guarantee, CPM).
 const TEAM_COLS=[
-  {key:"status", head:"Brands see it?", w:236, t:1},
-  {key:"bvg",    head:"Brand VG ✎",  w:116, t:1, fmt:"int", edit:"vg"},
-  {key:"bcpm",   head:"Brand CPM ✎", w:118,  t:1, fmt:"money2", edit:"cpm"},
-  {key:"brate",  head:"Brand Rate",  w:106,  t:1, fmt:"money"},
+  {key:"status", head:"Brands see it?", w:176, t:1},
   {key:"lavg",   head:"Live avg",    w:96, t:1, fmt:"int"},
   {key:"lvg",    head:"Live VG",     w:92,  t:1, fmt:"int"},
   {key:"lrate",  head:"Live Rate",   w:96,  t:1, fmt:"money"},
@@ -245,7 +252,18 @@ const TEAM_COLS=[
 
 let PAYLOAD=null, TEAM=null, BRAND=null, mode="brand", activeTab="topics", query="";
 let sortKey=null, sortDir="desc";
-let colOrder=null, colDirty=false;
+let colOrder=null, rowOrder={}, layoutDirty=false;
+// Layout: DFT saves a default for everyone (stored on monday). Anyone can also drag rows
+// and columns for themselves; that copy lives only in their own browser.
+const LAYOUT_KEY="dftRosterLayout:v2";
+let myLayout=null; try{ myLayout=JSON.parse(localStorage.getItem(LAYOUT_KEY)||"null"); }catch(e){ myLayout=null; }
+function persistMine(){ myLayout={cols:colOrder,rows:rowOrder}; try{ localStorage.setItem(LAYOUT_KEY, JSON.stringify({cols:colOrder,rows:rowOrder})); }catch(e){} }
+function applyLayout(shared){
+  if(layoutDirty) return;
+  const sh=shared||{};
+  colOrder=(myLayout&&myLayout.cols)||sh.columns||null;
+  rowOrder=Object.assign({}, sh.rows||{}, (myLayout&&myLayout.rows)||{});
+}
 const openSet=new Set(), picked=new Set();
 let editingList=null; // {slug,title} when the selection came from a saved list
 const LIST_SLUG=(location.pathname.match(/^\/r\/([a-z0-9-]+)$/)||[])[1]||null;
@@ -270,8 +288,16 @@ function dispHandle(c){
 // Column set for the current tab and mode.
 function brandColsFor(){
   const k=kindOf();
-  // In the DFT view the brand Rate / VG / CPM already sit in the blue team columns.
-  let cols=BRAND_COLS.filter(c=>!(c.longOnly&&k!=="long")&&!(mode==="team"&&["rate","vg","cpm"].includes(c.key)));
+  const team=mode==="team";
+  // Shorts / Instagram / TikTok show brands a rate only. Signed in, the team still sees and
+  // edits the views and CPM that set that rate (marked as not shown to brands).
+  let cols=BRAND_COLS.filter(c=>!(c.longOnly&&k!=="long"&&!(team&&(c.key==="vg"||c.key==="cpm"))));
+  if(team) cols=cols.map(c=>{
+    if(c.key==="vg") return Object.assign({},c,{w:146,edit:"vg",head:k==="long"?"View Guarantee ✎":"Views basis ✎",tip:k==="long"?"Click to edit what brands see. Holds until the quarter resets.":"Not shown to brands. Sets the rate. Click to edit."});
+    if(c.key==="cpm") return Object.assign({},c,{edit:"cpm",head:"CPM ✎",w:84,tip:k==="long"?"Click to edit what brands see. Holds until the quarter resets.":"Not shown to brands. Sets the rate. Click to edit."});
+    if(c.key==="rate") return Object.assign({},c,{tip:"Worked out from View Guarantee x CPM, minimum $1,500."});
+    return c;
+  });
   if(colOrder&&colOrder.length){
     const pos={}; colOrder.forEach((key,i)=>pos[key]=i);
     cols=cols.slice().sort((a,b)=>(pos[a.key]??999)-(pos[b.key]??999));
@@ -281,15 +307,15 @@ function brandColsFor(){
 function columns(){
   const name={key:"name",head:"Creator / Shows",w:240,cls:"name"};
   if(mode!=="team") return [name].concat(brandColsFor());
-  const tc=TEAM_COLS.map(c=>c.key==="bvg"&&kindOf()!=="long"?Object.assign({},c,{head:"Views basis ✎"}):c);
-  return [{key:"sel",head:"",w:34,cls:"sel"},name].concat(tc,brandColsFor());
+  // Signed in: the numbers brands are quoted (editable) sit right after the name, then the
+  // blue DFT-only columns, then the rest of what brands see.
+  const bc=brandColsFor(), money=["rate","vg","cpm"];
+  const pinned=money.map(k=>bc.find(c=>c.key===k)).filter(Boolean);
+  return [{key:"sel",head:"",w:34,cls:"sel"},Object.assign({},name,{w:280})].concat(pinned,TEAM_COLS,bc.filter(c=>!money.includes(c.key)));
 }
 
 function cellVal(c,col){
   switch(col.key){
-    case "bvg": return c.brand?c.brand.vg:null;
-    case "bcpm": return c.brand?c.brand.cpm:null;
-    case "brate": return c.brand?c.brand.rate:null;
     case "lavg": return c.live?c.live.avg:null;
     case "lvg": return c.live?c.live.vg:null;
     case "lrate": return c.live?c.live.rate:null;
@@ -311,12 +337,20 @@ function fmtCell(c,col,isShow){
 function statusCell(c,isShow){
   const pill=c.show?`<span class="pill ok">Shown</span>`:`<span class="pill no" title="${esc(c.why)}">Hidden</span>`;
   const prov=c.brand&&c.brand.provisional?`<span class="pill prov" title="Not frozen yet: priced from today's average until tomorrow's snapshot">Provisional</span>`:"";
-  const opts=["Auto","Always show","Hide"].map(o=>`<option ${o===(c.override||"Auto")?"selected":""}>${o}</option>`).join("");
-  return `${pill}${prov}<select class="ovr" data-id="${c.id}" data-show="${isShow?1:0}" title="${esc(c.why||"Shown to brands")}" onclick="event.stopPropagation()">${opts}</select>`;
+  const why=c.why?`<span class="why" title="${esc(c.why)}">${esc(c.why)}</span>`:"";
+  return `${pill}${prov}${why}`;
 }
 function logoHtml(c){
   const letter=esc((dispHandle(c).replace(/^@/,"")[0]||"?").toUpperCase());
   return c.logo?`<img class="av" src="${esc(c.logo)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.outerHTML='<span class=avx>${letter}</span>'">`:`<span class="avx">${letter}</span>`;
+}
+// Show-to-brands switch beside the name (DFT view only): Auto -> Always show -> Hide.
+const EYE={"Auto":["Auto: brands see this unless it breaks the CPM cap","#8a7d70"],"Always show":["Always shown to brands","#2f7d4f"],"Hide":["Hidden from brands","#b23a2a"]};
+function eyeBtn(c,isShow){
+  if(mode!=="team") return "";
+  const o=c.override||"Auto", [t,col]=EYE[o]||EYE.Auto;
+  const slash=o==="Hide"?'<line x1="3" y1="3" x2="21" y2="21"/>':"";
+  return `<button class="eye" data-id="${c.id}" data-show="${isShow?1:0}" data-o="${o}" title="${t}. Click to change." style="color:${col}" onclick="event.stopPropagation()"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>${slash}</svg>${o==="Always show"?'<b>+</b>':""}</button>`;
 }
 function nameCell(c){
   const has=(c.shows||[]).length;
@@ -325,11 +359,11 @@ function nameCell(c){
   const ttl=(real&&real!==dn)?` title="${esc(real)}"`:"";
   const nm=c.url?`<a href="${esc(c.url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${esc(dn)}</a>`:esc(dn);
   const tag=has?`<span class="tag">+${has}</span>`:"";
-  return `<div class="nmwrap">${chev}${logoHtml(c)}<span class="nmtext"${ttl}>${nm}${tag}</span></div>`;
+  return `<div class="nmwrap"><span class="grip" title="Drag to move this row">⠿</span>${chev}${logoHtml(c)}<span class="nmtext"${ttl}>${nm}${tag}</span>${eyeBtn(c,false)}</div>`;
 }
 function showNameCell(s){
   const nm=s.url?`<a href="${esc(s.url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${esc(s.name)}</a>`:esc(s.name);
-  return `<div class="nmwrap"><span class="nmtext"><span class="arrow">&#8627;</span>${nm}</span></div>`;
+  return `<div class="nmwrap"><span class="nmtext"><span class="arrow">&#8627;</span>${nm}</span>${eyeBtn(s,true)}</div>`;
 }
 
 function rowsFor(list,cols){
@@ -375,11 +409,21 @@ function cmp(a,b){
   }
   return sortDir==="desc"?-r:r;
 }
+function orderedAll(){
+  const all=((PAYLOAD&&PAYLOAD.groups[activeTab])||[]).slice();
+  if(sortKey) return all.sort(cmp);
+  const ord=rowOrder[activeTab];
+  if(ord&&ord.length&&!(BRAND&&BRAND.list&&mode!=="team")){
+    const pos={}; ord.forEach((id,i)=>pos[id]=i);
+    const base={}; all.forEach((c,i)=>base[c.id]=i);
+    all.sort((a,b)=>((pos[a.id]??1e6+base[a.id])-(pos[b.id]??1e6+base[b.id])));
+  }
+  return all;
+}
 function currentList(){
   const all=(PAYLOAD&&PAYLOAD.groups[activeTab])||[];
   const q=query.trim().toLowerCase();
-  let list=q?all.filter(c=>[c.name,c.host,c.category,c.handle,c.location,c.state].join(" ").toLowerCase().includes(q)):all.slice();
-  if(sortKey) list.sort(cmp);
+  let list=orderedAll().filter(c=>!q||[c.name,c.host,c.category,c.handle,c.location,c.state].join(" ").toLowerCase().includes(q));
   return list;
 }
 
@@ -395,7 +439,7 @@ function render(){
     if(c.key==="sel") return `<th class="sel" title="Pick creators for a list"></th>`;
     const active=c.key===sortKey;
     const car=active?`<span class="sortcar">${sortDir==="desc"?"▼":"▲"}</span>`:`<span class="sortcar dim">▼</span>`;
-    const drag=mode==="team"&&!c.t&&c.key!=="name"?` draggable="true"`:"";
+    const drag=!c.t&&c.key!=="name"?` draggable="true"`:"";
     return `<th class="${c.cls||""}${c.t?" tcol":""}" data-key="${c.key}"${drag} title="${c.tip?esc(c.tip)+" ":""}${c.t?"DFT only":"Click to sort"}${drag?" · drag to move":""}">${esc(c.head)}${car}</th>`;
   }).join("")}</tr></thead>`;
   const totalW=cols.reduce((a,c)=>a+c.w,0);
@@ -413,11 +457,16 @@ function wire(){
     const k=th.dataset.key; if(k===sortKey) sortDir=sortDir==="desc"?"asc":"desc"; else {sortKey=k; sortDir="desc";} render();
   }));
   sc.querySelectorAll("td.wide").forEach(td=>{ if(!td.textContent.trim()) return; td.classList.add("clickable"); td.addEventListener("click",e=>{e.stopPropagation();td.classList.toggle("exp");}); });
-  if(mode!=="team") return;
-  sc.querySelectorAll("input.pick").forEach(cb=>cb.addEventListener("change",()=>{ cb.checked?picked.add(cb.dataset.id):picked.delete(cb.dataset.id); render(); }));
-  sc.querySelectorAll("select.ovr").forEach(s=>s.addEventListener("change",()=>save({op:"edit",id:s.dataset.id,show:s.dataset.show==="1",override:s.value})));
-  sc.querySelectorAll("td.edit").forEach(td=>td.addEventListener("click",e=>{e.stopPropagation(); startEdit(td);}));
-  // Column drag (brand columns only).
+  wireRowDrag(sc);
+  if(mode==="team"){
+    sc.querySelectorAll("input.pick").forEach(cb=>cb.addEventListener("change",()=>{ cb.checked?picked.add(cb.dataset.id):picked.delete(cb.dataset.id); render(); }));
+    sc.querySelectorAll("button.eye").forEach(b=>b.addEventListener("click",()=>{
+      const next={"Auto":"Always show","Always show":"Hide","Hide":"Auto"}[b.dataset.o]||"Auto";
+      save({op:"edit",id:b.dataset.id,show:b.dataset.show==="1",override:next});
+    }));
+    sc.querySelectorAll("td.edit").forEach(td=>td.addEventListener("click",e=>{e.stopPropagation(); startEdit(td);}));
+  }
+  // Column drag (the orange columns; the blue DFT columns stay first).
   let dragKey=null;
   sc.querySelectorAll("th[draggable]").forEach(th=>{
     th.addEventListener("dragstart",e=>{dragKey=th.dataset.key; th.classList.add("dragging"); try{e.dataTransfer.setData("text/plain",dragKey);}catch(_){}});
@@ -431,11 +480,37 @@ function wire(){
       BRAND_COLS.forEach(c=>{ if(!keys.includes(c.key)) keys.push(c.key); });
       keys.splice(keys.indexOf(dragKey),1);
       keys.splice(keys.indexOf(target)+(right?1:0),0,dragKey);
-      colOrder=keys; colDirty=true; $("#saveCols").style.display=""; dragKey=null; render();
+      colOrder=keys; layoutChanged(); dragKey=null; render();
     });
   });
 }
 
+function layoutChanged(){
+  persistMine();
+  if(mode==="team"){ layoutDirty=true; $("#saveCols").style.display=""; }
+  $("#resetLayout").style.display="";
+}
+// Row drag: grab the ⠿ handle. Dropping clears any header sort and keeps this order.
+function wireRowDrag(sc){
+  let dragId=null;
+  const clear=()=>sc.querySelectorAll(".drop-before,.drop-after").forEach(x=>x.classList.remove("drop-before","drop-after"));
+  sc.querySelectorAll("tr.chan").forEach(tr=>{
+    const grip=tr.querySelector(".grip");
+    if(grip){ grip.addEventListener("mousedown",()=>tr.setAttribute("draggable","true")); grip.addEventListener("click",e=>e.stopPropagation()); }
+    tr.addEventListener("dragstart",e=>{ if(tr.getAttribute("draggable")!=="true") return; dragId=tr.dataset.id; tr.classList.add("dragging"); try{e.dataTransfer.setData("text/plain",dragId);}catch(_){} });
+    tr.addEventListener("dragend",()=>{ tr.setAttribute("draggable","false"); tr.classList.remove("dragging"); clear(); dragId=null; });
+    tr.addEventListener("dragover",e=>{ if(!dragId||tr.dataset.id===dragId) return; e.preventDefault(); const r=tr.getBoundingClientRect(); const after=e.clientY-r.top>r.height/2; tr.classList.toggle("drop-after",after); tr.classList.toggle("drop-before",!after); });
+    tr.addEventListener("dragleave",()=>tr.classList.remove("drop-before","drop-after"));
+    tr.addEventListener("drop",e=>{
+      e.preventDefault(); const target=tr.dataset.id; if(!dragId||target===dragId) return;
+      const r=tr.getBoundingClientRect(), after=e.clientY-r.top>r.height/2;
+      const order=orderedAll().map(c=>c.id);
+      order.splice(order.indexOf(dragId),1);
+      order.splice(order.indexOf(target)+(after?1:0),0,dragId);
+      rowOrder[activeTab]=order; sortKey=null; dragId=null; layoutChanged(); render();
+    });
+  });
+}
 function findRow(id){
   for(const g of GROUPS) for(const c of (TEAM.groups[g.id]||[])){ if(c.id===id) return {row:c,kind:g.kind}; for(const s of (c.shows||[])) if(s.id===id) return {row:s,kind:"long",parent:c}; }
   return null;
@@ -525,7 +600,7 @@ function renderBanner(){
   if(TEAM){
     b.className="banner"; b.style.display="";
     b.innerHTML=`Signed in as <b>${esc(TEAM.email)}</b> · ${mode==="team"
-      ?"DFT view: live numbers and hidden creators are visible to you only. Click a blue number to edit it (edits hold until the quarter resets)."
+      ?"Blue columns are DFT-only. Click an underlined number to change what brands see, or the eye to show or hide a creator. Drag ⠿ or a header to reorder."
       :"Brand preview: exactly what brands see."} <span class="spacer"></span><a href="/auth/signout" style="text-decoration:underline">Sign out</a>`;
   } else if(BRAND&&BRAND.list){
     b.className="banner list"; b.style.display="";
@@ -539,7 +614,7 @@ function renderTabs(){
   $("#tabs").querySelectorAll(".tab").forEach(b=>b.onclick=()=>{activeTab=b.dataset.g; sortKey=null; renderTabs(); render(); $("#scroll").scrollTop=0;});
 }
 function applyBrand(p){
-  BRAND=p; colOrder=colOrder||p.columns||null;
+  BRAND=p; if(!TEAM) applyLayout(p);
   $("#subtitle").textContent=`Rates valid for ${p.quarter} · ${p.list?"a selection from our roster":"updated once a quarter"}`;
   if(p.list) $("#title").textContent=p.list.title;
   if(mode!=="team"){ PAYLOAD=BRAND; renderBanner(); renderTabs(); render(); }
@@ -557,7 +632,7 @@ async function loadTeam(fresh){
   if(!r.ok) throw new Error("team view unavailable");
   const first=!TEAM;
   TEAM=await r.json();
-  if(!colDirty) colOrder=TEAM.columns||colOrder;
+  applyLayout(TEAM);
   $("#teamTools").style.display="inline-flex"; $("#signin").style.display="none";
   if(first&&!LIST_SLUG) mode="team";
   if(fresh){ try{ await loadBrand(); }catch(_){} }
@@ -582,8 +657,13 @@ document.addEventListener("click",e=>{ if(!e.target.closest("#panel")&&!e.target
 $("#saveList").addEventListener("click",()=>saveList(false));
 $("#saveAsNew").addEventListener("click",()=>saveList(true));
 $("#clearSel").addEventListener("click",()=>{picked.clear(); editingList=null; $("#listName").value=""; $("#selMsg").textContent=""; render();});
+$("#resetLayout").addEventListener("click",()=>{
+  try{ localStorage.removeItem(LAYOUT_KEY); }catch(e){}
+  myLayout=null; layoutDirty=false; sortKey=null; $("#saveCols").style.display="none"; $("#resetLayout").style.display="none";
+  applyLayout((mode==="team"?TEAM:BRAND)||{}); render();
+});
 $("#saveCols").addEventListener("click",async()=>{
-  try{ await post({op:"columns",columns:colOrder}); colDirty=false; $("#saveCols").style.display="none"; toast("Column order saved for everyone"); }
+  try{ await post({op:"columns",columns:colOrder,rows:rowOrder}); layoutDirty=false; $("#saveCols").style.display="none"; toast("Row and column order saved for everyone"); }
   catch(e){ toast(e.message,true); }
 });
 

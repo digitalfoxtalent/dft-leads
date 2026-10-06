@@ -192,7 +192,8 @@ async function loadBoard() {
     return { id: String(it.id), name: it.name, slug: cv[L.slug], body, by: cv[L.by], updated: cv[L.updated] };
   });
   const settings = listItems.find(x => x.name === "__settings");
-  const data = { rows, lists: listItems.filter(x => x.name !== "__settings" && x.slug), columns: (settings && settings.body.columns) || null, settingsId: settings && settings.id };
+  const data = { rows, lists: listItems.filter(x => x.name !== "__settings" && x.slug), columns: (settings && settings.body.columns) || null,
+    rowOrder: (settings && settings.body.rows) || {}, settingsId: settings && settings.id };
   cache = { at: Date.now(), data };
   return data;
 }
@@ -258,7 +259,7 @@ function brandPayload(data, list) {
     const order = {}; (list.body.ids || []).forEach((id, i) => { order[String(id)] = i; });
     Object.values(groups).forEach(a => a.sort((x, y) => order[x.id] - order[y.id]));
   } else Object.values(groups).forEach(a => a.sort((x, y) => (y.vg || y.rate || 0) - (x.vg || x.rate || 0)));
-  return { view: "brand", quarter: quarterLabel(), columns: data.columns, list: list ? { title: list.name, slug: list.slug, manual: !!list.body.manual } : null, groups };
+  return { view: "brand", quarter: quarterLabel(), columns: data.columns, rows: ids ? {} : data.rowOrder, list: list ? { title: list.name, slug: list.slug, manual: !!list.body.manual } : null, groups };
 }
 
 function teamPayload(data, email) {
@@ -266,7 +267,7 @@ function teamPayload(data, email) {
   GROUPS.forEach(g => { groups[g.id] = []; });
   data.rows.forEach(r => groups[r.group].push(teamRow(r)));
   Object.values(groups).forEach(a => a.sort((x, y) => (y.vg || 0) - (x.vg || 0)));
-  return { view: "team", email, quarter: quarterLabel(), columns: data.columns, groups,
+  return { view: "team", email, quarter: quarterLabel(), columns: data.columns, rows: data.rowOrder, groups,
     lists: data.lists.map(l => ({ id: l.id, title: l.name, slug: l.slug, ids: l.body.ids || [], by: l.by, updated: l.updated })) };
 }
 
@@ -354,8 +355,12 @@ async function deleteList(b) {
 async function saveColumns(b, email) {
   const cols = (Array.isArray(b.columns) ? b.columns : []).map(String).filter(x => /^[a-zA-Z0-9]+$/.test(x)).slice(0, 60);
   if (!cols.length) throw new Error("no columns");
+  // Row order per tab (the team's default for everyone), ids only.
+  const rows = {};
+  const src = b.rows && typeof b.rows === "object" ? b.rows : {};
+  GROUPS.forEach(g => { if (Array.isArray(src[g.id])) rows[g.id] = src[g.id].map(String).filter(x => /^\d+$/.test(x)).slice(0, 300); });
   const data = await loadBoard();
-  const v = { [L.items]: { text: JSON.stringify({ columns: cols }) }, [L.updated]: email + " " + stamp() };
+  const v = { [L.items]: { text: JSON.stringify({ columns: cols, rows }) }, [L.updated]: email + " " + stamp() };
   if (data.settingsId) {
     await monday("mutation($b:ID!,$i:ID!,$v:JSON!){change_multiple_column_values(board_id:$b,item_id:$i,column_values:$v){id}}",
       { b: String(LISTS_BOARD), i: data.settingsId, v: JSON.stringify(v) });
