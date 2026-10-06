@@ -422,7 +422,9 @@ async function editRow(b, email) {
   if (b.vg != null || b.cpm != null) {
     const cur = brandNumbers(row.cv, K, kind) || {};
     const vg = Math.round(num(b.vg != null ? b.vg : cur.vg) || 0);
-    const cpm = num(b.cpm != null ? b.cpm : cur.cpm) || 0;
+    // Shorts / Instagram / TikTok are always priced at the flat $50 CPM, which is not shown
+    // anywhere: editing the View Estimate must not carry over a floored row's effective CPM.
+    const cpm = num(b.cpm != null ? b.cpm : (kind === "long" ? cur.cpm : PRICE.short.cpm)) || 0;
     if (!(vg > 0) || !(cpm > 0) || cpm > 10000 || vg > 1e9) throw new Error("View guarantee and CPM must be positive numbers");
     let rate = Math.round(vg * cpm / 1000);
     if (rate < FLOOR) rate = FLOOR;

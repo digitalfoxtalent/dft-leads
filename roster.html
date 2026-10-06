@@ -312,13 +312,15 @@ function brandColsFor(){
   const team=mode==="team";
   // Shorts / Instagram / TikTok show brands a rate and a View Estimate (not a guarantee),
   // never the CPM. Signed in, the team also sees and edits the CPM that sets the rate.
-  let cols=BRAND_COLS.filter(c=>c.key==="vg"||!(c.longOnly&&k!=="long"&&!(team&&c.key==="cpm")));
+  // Their CPM is a flat $50 that nobody needs to look at, so it is not shown in the DFT view
+  // either (Tom, 6 Oct 2026). The rate is set by editing the View Estimate.
+  let cols=BRAND_COLS.filter(c=>c.key==="vg"||!(c.longOnly&&k!=="long"));
   // Shorts / Instagram / TikTok for brands: no demographics, audience, ad types,
   // exclusivity, host or host gender columns (Tom, 6 Oct 2026). The DFT view keeps them.
   if(k!=="long"&&!team) cols=cols.filter(c=>!SHORT_HIDE.has(c.key));
   if(k!=="long") cols=cols.map(c=>c.key==="vg"?Object.assign({},c,{head:"View Estimate",tip:"Estimated views per post, based on recent averages. An estimate, not a guarantee."}):c);
   if(team) cols=cols.map(c=>{
-    if(c.key==="vg") return Object.assign({},c,{w:146,edit:"vg",head:k==="long"?"View Guarantee ✎":"View Estimate ✎",tip:k==="long"?"Click to edit what brands see. Holds until the quarter resets.":"Brands see this as an estimate, not a guarantee. With the CPM it sets the rate. Click to edit."});
+    if(c.key==="vg") return Object.assign({},c,{w:146,edit:"vg",head:k==="long"?"View Guarantee ✎":"View Estimate ✎",tip:k==="long"?"Click to edit what brands see. Holds until the quarter resets.":"Brands see this as an estimate, not a guarantee. Rate = estimate x $50 CPM, minimum $1,500. Click to edit."});
     if(c.key==="cpm") return Object.assign({},c,{edit:"cpm",head:"CPM ✎",w:84,tip:k==="long"?"Click to edit what brands see. Holds until the quarter resets.":"Not shown to brands. Sets the rate. Click to edit."});
     if(c.key==="rate") return Object.assign({},c,{tip:"Worked out from View Guarantee x CPM, minimum $1,500. Small YouTube rows are sold as a bundle of up to 4 videos instead of being lifted to $1,500."});
     return c;
@@ -348,7 +350,7 @@ function columns(){
   // (These used to be pinned, which made dragging them look like it did nothing.)
   const bc=brandColsFor();
   const cut=Math.max(...["rate","vg","cpm","minVideos"].map(k=>bc.findIndex(c=>c.key===k)));
-  const tc=kindOf()==="long"?TEAM_COLS:TEAM_COLS.map(c=>c.key==="lvg"?Object.assign({},c,{head:"Live Estimate",w:104}):c);
+  const tc=kindOf()==="long"?TEAM_COLS:TEAM_COLS.filter(c=>c.key!=="lcpm").map(c=>c.key==="lvg"?Object.assign({},c,{head:"Live Estimate",w:104}):c);
   return [{key:"sel",head:"",w:34,cls:"sel"},Object.assign({},name,{w:280})].concat(bc.slice(0,cut+1),tc,bc.slice(cut+1));
 }
 
