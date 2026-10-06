@@ -131,7 +131,7 @@ function brandNumbers(cv, K, kind) {
   return Object.assign(priceFrom(avg, kind), { basis: avg, quarter: "", note: "Provisional: today's average, until the quarterly snapshot runs", provisional: true });
 }
 
-// Bundles (Tom, 5 Oct 2026). A long-form channel or show whose single video cannot reach
+// Bundles (Tom, 5-6 Oct 2026). A long-form channel or show whose single video cannot reach
 // the $1,500 minimum at its CPM is sold as a short bundle instead: the fewest videos that
 // get there, up to 4, at the normal CPM, with the view guarantee covering the whole
 // bundle. YouTube tab only (channels and their shows); Shorts and socials are untouched.
@@ -140,8 +140,13 @@ const MAX_BUNDLE = 4;
 export function bundle(b, kind) {
   if (!b) return b;
   const out = Object.assign({}, b, { videos: 1, vgPer: b.vg, ratePer: b.rate });
-  if (kind !== "long" || b.rate > FLOOR + 1 || b.cpm <= CAP.long + 0.005) return out;
+  // A rate rounded to the dollar can leave $25.01; show the CPM it was priced at.
+  if (Math.abs(out.cpm - Math.round(out.cpm)) < 0.02) out.cpm = Math.round(out.cpm);
+  if (kind !== "long" || b.rate > FLOOR + 1) return out;
   const base = b.askCpm && b.askCpm < b.cpm - 0.01 ? b.askCpm : PRICE.long.cpm;
+  // Any row the $1,500 floor lifts above its CPM is bundled, not just those over the cap,
+  // so brands always see the house $25 CPM (Tom, 6 Oct 2026).
+  if (b.cpm <= base + 0.005) return out;
   const per = b.vg * base / 1000;
   const n = Math.ceil(FLOOR / per - 1e-9);
   if (n > MAX_BUNDLE) return Object.assign(out, { needs: n });
