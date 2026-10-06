@@ -157,6 +157,9 @@ function visibility(b, override, note, kind) {
   if (override === "Always show") return { show: true, why: "Always show (set by DFT)" };
   if (override === "Hide") return { show: false, why: "Hidden by DFT" };
   if (!b) return { show: false, why: "No figures yet" };
+  // Shorts, Instagram and TikTok are never hidden by a rule (Tom, 6 Oct 2026): brands see
+  // a rate and a View Estimate there, never the CPM, so the $1,500 minimum simply applies.
+  if (kind !== "long") return { show: true, why: "" };
   if (/^No uploads in/i.test(note || "")) return { show: false, why: String(note).split(";")[0] };
   if (b.needs) return { show: false, why: "Needs " + b.needs + " videos to reach $" + FLOOR.toLocaleString("en-US") + " (bundles go up to " + MAX_BUNDLE + ")" };
   if (b.cpm > CAP[kind] + 0.005) return { show: false, why: "CPM $" + b.cpm + " is over the $" + CAP[kind] + " cap" };
