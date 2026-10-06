@@ -61,7 +61,7 @@ const PRICE = { long: { mult: 1.5, cpm: 25 }, short: { mult: 1, cpm: 50 } };
 const FLOOR = 1500;
 // Every creator is sold with ads of up to 60 seconds (Tom, 5 Oct 2026). This replaced the
 // old "Videos / mo" column on the roster page.
-const AD_LENGTH = "Up to 60s";
+const AD_LENGTH = "30-90s"; // Margot asked for :60-:90; Tom chose 30-90s, 6 Oct 2026
 
 const C = {
   subs: "numeric_mm49cx8f", rate: "numeric_mm497vsg", vg: "numeric_mm49rr3n", cpm: "numeric_mm49bb66", avg: "numeric_mm49b3y2",
@@ -271,6 +271,9 @@ function baseFields(r) {
   };
   TEXT_FIELDS.forEach(k => { o[k] = /^(male|female|a\d|us|uk)/.test(k) ? pct(cv[C[k]]) : (cv[C[k]] || ""); });
   o.location = r.country || ""; // country, from the Global Talent Roster (see geoFor)
+  // One "About" column (Margot, 6 Oct 2026): the Audience Information copy reads better, so
+  // it is shown when present, with the short description as the fallback.
+  if (o.audience) o.about = o.audience;
   return o;
 }
 
