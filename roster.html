@@ -224,6 +224,7 @@ const GROUPS=[
   {id:"group_mm4bd5tk", label:"TikTok",           kind:"short"},
 ];
 const SHORTS_GROUP="group_mm4av3kr";
+const SHORT_HIDE=new Set(["male","female","a1317","a1824","a2534","a3544","a4554","a5564","us","uk","audience","adTypes","exclusive","host","hostGender"]);
 const RENAME={ "Down To Earth With Kristian Harloff (UAP NEWS)":"Down to Earth" };
 
 // Brand-facing columns. The order can be changed by the team (drag a header, then
@@ -312,6 +313,9 @@ function brandColsFor(){
   // Shorts / Instagram / TikTok show brands a rate and a View Estimate (not a guarantee),
   // never the CPM. Signed in, the team also sees and edits the CPM that sets the rate.
   let cols=BRAND_COLS.filter(c=>c.key==="vg"||!(c.longOnly&&k!=="long"&&!(team&&c.key==="cpm")));
+  // Shorts / Instagram / TikTok for brands: no demographics, audience, ad types,
+  // exclusivity, host or host gender columns (Tom, 6 Oct 2026). The DFT view keeps them.
+  if(k!=="long"&&!team) cols=cols.filter(c=>!SHORT_HIDE.has(c.key));
   if(k!=="long") cols=cols.map(c=>c.key==="vg"?Object.assign({},c,{head:"View Estimate",tip:"Estimated views per post, based on recent averages. An estimate, not a guarantee."}):c);
   if(team) cols=cols.map(c=>{
     if(c.key==="vg") return Object.assign({},c,{w:146,edit:"vg",head:k==="long"?"View Guarantee ✎":"View Estimate ✎",tip:k==="long"?"Click to edit what brands see. Holds until the quarter resets.":"Brands see this as an estimate, not a guarantee. With the CPM it sets the rate. Click to edit."});
