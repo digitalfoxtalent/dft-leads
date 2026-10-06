@@ -39,6 +39,13 @@ const CREATOR_BOARD = 6160485039;   // Global Talent Roster (State lives there)
 // the podcast apps is marked "Simulcast" - extra reach at the same rate, not a separate
 // price. The record of who is live as Simulcast is the Creator x Supplier Setup Register:
 // rows with Supplier Libsyn, Listing type Simulcast, Setup state Live, joined on YouTube handle.
+const GTR = { country: "dup__of_state6", state: "dup__of_email", yt: "text_mm6nqp7b", ig: "text_mm5pkgn1", tt: "text_mm5pqpaf", full: "dup__of_state" };
+const GTR_LIVE = new Set(["Youtube Long Form", "Short Form", "Need to set up with Suppliers", "Creator Applied", "To be let go"]);
+const COUNTRY_FIX = { "usa": "United States", "us": "United States", "u.s.": "United States", "united states of america": "United States", "uk": "United Kingdom", "u.k.": "United Kingdom" };
+const NAME_ALIAS = { normiesanime: "thenormies" }; // secondary channel with no roster row of its own
+const normCountry = c => { const t = String(c || "").trim(); return COUNTRY_FIX[t.toLowerCase()] || t; };
+const hkey = h => String(h || "").toLowerCase().replace(/^@/, "").replace(/[^a-z0-9_.]/g, "");
+const nkey = n => String(n || "").toLowerCase().replace(/\s*[-\u2013]\s*shorts\s*$/, "").replace(/[^a-z0-9]/g, "");
 const REGISTER_BOARD = 18430229380;
 const REG = { handle: "text_mm70axtt", supplier: "color_mm70wx2a", state: "color_mm708t66", type: "color_mm70bcs0" };
 const HOST = "roster-viewguarantee.digitalfoxtalent.com";
@@ -139,7 +146,13 @@ async function loadBoard() {
   if (cache && Date.now() - cache.at < 60 * 1000) return cache.data;
   const p = JSON.stringify(PCOLS), s = JSON.stringify(SCOLS);
   const groupQ = g => `query{boards(ids:[${BOARD}]){groups(ids:["${g}"]){id items_page(limit:200){items{id name column_values(ids:${p}){id text value} subitems{id name column_values(ids:${s}){id text}}}}}}}`;
-  const stateQ = `query{boards(ids:[${CREATOR_BOARD}]){items_page(limit:500){items{id column_values(ids:["dup__of_email"]){text}}}}}`;
+  // Location and State / Region come from the Global Talent Roster (Country dup__of_state6,
+  // State dup__of_email) - the agreed source since 9 Sep 2026. The rates board's own Location
+  // column had drifted (Red Arcade, Breakdowns & Blockbusters, AJM_Nerdcore and Film Paradise
+  // all read "United States"), and the Creator board relation the State used to come through
+  // is empty on every row, so State/Region showed blank for everyone. Rows are matched on
+  // handle (YouTube, Instagram or TikTok), then on name. Audit 6 Oct 2026.
+  const stateQ = `query{boards(ids:[${CREATOR_BOARD}]){items_page(limit:500){items{id name group{title} column_values(ids:${JSON.stringify(Object.values(GTR))}){id text}}}}}`;
   const listsQ = `query{boards(ids:[${LISTS_BOARD}]){items_page(limit:500){items{id name column_values(ids:${JSON.stringify(Object.values(L))}){id text}}}}}`;
   const regQ = `query{boards(ids:[${REGISTER_BOARD}]){items_page(limit:500){items{column_values(ids:${JSON.stringify(Object.values(REG))}){id text}}}}}`;
   const [groups, state, lists, register] = await Promise.all([
@@ -154,9 +167,26 @@ async function loadBoard() {
     if (v[REG.supplier] === "Libsyn" && v[REG.type] === "Simulcast" && v[REG.state] === "Live" && v[REG.handle])
       simulcast.add(v[REG.handle].replace(/^@/, "").toLowerCase());
   });
-  const stateById = {};
-  ((((state || {}).boards || [])[0] || {}).items_page || { items: [] }).items
-    .forEach(it => { stateById[String(it.id)] = ((it.column_values || [])[0] || {}).text || ""; });
+  const geoById = {}, geoByHandle = {}, geoByName = {};
+  ((((state || {}).boards || [])[0] || {}).items_page || { items: [] }).items.forEach(it => {
+    const v = {}; (it.column_values || []).forEach(c => { v[c.id] = (c.text || "").trim(); });
+    const country = normCountry(v[GTR.country]);
+    let region = v[GTR.state];
+    if (region && region.toLowerCase() === country.toLowerCase()) region = ""; // "Sweden / Sweden"
+    const geo = { country, region };
+    geoById[String(it.id)] = geo;
+    const live = GTR_LIVE.has((it.group || {}).title);
+    const put = (map, k) => { if (k && (live || !map[k])) map[k] = geo; };
+    [GTR.yt, GTR.ig, GTR.tt].forEach(k => put(geoByHandle, hkey(v[k])));
+    put(geoByName, nkey(it.name)); put(geoByName, nkey(v[GTR.full]));
+  });
+  const geoFor = (creatorId, handle, name, fallback) => {
+    const g = (creatorId && geoById[creatorId]) || geoByHandle[hkey(handle)] || geoByName[nkey(name)] || geoByName[NAME_ALIAS[nkey(name)]];
+    if (g && (g.country || g.region)) return g;
+    // No roster match: split the rates board's own text, e.g. "Tennessee, United States".
+    const parts = String(fallback || "").split(",").map(x => x.trim()).filter(Boolean);
+    return parts.length > 1 ? { country: normCountry(parts[parts.length - 1]), region: parts[0] } : { country: normCountry(parts[0] || ""), region: "" };
+  };
 
   const rows = [];
   groups.forEach((d, gi) => {
@@ -174,7 +204,8 @@ async function loadBoard() {
         return { id: String(sv.id), name: sv.name, cv: sc };
       });
       const sim = kind === "long" && simulcast.has(String(cv[C.handle] || "").replace(/^@/, "").toLowerCase());
-      rows.push({ id: String(it.id), name: it.name, group: GROUPS[gi].id, kind, cv, creator, adEx, state: creator ? (stateById[creator] || "") : "", shows, simulcast: sim });
+      const geo = geoFor(creator, cv[C.handle], it.name, cv[C.location]);
+      rows.push({ id: String(it.id), name: it.name, group: GROUPS[gi].id, kind, cv, creator, adEx, state: geo.region, country: geo.country, shows, simulcast: sim });
     });
   });
 
@@ -207,6 +238,7 @@ function baseFields(r) {
     simulcast: r.simulcast ? "Included" : "",
   };
   TEXT_FIELDS.forEach(k => { o[k] = /^(male|female|a\d|us|uk)/.test(k) ? pct(cv[C[k]]) : (cv[C[k]] || ""); });
+  o.location = r.country || ""; // country, from the Global Talent Roster (see geoFor)
   return o;
 }
 
