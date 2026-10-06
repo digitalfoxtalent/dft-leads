@@ -105,6 +105,7 @@
   .pill{ display:inline-block; font-size:10.5px; font-weight:700; border-radius:999px; padding:2px 8px; }
   .pill.ok{ background:#e3f3e9; color:var(--ok); }
   .pill.no{ background:#f9e3df; color:var(--hide); }
+  .pill.bundle{ background:#e8eefc; color:#2b4a9a; }
   .pill.prov{ background:#fff1d6; color:#8a5a00; margin-left:4px; }
   td.edit{ cursor:text; color:var(--team); font-weight:600; text-decoration:underline dotted #9db6cf; text-underline-offset:3px; }
   td.edit:hover{ background:#e1ecf7 !important; }
@@ -220,6 +221,7 @@ const BRAND_COLS=[
   {key:"rate",   head:"Rate",        w:92,  fmt:"money"},
   {key:"vg",     head:"View Guarantee", w:128, fmt:"int", longOnly:true},
   {key:"cpm",    head:"CPM",         w:64,  fmt:"money2", longOnly:true},
+  {key:"minVideos",head:"Min. videos", w:112, longOnly:true, tip:"Smaller channels are booked as a short bundle so the deal reaches the $1,500 minimum at the normal CPM. The rate and view guarantee cover the whole bundle."},
   {key:"simulcast",head:"Simulcast",  w:100, longOnly:true, tip:"Also published to Spotify Video, Apple Podcasts and other podcast apps. That extra reach is included at the same rate."},
   {key:"category",head:"Category",   w:116},
   {key:"host",   head:"Host",        w:138},
@@ -300,11 +302,13 @@ function brandColsFor(){
   if(team) cols=cols.map(c=>{
     if(c.key==="vg") return Object.assign({},c,{w:146,edit:"vg",head:k==="long"?"View Guarantee ✎":"Views basis ✎",tip:k==="long"?"Click to edit what brands see. Holds until the quarter resets.":"Not shown to brands. Sets the rate. Click to edit."});
     if(c.key==="cpm") return Object.assign({},c,{edit:"cpm",head:"CPM ✎",w:84,tip:k==="long"?"Click to edit what brands see. Holds until the quarter resets.":"Not shown to brands. Sets the rate. Click to edit."});
-    if(c.key==="rate") return Object.assign({},c,{tip:"Worked out from View Guarantee x CPM, minimum $1,500."});
+    if(c.key==="rate") return Object.assign({},c,{tip:"Worked out from View Guarantee x CPM, minimum $1,500. Small YouTube rows are sold as a bundle of up to 4 videos instead of being lifted to $1,500."});
     return c;
   });
   if(colOrder&&colOrder.length){
     const pos={}; colOrder.forEach((key,i)=>pos[key]=i);
+    // A column added after an order was saved slots in beside its neighbour, not at the end.
+    BRAND_COLS.forEach((c,i)=>{ if(pos[c.key]==null){ const prev=BRAND_COLS.slice(0,i).reverse().find(p=>pos[p.key]!=null); pos[c.key]=prev?pos[prev.key]+0.5:-0.5; } });
     cols=cols.slice().sort((a,b)=>(pos[a.key]??999)-(pos[b.key]??999));
   }
   return cols.map(c=>c.key==="subs"&&(activeTab==="group_mm4a1fe0"||activeTab==="group_mm4bd5tk")?Object.assign({},c,{head:"Followers"}):c);
@@ -316,7 +320,7 @@ function columns(){
   // DFT-only block slotted in straight after the last of Rate / View Guarantee / CPM.
   // (These used to be pinned, which made dragging them look like it did nothing.)
   const bc=brandColsFor();
-  const cut=Math.max(...["rate","vg","cpm"].map(k=>bc.findIndex(c=>c.key===k)));
+  const cut=Math.max(...["rate","vg","cpm","minVideos"].map(k=>bc.findIndex(c=>c.key===k)));
   return [{key:"sel",head:"",w:34,cls:"sel"},Object.assign({},name,{w:280})].concat(bc.slice(0,cut+1),TEAM_COLS,bc.slice(cut+1));
 }
 
@@ -336,6 +340,7 @@ function fmtCell(c,col,isShow){
   if(col.fmt==="money") return money(v);
   if(col.fmt==="money2") return money2(v);
   if(col.fmt==="int") return int(v);
+  if(col.key==="minVideos") return v==null?"":(v>1?`<span class="pill bundle" title="${esc(v+" videos. View guarantee and rate cover all "+v+(c.vgPer?" (about "+int(c.vgPer)+" views each)":""))}">${v} videos</span>`:"1");
   if(col.key==="simulcast") return v?`<span class="pill ok" title="Also on Spotify Video and podcast apps, included at this rate">${esc(v)}</span>`:"";
   if(col.key==="adEx") return v?`<a class="exlink" href="${esc(v)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">Examples ↗</a>`:"";
   return esc(v);
@@ -392,7 +397,7 @@ function rowsFor(list,cols){
       cols.forEach(col=>{
         let inner="", cl=(col.cls||"")+(col.t?" tcol":"");
         if(col.key==="name") inner=showNameCell(s);
-        else if(col.key==="rate"||col.key==="vg"||col.key==="cpm"||col.t) inner=fmtCell(s,col,true);
+        else if(col.key==="rate"||col.key==="vg"||col.key==="cpm"||col.key==="minVideos"||col.t) inner=fmtCell(s,col,true);
         if(col.edit&&mode==="team"){ cl+=" edit"; html+=`<td class="${cl}" data-edit="${col.edit}" data-id="${s.id}" data-show="1">${inner}</td>`; }
         else html+=`<td class="${cl}">${inner}</td>`;
       });
@@ -485,7 +490,7 @@ function wire(){
       e.preventDefault(); const target=th.dataset.key; if(!dragKey||target===dragKey) return;
       const right=e.clientX-th.getBoundingClientRect().left>th.getBoundingClientRect().width/2;
       const keys=(colOrder&&colOrder.length?colOrder:BRAND_COLS.map(c=>c.key)).slice();
-      BRAND_COLS.forEach(c=>{ if(!keys.includes(c.key)) keys.push(c.key); });
+      BRAND_COLS.forEach((c,i)=>{ if(keys.includes(c.key)) return; const prev=BRAND_COLS.slice(0,i).reverse().find(p=>keys.includes(p.key)); keys.splice(prev?keys.indexOf(prev.key)+1:0,0,c.key); });
       keys.splice(keys.indexOf(dragKey),1);
       keys.splice(keys.indexOf(target)+(right?1:0),0,dragKey);
       colOrder=keys; layoutChanged(); dragKey=null; render();
@@ -526,8 +531,9 @@ function findRow(id){
 function startEdit(td){
   if(td.querySelector("input")) return;
   const f=findRow(td.dataset.id); if(!f) return;
-  const field=td.dataset.edit, cur=f.row.brand?f.row.brand[field]:"";
-  td.innerHTML=`<input type="number" min="0" step="${field==="cpm"?"0.01":"1"}" value="${cur==null?"":cur}">`;
+  // Views are edited per video (a bundle's guarantee is that x the number of videos).
+  const field=td.dataset.edit, cur=!f.row.brand?"":field==="vg"?(f.row.vgPer!=null?f.row.vgPer:f.row.brand.vg):(f.row.cpm!=null?f.row.cpm:f.row.brand.cpm);
+  td.innerHTML=`<input type="number" min="0" step="${field==="cpm"?"0.01":"1"}" value="${cur==null?"":cur}"${field==="vg"&&f.row.minVideos>1?` title="Views per video. The bundle guarantee is this x ${f.row.minVideos}."`:""}>`;
   const inp=td.querySelector("input"); inp.focus(); inp.select();
   let done=false;
   const finish=commit=>{ if(done) return; done=true;

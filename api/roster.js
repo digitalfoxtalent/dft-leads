@@ -120,10 +120,29 @@ export function priceFrom(avg, kind) {
 // the same way from today's average.
 function brandNumbers(cv, K, kind) {
   const vg = pos(cv[K.bvg]), rate = pos(cv[K.brate]);
-  if (vg && rate) return { vg, rate, cpm: pos(cv[K.bcpm]) || r2(rate * 1000 / vg), basis: pos(cv[K.bbasis]), quarter: cv[K.bq] || "", note: cv[K.bnote] || "", provisional: false };
+  // cpm is always the effective one (rate / views). askCpm is the CPM that was asked
+  // for: the same thing, except on a row lifted by the $1,500 floor after a DFT edit.
+  if (vg && rate) { const eff = r2(rate * 1000 / vg); return { vg, rate, cpm: eff, askCpm: pos(cv[K.bcpm]) || eff, basis: pos(cv[K.bbasis]), quarter: cv[K.bq] || "", note: cv[K.bnote] || "", provisional: false }; }
   const avg = pos(cv[K.avg]);
   if (!avg) return null;
   return Object.assign(priceFrom(avg, kind), { basis: avg, quarter: "", note: "Provisional: today's average, until the quarterly snapshot runs", provisional: true });
+}
+
+// Bundles (Tom, 5 Oct 2026). A long-form channel or show whose single video cannot reach
+// the $1,500 minimum at its CPM is sold as a short bundle instead: the fewest videos that
+// get there, up to 4, at the normal CPM, with the view guarantee covering the whole
+// bundle. YouTube tab only (channels and their shows); Shorts and socials are untouched.
+// Past 4 videos the row stays hidden as before.
+const MAX_BUNDLE = 4;
+export function bundle(b, kind) {
+  if (!b) return b;
+  const out = Object.assign({}, b, { videos: 1, vgPer: b.vg, ratePer: b.rate });
+  if (kind !== "long" || b.rate > FLOOR + 1 || b.cpm <= CAP.long + 0.005) return out;
+  const base = b.askCpm && b.askCpm < b.cpm - 0.01 ? b.askCpm : PRICE.long.cpm;
+  const per = b.vg * base / 1000;
+  const n = Math.ceil(FLOOR / per - 1e-9);
+  if (n > MAX_BUNDLE) return Object.assign(out, { needs: n });
+  return Object.assign(out, { videos: n, vg: b.vg * n, rate: Math.round(per * n), cpm: r2(base), ratePer: Math.round(per) });
 }
 
 function visibility(b, override, note, kind) {
@@ -131,7 +150,9 @@ function visibility(b, override, note, kind) {
   if (override === "Hide") return { show: false, why: "Hidden by DFT" };
   if (!b) return { show: false, why: "No figures yet" };
   if (/^No uploads in/i.test(note || "")) return { show: false, why: String(note).split(";")[0] };
+  if (b.needs) return { show: false, why: "Needs " + b.needs + " videos to reach $" + FLOOR.toLocaleString("en-US") + " (bundles go up to " + MAX_BUNDLE + ")" };
   if (b.cpm > CAP[kind] + 0.005) return { show: false, why: "CPM $" + b.cpm + " is over the $" + CAP[kind] + " cap" };
+  if (b.videos > 1) return { show: true, why: "Sold as a " + b.videos + "-video bundle" };
   return { show: true, why: "" };
 }
 
@@ -243,38 +264,40 @@ function baseFields(r) {
 }
 
 function brandRow(r, includeHiddenByRule) {
-  const b = brandNumbers(r.cv, C, r.kind);
+  const b = bundle(brandNumbers(r.cv, C, r.kind), r.kind);
   const v = visibility(b, r.cv[C.vis], r.cv[C.bnote], r.kind);
   const allowed = v.show || (includeHiddenByRule && b && r.cv[C.vis] !== "Hide");
   if (!allowed) return null;
   const o = baseFields(r);
   o.rate = b.rate;
-  if (r.kind === "long") { o.vg = b.vg; o.cpm = b.cpm; }
+  if (r.kind === "long") { o.vg = b.vg; o.cpm = b.cpm; o.minVideos = b.videos; o.vgPer = b.vgPer; }
   o.shows = r.kind !== "long" ? [] : r.shows.map(s => {
-    const sb = brandNumbers(s.cv, SC, "long");
+    const sb = bundle(brandNumbers(s.cv, SC, "long"), "long");
     const sv = visibility(sb, s.cv[SC.vis], s.cv[SC.bnote], "long");
     if (!(sv.show || (includeHiddenByRule && sb && s.cv[SC.vis] !== "Hide"))) return null;
-    return { id: s.id, name: s.name, url: s.cv[SC.url] || "", rate: sb.rate, vg: sb.vg, cpm: sb.cpm };
-  }).filter(Boolean).sort((a, b) => b.vg - a.vg);
+    return { id: s.id, name: s.name, url: s.cv[SC.url] || "", rate: sb.rate, vg: sb.vg, cpm: sb.cpm, minVideos: sb.videos, vgPer: sb.vgPer };
+  }).filter(Boolean).sort((a, b) => b.vgPer - a.vgPer);
   return o;
 }
 
 function teamRow(r) {
   const o = baseFields(r);
-  const b = brandNumbers(r.cv, C, r.kind);
+  const b = bundle(brandNumbers(r.cv, C, r.kind), r.kind);
   const v = visibility(b, r.cv[C.vis], r.cv[C.bnote], r.kind);
   Object.assign(o, {
     brand: b, override: r.cv[C.vis] || "Auto", show: v.show, why: v.why,
     live: { avg: pos(r.cv[C.avg]), vg: pos(r.cv[C.vg]), rate: pos(r.cv[C.rate]), cpm: pos(r.cv[C.cpm]), lastPub: r.cv[C.lastPub] || "" },
     rate: b ? b.rate : null, vg: b ? b.vg : null, cpm: b ? b.cpm : null,
+    minVideos: b && r.kind === "long" ? b.videos : null, vgPer: b ? b.vgPer : null,
   });
   o.shows = r.shows.map(s => {
-    const sb = brandNumbers(s.cv, SC, "long");
+    const sb = bundle(brandNumbers(s.cv, SC, "long"), "long");
     const sv = visibility(sb, s.cv[SC.vis], s.cv[SC.bnote], "long");
     return { id: s.id, name: s.name, url: s.cv[SC.url] || "", brand: sb, override: s.cv[SC.vis] || "Auto", show: sv.show, why: sv.why,
       rate: sb ? sb.rate : null, vg: sb ? sb.vg : null, cpm: sb ? sb.cpm : null,
+      minVideos: sb ? sb.videos : null, vgPer: sb ? sb.vgPer : null,
       live: { avg: pos(s.cv[SC.avg]), vg: pos(s.cv[SC.vg]), rate: pos(s.cv[SC.rate]), cpm: pos(s.cv[SC.cpm]) } };
-  }).sort((a, b) => (b.vg || 0) - (a.vg || 0));
+  }).sort((a, b) => (b.vgPer || 0) - (a.vgPer || 0));
   return o;
 }
 
@@ -290,7 +313,7 @@ function brandPayload(data, list) {
   if (ids) { // keep the order the list was saved in
     const order = {}; (list.body.ids || []).forEach((id, i) => { order[String(id)] = i; });
     Object.values(groups).forEach(a => a.sort((x, y) => order[x.id] - order[y.id]));
-  } else Object.values(groups).forEach(a => a.sort((x, y) => (y.vg || y.rate || 0) - (x.vg || x.rate || 0)));
+  } else Object.values(groups).forEach(a => a.sort((x, y) => (y.vgPer || y.vg || y.rate || 0) - (x.vgPer || x.vg || x.rate || 0)));
   return { view: "brand", quarter: quarterLabel(), columns: data.columns, rows: ids ? {} : data.rowOrder, list: list ? { title: list.name, slug: list.slug, manual: !!list.body.manual } : null, groups };
 }
 
@@ -298,7 +321,7 @@ function teamPayload(data, email) {
   const groups = {};
   GROUPS.forEach(g => { groups[g.id] = []; });
   data.rows.forEach(r => groups[r.group].push(teamRow(r)));
-  Object.values(groups).forEach(a => a.sort((x, y) => (y.vg || 0) - (x.vg || 0)));
+  Object.values(groups).forEach(a => a.sort((x, y) => (y.vgPer || 0) - (x.vgPer || 0)));
   return { view: "team", email, quarter: quarterLabel(), columns: data.columns, rows: data.rowOrder, groups,
     lists: data.lists.map(l => ({ id: l.id, title: l.name, slug: l.slug, ids: l.body.ids || [], by: l.by, updated: l.updated })) };
 }
@@ -336,9 +359,10 @@ async function editRow(b, email) {
     if (!(vg > 0) || !(cpm > 0) || cpm > 10000 || vg > 1e9) throw new Error("View guarantee and CPM must be positive numbers");
     let rate = Math.round(vg * cpm / 1000);
     if (rate < FLOOR) rate = FLOOR;
-    const eff = r2(rate * 1000 / vg);
+    // Brand CPM keeps the CPM that was asked for (not rate / views), so a small row lifted
+    // by the floor is bundled at the CPM DFT chose rather than the house $25.
     Object.assign(values, {
-      [K.bvg]: String(vg), [K.bcpm]: String(eff), [K.brate]: String(rate), [K.bq]: quarterLabel(),
+      [K.bvg]: String(vg), [K.bcpm]: String(r2(cpm)), [K.brate]: String(rate), [K.bq]: quarterLabel(),
       [K.bnote]: "Edited by " + email + " on " + stamp() + " (was VG " + (cur.vg || "-") + ", CPM $" + (cur.cpm || "-") + "); resets next quarter",
     });
   }
