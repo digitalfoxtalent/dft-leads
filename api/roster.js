@@ -296,6 +296,9 @@ function brandRow(r, includeHiddenByRule, prices, team) {
   const o = baseFields(r);
   o.rate = b.rate;
   if (r.kind === "long") { o.vg = b.vg; o.cpm = b.cpm; o.minVideos = b.videos; o.vgPer = b.vgPer; }
+  // Shorts, Instagram and TikTok: brands see the views figure as a View Estimate (not a
+  // guarantee) and never the CPM (Tom, 6 Oct 2026).
+  else o.vg = b.vg || null;
   if (team && b.custom) o.custom = true; // only the team sees which prices are list-only
   o.shows = r.kind !== "long" ? [] : r.shows.map(s => {
     const sown = brandNumbers(s.cv, SC, "long");
@@ -307,13 +310,23 @@ function brandRow(r, includeHiddenByRule, prices, team) {
   return o;
 }
 
+// Live (daily) figures for the blue columns. The daily syncs still write YouTube-style
+// pricing (1.5x average, $25 CPM) onto Shorts, Instagram and TikTok rows, so for those the
+// live view guarantee, rate and CPM are re-priced here from the live average the way
+// brands are priced: 1x average at $50 CPM, $1,500 minimum (Tom, 6 Oct 2026).
+function liveFor(r) {
+  const avg = pos(r.cv[C.avg]), lastPub = r.cv[C.lastPub] || "";
+  if (r.kind !== "long") { const p = avg ? priceFrom(avg, "short") : {}; return { avg, vg: p.vg || null, rate: p.rate || null, cpm: p.cpm || null, lastPub }; }
+  return { avg, vg: pos(r.cv[C.vg]), rate: pos(r.cv[C.rate]), cpm: pos(r.cv[C.cpm]), lastPub };
+}
+
 function teamRow(r) {
   const o = baseFields(r);
   const b = bundle(brandNumbers(r.cv, C, r.kind), r.kind);
   const v = visibility(b, r.cv[C.vis], r.cv[C.bnote], r.kind);
   Object.assign(o, {
     brand: b, override: r.cv[C.vis] || "Auto", show: v.show, why: v.why,
-    live: { avg: pos(r.cv[C.avg]), vg: pos(r.cv[C.vg]), rate: pos(r.cv[C.rate]), cpm: pos(r.cv[C.cpm]), lastPub: r.cv[C.lastPub] || "" },
+    live: liveFor(r),
     rate: b ? b.rate : null, vg: b ? b.vg : null, cpm: b ? b.cpm : null,
     minVideos: b && r.kind === "long" ? b.videos : null, vgPer: b ? b.vgPer : null,
   });
@@ -328,21 +341,44 @@ function teamRow(r) {
   return o;
 }
 
-function brandPayload(data, list, team) {
+// Campaign lock (Tom, 6 Oct 2026). Lists follow the quarter by default. Locking a list
+// for a campaign keeps every price on it as it was when locked, past the quarter reset,
+// until it is unlocked. Stored as { lock: { on, by, quarter, rows: { id: numbers } } }.
+const LOCK_FIELDS = ["rate", "vg", "cpm", "minVideos", "vgPer"];
+function applyLock(o, lock) {
+  const put = (x) => { const n = lock.rows && lock.rows[x.id]; if (n) LOCK_FIELDS.forEach(k => { if (n[k] != null) x[k] = n[k]; }); };
+  put(o); (o.shows || []).forEach(put);
+}
+function lockSnapshot(data, list, onlyIds) {
+  const p = brandPayload(data, list, false, true);
+  const rows = {};
+  Object.values(p.groups).forEach(a => a.forEach(o => {
+    [o].concat(o.shows || []).forEach(x => {
+      if (onlyIds && !onlyIds.has(String(x.id)) && !onlyIds.has(String(o.id))) return;
+      const n = {}; LOCK_FIELDS.forEach(k => { if (x[k] != null) n[k] = x[k]; }); rows[x.id] = n;
+    });
+  }));
+  return rows;
+}
+
+function brandPayload(data, list, team, noLock) {
   const ids = list ? new Set((list.body.ids || []).map(String)) : null;
   const prices = (list && list.body.prices) || {};
+  const lock = list && list.body.lock;
   const groups = {};
   GROUPS.forEach(g => { groups[g.id] = []; });
   data.rows.forEach(r => {
     if (ids && !ids.has(r.id)) return;
     const o = brandRow(r, !!ids, prices, team);
+    if (o && lock && !noLock) applyLock(o, lock);
     if (o) groups[r.group].push(o);
   });
   if (ids) { // keep the order the list was saved in
     const order = {}; (list.body.ids || []).forEach((id, i) => { order[String(id)] = i; });
     Object.values(groups).forEach(a => a.sort((x, y) => order[x.id] - order[y.id]));
   } else Object.values(groups).forEach(a => a.sort((x, y) => (y.vgPer || y.vg || y.rate || 0) - (x.vgPer || x.vg || x.rate || 0)));
-  return { view: "brand", quarter: quarterLabel(), columns: data.columns, rows: ids ? {} : data.rowOrder, list: list ? { title: list.name, slug: list.slug, manual: !!list.body.manual } : null, groups };
+  return { view: "brand", quarter: quarterLabel(), columns: data.columns, rows: ids ? {} : data.rowOrder, list: list ? { title: list.name, slug: list.slug, manual: !!list.body.manual,
+    lock: list.body.lock ? { on: list.body.lock.on, quarter: list.body.lock.quarter } : null } : null, groups };
 }
 
 function teamPayload(data, email) {
@@ -351,7 +387,7 @@ function teamPayload(data, email) {
   data.rows.forEach(r => groups[r.group].push(teamRow(r)));
   Object.values(groups).forEach(a => a.sort((x, y) => (y.vgPer || 0) - (x.vgPer || 0)));
   return { view: "team", email, quarter: quarterLabel(), columns: data.columns, rows: data.rowOrder, groups,
-    lists: data.lists.map(l => ({ id: l.id, title: l.name, slug: l.slug, ids: l.body.ids || [], by: l.by, updated: l.updated })) };
+    lists: data.lists.map(l => ({ id: l.id, title: l.name, slug: l.slug, ids: l.body.ids || [], by: l.by, updated: l.updated, locked: l.body.lock ? l.body.lock.on : "" })) };
 }
 
 // ---------------------------------------------------------------- writes (team only)
@@ -431,7 +467,12 @@ async function saveList(b, email) {
   if (!ids.length) throw new Error("Pick at least one creator");
   const data = await loadBoard();
   const existing = b.slug ? data.lists.find(l => l.slug === b.slug) : null;
-  const items = JSON.stringify(Object.assign({}, existing ? existing.body : {}, { ids }));
+  const nextBody = Object.assign({}, existing ? existing.body : {}, { ids });
+  if (existing && nextBody.lock) { // creators added to a locked list are locked at today's prices
+    const fresh = new Set(ids.filter(id => !(nextBody.lock.rows || {})[id]));
+    if (fresh.size) nextBody.lock = Object.assign({}, nextBody.lock, { rows: Object.assign({}, nextBody.lock.rows, lockSnapshot(data, { name: title, slug: existing.slug, body: nextBody }, fresh)) });
+  }
+  const items = JSON.stringify(nextBody);
   if (existing) {
     await monday("mutation($b:ID!,$i:ID!,$v:JSON!){change_multiple_column_values(board_id:$b,item_id:$i,column_values:$v){id}}",
       { b: String(LISTS_BOARD), i: existing.id, v: JSON.stringify({ name: title, [L.items]: { text: items }, [L.updated]: email + " " + stamp() }) });
@@ -479,6 +520,25 @@ async function listPrice(b, email) {
     prices[id] = { rate };
   }
   const body = Object.assign({}, list.body, { prices });
+  if (body.lock) { // a price changed on a locked list is locked at its new value
+    const snap = lockSnapshot(data, Object.assign({}, list, { body }), new Set([id]));
+    const rows = Object.assign({}, body.lock.rows); delete rows[id]; Object.assign(rows, snap);
+    body.lock = Object.assign({}, body.lock, { rows });
+  }
+  await monday("mutation($b:ID!,$i:ID!,$v:JSON!){change_multiple_column_values(board_id:$b,item_id:$i,column_values:$v){id}}",
+    { b: String(LISTS_BOARD), i: list.id, v: JSON.stringify({ [L.items]: { text: JSON.stringify(body) }, [L.updated]: email + " " + stamp() }) });
+  cache = null;
+  const fresh = await loadBoard();
+  return brandPayload(fresh, fresh.lists.find(x => x.slug === list.slug) || Object.assign({}, list, { body }), true);
+}
+
+async function listLock(b, email) {
+  const data = await loadBoard();
+  const list = data.lists.find(x => x.slug === String(b.slug || ""));
+  if (!list) throw new Error("list not found");
+  const body = Object.assign({}, list.body);
+  if (b.lock) body.lock = { on: stamp(), by: email, quarter: quarterLabel(), rows: lockSnapshot(data, list) };
+  else delete body.lock;
   await monday("mutation($b:ID!,$i:ID!,$v:JSON!){change_multiple_column_values(board_id:$b,item_id:$i,column_values:$v){id}}",
     { b: String(LISTS_BOARD), i: list.id, v: JSON.stringify({ [L.items]: { text: JSON.stringify(body) }, [L.updated]: email + " " + stamp() }) });
   cache = null;
@@ -548,6 +608,7 @@ export default async function handler(req, res) {
         if (b.op === "delete-list") return res.status(200).json(await deleteList(b));
         if (b.op === "columns") return res.status(200).json(await saveColumns(b, email));
         if (b.op === "list-price") return res.status(200).json(await listPrice(b, email));
+        if (b.op === "list-lock") return res.status(200).json(await listLock(b, email));
       } catch (e) {
         return res.status(400).json({ error: String(e && e.message || e) });
       }

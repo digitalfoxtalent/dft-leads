@@ -141,6 +141,9 @@
   .tab .n{ font-size:10.5px; font-weight:700; opacity:.65; }
   .tab:hover{ color:var(--charcoal); background:#faf6f0; }
   .tab.active{ color:var(--charcoal); border-top-color:var(--orange); background:#fff5ea; }
+  .tab .x{ margin-left:2px; font-size:13px; line-height:1; color:#b0a596; padding:2px 4px; border-radius:4px; }
+  .tab .x:hover{ color:#fff; background:var(--hide); }
+  .tab .x.confirm{ color:#fff; background:var(--hide); font-size:10.5px; font-weight:700; }
 
   /* Selection bar */
   .selbar{ display:none; align-items:center; gap:8px; flex-wrap:wrap; padding:10px 16px; background:var(--charcoal); color:#fff; font-size:12.5px; }
@@ -306,11 +309,12 @@ function dispHandle(c){
 function brandColsFor(){
   const k=kindOf();
   const team=mode==="team";
-  // Shorts / Instagram / TikTok show brands a rate only. Signed in, the team still sees and
-  // edits the views and CPM that set that rate (marked as not shown to brands).
-  let cols=BRAND_COLS.filter(c=>!(c.longOnly&&k!=="long"&&!(team&&(c.key==="vg"||c.key==="cpm"))));
+  // Shorts / Instagram / TikTok show brands a rate and a View Estimate (not a guarantee),
+  // never the CPM. Signed in, the team also sees and edits the CPM that sets the rate.
+  let cols=BRAND_COLS.filter(c=>c.key==="vg"||!(c.longOnly&&k!=="long"&&!(team&&c.key==="cpm")));
+  if(k!=="long") cols=cols.map(c=>c.key==="vg"?Object.assign({},c,{head:"View Estimate",tip:"Estimated views per post, based on recent averages. An estimate, not a guarantee."}):c);
   if(team) cols=cols.map(c=>{
-    if(c.key==="vg") return Object.assign({},c,{w:146,edit:"vg",head:k==="long"?"View Guarantee ✎":"Views basis ✎",tip:k==="long"?"Click to edit what brands see. Holds until the quarter resets.":"Not shown to brands. Sets the rate. Click to edit."});
+    if(c.key==="vg") return Object.assign({},c,{w:146,edit:"vg",head:k==="long"?"View Guarantee ✎":"View Estimate ✎",tip:k==="long"?"Click to edit what brands see. Holds until the quarter resets.":"Brands see this as an estimate, not a guarantee. With the CPM it sets the rate. Click to edit."});
     if(c.key==="cpm") return Object.assign({},c,{edit:"cpm",head:"CPM ✎",w:84,tip:k==="long"?"Click to edit what brands see. Holds until the quarter resets.":"Not shown to brands. Sets the rate. Click to edit."});
     if(c.key==="rate") return Object.assign({},c,{tip:"Worked out from View Guarantee x CPM, minimum $1,500. Small YouTube rows are sold as a bundle of up to 4 videos instead of being lifted to $1,500."});
     return c;
@@ -340,7 +344,8 @@ function columns(){
   // (These used to be pinned, which made dragging them look like it did nothing.)
   const bc=brandColsFor();
   const cut=Math.max(...["rate","vg","cpm","minVideos"].map(k=>bc.findIndex(c=>c.key===k)));
-  return [{key:"sel",head:"",w:34,cls:"sel"},Object.assign({},name,{w:280})].concat(bc.slice(0,cut+1),TEAM_COLS,bc.slice(cut+1));
+  const tc=kindOf()==="long"?TEAM_COLS:TEAM_COLS.map(c=>c.key==="lvg"?Object.assign({},c,{head:"Live Estimate",w:104}):c);
+  return [{key:"sel",head:"",w:34,cls:"sel"},Object.assign({},name,{w:280})].concat(bc.slice(0,cut+1),tc,bc.slice(cut+1));
 }
 
 function cellVal(c,col){
@@ -464,15 +469,15 @@ const isPitch=()=>!!(BRAND&&BRAND.list&&mode!=="team");
 function sumBy(list,k){ return list.reduce((a,c)=>a+(typeof c[k]==="number"?c[k]:0),0); }
 function totalsRow(list,cols){
   const long=kindOf()==="long";
-  const rate=sumBy(list,"rate"), vg=long?sumBy(list,"vg"):0, subs=sumBy(list,"subs");
+  const rate=sumBy(list,"rate"), vg=sumBy(list,"vg"), subs=sumBy(list,"subs");
   const vids=long?list.reduce((a,c)=>a+(c.minVideos||1),0):list.length;
   const cell=k=>{
     switch(k){
       case "name": return `Total<span class="sub">${list.length} creator${list.length===1?"":"s"}</span>`;
       case "subs": return int(subs);
       case "rate": return money(rate);
-      case "vg": return vg?int(vg)+'<span class="sub">guaranteed views</span>':"";
-      case "cpm": return vg?money2(Math.round(rate*100000/vg)/100):"";
+      case "vg": return vg?int(vg)+`<span class="sub">${long?"guaranteed views":"estimated views"}</span>`:"";
+      case "cpm": return long&&vg?money2(Math.round(rate*100000/vg)/100):"";
       case "minVideos": return `${vids} video${vids===1?"":"s"}`;
       default: return "";
     }
@@ -481,9 +486,9 @@ function totalsRow(list,cols){
 }
 function packageSummary(){
   const all=GROUPS.reduce((a,g)=>a.concat((BRAND.groups[g.id]||[]).map(c=>Object.assign({kind:g.kind},c))),[]);
-  const rate=sumBy(all,"rate"), vg=sumBy(all.filter(c=>c.kind==="long"),"vg");
+  const rate=sumBy(all,"rate"), vg=sumBy(all.filter(c=>c.kind==="long"),"vg"), est=sumBy(all.filter(c=>c.kind!=="long"),"vg");
   const vids=all.reduce((a,c)=>a+(c.kind==="long"?(c.minVideos||1):1),0);
-  return `<span class="pkg"><span>Package total <b>${money(rate)}</b></span><span><b>${all.length}</b> profile${all.length===1?"":"s"}</span><span><b>${vids}</b> video${vids===1?"":"s"}</span>${vg?`<span><b>${int(vg)}</b> guaranteed YouTube views</span>`:""}</span>`;
+  return `<span class="pkg"><span>Package total <b>${money(rate)}</b></span><span><b>${all.length}</b> profile${all.length===1?"":"s"}</span><span><b>${vids}</b> video${vids===1?"":"s"}</span>${vg?`<span><b>${int(vg)}</b> guaranteed YouTube views</span>`:""}${est?`<span><b>${int(est)}</b> estimated short-form views</span>`:""}</span>`;
 }
 
 function render(){
@@ -664,7 +669,7 @@ function renderPanel(){
   const lists=(TEAM&&TEAM.lists)||[];
   $("#panel").innerHTML=`<h3>Saved lists</h3>`+(lists.length?lists.map(l=>`<div class="li">
     <div class="tt">${esc(l.title)}</div>
-    <div class="mm">${l.ids.length} creators · ${esc(l.by||"")}${l.updated?" · updated "+esc(l.updated):""}</div>
+    <div class="mm">${l.ids.length} creators · ${esc(l.by||"")}${l.updated?" · updated "+esc(l.updated):""}${l.locked?" · prices locked "+esc(fmtDate(l.locked)):""}</div>
     <div class="acts">
       <button class="btn" data-a="copy" data-s="${esc(l.slug)}">Copy link</button>
       <a class="btn" href="/r/${esc(l.slug)}" target="_blank">Open as brand</a>
@@ -686,27 +691,65 @@ function setMode(m){
   $("#vTeam").classList.toggle("on",m==="team"); $("#vBrand").classList.toggle("on",m!=="team");
   renderBanner(); renderTabs(); render();
 }
+// Campaign lock: a list follows the quarter unless it is locked for a campaign.
+function lockButton(){
+  const lk=BRAND&&BRAND.list&&BRAND.list.lock;
+  return lk
+    ?` <button class="btn" id="lockBtn" data-lock="0" title="Go back to updating with each quarter">Locked for this campaign on ${esc(fmtDate(lk.on))} · Unlock</button>`
+    :` <button class="btn" id="lockBtn" data-lock="1" title="Keep these prices past the quarter reset, for this campaign">Lock prices for this campaign</button>`;
+}
+const fmtDate=d=>{ const t=new Date(String(d)+"T12:00:00Z"); return isNaN(t)?String(d||""):t.toLocaleDateString("en-US",{day:"numeric",month:"short",year:"numeric"}); };
+async function toggleLock(on){
+  try{ const j=await post({op:"list-lock",slug:LIST_SLUG,lock:on}); applyBrand(j); toast(on?"Prices locked for this campaign":"Unlocked: this list follows the quarterly prices again"); loadTeam(true).catch(()=>{}); }
+  catch(e){ toast(e.message,true); }
+}
 function renderBanner(){
   const b=$("#banner");
   if(TEAM){
     b.className="banner"; b.style.display="";
     b.innerHTML=`Signed in as <b>${esc(TEAM.email)}</b> · ${mode==="team"
       ?"Blue columns are DFT-only. Click an underlined number to change what brands see, or the eye to show or hide a creator. Drag the ⠿ handles to move rows and columns."
-      :(listEdit()?"Pitch list preview: click an underlined number to change it for this list only. The roster and other lists stay as they are.":"Brand preview: exactly what brands see.")}${listEdit()?packageSummary():'<span class="spacer"></span>'}<a href="/auth/signout" style="text-decoration:underline;margin-left:${listEdit()?"14px":"0"}">Sign out</a>`;
+      :(listEdit()?"Pitch list preview: click an underlined number to change it for this list only. The roster and other lists stay as they are."+lockButton():"Brand preview: exactly what brands see.")}${listEdit()?packageSummary():'<span class="spacer"></span>'}<a href="/auth/signout" style="text-decoration:underline;margin-left:${listEdit()?"14px":"0"}">Sign out</a>`;
+    const lb=$("#lockBtn"); if(lb) lb.onclick=()=>toggleLock(lb.dataset.lock==="1");
   } else if(BRAND&&BRAND.list){
     b.className="banner list"; b.style.display="";
     b.innerHTML=`Prepared for you by Digital Fox Talent: <b>${esc(BRAND.list.title)}</b>${packageSummary()}`;
   } else b.style.display="none";
 }
 function renderTabs(){
+  const onList=!!(BRAND&&BRAND.list&&mode!=="team");
   const vis=GROUPS.filter(g=>(PAYLOAD.groups[g.id]||[]).length||!(BRAND&&BRAND.list));
   if(!vis.find(g=>g.id===activeTab)&&vis.length) activeTab=vis[0].id;
-  $("#tabs").innerHTML=vis.map(g=>`<button class="tab ${g.id===activeTab?"active":""}" data-g="${g.id}">${esc(g.label)}<span class="n">${(PAYLOAD.groups[g.id]||[]).length}</span></button>`).join("");
+  // Saved lists (Tom, 6 Oct 2026): platforms with no creators on the list have no tab, and
+  // a list on one platform has no tab bar at all. Signed in, each tab of a list with
+  // several platforms has an x that takes that platform's creators off the list.
+  $("#tabs").style.display=onList&&vis.length<=1?"none":"";
+  const canRemove=listEdit()&&vis.length>1;
+  $("#tabs").innerHTML=vis.map(g=>`<button class="tab ${g.id===activeTab?"active":""}" data-g="${g.id}">${esc(g.label)}<span class="n">${(PAYLOAD.groups[g.id]||[]).length}</span>${canRemove?`<span class="x" data-g="${g.id}" title="Take ${esc(g.label)} off this list">&times;</span>`:""}</button>`).join("");
   $("#tabs").querySelectorAll(".tab").forEach(b=>b.onclick=()=>{activeTab=b.dataset.g; sortKey=null; renderTabs(); render(); $("#scroll").scrollTop=0;});
+  $("#tabs").querySelectorAll(".x").forEach(x=>x.onclick=e=>{
+    e.stopPropagation();
+    if(!x.classList.contains("confirm")){ x.classList.add("confirm"); x.textContent="Remove?"; setTimeout(()=>{ if(x.isConnected){ x.classList.remove("confirm"); x.innerHTML="&times;"; } },4000); return; }
+    removeTabFromList(x.dataset.g);
+  });
+}
+async function removeTabFromList(gid){
+  const l=((TEAM&&TEAM.lists)||[]).find(x=>x.slug===LIST_SLUG); if(!l) return;
+  const drop=new Set((BRAND.groups[gid]||[]).map(c=>String(c.id)));
+  const ids=l.ids.map(String).filter(id=>!drop.has(id));
+  if(!ids.length) return;
+  const label=(GROUPS.find(g=>g.id===gid)||{}).label||"That tab";
+  try{
+    await post({op:"save-list",title:BRAND.list.title,ids,slug:LIST_SLUG});
+    l.ids=ids; await loadBrand(true);
+    toast(label+" taken off this list. Add creators back from the DFT view.");
+  }catch(e){ toast(e.message,true); }
 }
 function applyBrand(p){
   BRAND=p; if(!TEAM) applyLayout(p);
-  $("#subtitle").textContent=`Rates valid for ${p.quarter} · ${p.list?"a selection from our roster":"updated once a quarter"}`;
+  $("#subtitle").textContent=p.list&&p.list.lock
+    ?`Prices fixed for this campaign (set ${fmtDate(p.list.lock.on)}) · a selection from our roster`
+    :`Rates valid for ${p.quarter} · ${p.list?"a selection from our roster":"updated once a quarter"}`;
   if(p.list) $("#title").textContent=p.list.title;
   if(mode!=="team"){ PAYLOAD=BRAND; renderBanner(); renderTabs(); render(); }
 }
