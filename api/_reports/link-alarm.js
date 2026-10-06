@@ -80,8 +80,10 @@ export async function runAlarm(token, opts) {
     if (r.people.some(u => (count[u] || 0) >= PER_PERSON)) { summary.held++; continue; }
     r.people.forEach(u => { count[u] = (count[u] || 0) + 1; });
     const who = r.brand + " x " + r.row;
-    const text = (r.reminder ? "Still no video link: " : "Video link missing: ") + who + ", live from " + nice(r.live) +
-      ". Until it is in LIVE VIDEO URLS this campaign is not reported: no views, CPM or guarantee progress on monday or on the client's reach report.";
+    // Three lines: what is wrong, exactly how to fix it, and what it costs until then (Tom, 6 Oct 2026).
+    const text = (r.reminder ? "Still no video link: " : "Video link missing: ") + who + ", live from " + nice(r.live) + ".\n" +
+      "To fix: click this notification to open the row, then paste the video link into the LIVE VIDEO URLS column (several links go in the same cell, separated by commas). If the video is not up yet, change the LIVE DATE to when it will be.\n" +
+      "Until then this campaign is not reported: no views, CPM or guarantee progress on monday or on the client's reach report.";
     summary.plan.push({ id: r.id, deal: r.deal, row: r.row, live: r.live, reminder: r.reminder, to: r.names, text });
     if (opts.dry) continue;
     const body =
