@@ -233,7 +233,7 @@ const BRAND_COLS=[
   {key:"hostRead",head:"Host Read",  w:78},
   {key:"exclusive",head:"Exclusive", w:80},
   {key:"adTypes",head:"Ad Types",    w:150, cls:"wide"},
-  {key:"videos", head:"Videos / mo", w:82, fmt:"int"},
+  {key:"adLength", head:"Ad length", w:92},
   {key:"audience",head:"Audience",   w:190, cls:"wide"},
   {key:"male",   head:"Male %",      w:64},
   {key:"female", head:"Female %",    w:70},
@@ -306,7 +306,7 @@ function brandColsFor(){
     return c;
   });
   if(colOrder&&colOrder.length){
-    const pos={}; colOrder.forEach((key,i)=>pos[key]=i);
+    const pos={}; colOrder.forEach((key,i)=>pos[key==="videos"?"adLength":key]=i);
     // A column added after an order was saved slots in beside its neighbour, not at the end.
     BRAND_COLS.forEach((c,i)=>{ if(pos[c.key]==null){ const prev=BRAND_COLS.slice(0,i).reverse().find(p=>pos[p.key]!=null); pos[c.key]=prev?pos[prev.key]+0.5:-0.5; } });
     cols=cols.slice().sort((a,b)=>(pos[a.key]??999)-(pos[b.key]??999));
@@ -489,7 +489,7 @@ function wire(){
     th.addEventListener("drop",e=>{
       e.preventDefault(); const target=th.dataset.key; if(!dragKey||target===dragKey) return;
       const right=e.clientX-th.getBoundingClientRect().left>th.getBoundingClientRect().width/2;
-      const keys=(colOrder&&colOrder.length?colOrder:BRAND_COLS.map(c=>c.key)).slice();
+      const keys=(colOrder&&colOrder.length?colOrder:BRAND_COLS.map(c=>c.key)).map(k=>k==="videos"?"adLength":k);
       BRAND_COLS.forEach((c,i)=>{ if(keys.includes(c.key)) return; const prev=BRAND_COLS.slice(0,i).reverse().find(p=>keys.includes(p.key)); keys.splice(prev?keys.indexOf(prev.key)+1:0,0,c.key); });
       keys.splice(keys.indexOf(dragKey),1);
       keys.splice(keys.indexOf(target)+(right?1:0),0,dragKey);

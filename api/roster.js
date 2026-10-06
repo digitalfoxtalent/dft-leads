@@ -59,6 +59,9 @@ const GROUPS = [
 const CAP = { long: 30, short: 50 };
 const PRICE = { long: { mult: 1.5, cpm: 25 }, short: { mult: 1, cpm: 50 } };
 const FLOOR = 1500;
+// Every creator is sold with ads of up to 60 seconds (Tom, 5 Oct 2026). This replaced the
+// old "Videos / mo" column on the roster page.
+const AD_LENGTH = "Up to 60s";
 
 const C = {
   subs: "numeric_mm49cx8f", rate: "numeric_mm497vsg", vg: "numeric_mm49rr3n", cpm: "numeric_mm49bb66", avg: "numeric_mm49b3y2",
@@ -255,7 +258,7 @@ async function loadBoard() {
 function baseFields(r) {
   const cv = r.cv, o = {
     id: r.id, name: r.name, handle: cv[C.handle] || "", url: cv[C.url] || "", logo: r.logo, kind: r.kind, group: r.group,
-    subs: pos(cv[C.subs]), videos: pos(cv[C.videos]), adEx: r.adEx, state: r.state,
+    subs: pos(cv[C.subs]), adLength: AD_LENGTH, adEx: r.adEx, state: r.state,
     simulcast: r.simulcast ? "Included" : "",
   };
   TEXT_FIELDS.forEach(k => { o[k] = /^(male|female|a\d|us|uk)/.test(k) ? pct(cv[C[k]]) : (cv[C[k]] || ""); });
