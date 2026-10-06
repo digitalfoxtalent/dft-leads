@@ -346,9 +346,15 @@ function columns(){
   // Signed in: the same columns in the same (movable) order brands see, with the blue
   // DFT-only block slotted in straight after the last of Rate / View Guarantee / CPM.
   // (These used to be pinned, which made dragging them look like it did nothing.)
-  const bc=brandColsFor();
+  let bc=brandColsFor();
+  let tc=kindOf()==="long"?TEAM_COLS:TEAM_COLS.map(c=>c.key==="lvg"?Object.assign({},c,{head:"Live Estimate",w:104}):c);
+  // Shorts / Instagram / TikTok: brands never see a CPM, so in the DFT view it sits with the
+  // blue DFT-only columns (still editable), not with the orange columns brands see.
+  if(kindOf()!=="long"){
+    const cpm=bc.find(c=>c.key==="cpm");
+    if(cpm){ bc=bc.filter(c=>c!==cpm); tc=[Object.assign({},cpm,{t:1,head:"CPM ✎",tip:"DFT only: brands never see a CPM on this tab. Sets the rate with the View Estimate. Click to edit."})].concat(tc); }
+  }
   const cut=Math.max(...["rate","vg","cpm","minVideos"].map(k=>bc.findIndex(c=>c.key===k)));
-  const tc=kindOf()==="long"?TEAM_COLS:TEAM_COLS.map(c=>c.key==="lvg"?Object.assign({},c,{head:"Live Estimate",w:104}):c);
   return [{key:"sel",head:"",w:34,cls:"sel"},Object.assign({},name,{w:280})].concat(bc.slice(0,cut+1),tc,bc.slice(cut+1));
 }
 
