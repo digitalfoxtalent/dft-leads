@@ -118,6 +118,9 @@
   .mvc{ display:none; position:absolute; right:3px; top:50%; transform:translateY(-50%); gap:2px; }
   thead th{ position:sticky; }
   thead th:hover .mvc{ display:inline-flex; }
+  thead th.movable{ cursor:grab; padding-left:18px; padding-right:18px; }
+  .hgrip{ position:absolute; left:5px; top:50%; transform:translateY(-50%); color:rgba(21,17,14,.45); font-size:13px; }
+  thead th.movable:hover .hgrip{ color:var(--charcoal); }
   tr.chan:hover .grip{ color:#a85f00; }
   tr.chan.dragging > td{ opacity:.45; }
   tr.chan.drop-before > td{ box-shadow: inset 0 2px 0 0 var(--orange); }
@@ -315,11 +318,12 @@ function brandColsFor(){
 function columns(){
   const name={key:"name",head:"Creator / Shows",w:240,cls:"name"};
   if(mode!=="team") return [name].concat(brandColsFor());
-  // Signed in: the numbers brands are quoted (editable) sit right after the name, then the
-  // blue DFT-only columns, then the rest of what brands see.
-  const bc=brandColsFor(), money=["rate","vg","cpm"];
-  const pinned=money.map(k=>bc.find(c=>c.key===k)).filter(Boolean);
-  return [{key:"sel",head:"",w:34,cls:"sel"},Object.assign({},name,{w:280})].concat(pinned,TEAM_COLS,bc.filter(c=>!money.includes(c.key)));
+  // Signed in: the same columns in the same (movable) order brands see, with the blue
+  // DFT-only block slotted in straight after the last of Rate / View Guarantee / CPM.
+  // (These used to be pinned, which made dragging them look like it did nothing.)
+  const bc=brandColsFor();
+  const cut=Math.max(...["rate","vg","cpm"].map(k=>bc.findIndex(c=>c.key===k)));
+  return [{key:"sel",head:"",w:34,cls:"sel"},Object.assign({},name,{w:280})].concat(bc.slice(0,cut+1),TEAM_COLS,bc.slice(cut+1));
 }
 
 function cellVal(c,col){
@@ -450,7 +454,8 @@ function render(){
     const car=active?`<span class="sortcar">${sortDir==="desc"?"▼":"▲"}</span>`:`<span class="sortcar dim">▼</span>`;
     const drag=!c.t&&c.key!=="name"?` draggable="true"`:"";
     const mvc=drag?`<span class="mvc"><button class="mvb" data-col="${c.key}" data-dir="-1" title="Move left">◀</button><button class="mvb" data-col="${c.key}" data-dir="1" title="Move right">▶</button></span>`:"";
-    return `<th class="${c.cls||""}${c.t?" tcol":""}" data-key="${c.key}"${drag} title="${c.tip?esc(c.tip)+" ":""}${c.t?"DFT only":"Click to sort"}${drag?" · drag or use the arrows to move":""}">${mvc}${esc(c.head)}${car}</th>`;
+    const hgrip=drag?`<span class="hgrip" aria-hidden="true">⠿</span>`:"";
+    return `<th class="${c.cls||""}${c.t?" tcol":""}${drag?" movable":""}" data-key="${c.key}"${drag} title="${c.tip?esc(c.tip)+" ":""}${c.t?"DFT only":"Click to sort"}${drag?" · drag or use the arrows to move":""}">${hgrip}${mvc}${esc(c.head)}${car}</th>`;
   }).join("")}</tr></thead>`;
   const totalW=cols.reduce((a,c)=>a+c.w,0);
   $("#scroll").innerHTML=list.length
@@ -630,7 +635,7 @@ function renderBanner(){
   if(TEAM){
     b.className="banner"; b.style.display="";
     b.innerHTML=`Signed in as <b>${esc(TEAM.email)}</b> · ${mode==="team"
-      ?"Blue columns are DFT-only. Click an underlined number to change what brands see, or the eye to show or hide a creator. Drag ⠿ or a header to reorder."
+      ?"Blue columns are DFT-only. Click an underlined number to change what brands see, or the eye to show or hide a creator. Drag the ⠿ handles, or hover for arrows, to move rows and columns."
       :"Brand preview: exactly what brands see."} <span class="spacer"></span><a href="/auth/signout" style="text-decoration:underline">Sign out</a>`;
   } else if(BRAND&&BRAND.list){
     b.className="banner list"; b.style.display="";
