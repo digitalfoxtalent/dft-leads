@@ -383,6 +383,27 @@ async function editRow(b, email) {
 
 const slugify = s => String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "roster";
 
+// List links carry no team member's name (Tom, 6 Oct 2026): names typed into the list
+// title are dropped from the link and the lead who saved it appears as initials, e.g.
+// "Marvel - Margot" saved by margot@ -> /r/marvel-mg-3f9a1c. The title itself is unchanged.
+const TEAM = {
+  tom: { names: ["tom", "james"], initials: "tj" },
+  margot: { names: ["margot", "grant"], initials: "mg" },
+  alex: { names: ["alex", "mackenzie"], initials: "am" },
+  george: { names: ["george", "roush"], initials: "gr" },
+  vivianne: { names: ["vivianne", "viv", "lee"], initials: "vl" },
+  brian: { names: ["brian"], initials: "b" },
+};
+const TEAM_NAMES = new Set(Object.values(TEAM).flatMap(t => t.names));
+const initialsFor = email => {
+  const local = String(email || "").split("@")[0].toLowerCase().replace(/[^a-z]/g, "");
+  return (TEAM[local] && TEAM[local].initials) || local.slice(0, 2) || "dft";
+};
+const listSlug = (title, email) => {
+  const words = String(title || "").toLowerCase().split(/[^a-z0-9]+/).filter(w => w && !TEAM_NAMES.has(w));
+  return [slugify(words.join("-")), initialsFor(email), crypto.randomBytes(3).toString("hex")].join("-");
+};
+
 async function saveList(b, email) {
   const title = String(b.title || "").trim().slice(0, 80);
   const ids = (Array.isArray(b.ids) ? b.ids : []).map(String).filter(x => /^\d+$/.test(x)).slice(0, 300);
@@ -398,7 +419,7 @@ async function saveList(b, email) {
     return { ok: true, slug: existing.slug, url: "https://" + HOST + "/r/" + existing.slug };
   }
   // A random tail so one brand cannot guess another brand's list from its name.
-  const slug = slugify(title) + "-" + crypto.randomBytes(3).toString("hex");
+  const slug = listSlug(title, email);
   const url = "https://" + HOST + "/r/" + slug;
   await monday("mutation($b:ID!,$n:String!,$v:JSON!){create_item(board_id:$b,item_name:$n,column_values:$v){id}}",
     { b: String(LISTS_BOARD), n: title, v: JSON.stringify({ [L.slug]: slug, [L.items]: { text: items }, [L.by]: email + " " + stamp(), [L.link]: { url, text: "Open list" } }) });
