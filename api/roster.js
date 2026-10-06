@@ -271,19 +271,38 @@ function baseFields(r) {
   return o;
 }
 
-function brandRow(r, includeHiddenByRule) {
-  const b = bundle(brandNumbers(r.cv, C, r.kind), r.kind);
+// Prices for one saved list (Tom, 6 Oct 2026). A DFT edit made on a saved list's page is
+// kept on that list only ({ prices: { <row id>: { vg, cpm } | { rate } } } in its JSON) and
+// never touches the roster or any other list. YouTube rows take a per-video view
+// guarantee and CPM, and are bundled to the $1,500 minimum like any other row; Shorts,
+// Instagram and TikTok rows take a rate.
+function listNumbers(b, p, kind) {
+  if (!p) return null;
+  if (kind === "long" && p.vg > 0 && p.cpm > 0) {
+    const rate = Math.max(FLOOR, Math.round(p.vg * p.cpm / 1000));
+    return Object.assign({}, b || {}, { vg: Math.round(p.vg), rate, cpm: r2(rate * 1000 / p.vg), askCpm: p.cpm, custom: true });
+  }
+  if (kind !== "long" && p.rate > 0) return Object.assign({}, b || {}, { rate: Math.round(p.rate), custom: true });
+  return null;
+}
+
+function brandRow(r, includeHiddenByRule, prices, team) {
+  prices = prices || {};
+  const own = brandNumbers(r.cv, C, r.kind);
+  const b = bundle(listNumbers(own, prices[r.id], r.kind) || own, r.kind);
   const v = visibility(b, r.cv[C.vis], r.cv[C.bnote], r.kind);
   const allowed = v.show || (includeHiddenByRule && b && r.cv[C.vis] !== "Hide");
   if (!allowed) return null;
   const o = baseFields(r);
   o.rate = b.rate;
   if (r.kind === "long") { o.vg = b.vg; o.cpm = b.cpm; o.minVideos = b.videos; o.vgPer = b.vgPer; }
+  if (team && b.custom) o.custom = true; // only the team sees which prices are list-only
   o.shows = r.kind !== "long" ? [] : r.shows.map(s => {
-    const sb = bundle(brandNumbers(s.cv, SC, "long"), "long");
+    const sown = brandNumbers(s.cv, SC, "long");
+    const sb = bundle(listNumbers(sown, prices[s.id], "long") || sown, "long");
     const sv = visibility(sb, s.cv[SC.vis], s.cv[SC.bnote], "long");
     if (!(sv.show || (includeHiddenByRule && sb && s.cv[SC.vis] !== "Hide"))) return null;
-    return { id: s.id, name: s.name, url: s.cv[SC.url] || "", rate: sb.rate, vg: sb.vg, cpm: sb.cpm, minVideos: sb.videos, vgPer: sb.vgPer };
+    return { id: s.id, name: s.name, url: s.cv[SC.url] || "", rate: sb.rate, vg: sb.vg, cpm: sb.cpm, minVideos: sb.videos, vgPer: sb.vgPer, custom: team && sb.custom ? true : undefined };
   }).filter(Boolean).sort((a, b) => b.vgPer - a.vgPer);
   return o;
 }
@@ -309,13 +328,14 @@ function teamRow(r) {
   return o;
 }
 
-function brandPayload(data, list) {
+function brandPayload(data, list, team) {
   const ids = list ? new Set((list.body.ids || []).map(String)) : null;
+  const prices = (list && list.body.prices) || {};
   const groups = {};
   GROUPS.forEach(g => { groups[g.id] = []; });
   data.rows.forEach(r => {
     if (ids && !ids.has(r.id)) return;
-    const o = brandRow(r, !!ids);
+    const o = brandRow(r, !!ids, prices, team);
     if (o) groups[r.group].push(o);
   });
   if (ids) { // keep the order the list was saved in
@@ -383,6 +403,27 @@ async function editRow(b, email) {
 
 const slugify = s => String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "roster";
 
+// List links carry no team member's name (Tom, 6 Oct 2026): names typed into the list
+// title are dropped from the link and the lead who saved it appears as initials, e.g.
+// "Marvel - Margot" saved by margot@ -> /r/marvel-mg-3f9a1c. The title itself is unchanged.
+const TEAM = {
+  tom: { names: ["tom", "james"], initials: "tj" },
+  margot: { names: ["margot", "grant"], initials: "mg" },
+  alex: { names: ["alex", "mackenzie"], initials: "am" },
+  george: { names: ["george", "roush"], initials: "gr" },
+  vivianne: { names: ["vivianne", "viv", "lee"], initials: "vl" },
+  brian: { names: ["brian"], initials: "b" },
+};
+const TEAM_NAMES = new Set(Object.values(TEAM).flatMap(t => t.names));
+const initialsFor = email => {
+  const local = String(email || "").split("@")[0].toLowerCase().replace(/[^a-z]/g, "");
+  return (TEAM[local] && TEAM[local].initials) || local.slice(0, 2) || "dft";
+};
+const listSlug = (title, email) => {
+  const words = String(title || "").toLowerCase().split(/[^a-z0-9]+/).filter(w => w && !TEAM_NAMES.has(w));
+  return [slugify(words.join("-")), initialsFor(email), crypto.randomBytes(3).toString("hex")].join("-");
+};
+
 async function saveList(b, email) {
   const title = String(b.title || "").trim().slice(0, 80);
   const ids = (Array.isArray(b.ids) ? b.ids : []).map(String).filter(x => /^\d+$/.test(x)).slice(0, 300);
@@ -390,7 +431,7 @@ async function saveList(b, email) {
   if (!ids.length) throw new Error("Pick at least one creator");
   const data = await loadBoard();
   const existing = b.slug ? data.lists.find(l => l.slug === b.slug) : null;
-  const items = JSON.stringify({ ids });
+  const items = JSON.stringify(Object.assign({}, existing ? existing.body : {}, { ids }));
   if (existing) {
     await monday("mutation($b:ID!,$i:ID!,$v:JSON!){change_multiple_column_values(board_id:$b,item_id:$i,column_values:$v){id}}",
       { b: String(LISTS_BOARD), i: existing.id, v: JSON.stringify({ name: title, [L.items]: { text: items }, [L.updated]: email + " " + stamp() }) });
@@ -398,7 +439,7 @@ async function saveList(b, email) {
     return { ok: true, slug: existing.slug, url: "https://" + HOST + "/r/" + existing.slug };
   }
   // A random tail so one brand cannot guess another brand's list from its name.
-  const slug = slugify(title) + "-" + crypto.randomBytes(3).toString("hex");
+  const slug = listSlug(title, email);
   const url = "https://" + HOST + "/r/" + slug;
   await monday("mutation($b:ID!,$n:String!,$v:JSON!){create_item(board_id:$b,item_name:$n,column_values:$v){id}}",
     { b: String(LISTS_BOARD), n: title, v: JSON.stringify({ [L.slug]: slug, [L.items]: { text: items }, [L.by]: email + " " + stamp(), [L.link]: { url, text: "Open list" } }) });
@@ -414,6 +455,35 @@ async function deleteList(b) {
   await monday("mutation($i:ID!){archive_item(item_id:$i){id}}", { i: l.id });
   cache = null;
   return { ok: true };
+}
+
+async function listPrice(b, email) {
+  const data = await loadBoard();
+  const list = data.lists.find(x => x.slug === String(b.slug || ""));
+  if (!list) throw new Error("list not found");
+  const id = String(b.id || "");
+  if (!/^\d+$/.test(id)) throw new Error("bad id");
+  let kind = null;
+  data.rows.forEach(r => { if (r.id === id) kind = r.kind; r.shows.forEach(s => { if (s.id === id) kind = "long"; }); });
+  if (!kind) throw new Error("row not found");
+  const prices = Object.assign({}, list.body.prices || {});
+  if (b.clear) delete prices[id];
+  else if (kind === "long") {
+    const cur = prices[id] || {};
+    const vg = Math.round(num(b.vg != null ? b.vg : (cur.vg || b.curVg)) || 0), cpm = num(b.cpm != null ? b.cpm : (cur.cpm || b.curCpm)) || 0;
+    if (!(vg > 0) || !(cpm > 0) || cpm > 10000 || vg > 1e9) throw new Error("View guarantee and CPM must be positive numbers");
+    prices[id] = { vg, cpm: r2(cpm) };
+  } else {
+    const rate = Math.round(num(b.rate) || 0);
+    if (!(rate > 0) || rate > 1e7) throw new Error("Rate must be a positive number");
+    prices[id] = { rate };
+  }
+  const body = Object.assign({}, list.body, { prices });
+  await monday("mutation($b:ID!,$i:ID!,$v:JSON!){change_multiple_column_values(board_id:$b,item_id:$i,column_values:$v){id}}",
+    { b: String(LISTS_BOARD), i: list.id, v: JSON.stringify({ [L.items]: { text: JSON.stringify(body) }, [L.updated]: email + " " + stamp() }) });
+  cache = null;
+  const fresh = await loadBoard();
+  return brandPayload(fresh, fresh.lists.find(x => x.slug === list.slug) || Object.assign({}, list, { body }), true);
 }
 
 async function saveColumns(b, email) {
@@ -477,6 +547,7 @@ export default async function handler(req, res) {
         if (b.op === "save-list") return res.status(200).json(await saveList(b, email));
         if (b.op === "delete-list") return res.status(200).json(await deleteList(b));
         if (b.op === "columns") return res.status(200).json(await saveColumns(b, email));
+        if (b.op === "list-price") return res.status(200).json(await listPrice(b, email));
       } catch (e) {
         return res.status(400).json({ error: String(e && e.message || e) });
       }
@@ -496,8 +567,12 @@ export default async function handler(req, res) {
     if (q.list) {
       const list = data.lists.find(l => l.slug === String(q.list));
       if (!list) { res.setHeader("Cache-Control", "s-maxage=30"); return res.status(404).json({ error: "This list is no longer available" }); }
+      if (email) { // the team sees which prices are list-only; never cache that copy
+        res.setHeader("Cache-Control", "private, no-store");
+        return res.status(200).json(brandPayload(data, list, true));
+      }
       res.setHeader("Cache-Control", "s-maxage=60, stale-while-revalidate=600");
-      return res.status(200).json(brandPayload(data, list));
+      return res.status(200).json(brandPayload(data, list, false));
     }
     // Brand numbers change once a quarter or when the team edits one, so a short edge
     // cache with a long stale window keeps the page instant without hiding an edit for long.
