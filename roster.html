@@ -98,8 +98,8 @@
   .chev{ flex:0 0 auto; width:14px; height:14px; display:grid; place-items:center; color:#b45c00; transition:transform .18s; }
   .chev.spacer-ic{ visibility:hidden; }
   tr.chan.open .chev{ transform:rotate(90deg); }
-  .av{ flex:0 0 auto; width:24px; height:24px; border-radius:50%; object-fit:cover; background:#fff; border:1px solid rgba(0,0,0,.08); }
-  .avx{ flex:0 0 auto; width:24px; height:24px; border-radius:50%; display:grid; place-items:center; background:#fff; color:#a85f00; font-size:11px; font-weight:700; border:1px solid #f0d3ac; }
+  .av{ flex:0 0 auto; width:30px; height:30px; border-radius:50%; object-fit:cover; background:#fff; border:1px solid rgba(0,0,0,.08); }
+  .avx{ flex:0 0 auto; width:30px; height:30px; border-radius:50%; display:grid; place-items:center; background:#fff; color:#a85f00; font-size:13px; font-weight:700; border:1px solid #f0d3ac; }
   .nmtext{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .nmtext a:hover{ text-decoration:underline; }
   .arrow{ color:var(--orange); margin-right:5px; }
@@ -108,7 +108,8 @@
   td.wide{ text-align:left; }
   td.wide.clickable{ cursor:pointer; }
   td.wide.exp{ white-space:normal; word-break:break-word; vertical-align:top; padding-top:8px; padding-bottom:8px; }
-  .tag{ display:inline-block; font-size:10px; font-weight:700; color:#a85f00; background:#fff; border:1px solid #f0d3ac; border-radius:5px; padding:0 5px; margin-left:6px; }
+  .tag{ display:inline-block; font-size:10px; font-weight:700; color:#a85f00; background:#fff; border:1px solid #f0d3ac; border-radius:999px; padding:1px 7px; margin-left:7px; cursor:pointer; }
+  tr.chan:hover .tag{ background:#fff5ea; border-color:#e8b77a; }
   .pill{ display:inline-block; font-size:10.5px; font-weight:700; border-radius:999px; padding:2px 8px; }
   .pill.ok{ background:#e3f3e9; color:var(--ok); }
   .pill.no{ background:#f9e3df; color:var(--hide); }
@@ -241,7 +242,7 @@ const BRAND_COLS=[
   {key:"adEx",   head:"Ad Examples", w:108},
   {key:"location",head:"Location",   w:124},
   {key:"state",  head:"State / Region", w:126},
-  {key:"about",  head:"About",       w:200, cls:"wide"},
+  {key:"about",  head:"About",       w:420, cls:"wide"},
   {key:"hostGender",head:"Host Gender", w:90},
   {key:"hostRead",head:"Host Read",  w:78},
   {key:"exclusive",head:"Exclusive", w:80},
@@ -343,7 +344,7 @@ function brandColsFor(){
   return cols.map(c=>c.key==="subs"&&(activeTab==="group_mm4a1fe0"||activeTab==="group_mm4bd5tk")?Object.assign({},c,{head:"Followers"}):c);
 }
 function columns(){
-  const name={key:"name",head:"Creator / Shows",w:240,cls:"name"};
+  const name={key:"name",head:"Creator / Shows",w:280,cls:"name"};
   if(mode!=="team") return [name].concat(brandColsFor());
   // Signed in: the same columns in the same (movable) order brands see, with the blue
   // DFT-only block slotted in straight after the last of Rate / View Guarantee / CPM.
@@ -351,7 +352,7 @@ function columns(){
   const bc=brandColsFor();
   const cut=Math.max(...["rate","vg","cpm","minVideos"].map(k=>bc.findIndex(c=>c.key===k)));
   const tc=kindOf()==="long"?TEAM_COLS:TEAM_COLS.filter(c=>c.key!=="lcpm").map(c=>c.key==="lvg"?Object.assign({},c,{head:"Live Estimate",w:104}):c);
-  return [{key:"sel",head:"",w:34,cls:"sel"},Object.assign({},name,{w:280})].concat(bc.slice(0,cut+1),tc,bc.slice(cut+1));
+  return [{key:"sel",head:"",w:34,cls:"sel"},Object.assign({},name,{w:320})].concat(bc.slice(0,cut+1),tc,bc.slice(cut+1));
 }
 
 function cellVal(c,col){
@@ -399,7 +400,7 @@ function nameCell(c){
   const dn=dispHandle(c), real=dispName(c.name);
   const ttl=(real&&real!==dn)?` title="${esc(real)}"`:"";
   const nm=c.url?`<a href="${esc(c.url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${esc(dn)}</a>`:esc(dn);
-  const tag=has?`<span class="tag">+${has}</span>`:"";
+  const tag=has?`<span class="tag" title="Click to ${openSet.has(c.id)?"hide":"see"} this channel's shows">${has} show${has===1?"":"s"} ${openSet.has(c.id)?"▴":"▾"}</span>`:"";
   return `<div class="nmwrap"><span class="grip" title="Drag to move this row">⠿</span>${chev}${logoHtml(c)}<span class="nmtext"${ttl}>${nm}${tag}</span>${eyeBtn(c,false)}</div>`;
 }
 function showNameCell(s){
