@@ -205,13 +205,15 @@ export async function renderCampaigns(token) {
 }
 
 // A partner's own view: only its campaigns, and nothing internal. Everything is removed here,
-// on the server, so none of it reaches the partner's browser.
+// on the server, so none of it reaches the partner's browser. Each creator row keeps its price
+// (GROSS RATE, what the partner pays DFT; the deal's TOTAL PRICE when the deal has one creator)
+// so the page can show price and eCPM. Deal totals, owners and status never leave the server.
 export async function renderPartner(token, id) {
   const P = PARTNERS[id]; if (!P) return null;
   const payload = await getPayload(token);
   const c = payload.c.filter(x => P.match.test(x.cl || "")).map(x => ({
     id: x.id, n: x.n, grp: x.grp, b: x.b, cl: P.name, val: null, st: "", cd: x.cd, own: "",
-    r: x.r.map(r => ({ id: r.id, h: r.h, nm: r.nm, p: r.p, y: r.y, d30: r.d30, g: r.g, lk: "", v: r.v, k: r.k, gr: null, ld: r.ld, cg: r.cg, tt: r.tt, ig: r.ig, sv: r.sv, at: r.at })),
+    r: x.r.map(r => ({ id: r.id, h: r.h, nm: r.nm, p: r.p, y: r.y, d30: r.d30, g: r.g, lk: "", v: r.v, k: r.k, gr: r.gr != null ? r.gr : (x.r.length === 1 ? x.val : null), ld: r.ld, cg: r.cg, tt: r.tt, ig: r.ig, sv: r.sv, at: r.at })),
   }));
   const vids = new Set(c.flatMap(x => x.r.flatMap(r => r.v)));
   const pod = {}; for (const v in (payload.pod || {})) if (vids.has(v)) pod[v] = payload.pod[v];

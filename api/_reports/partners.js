@@ -11,8 +11,9 @@
 // A campaign belongs to a partner when the deal's CLIENTS, its CLIENT mirror (from CONTACTS)
 // or its QB Customer mirror contains the partner's CLIENT MATCH words (spaces, dots and
 // capitals ignored, several terms separated by |).
-// The page data is stripped on the server: no brand price, deal value, creator cost, sales lead,
-// monday links or other clients' deals ever reach a partner's browser.
+// The page data is stripped on the server: no deal value, creator cost, sales lead, monday links
+// or other clients' deals ever reach a partner's browser. Each creator row's price (what the
+// partner paid DFT) is shown, with its eCPM, since 6 Oct 2026 (Margot's request, Tom approved).
 
 import { monday } from "./monday.js";
 
