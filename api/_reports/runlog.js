@@ -8,8 +8,8 @@
 // Logging is best effort: it never throws and never holds a run up for more than a few seconds.
 
 export const RUN_BOARD = 18432874155;
-export const JOBS = { links: "link-finder", unmatched: "unmatched-reads", podcasts: "podcast-export" };
-const LABEL = { "link-finder": "Link finder (empty rows)", "unmatched-reads": "Make-good and unmatched reads pass", "podcast-export": "Podcast reach from the Megaphone export" };
+export const JOBS = { links: "link-finder", unmatched: "unmatched-reads", podcasts: "podcast-export", alarm: "link-alarm" };
+const LABEL = { "link-finder": "Link finder (empty rows)", "unmatched-reads": "Make-good and unmatched reads pass", "podcast-export": "Podcast reach from the Megaphone export", "link-alarm": "Missing link alarm (weekdays)" };
 
 async function mondayCall(token, query, variables, ms) {
   const ctl = new AbortController();
@@ -60,6 +60,7 @@ export async function recordRun(token, job, summary) {
 //   1. the link finder logged a run, and it did not fail
 //   2. the unmatched sponsor reads pass logged a run, and it did not fail
 //   3. the podcast export reader (/api/podcast-sync) logged a run, and it did not fail
+//   3b. the missing link alarm (?pass=alarm, weekdays) logged a run, and it did not fail (checked Tuesday to Saturday)
 //   4. the YouTube view sync wrote LATEST VIEWS on the creator rows (it changes hundreds every day)
 // A run that finished with errors ("partial", e.g. the YouTube allowance ran out) counts as a problem
 // when the run before it was not clean either: two days in a row means it is not catching up by itself.
@@ -67,7 +68,7 @@ export async function recordRun(token, job, summary) {
 // A clean morning logs "nightly cron-watch ... ok" and sends nothing.
 export const WATCH_USERS = [40241658]; // Tom James
 const SUB_BOARD = 6162879732, LATEST_VIEWS = "numeric_mm4bn6yq", WINDOW_H = 26;
-const NEW_JOB_GRACE = { "podcast-export": "2026-10-10T00:00:00Z" };
+const NEW_JOB_GRACE = { "podcast-export": "2026-10-10T00:00:00Z", "link-alarm": "2026-10-08T00:00:00Z" };
 
 export async function runWatch(token, opts) {
   opts = opts || {};
@@ -75,7 +76,8 @@ export async function runWatch(token, opts) {
   const d = await mondayCall(token, "query { boards(ids:[" + RUN_BOARD + "]) { items_page(limit:100, query_params:{order_by:[{column_id:\"__creation_log__\", direction:desc}]}) { items { id name created_at } } } }", {}, 20000);
   const all = d.boards[0].items_page.items || [];
   const items = all.filter(i => new Date(i.created_at).getTime() >= since);
-  for (const job of [JOBS.links, JOBS.unmatched, JOBS.podcasts]) {
+  const dow = new Date(now).getUTCDay(); // the alarm runs Monday to Friday at 15:05 UTC, so this 10:15 check sees it Tuesday to Saturday
+  for (const job of [JOBS.links, JOBS.unmatched, JOBS.podcasts].concat(dow >= 2 && dow <= 6 ? [JOBS.alarm] : [])) {
     const mine = i => String(i.name).startsWith("nightly " + job + " ");
     const runs = items.filter(mine);
     seen[job] = runs.map(i => i.name);

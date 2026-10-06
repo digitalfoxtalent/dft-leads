@@ -33,6 +33,7 @@ import { applyLinks } from "./_reports/apply-links.js";
 import { runUnmatched } from "./_reports/unmatched.js";
 import { isCron } from "./_reports/cron.js";
 import { recordRun, runWatch, JOBS } from "./_reports/runlog.js";
+import { runAlarm } from "./_reports/link-alarm.js";
 
 export const config = { maxDuration: 300 };
 
@@ -64,6 +65,15 @@ export default async function handler(req, res) {
   if (String(req.query && req.query.pass || "") === "watch") {
     try { return res.status(200).json(await runWatch(token, { dry: String(req.query.dry || "") === "1" || !fromCron })); }
     catch (e) { return res.status(200).json({ pass: "watch", error: String(e.message || e).slice(0, 300) }); }
+  }
+  // Missing link alarm (?pass=alarm, cron weekdays 15:05 UTC): asks the sales lead for any live campaign
+  // still without a video link from day 2. See _reports/link-alarm.js. ?pass=alarm&dry=1 shows who would be asked.
+  if (String(req.query && req.query.pass || "") === "alarm") {
+    let out;
+    try { out = await runAlarm(token, { dry: String(req.query.dry || "") === "1" || !fromCron }); }
+    catch (e) { out = { pass: "alarm", error: String(e.message || e).slice(0, 300) }; }
+    await logRun(JOBS.alarm, out);
+    return res.status(200).json(out);
   }
   if (String(req.query && req.query.pass || "") === "unmatched") {
     let out;
