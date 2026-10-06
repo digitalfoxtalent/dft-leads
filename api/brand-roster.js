@@ -118,7 +118,10 @@ export default async function handler(req, res) {
         .map(s => { const v = id => num(((s.column_values || []).find(c => c.id === id) || {}).text); return [s.name, v(B_SHOW_GUARANTEE) || v(SHOW_GUARANTEE)]; })
         .filter(s => s[1] > 0);
       const cpm = num(col(CPM));
-      const floored = cpm > base + 0.5;
+      // Since 5 Oct 2026 a DFT edit stores the CPM asked for, so a floored row can carry
+      // $25 in Brand CPM; the rate / views check still catches it.
+      const rate = num(col(RATE));
+      const floored = Math.max(cpm, g && rate ? rate * 1000 / g : 0) > base + 0.5;
       const age = AGES.map(([k, id]) => [k, pct(col(id))]).filter(a => a[1] != null);
       const aud = { m: pct(col(AUD.m)), f: pct(col(AUD.f)), age, us: pct(col(AUD.us)), uk: pct(col(AUD.uk)) };
       const hasAud = aud.m != null || age.length || aud.us != null;
