@@ -359,6 +359,9 @@ async function load() {
   // video" link is dropped because the page already carries its own player section below it.
   const DISCLOSURE_RE = /(?:<hr\s*\/?>)?\s*<p class="ai-disclosure">[\s\S]*?<\/p>/gi;
   for (const a of arts) a.body = a.body.replace(/\s*<a\b[^>]*>Watch the original video\.<\/a>/gi, "");
+  // Since 7 Oct 2026 the publisher puts that link in its own paragraph above the note; drop the
+  // paragraph it leaves empty so no bare orange-ruled line shows under the article.
+  for (const a of arts) a.body = a.body.replace(/\s*<p class="ai-disclosure">\s*(?:<em>\s*<\/em>)?\s*<\/p>/gi, "");
   for (const a of arts) if (!a.w) { a.w = countWords(a.body.replace(DISCLOSURE_RE, "")); a.rt = Math.max(1, Math.round(a.w / 220)); }
 
   // The floor. A site is judged on its weakest pages, and a 140-word explainer reads as scaled
