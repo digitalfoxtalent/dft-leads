@@ -5,6 +5,7 @@
 import { getData, findArt, SNIPPETS_LIVE } from "./_subplot/data.js";
 import { brandFor, setBrand, siteUrl } from "./_subplot/brand.js";
 import { runHealth } from "./_subplot/health.js";
+import { smartnewsFeed, SN_LOGO, SN_LOGO_DARK } from "./_subplot/smartnews.js";
 import { setDesign } from "./_subplot/design.js";
 import { listMonths, readMonth } from "./_subplot/archive.js";
 import { homePage, articlePage, snippetsPage, creatorPage, joinPage, aboutPage, threadPage, rssFeed, notFound, legalPage, artPath, revenuePage, sitemap } from "./_subplot/render.js";
@@ -98,6 +99,7 @@ export default async function handler(req, res) {
 
   if (path === "/favicon.svg") { res.setHeader("Content-Type", "image/svg+xml"); res.setHeader("Cache-Control", "public, max-age=3600"); return res.status(200).send(faviconSvg() || CAST.favicon); }
   if (path === "/apple-touch-icon.png") { res.setHeader("Content-Type", "image/png"); res.setHeader("Cache-Control", "public, max-age=86400"); const b = TOUCH[assetKey()]; if (!b) return res.status(404).end(); return res.status(200).send(Buffer.from(b, "base64")); }
+  if (path === "/smartnews-logo.png" || path === "/smartnews-logo-dark.png") { res.setHeader("Content-Type", "image/png"); res.setHeader("Cache-Control", "public, max-age=86400"); return res.status(200).send(Buffer.from(path.includes("dark") ? SN_LOGO_DARK : SN_LOGO, "base64")); }
   if (path === "/og.png") { res.setHeader("Content-Type", "image/png"); res.setHeader("Cache-Control", "public, max-age=86400"); const b = OG[assetKey()]; if (!b) return res.status(404).end(); return res.status(200).send(Buffer.from(b, "base64")); }
   if (path === "/ads.txt") {
     res.setHeader("Content-Type", "text/plain");
@@ -161,6 +163,8 @@ export default async function handler(req, res) {
     res.setHeader("Cache-Control", "public, s-maxage=3600");
     return res.status(200).send(sitemap(data, base));
   }
+  // SmartNews (7 Oct 2026): SmartFormat 2.2 feed plus its two 700 x 100 logos. See smartnews.js.
+  if (path === "/smartnews.xml") { res.setHeader("Content-Type", "application/rss+xml; charset=utf-8"); res.setHeader("Cache-Control", "public, s-maxage=600"); return res.status(200).send(smartnewsFeed(data, base)); }
   if (path === "/feed.xml") { res.setHeader("Content-Type", "application/rss+xml; charset=utf-8"); res.setHeader("Cache-Control", "public, s-maxage=600"); return res.status(200).send(rssFeed(data, base)); }
   res.setHeader("Content-Type", "text/html; charset=utf-8");
   res.setHeader("Cache-Control", pass || activeDesign !== 3 ? "private, no-store" : "public, s-maxage=300, stale-while-revalidate=3600");
