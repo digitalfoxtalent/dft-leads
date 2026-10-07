@@ -126,7 +126,9 @@ function lineFor(id, segs, tr, brand) {
   const parts = [id, read ? "read " + read : "read not found"];
   if (intro.length) parts.push("mention " + mmss(intro[0]));
   parts.push(src || (hasTr ? "captions" : "no captions"));
-  return parts[0] + " " + parts.slice(1).join(" | ") + " | v3";
+  // v4: a video whose captions could not be read is stamped with the day it was tried, so the hourly
+  // run tries it again a week later (YouTube captions often appear late, and an Apify run can drop one).
+  return parts[0] + " " + parts.slice(1).join(" | ") + " | v4" + (hasTr ? "" : " nocap " + new Date().toISOString().slice(0, 10));
 }
 export async function timestampApply(token, payload, match, opts) {
   const { monday } = await import("./monday.js");
@@ -141,8 +143,16 @@ export async function timestampApply(token, payload, match, opts) {
   const rows = [];
   for (const { c, r: r0 } of cand) {
     const r = Object.assign({}, r0, { at: fresh[r0.id] != null ? fresh[r0.id] : r0.at });
-    // Kept: confirmed lines, and anything from the current version. Everything else is worked out again once.
-    const keep = l => /^[A-Za-z0-9_-]{11}\s/.test(l.trim()) && (/\| v3$/.test(l.trim()) || (/\| (sponsorblock\+captions|captions)$/.test(l.trim()) && !/read not found/.test(l)));
+    // Kept: confirmed reads of any version, and v4 lines worked out with captions. Worked out again:
+    // anything older that was not confirmed (v3 kept "no captions" lines for good, which is how the
+    // Jan 2026 Shopify TRR row sat blank in the partner report), and v4 "nocap" lines after 7 days.
+    const keep = l => {
+      const s = l.trim(); if (!/^[A-Za-z0-9_-]{11}\s/.test(s)) return false;
+      if (/\| (sponsorblock\+captions|captions)( \| v\d)?$/.test(s) && /read [~\d]/.test(s)) return true;
+      const nc = s.match(/\| v4 nocap (\d{4}-\d{2}-\d{2})$/);
+      if (nc) return Date.now() - Date.parse(nc[1]) < 7 * 864e5;
+      return /\| v4$/.test(s);
+    };
     const have = new Set(String(r.at || "").split("\n").filter(keep).map(l => l.trim().slice(0, 11)));
     const todo = r.v.filter(v => !have.has(v));
     if (todo.length) rows.push({ id: r.id, b: c.b, at: r.at || "", todo });
@@ -165,7 +175,7 @@ export async function timestampApply(token, payload, match, opts) {
   }
   const all = writes.flatMap(w => w.lines);
   return { dry, rowsLeft: rows.length - pick.length, rows: pick.length, videos: ids.length,
-    confirmed: all.filter(l => /sponsorblock\+captions/.test(l)).length, captionsOnly: all.filter(l => / \| captions$/.test(l) && /read ~/.test(l)).length,
+    confirmed: all.filter(l => /sponsorblock\+captions/.test(l)).length, captionsOnly: all.filter(l => / \| captions \| v4$/.test(l) && /read ~/.test(l)).length, noCaptions: all.filter(l => / nocap /.test(l)).length,
     sbOnly: all.filter(l => /sponsorblock$/.test(l)).length, check: all.filter(l => /read check/.test(l)).length, notFound: all.filter(l => /read not found/.test(l)).length,
     sample: writes.slice(0, 6).map(w => w.b + ": " + w.lines.join(" / ")), failed };
 }
