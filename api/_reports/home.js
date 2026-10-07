@@ -11,6 +11,9 @@ export const REPORTS = [
   { path: "/distribution", title: "Video distribution", live: true,
     blurb: "DFT's own MSN video pipeline: videos MSN rejected, the repair feeds sending them back, and what has gone live again.",
     sources: ["MSN Partner Hub", "Apify"] },
+  { path: "/coverage", title: "Creator distribution", live: true,
+    blurb: "Every Megaphone creator against every platform: where they are live, what is in review, rejection rates against a 2% target, and the openings we have not tried.",
+    sources: ["Megaphone", "Platform register", "Back-catalogue agent"] },
 ];
 
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
