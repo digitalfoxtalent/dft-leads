@@ -234,6 +234,7 @@ const GROUPS=[
   {id:"group_mm4bd5tk", label:"TikTok",           kind:"short"},
   {id:"group_mm7yw8cy", label:"Snapchat",         kind:"short"},
 ];
+const AFTER={fee:"rate",total:"fee",rights:"total"};
 const FOLLOWER_TABS=new Set(["group_mm4a1fe0","group_mm4bd5tk","group_mm7yw8cy"]);
 const SHORTS_GROUP="group_mm4av3kr";
 const SHORT_HIDE=new Set(["male","female","a1317","a1824","a2534","a3544","a4554","a5564","us","uk","audience","adTypes","exclusive","host","hostGender"]);
@@ -363,7 +364,8 @@ function brandColsFor(){
   if(colOrder&&colOrder.length){
     const pos={}; colOrder.forEach((key,i)=>pos[key==="videos"?"adLength":key]=i);
     // A column added after an order was saved slots in beside its neighbour, not at the end.
-    BRAND_COLS.forEach((c,i)=>{ if(pos[c.key]==null){ const prev=BRAND_COLS.slice(0,i).reverse().find(p=>pos[p.key]!=null); pos[c.key]=prev?pos[prev.key]+0.5:-0.5; } });
+    // The short-form price columns follow Rate: Rate, Content Production, Total Rate, Usage Rights.
+    BRAND_COLS.forEach((c,i)=>{ if(pos[c.key]==null){ const a=AFTER[c.key]; if(a&&pos[a]!=null){ pos[c.key]=pos[a]+0.1; return; } const prev=BRAND_COLS.slice(0,i).reverse().find(p=>pos[p.key]!=null); pos[c.key]=prev?pos[prev.key]+0.5:-0.5; } });
     cols=cols.slice().sort((a,b)=>(pos[a.key]??999)-(pos[b.key]??999));
   }
   return cols.map(c=>c.key==="subs"&&FOLLOWER_TABS.has(activeTab)?Object.assign({},c,{head:"Followers"}):c);
@@ -585,7 +587,7 @@ function wire(){
       e.preventDefault(); const target=th.dataset.key; if(!dragKey||target===dragKey) return;
       const right=e.clientX-th.getBoundingClientRect().left>th.getBoundingClientRect().width/2;
       const keys=(colOrder&&colOrder.length?colOrder:BRAND_COLS.map(c=>c.key)).map(k=>k==="videos"?"adLength":k);
-      BRAND_COLS.forEach((c,i)=>{ if(keys.includes(c.key)) return; const prev=BRAND_COLS.slice(0,i).reverse().find(p=>keys.includes(p.key)); keys.splice(prev?keys.indexOf(prev.key)+1:0,0,c.key); });
+      BRAND_COLS.forEach((c,i)=>{ if(keys.includes(c.key)) return; const a=AFTER[c.key]&&keys.includes(AFTER[c.key])?AFTER[c.key]:null; const prev=a?{key:a}:BRAND_COLS.slice(0,i).reverse().find(p=>keys.includes(p.key)); keys.splice(prev?keys.indexOf(prev.key)+1:0,0,c.key); });
       keys.splice(keys.indexOf(dragKey),1);
       keys.splice(keys.indexOf(target)+(right?1:0),0,dragKey);
       colOrder=keys; layoutChanged(); dragKey=null; render();
