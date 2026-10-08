@@ -318,7 +318,7 @@ const dispName=n=>RENAME[n]||n;
 function dispHandle(c){
   const h=String(c.handle||"").trim();
   if(!h) return dispName(c.name);
-  const at=h.charAt(0)==="@"?h:"@"+h;
+  const at=(h.charAt(0)==="@"?h:"@"+h).toLowerCase(); // handles always lowercase (Tom, 8 Oct 2026)
   return (/[-–]\s*shorts\s*$/i.test(c.name)&&activeTab!==SHORTS_GROUP)?at+" · Shorts":at;
 }
 
