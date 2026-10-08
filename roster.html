@@ -67,6 +67,10 @@
   thead th.dragging{ opacity:.45; }
   thead th.drop-l{ box-shadow: inset 3px 0 0 0 var(--charcoal); }
   thead th.drop-r{ box-shadow: inset -3px 0 0 0 var(--charcoal); }
+  .rsz{ position:absolute; top:0; right:0; width:8px; height:100%; cursor:col-resize; z-index:6; }
+  .rsz::after{ content:""; position:absolute; top:6px; bottom:6px; right:2px; width:2px; border-radius:2px; background:transparent; }
+  .rsz:hover::after, .rsz.on::after{ background:var(--charcoal); }
+  body.resizing, body.resizing *{ cursor:col-resize !important; user-select:none !important; }
   .sortcar{ font-size:8px; margin-left:5px; vertical-align:middle; }
   .sortcar.dim{ opacity:0; }
   thead th.sorted{ box-shadow: inset 0 -3px 0 0 var(--charcoal); }
@@ -95,7 +99,8 @@
   tr.chan.hidden > td.tcol{ background:#eef1f4; }
 
   .nmwrap{ display:flex; align-items:center; gap:7px; }
-  .chev{ flex:0 0 auto; width:14px; height:14px; display:grid; place-items:center; color:#b45c00; transition:transform .18s; }
+  .chev{ flex:0 0 auto; width:20px; height:20px; display:grid; place-items:center; color:#b45c00; border-radius:5px; transition:transform .18s, background .15s; }
+  tr.chan:hover .chev:not(.spacer-ic){ background:rgba(180,92,0,.12); }
   .chev.spacer-ic{ visibility:hidden; }
   tr.chan.open .chev{ transform:rotate(90deg); }
   .av{ flex:0 0 auto; width:30px; height:30px; border-radius:50%; object-fit:cover; background:#fff; border:1px solid rgba(0,0,0,.08); }
@@ -122,6 +127,7 @@
   td.edit:hover{ background:#e1ecf7 !important; }
   td.edit input{ width:100%; font:inherit; text-align:center; border:1px solid var(--team); border-radius:5px; padding:3px; }
   td.edit.custom{ background:#fff1d6 !important; color:#8a4a00; }
+  td.edit.tcol{ color:var(--team); }
   td.edit.custom::after{ content:"list"; font-size:9px; font-weight:800; text-transform:uppercase; letter-spacing:.04em; margin-left:5px; color:#b46a00; }
   td.saving{ opacity:.5; }
   .grip{ flex:0 0 auto; cursor:grab; user-select:none; color:#a87a4a; font-size:14px; line-height:1; }
@@ -191,9 +197,9 @@
     <span id="teamTools" style="display:none;gap:8px;align-items:center;flex-wrap:wrap">
       <span class="seg"><button id="vTeam" class="on" title="Live numbers, edits and hidden creators">DFT view</button><button id="vBrand" title="Exactly what brands see">Brand preview</button></span>
       <button class="btn team" id="listsBtn">Saved lists</button>
-      <button class="btn team" id="saveCols" style="display:none" title="Every viewer, brands included, gets this row and column order">Save order for everyone</button>
+      <button class="btn team" id="saveCols" style="display:none" title="Every viewer, brands included, gets this row and column order and these column widths">Save layout for everyone</button>
     </span>
-    <button class="btn" id="resetLayout" style="display:none" title="Go back to the standard order">Reset order</button>
+    <button class="btn" id="resetLayout" style="display:none" title="Go back to the standard order and widths">Reset layout</button>
     <button class="btn" id="exportCsv" title="Export this tab as a CSV">Export CSV</button>
     <label class="search">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
@@ -226,7 +232,9 @@ const GROUPS=[
   {id:"group_mm4av3kr", label:"YouTube Shorts",   kind:"short"},
   {id:"group_mm4a1fe0", label:"Instagram",        kind:"short"},
   {id:"group_mm4bd5tk", label:"TikTok",           kind:"short"},
+  {id:"group_mm7yw8cy", label:"Snapchat",         kind:"short"},
 ];
+const FOLLOWER_TABS=new Set(["group_mm4a1fe0","group_mm4bd5tk","group_mm7yw8cy"]);
 const SHORTS_GROUP="group_mm4av3kr";
 const SHORT_HIDE=new Set(["male","female","a1317","a1824","a2534","a3544","a4554","a5564","us","uk","audience","adTypes","exclusive","host","hostGender"]);
 const RENAME={ "Down To Earth With Kristian Harloff (UAP NEWS)":"Down to Earth" };
@@ -238,6 +246,9 @@ const BRAND_COLS=[
   {key:"rate",   head:"Rate",        w:92,  fmt:"money"},
   {key:"vg",     head:"View Guarantee", w:128, fmt:"int", longOnly:true},
   {key:"cpm",    head:"CPM",         w:64,  fmt:"money2", longOnly:true},
+  {key:"fee",    head:"Content Production", w:150, fmt:"money", shortOnly:true, tip:"Content production fee for the post."},
+  {key:"total",  head:"Total Rate",  w:112, fmt:"money", shortOnly:true, tip:"Rate plus the content production fee."},
+  {key:"rights", head:"Usage Rights", w:340, shortOnly:true, tip:"12 months of digital usage rights and boosting rights are included in the total."},
   {key:"minVideos",head:"Min. videos", w:112, longOnly:true, tip:"Smaller channels are booked as a short bundle so the deal reaches the $1,500 minimum at the normal CPM. The rate and view guarantee cover the whole bundle."},
   {key:"simulcast",head:"Simulcast",  w:100, longOnly:true, tip:"Also published to Spotify Video, Apple Podcasts and other podcast apps. That extra reach is included at the same rate."},
   {key:"category",head:"Category",   w:116},
@@ -275,17 +286,18 @@ const TEAM_COLS=[
 
 let PAYLOAD=null, TEAM=null, BRAND=null, mode="brand", activeTab="topics", query="";
 let sortKey=null, sortDir="desc";
-let colOrder=null, rowOrder={}, layoutDirty=false;
+let colOrder=null, rowOrder={}, colWidths={}, layoutDirty=false;
 // Layout: DFT saves a default for everyone (stored on monday). Anyone can also drag rows
 // and columns for themselves; that copy lives only in their own browser.
 const LAYOUT_KEY="dftRosterLayout:v2";
 let myLayout=null; try{ myLayout=JSON.parse(localStorage.getItem(LAYOUT_KEY)||"null"); }catch(e){ myLayout=null; }
-function persistMine(){ myLayout={cols:colOrder,rows:rowOrder}; try{ localStorage.setItem(LAYOUT_KEY, JSON.stringify({cols:colOrder,rows:rowOrder})); }catch(e){} }
+function persistMine(){ myLayout={cols:colOrder,rows:rowOrder,widths:colWidths}; try{ localStorage.setItem(LAYOUT_KEY, JSON.stringify(myLayout)); }catch(e){} }
 function applyLayout(shared){
   if(layoutDirty) return;
   const sh=shared||{};
   colOrder=(myLayout&&myLayout.cols)||sh.columns||null;
   rowOrder=Object.assign({}, sh.rows||{}, (myLayout&&myLayout.rows)||{});
+  colWidths=Object.assign({}, sh.widths||{}, (myLayout&&myLayout.widths)||{});
 }
 const openSet=new Set(), picked=new Set();
 let editingList=null; // {slug,title} when the selection came from a saved list
@@ -313,28 +325,39 @@ function dispHandle(c){
 function brandColsFor(){
   const k=kindOf();
   const team=mode==="team";
-  // Shorts / Instagram / TikTok show brands a rate and a View Estimate (not a guarantee),
-  // never the CPM. Signed in, the team also sees and edits the CPM that sets the rate.
-  // Their CPM is a flat $50 that nobody needs to look at, so it is not shown in the DFT view
-  // either (Tom, 6 Oct 2026). The rate is set by editing the View Estimate.
-  let cols=BRAND_COLS.filter(c=>c.key==="vg"||!(c.longOnly&&k!=="long"));
+  // Short form (Shorts / Instagram / TikTok / Snapchat), Tom 8 Oct 2026: brands see the
+  // View Estimate, a rate at $25 CPM, the $3,000 content production fee, the Total Rate and
+  // the usage-rights note. Never the CPM. Signed in, the team also sees and edits the CPM.
+  const showShortCpm=team||listEdit();
+  let cols=BRAND_COLS.filter(c=>{
+    if(c.shortOnly) return k!=="long";
+    if(c.key==="vg") return true;
+    if(c.key==="cpm"&&k!=="long") return showShortCpm;
+    return !(c.longOnly&&k!=="long");
+  });
   // Shorts / Instagram / TikTok for brands: no demographics, audience, ad types,
   // exclusivity, host or host gender columns (Tom, 6 Oct 2026). The DFT view keeps them.
   if(k!=="long"&&!team) cols=cols.filter(c=>!SHORT_HIDE.has(c.key));
-  if(k!=="long") cols=cols.map(c=>c.key==="vg"?Object.assign({},c,{head:"View Estimate",tip:"Estimated views per post, based on recent averages. An estimate, not a guarantee."}):c);
+  if(k!=="long") cols=cols.map(c=>{
+    if(c.key==="vg") return Object.assign({},c,{head:"View Estimate",tip:"Estimated views per post, based on recent averages. An estimate, not a guarantee."});
+    if(c.key==="rate") return Object.assign({},c,{tip:"View Estimate x $25 CPM. The content production fee is added in Total Rate."});
+    if(c.key==="cpm") return Object.assign({},c,{t:1,tip:"DFT only, brands never see the CPM on this tab."});
+    return c;
+  });
   if(team) cols=cols.map(c=>{
-    if(c.key==="vg") return Object.assign({},c,{w:146,edit:"vg",head:k==="long"?"View Guarantee ✎":"View Estimate ✎",tip:k==="long"?"Click to edit what brands see. Holds until the quarter resets.":"Brands see this as an estimate, not a guarantee. Rate = estimate x $50 CPM, minimum $1,500. Click to edit."});
+    if(c.key==="vg") return Object.assign({},c,{w:146,edit:"vg",head:k==="long"?"View Guarantee ✎":"View Estimate ✎",tip:k==="long"?"Click to edit what brands see. Holds until the quarter resets.":"Brands see this as an estimate, not a guarantee. Rate = estimate x CPM ($25), plus the $3,000 production fee. Click to edit."});
     if(c.key==="cpm") return Object.assign({},c,{edit:"cpm",head:"CPM ✎",w:84,tip:k==="long"?"Click to edit what brands see. Holds until the quarter resets.":"Not shown to brands. Sets the rate. Click to edit."});
-    if(c.key==="rate") return Object.assign({},c,{tip:"Worked out from View Guarantee x CPM, minimum $1,500. Small YouTube rows are sold as a bundle of up to 4 videos instead of being lifted to $1,500."});
+    if(c.key==="rate") return Object.assign({},c,{tip:k==="long"?"Worked out from View Guarantee x CPM, minimum $1,500. Small YouTube rows are sold as a bundle of up to 4 videos instead of being lifted to $1,500.":"View Estimate x CPM ($25), no minimum. The $3,000 production fee is added in Total Rate."});
     return c;
   });
   // Signed in on a saved list's page (brand preview): the numbers are editable for THIS
   // list only. YouTube: view guarantee (per video) and CPM. Other tabs: the rate.
+  // Every tab: View Guarantee / Estimate and CPM; short form also the production fee.
   if(listEdit()) cols=cols.map(c=>{
     const tip="Price for this list only. The roster and other lists are not changed. Clear the box to go back to the roster price.";
-    if(k==="long"&&c.key==="vg") return Object.assign({},c,{w:146,edit:"vg",head:"View Guarantee ✎",tip});
-    if(k==="long"&&c.key==="cpm") return Object.assign({},c,{edit:"cpm",head:"CPM ✎",w:84,tip});
-    if(k!=="long"&&c.key==="rate") return Object.assign({},c,{edit:"rate",head:"Rate ✎",w:104,tip});
+    if(c.key==="vg") return Object.assign({},c,{w:146,edit:"vg",head:k==="long"?"View Guarantee ✎":"View Estimate ✎",tip});
+    if(c.key==="cpm") return Object.assign({},c,{edit:"cpm",head:k==="long"?"CPM ✎":"CPM ✎ (DFT only)",w:k==="long"?84:130,tip:k==="long"?tip:"Brands do not see this column. "+tip});
+    if(c.key==="fee") return Object.assign({},c,{edit:"fee",head:"Content Production ✎",w:170,tip});
     return c;
   });
   if(colOrder&&colOrder.length){
@@ -343,18 +366,21 @@ function brandColsFor(){
     BRAND_COLS.forEach((c,i)=>{ if(pos[c.key]==null){ const prev=BRAND_COLS.slice(0,i).reverse().find(p=>pos[p.key]!=null); pos[c.key]=prev?pos[prev.key]+0.5:-0.5; } });
     cols=cols.slice().sort((a,b)=>(pos[a.key]??999)-(pos[b.key]??999));
   }
-  return cols.map(c=>c.key==="subs"&&(activeTab==="group_mm4a1fe0"||activeTab==="group_mm4bd5tk")?Object.assign({},c,{head:"Followers"}):c);
+  return cols.map(c=>c.key==="subs"&&FOLLOWER_TABS.has(activeTab)?Object.assign({},c,{head:"Followers"}):c);
 }
+// Column widths: drag a header's right edge (Tom, 8 Oct 2026). Kept per browser, and the
+// team can save them for everyone with the layout.
+function sized(cols){ return cols.map(c=>c.key!=="sel"&&colWidths[c.key]?Object.assign({},c,{w:colWidths[c.key]}):c); }
 function columns(){
   const name={key:"name",head:"Creator / Shows",w:280,cls:"name"};
-  if(mode!=="team") return [name].concat(brandColsFor());
+  if(mode!=="team") return sized([name].concat(brandColsFor()));
   // Signed in: the same columns in the same (movable) order brands see, with the blue
   // DFT-only block slotted in straight after the last of Rate / View Guarantee / CPM.
   // (These used to be pinned, which made dragging them look like it did nothing.)
   const bc=brandColsFor();
-  const cut=Math.max(...["rate","vg","cpm","minVideos"].map(k=>bc.findIndex(c=>c.key===k)));
+  const cut=Math.max(...["rate","vg","cpm","minVideos","fee","total"].map(k=>bc.findIndex(c=>c.key===k)));
   const tc=kindOf()==="long"?TEAM_COLS:TEAM_COLS.filter(c=>c.key!=="lcpm").map(c=>c.key==="lvg"?Object.assign({},c,{head:"Live Estimate",w:104}):c);
-  return [{key:"sel",head:"",w:34,cls:"sel"},Object.assign({},name,{w:320})].concat(bc.slice(0,cut+1),tc,bc.slice(cut+1));
+  return sized([{key:"sel",head:"",w:34,cls:"sel"},Object.assign({},name,{w:320})].concat(bc.slice(0,cut+1),tc,bc.slice(cut+1)));
 }
 
 function cellVal(c,col){
@@ -398,12 +424,11 @@ function eyeBtn(c,isShow){
 }
 function nameCell(c){
   const has=(c.shows||[]).length;
-  const chev=`<span class="chev ${has?"":"spacer-ic"}"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg></span>`;
+  const chev=`<span class="chev ${has?"":"spacer-ic"}"${has?` title="${openSet.has(c.id)?"Hide":"Show"} this channel's ${has} show${has===1?"":"s"}, each with its own price"`:""}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg></span>`;
   const dn=dispHandle(c), real=dispName(c.name);
   const ttl=(real&&real!==dn)?` title="${esc(real)}"`:"";
   const nm=c.url?`<a href="${esc(c.url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${esc(dn)}</a>`:esc(dn);
-  const tag=has?`<span class="tag" title="Click to ${openSet.has(c.id)?"hide":"see"} this channel's shows, each with its own price">${openSet.has(c.id)?"Hide shows ▴":"See "+has+" show"+(has===1?"":"s")+" ▾"}</span>`:"";
-  return `<div class="nmwrap"><span class="grip" title="Drag to move this row">⠿</span>${chev}${logoHtml(c)}<span class="nmtext"${ttl}>${nm}${tag}</span>${eyeBtn(c,false)}</div>`;
+  return `<div class="nmwrap"><span class="grip" title="Drag to move this row">⠿</span>${chev}${logoHtml(c)}<span class="nmtext"${ttl}>${nm}</span>${eyeBtn(c,false)}</div>`;
 }
 function showNameCell(s){
   const nm=s.url?`<a href="${esc(s.url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${esc(s.name)}</a>`:esc(s.name);
@@ -479,7 +504,7 @@ const isPitch=()=>!!(BRAND&&BRAND.list&&mode!=="team");
 function sumBy(list,k){ return list.reduce((a,c)=>a+(typeof c[k]==="number"?c[k]:0),0); }
 function totalsRow(list,cols){
   const long=kindOf()==="long";
-  const rate=sumBy(list,"rate"), vg=sumBy(list,"vg"), subs=sumBy(list,"subs");
+  const rate=sumBy(list,"rate"), vg=sumBy(list,"vg"), subs=sumBy(list,"subs"), fee=sumBy(list,"fee"), total=sumBy(list,"total");
   const vids=long?list.reduce((a,c)=>a+(c.minVideos||1),0):list.length;
   const cell=k=>{
     switch(k){
@@ -489,6 +514,9 @@ function totalsRow(list,cols){
       case "vg": return vg?int(vg)+`<span class="sub">${long?"guaranteed views":"estimated views"}</span>`:"";
       case "cpm": return long&&vg?money2(Math.round(rate*100000/vg)/100):"";
       case "minVideos": return `${vids} video${vids===1?"":"s"}`;
+      case "fee": return money(fee);
+      case "total": return money(total);
+      case "rights": return long?"":`<span class="sub">12 months included</span>`;
       default: return "";
     }
   };
@@ -496,7 +524,7 @@ function totalsRow(list,cols){
 }
 function packageSummary(){
   const all=GROUPS.reduce((a,g)=>a.concat((BRAND.groups[g.id]||[]).map(c=>Object.assign({kind:g.kind},c))),[]);
-  const rate=sumBy(all,"rate"), vg=sumBy(all.filter(c=>c.kind==="long"),"vg"), est=sumBy(all.filter(c=>c.kind!=="long"),"vg");
+  const rate=all.reduce((a,c)=>a+(typeof c.total==="number"?c.total:(typeof c.rate==="number"?c.rate:0)),0), vg=sumBy(all.filter(c=>c.kind==="long"),"vg"), est=sumBy(all.filter(c=>c.kind!=="long"),"vg");
   const vids=all.reduce((a,c)=>a+(c.kind==="long"?(c.minVideos||1):1),0);
   return `<span class="pkg"><span>Package total <b>${money(rate)}</b></span><span><b>${all.length}</b> profile${all.length===1?"":"s"}</span><span><b>${vids}</b> video${vids===1?"":"s"}</span>${vg?`<span><b>${int(vg)}</b> guaranteed YouTube views</span>`:""}${est?`<span><b>${int(est)}</b> estimated short-form views</span>`:""}</span>`;
 }
@@ -515,7 +543,7 @@ function render(){
     const car=""; // no sort arrows (Tom, 6 Oct 2026); the sorted column is shaded instead
     const drag=!c.t&&c.key!=="name"?` draggable="true"`:"";
     const hgrip=drag?`<span class="hgrip" aria-hidden="true">⠿</span>`:"";
-    return `<th class="${c.cls||""}${c.t?" tcol":""}${drag?" movable":""}${active?" sorted":""}" data-key="${c.key}"${drag} title="${c.tip?esc(c.tip)+" ":""}${c.t?"DFT only":"Click to sort"}${drag?" · drag to move":""}">${hgrip}${esc(c.head)}${car}</th>`;
+    return `<th class="${c.cls||""}${c.t?" tcol":""}${drag?" movable":""}${active?" sorted":""}" data-key="${c.key}"${drag} title="${c.tip?esc(c.tip)+" ":""}${c.t?"DFT only":"Click to sort"}${drag?" · drag to move":""} · drag the right edge to resize">${hgrip}${esc(c.head)}${car}<span class="rsz" data-k="${c.key}" title="Drag to resize · double-click to reset"></span></th>`;
   }).join("")}</tr></thead>`;
   const totalW=cols.reduce((a,c)=>a+c.w,0);
   $("#scroll").innerHTML=list.length
@@ -529,10 +557,12 @@ function wire(){
   const sc=$("#scroll");
   sc.querySelectorAll("tr.chan").forEach(tr=>tr.addEventListener("click",()=>{const id=tr.dataset.id; openSet.has(id)?openSet.delete(id):openSet.add(id); render();}));
   sc.querySelectorAll("th[data-key]").forEach(th=>th.addEventListener("click",()=>{
+    if(Date.now()-(wireResize.at||0)<300) return; // the mouseup that ended a resize
     const k=th.dataset.key; if(k===sortKey) sortDir=sortDir==="desc"?"asc":"desc"; else {sortKey=k; sortDir="desc";} render();
   }));
   sc.querySelectorAll("td.wide").forEach(td=>{ if(!td.textContent.trim()) return; td.classList.add("clickable"); td.addEventListener("click",e=>{e.stopPropagation();td.classList.toggle("exp");}); });
   wireRowDrag(sc);
+  wireResize(sc);
 
   if(mode==="team"){
     sc.querySelectorAll("input.pick").forEach(cb=>cb.addEventListener("change",()=>{ cb.checked?picked.add(cb.dataset.id):picked.delete(cb.dataset.id); render(); }));
@@ -563,6 +593,31 @@ function wire(){
   });
 }
 
+// Excel-style column resize: drag a header's right edge; double-click it to reset.
+function wireResize(sc){
+  const table=sc.querySelector("table"); if(!table) return;
+  const colEls=[...table.querySelectorAll("colgroup col")];
+  const ths=[...table.querySelectorAll("thead th")];
+  sc.querySelectorAll(".rsz").forEach(h=>{
+    h.addEventListener("click",e=>e.stopPropagation());
+    h.addEventListener("dblclick",e=>{ e.stopPropagation(); delete colWidths[h.dataset.k]; layoutChanged(); render(); });
+    h.addEventListener("mousedown",e=>{
+      e.preventDefault(); e.stopPropagation();
+      const th=h.closest("th"), i=ths.indexOf(th), col=colEls[i]; if(!col) return;
+      const wasDrag=th.getAttribute("draggable"); th.removeAttribute("draggable");
+      const startX=e.clientX, startW=th.getBoundingClientRect().width, startT=table.getBoundingClientRect().width;
+      let w=startW; h.classList.add("on"); document.body.classList.add("resizing");
+      const move=ev=>{ w=Math.max(48,Math.min(1600,Math.round(startW+ev.clientX-startX))); col.style.width=w+"px"; table.style.width=(startT+w-startW)+"px"; };
+      const up=()=>{
+        document.removeEventListener("mousemove",move); document.removeEventListener("mouseup",up);
+        h.classList.remove("on"); document.body.classList.remove("resizing"); if(wasDrag) th.setAttribute("draggable",wasDrag);
+        wireResize.at=Date.now();
+        if(Math.abs(w-startW)>=2){ colWidths[h.dataset.k]=w; layoutChanged(); }
+      };
+      document.addEventListener("mousemove",move); document.addEventListener("mouseup",up);
+    });
+  });
+}
 function layoutChanged(){
   persistMine();
   if(mode==="team"){ layoutDirty=true; $("#saveCols").style.display=""; }
@@ -602,7 +657,7 @@ function startListEdit(td){
   const f=findListRow(td.dataset.id); if(!f) return;
   const field=td.dataset.edit, r=f.row;
   const cur=field==="vg"?(r.vgPer!=null?r.vgPer:r.vg):r[field];
-  td.innerHTML=`<input type="number" min="0" step="${field==="cpm"?"0.01":"1"}" value="${cur==null?"":cur}" title="${field==="vg"?"Views per video, for this list only":"For this list only"}. Clear it to go back to the roster price.">`;
+  td.innerHTML=`<input type="number" min="0" step="${field==="cpm"?"0.01":"1"}" value="${cur==null?"":cur}" title="${field==="vg"?(f.kind==="long"?"Views per video":"Estimated views per post")+", for this list only":"For this list only"}. Clear it to go back to the roster price.">`;
   const inp=td.querySelector("input"); inp.focus(); inp.select();
   let done=false;
   const finish=async commit=>{ if(done) return; done=true;
@@ -611,7 +666,7 @@ function startListEdit(td){
     td.classList.add("saving");
     const body={op:"list-price",slug:LIST_SLUG,id:td.dataset.id};
     if(raw==="") body.clear=true;
-    else { body[field]=v; if(f.kind==="long"){ body.curVg=r.vgPer!=null?r.vgPer:r.vg; body.curCpm=r.cpm; } }
+    else { body[field]=v; body.curVg=r.vgPer!=null?r.vgPer:r.vg; body.curCpm=r.cpm; if(f.kind!=="long") body.curFee=r.fee!=null?r.fee:3000; }
     try{ const j=await post(body); applyBrand(j); toast(body.clear?"Back to the roster price for this list":"Saved for this list only"); }
     catch(e){ toast(e.message,true); render(); }
   };
@@ -718,7 +773,7 @@ function renderBanner(){
   if(TEAM){
     b.className="banner"; b.style.display="";
     b.innerHTML=`Signed in as <b>${esc(TEAM.email)}</b> · ${mode==="team"
-      ?"Blue columns are DFT-only. Click an underlined number to change what brands see, or the eye to show or hide a creator. Drag the ⠿ handles to move rows and columns."
+      ?"Blue columns are DFT-only. Click an underlined number to change what brands see, or the eye to show or hide a creator. Drag the ⠿ handles to move rows and columns, or a column's edge to resize it."
       :(listEdit()?"Pitch list preview: click an underlined number to change it for this list only. The roster and other lists stay as they are."+lockButton():"Brand preview: exactly what brands see.")}${listEdit()?packageSummary():'<span class="spacer"></span>'}<a href="/auth/signout" style="text-decoration:underline;margin-left:${listEdit()?"14px":"0"}">Sign out</a>`;
     const lb=$("#lockBtn"); if(lb) lb.onclick=()=>toggleLock(lb.dataset.lock==="1");
   } else if(BRAND&&BRAND.list){
@@ -759,7 +814,7 @@ function applyBrand(p){
   BRAND=p; if(!TEAM) applyLayout(p);
   $("#subtitle").textContent=p.list&&p.list.lock
     ?`Prices fixed for this campaign (set ${fmtDate(p.list.lock.on)}) · a selection from our roster`
-    :`Rates valid for ${p.quarter} · ${p.list?"a selection from our roster":"updated once a quarter"} · click "See shows" on a channel for each show's price`;
+    :`Rates valid for ${p.quarter} · ${p.list?"a selection from our roster":"updated once a quarter"} · click the arrow beside a channel to see its shows`;
   if(p.list) $("#title").textContent=p.list.title;
   if(mode!=="team"){ PAYLOAD=BRAND; renderBanner(); renderTabs(); render(); }
 }
@@ -810,7 +865,7 @@ $("#resetLayout").addEventListener("click",()=>{
   applyLayout((mode==="team"?TEAM:BRAND)||{}); render();
 });
 $("#saveCols").addEventListener("click",async()=>{
-  try{ await post({op:"columns",columns:colOrder,rows:rowOrder}); layoutDirty=false; $("#saveCols").style.display="none"; toast("Row and column order saved for everyone"); }
+  try{ await post({op:"columns",columns:colOrder||BRAND_COLS.map(c=>c.key),rows:rowOrder,widths:colWidths}); layoutDirty=false; $("#saveCols").style.display="none"; toast("Layout saved for everyone"); }
   catch(e){ toast(e.message,true); }
 });
 

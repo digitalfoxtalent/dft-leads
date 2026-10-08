@@ -6,7 +6,8 @@
 //     previous quarter's average) and editable by the team on this site until the next reset.
 //     Hidden from brands: floored CPM over $30 (long-form) or $50 (Shorts, Instagram, TikTok),
 //     shows/feeds that published nothing last quarter, and anything set to "Hide".
-//     Shorts, Instagram and TikTok carry no view guarantee or CPM in this view - a rate only.
+//     Shorts, Instagram, TikTok and Snapchat show a View Estimate, a rate at $25 CPM, a $3,000
+//     content production fee and the total (Tom, 8 Oct 2026). No CPM in this view.
 //   * DFT VIEW (signed in with an @digitalfoxtalent.com Google account): everything, with the
 //     live daily averages beside the brand numbers, edits, visibility overrides, saved lists
 //     and the column order.
@@ -55,10 +56,17 @@ const GROUPS = [
   { id: "group_mm4av3kr", kind: "short" }, // YouTube Shorts
   { id: "group_mm4a1fe0", kind: "short" }, // Instagram
   { id: "group_mm4bd5tk", kind: "short" }, // TikTok
+  { id: "group_mm7yw8cy", kind: "short" }, // Snapchat (added 8 Oct 2026; no sync, numbers kept by hand)
 ];
 const CAP = { long: 30, short: 50 };
-const PRICE = { long: { mult: 1.5, cpm: 25 }, short: { mult: 1, cpm: 50 } };
+// Short form (Shorts, Instagram, TikTok, Snapchat), Tom 8 Oct 2026: the View Estimate x a
+// $25 CPM gives the media rate, with NO $1,500 floor, and a flat content production fee of
+// $3,000 is added on top. Total Rate = rate + fee. 12 months of digital usage and boosting
+// rights are included. YouTube long-form is unchanged ($25 CPM, $1,500 minimum, no fee).
+const PRICE = { long: { mult: 1.5, cpm: 25 }, short: { mult: 1, cpm: 25 } };
 const FLOOR = 1500;
+const FEE = 3000;
+const RIGHTS = "12 months digital usage + boosting rights included";
 // Every creator is sold with ads of up to 60 seconds (Tom, 5 Oct 2026). This replaced the
 // old "Videos / mo" column on the roster page.
 const AD_LENGTH = "30-90s"; // Margot asked for :60-:90; Tom chose 30-90s, 6 Oct 2026
@@ -114,7 +122,7 @@ export function priceFrom(avg, kind) {
   const p = PRICE[kind];
   const vg = Math.round(avg * p.mult);
   let rate = Math.round(vg * p.cpm / 1000);
-  if (rate < FLOOR) rate = FLOOR;
+  if (kind === "long" && rate < FLOOR) rate = FLOOR;
   return { vg, rate, cpm: vg ? r2(rate * 1000 / vg) : 0 };
 }
 
@@ -123,6 +131,12 @@ export function priceFrom(avg, kind) {
 // the same way from today's average.
 function brandNumbers(cv, K, kind) {
   const vg = pos(cv[K.bvg]), rate = pos(cv[K.brate]);
+  if (kind !== "long" && vg) {
+    // Short form is re-priced here at $25 so the quarter's stored $50 numbers need no
+    // rewrite. A CPM a DFT member typed in (note "Edited by") is kept.
+    const cpm = (/^Edited by/.test(cv[K.bnote] || "") && pos(cv[K.bcpm])) || PRICE.short.cpm;
+    return { vg, rate: Math.round(vg * cpm / 1000), cpm: r2(cpm), askCpm: r2(cpm), basis: pos(cv[K.bbasis]), quarter: cv[K.bq] || "", note: cv[K.bnote] || "", provisional: false };
+  }
   // cpm is always the effective one (rate / views). askCpm is the CPM that was asked
   // for: the same thing, except on a row lifted by the $1,500 floor after a DFT edit.
   if (vg && rate) { const eff = r2(rate * 1000 / vg); return { vg, rate, cpm: eff, askCpm: pos(cv[K.bcpm]) || eff, basis: pos(cv[K.bbasis]), quarter: cv[K.bq] || "", note: cv[K.bnote] || "", provisional: false }; }
@@ -256,7 +270,7 @@ async function loadBoard() {
   });
   const settings = listItems.find(x => x.name === "__settings");
   const data = { rows, lists: listItems.filter(x => x.name !== "__settings" && x.slug), columns: (settings && settings.body.columns) || null,
-    rowOrder: (settings && settings.body.rows) || {}, settingsId: settings && settings.id };
+    rowOrder: (settings && settings.body.rows) || {}, widths: (settings && settings.body.widths) || {}, settingsId: settings && settings.id };
   cache = { at: Date.now(), data };
   return data;
 }
@@ -288,30 +302,46 @@ function listNumbers(b, p, kind) {
     const rate = Math.max(FLOOR, Math.round(p.vg * p.cpm / 1000));
     return Object.assign({}, b || {}, { vg: Math.round(p.vg), rate, cpm: r2(rate * 1000 / p.vg), askCpm: p.cpm, custom: true });
   }
-  if (kind !== "long" && p.rate > 0) return Object.assign({}, b || {}, { rate: Math.round(p.rate), custom: true });
+  if (kind !== "long") {
+    const base = b || {};
+    const vg = p.vg > 0 ? Math.round(p.vg) : base.vg, cpm = p.cpm > 0 ? p.cpm : (base.askCpm || base.cpm || PRICE.short.cpm);
+    const o = Object.assign({}, base, { custom: true });
+    if (p.rate > 0 && !(p.vg > 0) && !(p.cpm > 0)) o.rate = Math.round(p.rate); // lists saved before 8 Oct 2026
+    else if (vg > 0) Object.assign(o, { vg, rate: Math.round(vg * cpm / 1000), cpm: r2(cpm), askCpm: r2(cpm) });
+    if (p.fee != null && p.fee >= 0) o.fee = Math.round(p.fee);
+    return o;
+  }
   return null;
+}
+
+// Content production fee and total (short form only; YouTube's total is its rate).
+function addFee(b, kind) {
+  if (!b) return b;
+  const fee = kind === "long" ? 0 : (b.fee != null ? b.fee : FEE);
+  return Object.assign({}, b, { fee: kind === "long" ? null : fee, total: (b.rate || 0) + fee });
 }
 
 function brandRow(r, includeHiddenByRule, prices, team) {
   prices = prices || {};
   const own = brandNumbers(r.cv, C, r.kind);
-  const b = bundle(listNumbers(own, prices[r.id], r.kind) || own, r.kind);
+  const b = addFee(bundle(listNumbers(own, prices[r.id], r.kind) || own, r.kind), r.kind);
   const v = visibility(b, r.cv[C.vis], r.cv[C.bnote], r.kind);
   const allowed = v.show || (includeHiddenByRule && b && r.cv[C.vis] !== "Hide");
   if (!allowed) return null;
   const o = baseFields(r);
-  o.rate = b.rate;
+  o.rate = b.rate; o.total = b.total;
   if (r.kind === "long") { o.vg = b.vg; o.cpm = b.cpm; o.minVideos = b.videos; o.vgPer = b.vgPer; }
-  // Shorts, Instagram and TikTok: brands see the views figure as a View Estimate (not a
-  // guarantee) and never the CPM (Tom, 6 Oct 2026).
-  else o.vg = b.vg || null;
+  // Shorts, Instagram, TikTok and Snapchat: brands see the views figure as a View Estimate
+  // (not a guarantee) and never the CPM (Tom, 6 Oct 2026). The team, on a list's page, gets
+  // the CPM so it can be changed for that list.
+  else { o.vg = b.vg || null; o.fee = b.fee; o.rights = RIGHTS; if (team) o.cpm = b.cpm; }
   if (team && b.custom) o.custom = true; // only the team sees which prices are list-only
   o.shows = r.kind !== "long" ? [] : r.shows.map(s => {
     const sown = brandNumbers(s.cv, SC, "long");
     const sb = bundle(listNumbers(sown, prices[s.id], "long") || sown, "long");
     const sv = visibility(sb, s.cv[SC.vis], s.cv[SC.bnote], "long");
     if (!(sv.show || (includeHiddenByRule && sb && s.cv[SC.vis] !== "Hide"))) return null;
-    return { id: s.id, name: s.name, url: s.cv[SC.url] || "", rate: sb.rate, vg: sb.vg, cpm: sb.cpm, minVideos: sb.videos, vgPer: sb.vgPer, custom: team && sb.custom ? true : undefined };
+    return { id: s.id, name: s.name, url: s.cv[SC.url] || "", rate: sb.rate, total: sb.rate, vg: sb.vg, cpm: sb.cpm, minVideos: sb.videos, vgPer: sb.vgPer, custom: team && sb.custom ? true : undefined };
   }).filter(Boolean).sort((a, b) => b.vgPer - a.vgPer);
   return o;
 }
@@ -328,8 +358,10 @@ function liveFor(r) {
 
 function teamRow(r) {
   const o = baseFields(r);
-  const b = bundle(brandNumbers(r.cv, C, r.kind), r.kind);
+  const b = addFee(bundle(brandNumbers(r.cv, C, r.kind), r.kind), r.kind);
   const v = visibility(b, r.cv[C.vis], r.cv[C.bnote], r.kind);
+  if (r.kind !== "long") Object.assign(o, { fee: b ? b.fee : FEE, total: b ? b.total : null, rights: RIGHTS });
+  else o.total = b ? b.rate : null;
   Object.assign(o, {
     brand: b, override: r.cv[C.vis] || "Auto", show: v.show, why: v.why,
     live: liveFor(r),
@@ -339,7 +371,7 @@ function teamRow(r) {
   o.shows = r.shows.map(s => {
     const sb = bundle(brandNumbers(s.cv, SC, "long"), "long");
     const sv = visibility(sb, s.cv[SC.vis], s.cv[SC.bnote], "long");
-    return { id: s.id, name: s.name, url: s.cv[SC.url] || "", brand: sb, override: s.cv[SC.vis] || "Auto", show: sv.show, why: sv.why,
+    return { id: s.id, name: s.name, url: s.cv[SC.url] || "", brand: sb, total: sb ? sb.rate : null, override: s.cv[SC.vis] || "Auto", show: sv.show, why: sv.why,
       rate: sb ? sb.rate : null, vg: sb ? sb.vg : null, cpm: sb ? sb.cpm : null,
       minVideos: sb ? sb.videos : null, vgPer: sb ? sb.vgPer : null,
       live: { avg: pos(s.cv[SC.avg]), vg: pos(s.cv[SC.vg]), rate: pos(s.cv[SC.rate]), cpm: pos(s.cv[SC.cpm]) } };
@@ -350,7 +382,7 @@ function teamRow(r) {
 // Campaign lock (Tom, 6 Oct 2026). Lists follow the quarter by default. Locking a list
 // for a campaign keeps every price on it as it was when locked, past the quarter reset,
 // until it is unlocked. Stored as { lock: { on, by, quarter, rows: { id: numbers } } }.
-const LOCK_FIELDS = ["rate", "vg", "cpm", "minVideos", "vgPer"];
+const LOCK_FIELDS = ["rate", "vg", "cpm", "minVideos", "vgPer", "fee", "total"];
 function applyLock(o, lock) {
   const put = (x) => { const n = lock.rows && lock.rows[x.id]; if (n) LOCK_FIELDS.forEach(k => { if (n[k] != null) x[k] = n[k]; }); };
   put(o); (o.shows || []).forEach(put);
@@ -383,7 +415,7 @@ function brandPayload(data, list, team, noLock) {
     const order = {}; (list.body.ids || []).forEach((id, i) => { order[String(id)] = i; });
     Object.values(groups).forEach(a => a.sort((x, y) => order[x.id] - order[y.id]));
   } else Object.values(groups).forEach(a => a.sort((x, y) => (y.vgPer || y.vg || y.rate || 0) - (x.vgPer || x.vg || x.rate || 0)));
-  return { view: "brand", quarter: quarterLabel(), columns: data.columns, rows: ids ? {} : data.rowOrder, list: list ? { title: list.name, slug: list.slug, manual: !!list.body.manual,
+  return { view: "brand", quarter: quarterLabel(), columns: data.columns, widths: data.widths, rows: ids ? {} : data.rowOrder, list: list ? { title: list.name, slug: list.slug, manual: !!list.body.manual,
     lock: list.body.lock ? { on: list.body.lock.on, quarter: list.body.lock.quarter } : null } : null, groups };
 }
 
@@ -392,7 +424,7 @@ function teamPayload(data, email) {
   GROUPS.forEach(g => { groups[g.id] = []; });
   data.rows.forEach(r => groups[r.group].push(teamRow(r)));
   Object.values(groups).forEach(a => a.sort((x, y) => (y.vgPer || 0) - (x.vgPer || 0)));
-  return { view: "team", email, quarter: quarterLabel(), columns: data.columns, rows: data.rowOrder, groups,
+  return { view: "team", email, quarter: quarterLabel(), columns: data.columns, widths: data.widths, rows: data.rowOrder, groups,
     lists: data.lists.map(l => ({ id: l.id, title: l.name, slug: l.slug, ids: l.body.ids || [], by: l.by, updated: l.updated, locked: l.body.lock ? l.body.lock.on : "" })) };
 }
 
@@ -425,12 +457,11 @@ async function editRow(b, email) {
   if (b.vg != null || b.cpm != null) {
     const cur = brandNumbers(row.cv, K, kind) || {};
     const vg = Math.round(num(b.vg != null ? b.vg : cur.vg) || 0);
-    // Shorts / Instagram / TikTok are always priced at the flat $50 CPM, which is not shown
-    // anywhere: editing the View Estimate must not carry over a floored row's effective CPM.
-    const cpm = num(b.cpm != null ? b.cpm : (kind === "long" ? cur.cpm : PRICE.short.cpm)) || 0;
+    // Short form: the CPM is $25 unless DFT has typed another one for this row.
+    const cpm = num(b.cpm != null ? b.cpm : (kind === "long" ? cur.cpm : (cur.askCpm || PRICE.short.cpm))) || 0;
     if (!(vg > 0) || !(cpm > 0) || cpm > 10000 || vg > 1e9) throw new Error("View guarantee and CPM must be positive numbers");
     let rate = Math.round(vg * cpm / 1000);
-    if (rate < FLOOR) rate = FLOOR;
+    if (kind === "long" && rate < FLOOR) rate = FLOOR;
     // Brand CPM keeps the CPM that was asked for (not rate / views), so a small row lifted
     // by the floor is bundled at the CPM DFT chose rather than the house $25.
     Object.assign(values, {
@@ -523,9 +554,13 @@ async function listPrice(b, email) {
     if (!(vg > 0) || !(cpm > 0) || cpm > 10000 || vg > 1e9) throw new Error("View guarantee and CPM must be positive numbers");
     prices[id] = { vg, cpm: r2(cpm) };
   } else {
-    const rate = Math.round(num(b.rate) || 0);
-    if (!(rate > 0) || rate > 1e7) throw new Error("Rate must be a positive number");
-    prices[id] = { rate };
+    // Short form on a list: View Estimate, CPM and the content production fee.
+    const cur = prices[id] || {};
+    const pick = (k, curK) => num(b[k] != null ? b[k] : (cur[k] != null ? cur[k] : b[curK]));
+    const vg = Math.round(pick("vg", "curVg") || 0), cpm = pick("cpm", "curCpm") || 0, fee = pick("fee", "curFee");
+    if (!(vg > 0) || !(cpm > 0) || cpm > 10000 || vg > 1e9) throw new Error("View estimate and CPM must be positive numbers");
+    if (fee == null || fee < 0 || fee > 1e6) throw new Error("Production fee must be zero or more");
+    prices[id] = { vg, cpm: r2(cpm), fee: Math.round(fee) };
   }
   const body = Object.assign({}, list.body, { prices });
   if (body.lock) { // a price changed on a locked list is locked at its new value
@@ -561,8 +596,12 @@ async function saveColumns(b, email) {
   const rows = {};
   const src = b.rows && typeof b.rows === "object" ? b.rows : {};
   GROUPS.forEach(g => { if (Array.isArray(src[g.id])) rows[g.id] = src[g.id].map(String).filter(x => /^\d+$/.test(x)).slice(0, 300); });
+  // Column widths (dragged on a header edge), key -> pixels.
+  const widths = {};
+  const ws = b.widths && typeof b.widths === "object" ? b.widths : {};
+  Object.keys(ws).slice(0, 80).forEach(k => { const w = Math.round(num(ws[k]) || 0); if (/^[a-zA-Z0-9]+$/.test(k) && w >= 40 && w <= 1600) widths[k] = w; });
   const data = await loadBoard();
-  const v = { [L.items]: { text: JSON.stringify({ columns: cols, rows }) }, [L.updated]: email + " " + stamp() };
+  const v = { [L.items]: { text: JSON.stringify({ columns: cols, rows, widths }) }, [L.updated]: email + " " + stamp() };
   if (data.settingsId) {
     await monday("mutation($b:ID!,$i:ID!,$v:JSON!){change_multiple_column_values(board_id:$b,item_id:$i,column_values:$v){id}}",
       { b: String(LISTS_BOARD), i: data.settingsId, v: JSON.stringify(v) });
