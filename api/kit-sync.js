@@ -4,7 +4,7 @@
 // Roster row, refreshed automatically for creators connected through Channel Connect, and an
 // Audience stats link on the roster site that draws from those media kits.
 //
-// WHAT IT DOES, every Monday (vercel.json cron), for every row on Creator YouTube Access
+// WHAT IT DOES, every day (vercel.json cron), for every row on Creator YouTube Access
 // (monday 18432126799):
 //   1. Works out the channel id. If the row has none, it takes the UC id from the Rates board
 //      row linked to the same Global Talent Roster row, and writes it back onto the access row.
@@ -25,10 +25,11 @@
 // never logged or returned. The "kit" signature opens the brand audience page only: it cannot
 // open the internal stats page or the remove-access link.
 //
-// WHY NOT EVERY DAY. Audience mix moves slowly, and the brand-facing price numbers are frozen
-// a quarter at a time anyway. Weekly keeps the dates honest at a few dozen API calls a week.
+// WHY DAILY. Daily from 8 Oct 2026 while the shared-link outreach runs, so a creator who
+// connects shows as Live the next day. Audience mix moves slowly, so once most of the roster
+// has connected this can go back to weekly ("15 12 * * 1") to save API calls.
 //
-// Runs: Vercel cron (Monday 12:15 UTC), or a signed-in DFT team member opening
+// Runs: Vercel cron (daily 12:15 UTC), or a signed-in DFT team member opening
 // https://roster-viewguarantee.digitalfoxtalent.com/api/kit-sync
 //   ?dry=1          work it all out and report, write nothing
 //   ?only=UC...     one channel

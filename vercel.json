@@ -66,7 +66,7 @@
     },
     {
       "path": "/api/kit-sync",
-      "schedule": "15 12 * * 1"
+      "schedule": "15 12 * * *"
     },
     {
       "path": "/api/podcast-sync",
