@@ -40,7 +40,7 @@ const CREATOR_BOARD = 6160485039;   // Global Talent Roster (State lives there)
 // the podcast apps is marked "Simulcast" - extra reach at the same rate, not a separate
 // price. The record of who is live as Simulcast is the Creator x Supplier Setup Register:
 // rows with Supplier Libsyn, Listing type Simulcast, Setup state Live, joined on YouTube handle.
-const GTR = { country: "dup__of_state6", state: "dup__of_email", yt: "text_mm6nqp7b", ig: "text_mm5pkgn1", tt: "text_mm5pqpaf", full: "dup__of_state" };
+const GTR = { country: "dup__of_state6", state: "dup__of_email", yt: "text_mm6nqp7b", ig: "text_mm5pkgn1", tt: "text_mm5pqpaf", sc: "text_mm5pfw8a", full: "dup__of_state" };
 const GTR_LIVE = new Set(["Youtube Long Form", "Short Form", "Need to set up with Suppliers", "Creator Applied", "To be let go"]);
 const COUNTRY_FIX = { "usa": "United States", "us": "United States", "u.s.": "United States", "united states of america": "United States", "uk": "United Kingdom", "u.k.": "United Kingdom" };
 const NAME_ALIAS = { normiesanime: "thenormies" }; // secondary channel with no roster row of its own
@@ -223,7 +223,7 @@ async function loadBoard() {
     geoById[String(it.id)] = geo;
     const live = GTR_LIVE.has((it.group || {}).title);
     const put = (map, k) => { if (k && (live || !map[k])) map[k] = geo; };
-    [GTR.yt, GTR.ig, GTR.tt].forEach(k => put(geoByHandle, hkey(v[k])));
+    [GTR.yt, GTR.ig, GTR.tt, GTR.sc].forEach(k => put(geoByHandle, hkey(v[k])));
     put(geoByName, nkey(it.name)); put(geoByName, nkey(v[GTR.full]));
   });
   const geoFor = (creatorId, handle, name, fallback) => {
