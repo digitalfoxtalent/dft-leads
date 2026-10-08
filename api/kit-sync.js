@@ -19,6 +19,14 @@
 //      GTR row, so the roster site stops showing a dead link. Manual media kit links (anything
 //      not on connect.digitalfoxtalent.com) are never touched.
 //
+// NEW CONNECTIONS FROM THE SHARED LINK (8 Oct 2026). Creators now connect through one shared
+// link (connect.digitalfoxtalent.com), so a channel can connect before anyone has added it to
+// Creator YouTube Access. Each run lists the KEYS of Channel Connect's token store (the channel
+// ids, never the records or tokens) and adds an access row for any connected channel the board
+// does not have yet, linked to its roster row when the Rates board knows it. The normal pass
+// below then fills that row like any other. Applicants from the sign-up form are not added:
+// their records are skipped unless the Rates board already knows the channel.
+//
 // THE LINK IS SIGNED. Channel Connect signs every link with STATS_SECRET. This job reads that
 // secret at run time from the API Keys board (item 13197661446), the same way the Megaphone
 // and decline tokens are read, so there is one copy of it and nothing to set in Vercel. It is
@@ -42,6 +50,8 @@ export const config = { maxDuration: 300 };
 
 const CONNECT = "https://connect.digitalfoxtalent.com";
 const KEY_ITEM = 13197661446; // API Keys: "Channel Connect STATS_SECRET (dft-connect Vercel)"
+const APIFY_KEY_ITEM = 12634208127; // API Keys: "Apify", read the same way
+const TOKEN_STORE = "dft-creator-tokens"; // Channel Connect's token store; we list its keys only
 const KEY_COL = "text_mm5bcxe7";
 const CHANNEL_RE = /^UC[A-Za-z0-9_-]{22}$/;
 
@@ -76,6 +86,36 @@ async function readSecret(tok) {
 }
 
 const colMap = cvs => Object.fromEntries((cvs || []).map(c => [c.id, c]));
+
+async function connectedChannels(tok) {
+  const d = await monday(tok, `query { items(ids:[${APIFY_KEY_ITEM}]) { column_values(ids:["${KEY_COL}"]) { text } } }`);
+  const apify = String((d.items[0] && d.items[0].column_values[0].text) || "").trim();
+  if (apify.length < 10) throw new Error("Apify key missing on monday");
+  const auth = { headers: { Authorization: "Bearer " + apify } };
+  const st = await fetch(`https://api.apify.com/v2/key-value-stores?name=${TOKEN_STORE}`, Object.assign({ method: "POST" }, auth)).then(r => r.json());
+  const id = st && st.data && st.data.id;
+  if (!id) throw new Error("token store not found");
+  const keys = [];
+  let start = "";
+  for (let i = 0; i < 20; i++) {
+    const r = await fetch(`https://api.apify.com/v2/key-value-stores/${id}/keys?limit=1000${start ? "&exclusiveStartKey=" + encodeURIComponent(start) : ""}`, auth).then(x => x.json());
+    const items = (r.data && r.data.items) || [];
+    items.forEach(k => { if (CHANNEL_RE.test(k.key)) keys.push(k.key); });
+    if (!r.data || !r.data.isTruncated || !items.length) break;
+    start = r.data.nextExclusiveStartKey || items[items.length - 1].key;
+  }
+  return keys;
+}
+
+async function channelTitle(channel) {
+  const key = process.env.YOUTUBE_API_KEY;
+  if (!key) return null;
+  try {
+    const r = await fetch(`https://www.googleapis.com/youtube/v3/channels?part=snippet&id=${channel}&key=${key}`).then(x => x.json());
+    const sn = r.items && r.items[0] && r.items[0].snippet;
+    return sn ? (sn.customUrl || sn.title) : null;
+  } catch (e) { return null; }
+}
 
 async function accessRows(tok) {
   const ids = JSON.stringify(Object.values(A));
@@ -176,13 +216,34 @@ export default async function handler(req, res) {
   const dry = req.query.dry === "1";
   const only = CHANNEL_RE.test(String(req.query.only || "")) ? req.query.only : null;
   const day = today();
-  const report = { at: new Date().toISOString(), dry, connected: [], revoked: [], cleared: [], channelIdsFilled: [], noChannel: [], errors: [] };
+  const report = { at: new Date().toISOString(), dry, connected: [], revoked: [], cleared: [], channelIdsFilled: [], noChannel: [], added: [], errors: [] };
 
   try {
     const secret = await readSecret(tok);
     if (secret.length < 20) return res.status(500).json({ error: "STATS_SECRET row on the API Keys board is empty" });
 
     const [access, rates] = await Promise.all([accessRows(tok), ratesRows(tok)]);
+
+    // New connections the board does not know about yet (shared link). Roster creators only:
+    // the channel must be on the Rates board, which keeps sign-up applicants off the checklist.
+    try {
+      const known = new Set(access.map(r => r.channel).filter(Boolean).concat(access.map(r => channelFor(r, rates)).filter(Boolean)));
+      const fresh = (await connectedChannels(tok)).filter(ch => !known.has(ch));
+      for (const ch of fresh) {
+        const rr = rates.find(x => x.src === ch && x.group === "topics") || rates.find(x => x.src === ch);
+        if (!rr) continue;
+        const gtrId = rr.gtrIds[0] || null;
+        const name = (rr.handle && rr.handle.trim()) || (await channelTitle(ch)) || rr.name;
+        report.added.push(name);
+        if (dry) { access.push({ id: null, name, channel: ch, status: "", gtrId }); continue; }
+        const vals = { [A.chan]: ch };
+        if (gtrId) vals[A.roster] = { url: `https://digitalfoxtalent.monday.com/boards/${GTR_BOARD}/pulses/${gtrId}`, text: "Roster row" };
+        const made = await monday(tok, `mutation { create_item(board_id:${ACCESS_BOARD}, group_id:"topics", item_name:${JSON.stringify(name)}, column_values:${JSON.stringify(JSON.stringify(vals))}) { id } }`);
+        access.push({ id: made.create_item.id, name, channel: ch, status: "", gtrId });
+      }
+    } catch (e) {
+      report.errors.push({ name: "new connections", code: String(e.message || e).slice(0, 160) });
+    }
     let rows = access.map(r => {
       const derived = CHANNEL_RE.test(r.channel) ? null : channelFor(r, rates);
       return Object.assign(r, { channel: CHANNEL_RE.test(r.channel) ? r.channel : derived, filled: !!derived });
