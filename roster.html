@@ -237,7 +237,7 @@ const GROUPS=[
 const AFTER={fee:"rate",total:"fee",rights:"total"};
 const FOLLOWER_TABS=new Set(["group_mm4a1fe0","group_mm4bd5tk","group_mm7yw8cy"]);
 const SHORTS_GROUP="group_mm4av3kr";
-const SHORT_HIDE=new Set(["male","female","a1317","a1824","a2534","a3544","a4554","a5564","us","uk","audience","adTypes","exclusive","host","hostGender"]);
+const SHORT_HIDE=new Set(["kit","male","female","a1317","a1824","a2534","a3544","a4554","a5564","us","uk","audience","adTypes","exclusive","host","hostGender"]);
 const RENAME={ "Down To Earth With Kristian Harloff (UAP NEWS)":"Down to Earth" };
 
 // Brand-facing columns. The order can be changed by the team (drag a header, then
@@ -263,6 +263,7 @@ const BRAND_COLS=[
   {key:"exclusive",head:"Exclusive", w:80},
   {key:"adTypes",head:"Ad Types",    w:150, cls:"wide"},
   {key:"adLength", head:"Ad length", w:92},
+  {key:"kit",    head:"Audience stats", w:130, tip:"The creator's audience: age, gender, countries and how they watch. Live from YouTube Analytics where the creator has connected their channel."},
   {key:"male",   head:"Male %",      w:64},
   {key:"female", head:"Female %",    w:70},
   {key:"a1317",  head:"13-17",       w:56},
@@ -403,6 +404,7 @@ function fmtCell(c,col,isShow){
   if(col.fmt==="int") return int(v);
   if(col.key==="minVideos") return v==null?"":(v>1?`<span class="pill bundle" title="${esc(v+" videos. View guarantee and rate cover all "+v+(c.vgPer?" (about "+int(c.vgPer)+" views each)":""))}">${v} videos</span>`:"1");
   if(col.key==="simulcast") return v?`<span class="pill ok" title="Also on Spotify Video and podcast apps, included at this rate">${esc(v)}</span>`:"";
+  if(col.key==="kit") return v?`<a class="exlink" href="${esc(v)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">Audience ↗</a>`:"";
   if(col.key==="adEx") return v?`<a class="exlink" href="${esc(v)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">Examples ↗</a>`:"";
   return esc(v);
 }

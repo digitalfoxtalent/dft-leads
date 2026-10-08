@@ -40,7 +40,7 @@ const CREATOR_BOARD = 6160485039;   // Global Talent Roster (State lives there)
 // the podcast apps is marked "Simulcast" - extra reach at the same rate, not a separate
 // price. The record of who is live as Simulcast is the Creator x Supplier Setup Register:
 // rows with Supplier Libsyn, Listing type Simulcast, Setup state Live, joined on YouTube handle.
-const GTR = { country: "dup__of_state6", state: "dup__of_email", yt: "text_mm6nqp7b", ig: "text_mm5pkgn1", tt: "text_mm5pqpaf", sc: "text_mm5pfw8a", full: "dup__of_state" };
+const GTR = { country: "dup__of_state6", state: "dup__of_email", yt: "text_mm6nqp7b", ig: "text_mm5pkgn1", tt: "text_mm5pqpaf", sc: "text_mm5pfw8a", full: "dup__of_state", kit: "link_mm7y59q3" };
 const GTR_LIVE = new Set(["Youtube Long Form", "Short Form", "Need to set up with Suppliers", "Creator Applied", "To be let go"]);
 const COUNTRY_FIX = { "usa": "United States", "us": "United States", "u.s.": "United States", "united states of america": "United States", "uk": "United Kingdom", "u.k.": "United Kingdom" };
 const NAME_ALIAS = { normiesanime: "thenormies" }; // secondary channel with no roster row of its own
@@ -198,7 +198,7 @@ async function loadBoard() {
   // all read "United States"), and the Creator board relation the State used to come through
   // is empty on every row, so State/Region showed blank for everyone. Rows are matched on
   // handle (YouTube, Instagram or TikTok), then on name. Audit 6 Oct 2026.
-  const stateQ = `query{boards(ids:[${CREATOR_BOARD}]){items_page(limit:500){items{id name group{title} column_values(ids:${JSON.stringify(Object.values(GTR))}){id text}}}}}`;
+  const stateQ = `query{boards(ids:[${CREATOR_BOARD}]){items_page(limit:500){items{id name group{title} column_values(ids:${JSON.stringify(Object.values(GTR))}){id text value}}}}}`;
   const listsQ = `query{boards(ids:[${LISTS_BOARD}]){items_page(limit:500){items{id name column_values(ids:${JSON.stringify(Object.values(L))}){id text}}}}}`;
   const regQ = `query{boards(ids:[${REGISTER_BOARD}]){items_page(limit:500){items{column_values(ids:${JSON.stringify(Object.values(REG))}){id text}}}}}`;
   const [groups, state, lists, register] = await Promise.all([
@@ -216,16 +216,25 @@ async function loadBoard() {
   const geoById = {}, geoByHandle = {}, geoByName = {};
   ((((state || {}).boards || [])[0] || {}).items_page || { items: [] }).items.forEach(it => {
     const v = {}; (it.column_values || []).forEach(c => { v[c.id] = (c.text || "").trim(); });
+    // Media kit (Audience stats link, 8 Oct 2026): the GTR row's "Media kit" link. For Channel
+    // Connect creators it is the live audience page, rewritten weekly by api/kit-sync.js.
+    let kit = "";
+    try { const kc = (it.column_values || []).find(c => c.id === GTR.kit); kit = (JSON.parse((kc && kc.value) || "null") || {}).url || ""; } catch (e) {}
+    if (!/^https:\/\//.test(kit)) kit = "";
     const country = normCountry(v[GTR.country]);
     let region = v[GTR.state];
     if (region && region.toLowerCase() === country.toLowerCase()) region = ""; // "Sweden / Sweden"
-    const geo = { country, region };
+    const geo = { country, region, kit };
     geoById[String(it.id)] = geo;
     const live = GTR_LIVE.has((it.group || {}).title);
     const put = (map, k) => { if (k && (live || !map[k])) map[k] = geo; };
     [GTR.yt, GTR.ig, GTR.tt, GTR.sc].forEach(k => put(geoByHandle, hkey(v[k])));
     put(geoByName, nkey(it.name)); put(geoByName, nkey(v[GTR.full]));
   });
+  const kitFor = (creatorId, handle, name) => {
+    const g = (creatorId && geoById[creatorId]) || geoByHandle[hkey(handle)] || geoByName[nkey(name)] || geoByName[NAME_ALIAS[nkey(name)]];
+    return (g && g.kit) || "";
+  };
   const geoFor = (creatorId, handle, name, fallback) => {
     const g = (creatorId && geoById[creatorId]) || geoByHandle[hkey(handle)] || geoByName[nkey(name)] || geoByName[NAME_ALIAS[nkey(name)]];
     if (g && (g.country || g.region)) return g;
@@ -251,7 +260,7 @@ async function loadBoard() {
       });
       const sim = kind === "long" && simulcast.has(String(cv[C.handle] || "").replace(/^@/, "").toLowerCase());
       const geo = geoFor(creator, cv[C.handle], it.name, cv[C.location]);
-      rows.push({ id: String(it.id), name: it.name, group: GROUPS[gi].id, kind, cv, creator, adEx, state: geo.region, country: geo.country, shows, simulcast: sim });
+      rows.push({ id: String(it.id), name: it.name, group: GROUPS[gi].id, kind, cv, creator, adEx, state: geo.region, country: geo.country, kit: kitFor(creator, cv[C.handle], it.name), shows, simulcast: sim });
     });
   });
 
@@ -280,7 +289,7 @@ async function loadBoard() {
 function baseFields(r) {
   const cv = r.cv, o = {
     id: r.id, name: r.name, handle: cv[C.handle] || "", url: cv[C.url] || "", logo: r.logo, kind: r.kind, group: r.group,
-    subs: pos(cv[C.subs]), adLength: AD_LENGTH, adEx: r.adEx, state: r.state,
+    subs: pos(cv[C.subs]), adLength: AD_LENGTH, adEx: r.adEx, kit: r.kit || "", state: r.state,
     simulcast: r.simulcast ? "Included" : "",
   };
   TEXT_FIELDS.forEach(k => { o[k] = /^(male|female|a\d|us|uk)/.test(k) ? pct(cv[C[k]]) : (cv[C[k]] || ""); });
