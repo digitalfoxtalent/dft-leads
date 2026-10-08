@@ -543,7 +543,7 @@ function render(){
     if(c.key==="sel") return `<th class="sel" title="Pick creators for a list"></th>`;
     const active=c.key===sortKey;
     const car=""; // no sort arrows (Tom, 6 Oct 2026); the sorted column is shaded instead
-    const drag=!c.t&&c.key!=="name"?` draggable="true"`:"";
+    const drag=!c.t&&c.key!=="name"?` data-drag="1"`:""; // made draggable on grab, so the resize edge stays free
     const hgrip=drag?`<span class="hgrip" aria-hidden="true">⠿</span>`:"";
     return `<th class="${c.cls||""}${c.t?" tcol":""}${drag?" movable":""}${active?" sorted":""}" data-key="${c.key}"${drag} title="${c.tip?esc(c.tip)+" ":""}${c.t?"DFT only":"Click to sort"}${drag?" · drag to move":""} · drag the right edge to resize">${hgrip}${esc(c.head)}${car}<span class="rsz" data-k="${c.key}" title="Drag to resize · double-click to reset"></span></th>`;
   }).join("")}</tr></thead>`;
@@ -578,9 +578,11 @@ function wire(){
   }
   // Column drag (the orange columns; the blue DFT columns stay first).
   let dragKey=null;
-  sc.querySelectorAll("th[draggable]").forEach(th=>{
+  sc.querySelectorAll("th[data-drag]").forEach(th=>{
+    th.addEventListener("mousedown",e=>{ if(!e.target.closest(".rsz")) th.setAttribute("draggable","true"); });
+    th.addEventListener("mouseup",()=>th.removeAttribute("draggable"));
     th.addEventListener("dragstart",e=>{dragKey=th.dataset.key; th.classList.add("dragging"); try{e.dataTransfer.setData("text/plain",dragKey);}catch(_){}});
-    th.addEventListener("dragend",()=>{th.classList.remove("dragging"); sc.querySelectorAll(".drop-l,.drop-r").forEach(x=>x.classList.remove("drop-l","drop-r"));});
+    th.addEventListener("dragend",()=>{th.removeAttribute("draggable"); th.classList.remove("dragging"); sc.querySelectorAll(".drop-l,.drop-r").forEach(x=>x.classList.remove("drop-l","drop-r"));});
     th.addEventListener("dragover",e=>{ if(!dragKey||th.dataset.key===dragKey) return; e.preventDefault(); const r=th.getBoundingClientRect(); const right=e.clientX-r.left>r.width/2; th.classList.toggle("drop-r",right); th.classList.toggle("drop-l",!right); });
     th.addEventListener("dragleave",()=>th.classList.remove("drop-l","drop-r"));
     th.addEventListener("drop",e=>{
@@ -606,13 +608,13 @@ function wireResize(sc){
     h.addEventListener("mousedown",e=>{
       e.preventDefault(); e.stopPropagation();
       const th=h.closest("th"), i=ths.indexOf(th), col=colEls[i]; if(!col) return;
-      const wasDrag=th.getAttribute("draggable"); th.removeAttribute("draggable");
+      th.removeAttribute("draggable");
       const startX=e.clientX, startW=th.getBoundingClientRect().width, startT=table.getBoundingClientRect().width;
       let w=startW; h.classList.add("on"); document.body.classList.add("resizing");
       const move=ev=>{ w=Math.max(48,Math.min(1600,Math.round(startW+ev.clientX-startX))); col.style.width=w+"px"; table.style.width=(startT+w-startW)+"px"; };
       const up=()=>{
         document.removeEventListener("mousemove",move); document.removeEventListener("mouseup",up);
-        h.classList.remove("on"); document.body.classList.remove("resizing"); if(wasDrag) th.setAttribute("draggable",wasDrag);
+        h.classList.remove("on"); document.body.classList.remove("resizing"); 
         wireResize.at=Date.now();
         if(Math.abs(w-startW)>=2){ colWidths[h.dataset.k]=w; layoutChanged(); }
       };
