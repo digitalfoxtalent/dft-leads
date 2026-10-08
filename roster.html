@@ -67,7 +67,7 @@
   thead th.dragging{ opacity:.45; }
   thead th.drop-l{ box-shadow: inset 3px 0 0 0 var(--charcoal); }
   thead th.drop-r{ box-shadow: inset -3px 0 0 0 var(--charcoal); }
-  .rsz{ position:absolute; top:0; right:0; width:8px; height:100%; cursor:col-resize; z-index:6; }
+  .rsz{ position:absolute; top:0; bottom:0; right:0; width:9px; cursor:col-resize; z-index:6; }
   .rsz::after{ content:""; position:absolute; top:6px; bottom:6px; right:2px; width:2px; border-radius:2px; background:transparent; }
   .rsz:hover::after, .rsz.on::after{ background:var(--charcoal); }
   body.resizing, body.resizing *{ cursor:col-resize !important; user-select:none !important; }
