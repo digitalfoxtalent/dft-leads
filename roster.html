@@ -174,6 +174,11 @@
   .panel .li .acts{ display:flex; gap:6px; flex-wrap:wrap; }
   .panel .empty{ padding:12px 16px 16px; color:var(--muted); font-size:12px; }
 
+  .cbar{ position:fixed; left:50%; bottom:58px; transform:translateX(-50%) translateY(12px); display:flex; align-items:center; gap:12px; max-width:calc(100vw - 32px); background:var(--charcoal); color:#fff; font-size:12.5px; padding:10px 12px 10px 16px; border-radius:12px; box-shadow:0 12px 34px rgba(0,0,0,.28); z-index:31; opacity:0; pointer-events:none; transition:opacity .15s, transform .15s; }
+  .cbar.on{ opacity:1; pointer-events:auto; transform:translateX(-50%) translateY(0); }
+  .cbar .ct{ line-height:1.4; } .cbar .ct b{ font-weight:700; } .cbar .cs{ display:block; color:#cfc6bb; font-size:11px; }
+  .cbar button{ font-family:var(--font); font-size:12px; font-weight:700; border-radius:8px; padding:7px 12px; cursor:pointer; border:1px solid #5a524a; background:transparent; color:#fff; white-space:nowrap; }
+  .cbar button.go{ background:var(--orange); border-color:var(--orange); color:var(--charcoal); }
   .toast{ position:fixed; left:50%; bottom:64px; transform:translateX(-50%); background:var(--charcoal); color:#fff; font-size:12.5px; font-weight:600; padding:10px 16px; border-radius:10px; box-shadow:0 10px 30px rgba(0,0,0,.25); z-index:30; opacity:0; transition:opacity .2s; pointer-events:none; }
   .toast.on{ opacity:1; }
   .toast.err{ background:var(--hide); }
@@ -227,6 +232,7 @@
 </div>
 <div class="panel" id="panel"></div>
 <div class="toast" id="toast"></div>
+<div class="cbar" id="cbar"><span class="ct" id="cbarText"></span><button id="cbarNo">Cancel</button><button class="go" id="cbarYes">Update</button></div>
 
 <script>
 const GROUPS=[
@@ -589,7 +595,8 @@ function wire(){
     sc.querySelectorAll("button.eye").forEach(b=>b.addEventListener("click",()=>{
       if(baseLocked()){ toast(lockedMsg(),true); return; }
       const next={"Auto":"Always show","Always show":"Hide","Hide":"Auto"}[b.dataset.o]||"Auto";
-      save({op:"edit",id:b.dataset.id,show:b.dataset.show==="1",override:next});
+      const f=findRow(b.dataset.id), who=(f&&f.row.name)||"This creator";
+      changeMain({op:"edit",id:b.dataset.id,show:b.dataset.show==="1",override:next},`${who}: brands see it → ${next}`);
     }));
     sc.querySelectorAll("td.edit").forEach(td=>td.addEventListener("click",e=>{e.stopPropagation(); startEdit(td);}));
   } else if(listEdit()){
@@ -701,6 +708,27 @@ function startListEdit(td){
   inp.addEventListener("blur",()=>finish(true));
   inp.addEventListener("click",e=>e.stopPropagation());
 }
+// Main rate card safeguards (Tom, 9 Oct 2026): every change to the main rate card is
+// confirmed in a small bar first and can be undone straight after. The API also refuses an
+// edit that does not say it is for the main rate card, so pages opened before this rule
+// cannot change it.
+let cbarDone=null;
+function confirmBar(html,yes,onYes,onNo){
+  const bar=$("#cbar"); $("#cbarText").innerHTML=html; $("#cbarYes").textContent=yes; $("#cbarNo").style.display=onNo===null?"none":"";
+  bar.classList.add("on");
+  const close=ok=>{ if(cbarDone!==close) return; cbarDone=null; bar.classList.remove("on"); document.removeEventListener("keydown",key,true); (ok?onYes:(onNo||(()=>{})))(); };
+  const key=e=>{ if(e.key==="Escape"){ e.preventDefault(); close(false); } if(e.key==="Enter"&&!e.target.closest("input")){ e.preventDefault(); close(true); } };
+  if(cbarDone) cbarDone(false);
+  cbarDone=close; $("#cbarYes").onclick=()=>close(true); $("#cbarNo").onclick=()=>close(false);
+  setTimeout(()=>document.addEventListener("keydown",key,true),0);
+  return close;
+}
+const fmtNum=(field,v)=>v==null||v===""?"automatic":field==="cpm"?money2(v):field==="videos"?String(v):int(v);
+const FIELD_NAME={videos:"videos",vg:"view guarantee",cpm:"CPM"};
+function changeMain(body,label){
+  confirmBar(`<b>${esc(label)}</b><span class="cs">Main rate card. Brands and every list without its own number will see this.</span>`,"Update",
+    ()=>save(Object.assign({scope:"roster"},body)), ()=>render());
+}
 function startEdit(td){
   if(td.querySelector("input")) return;
   if(td.dataset.list){ startListEdit(td); return; }
@@ -713,11 +741,12 @@ function startEdit(td){
   let done=false;
   const finish=commit=>{ if(done) return; done=true;
     const raw=inp.value.trim(), v=numv(raw);
-    if(isVid&&raw===""){ if(!commit||!f.row.videosSet){ render(); return; } td.classList.add("saving"); save({op:"edit",id:td.dataset.id,show:td.dataset.show==="1",videos:null}); return; }
+    const who=f.row.name||"This row", base={op:"edit",id:td.dataset.id,show:td.dataset.show==="1"};
+    if(isVid&&raw===""){ if(!commit||!f.row.videosSet){ render(); return; } td.classList.add("saving"); changeMain(Object.assign(base,{videos:null}),`${who}: videos ${cur} → automatic`); return; }
     if(!commit||v==null||v===cur){ render(); return; }
     if(isVid&&!(v>=1&&v<=50&&Math.round(v)===v)){ toast("Videos must be a whole number from 1 to 50",true); render(); return; }
     td.classList.add("saving");
-    save({op:"edit",id:td.dataset.id,show:td.dataset.show==="1",[field]:v});
+    changeMain(Object.assign(base,{[field]:v}),`${who}: ${FIELD_NAME[field]} ${fmtNum(field,cur)} → ${fmtNum(field,v)}`);
   };
   inp.addEventListener("keydown",e=>{ if(e.key==="Enter") finish(true); if(e.key==="Escape") finish(false); });
   inp.addEventListener("blur",()=>finish(true));
@@ -732,9 +761,15 @@ async function post(body){
 }
 async function save(body){
   try{
-    await post(body);
-    toast(body.override?"Saved: "+body.override:"Saved · resets at the start of next quarter");
+    const j=await post(body);
     await loadTeam(true);
+    if(j&&j.undo){
+      const close=confirmBar(`<b>Main rate card updated.</b><span class="cs">${body.override?"Visibility: "+esc(body.override):"Holds until the quarter resets."}</span>`,"Undo",async()=>{
+        try{ await post({op:"undo-edit",id:j.undo.id,show:j.undo.show,values:j.undo.values}); await loadTeam(true); toast("Change undone"); }
+        catch(e){ toast(e.message,true); }
+      },null);
+      setTimeout(()=>{ if(cbarDone===close){ cbarDone=null; $("#cbar").classList.remove("on"); } },10000);
+    } else toast("Saved");
   }catch(e){ toast(e.message,true); render(); }
 }
 
