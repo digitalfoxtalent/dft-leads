@@ -102,11 +102,13 @@ const C = {
   bvg: "numeric_mm7vxae8", bcpm: "numeric_mm7vm3hw", brate: "numeric_mm7vx77g", bbasis: "numeric_mm7vec5",
   bq: "text_mm7v252f", bnote: "text_mm7vn2c", logo: "text_mm7v2qns", vis: "color_mm7vb4nb",
   src: "text_mm49b3x7", // Source ID (the UC channel id), used to match Megaphone shows for Simulcast
+  bvideos: "numeric_mm7z64rk", // Brand Videos: a video count DFT set in the DFT view (Tom, 9 Oct 2026)
 };
 const SC = {
   rate: "numeric_mm495xbb", vg: "numeric_mm49tej8", cpm: "numeric_mm49fe4b", avg: "numeric_mm4957y3", url: "text_mm49bb5z",
   bvg: "numeric_mm7vzc0y", bcpm: "numeric_mm7vjh1a", brate: "numeric_mm7vm5z8", bbasis: "numeric_mm7vhe7f",
   bq: "text_mm7v1hhz", bnote: "text_mm7vjp1y", vis: "color_mm7vvvfz",
+  bvideos: "numeric_mm7z2dv1",
 };
 const L = { slug: "text_mm7vgrr5", items: "long_text_mm7vtnkw", by: "text_mm7v2v06", link: "link_mm7vwxw0", updated: "text_mm7vj42p" };
 const TEXT_FIELDS = ["host", "category", "location", "about", "hostGender", "hostRead", "exclusive", "adTypes", "audience",
@@ -150,6 +152,14 @@ export function priceFrom(avg, kind) {
 // snapshot has not reached yet, e.g. signed this morning) a provisional price built
 // the same way from today's average.
 function brandNumbers(cv, K, kind) {
+  const b = brandNumbersRaw(cv, K, kind);
+  // Video count set in the DFT view (Tom, 9 Oct 2026). It counts only while the Brand Note
+  // says "Edited by", so the quarterly snapshot (which rewrites the note) resets it.
+  const n = pos(cv[K.bvideos]);
+  if (b && kind === "long" && n && /^Edited by/.test(cv[K.bnote] || "")) b.videosSet = Math.round(n);
+  return b;
+}
+function brandNumbersRaw(cv, K, kind) {
   const vg = pos(cv[K.bvg]), rate = pos(cv[K.brate]);
   if (kind !== "long" && vg) {
     // Short form is re-priced here at $25 so the quarter's stored $50 numbers need no
@@ -209,7 +219,8 @@ function visibility(b, override, note, kind) {
   if (kind !== "long") return { show: true, why: "" };
   if (/^No uploads in/i.test(note || "")) return { show: false, why: String(note).split(";")[0] };
   if (b.needs) return { show: false, why: "Needs " + b.needs + " videos to reach $" + FLOOR.toLocaleString("en-US") + " (bundles go up to " + MAX_BUNDLE + ")" };
-  if (b.cpm > CAP[kind] + 0.005) return { show: false, why: "CPM $" + b.cpm + " is over the $" + CAP[kind] + " cap" };
+  // A video count DFT chose (fewer videos, lifted to $1,500) is shown even over the cap.
+  if (b.cpm > CAP[kind] + 0.005 && !b.videosSet) return { show: false, why: "CPM $" + b.cpm + " is over the $" + CAP[kind] + " cap" };
   if (b.videos > 1) return { show: true, why: "Sold as a " + b.videos + "-video bundle" };
   return { show: true, why: "" };
 }
@@ -426,13 +437,14 @@ function teamRow(r) {
     live: liveFor(r),
     rate: b ? b.rate : null, vg: b ? b.vg : null, cpm: b ? b.cpm : null,
     minVideos: b && r.kind === "long" ? b.videos : null, vgPer: b ? b.vgPer : null,
+    videosSet: b && b.videosSet ? b.videosSet : null,
   });
   o.shows = r.shows.map(s => {
     const sb = roundNums(bundle(brandNumbers(s.cv, SC, "long"), "long"));
     const sv = visibility(sb, s.cv[SC.vis], s.cv[SC.bnote], "long");
     return { id: s.id, name: s.name, url: s.cv[SC.url] || "", brand: sb, total: sb ? sb.rate : null, override: s.cv[SC.vis] || "Auto", show: sv.show, why: sv.why,
       rate: sb ? sb.rate : null, vg: sb ? sb.vg : null, cpm: sb ? sb.cpm : null,
-      minVideos: sb ? sb.videos : null, vgPer: sb ? sb.vgPer : null,
+      minVideos: sb ? sb.videos : null, vgPer: sb ? sb.vgPer : null, videosSet: sb && sb.videosSet ? sb.videosSet : null,
       live: { avg: pos(s.cv[SC.avg]), vg: pos(s.cv[SC.vg]), rate: pos(s.cv[SC.rate]), cpm: pos(s.cv[SC.cpm]) } };
   }).sort((a, b) => (b.vgPer || 0) - (a.vgPer || 0));
   return o;
@@ -512,6 +524,23 @@ async function editRow(b, email) {
   if (b.override != null) {
     if (!["Auto", "Always show", "Hide"].includes(b.override)) throw new Error("bad override");
     values[K.vis] = { label: b.override };
+  }
+  if (b.videos !== undefined) {
+    // Number of videos brands are quoted (Tom, 9 Oct 2026). Blank goes back to the automatic
+    // bundle. Resets with the quarter like the other DFT edits (see brandNumbers).
+    if (kind !== "long") throw new Error("Videos can only be set on YouTube rows");
+    const cur = brandNumbers(row.cv, K, kind);
+    if (!cur) throw new Error("This row has no brand numbers yet");
+    const was = bundle(cur, "long").videos;
+    let n = null;
+    if (b.videos !== null && b.videos !== "") {
+      n = num(b.videos);
+      if (!(n >= 1) || n > MAX_LIST_VIDEOS || Math.round(n) !== n) throw new Error("Videos must be a whole number from 1 to " + MAX_LIST_VIDEOS);
+    }
+    Object.assign(values, {
+      [K.bvideos]: n == null ? "" : String(n), [K.bq]: quarterLabel(),
+      [K.bnote]: "Edited by " + email + " on " + stamp() + " (videos " + (n == null ? "automatic" : n) + ", was " + was + "); resets next quarter",
+    });
   }
   if (b.vg != null || b.cpm != null) {
     const cur = brandNumbers(row.cv, K, kind) || {};
