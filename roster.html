@@ -349,6 +349,9 @@ function brandColsFor(){
   if(team) cols=cols.map(c=>{
     if(c.key==="vg") return Object.assign({},c,{w:146,edit:"vg",head:k==="long"?"View Guarantee ✎":"View Estimate ✎",tip:k==="long"?"Click to edit what brands see. Holds until the quarter resets.":"Brands see this as an estimate, not a guarantee. Rate = estimate x CPM ($25), plus the production fee ($3,000, or $5,000 from 100k views, $7,500 from 250k). Click to edit."});
     if(c.key==="cpm") return Object.assign({},c,{edit:"cpm",head:"CPM ✎",w:84,tip:k==="long"?"Click to edit what brands see. Holds until the quarter resets.":"Not shown to brands. Sets the rate. Click to edit."});
+    // Number of videos brands are quoted (Tom, 9 Oct 2026). Clear it to go back to the
+    // automatic bundle. Fewer videos than the minimum needs are still priced at $1,500.
+    if(c.key==="minVideos"&&k==="long") return Object.assign({},c,{edit:"videos",head:"Videos ✎",w:112,tip:"Number of videos brands are quoted. View Guarantee = views per video x videos, Rate = that x CPM, minimum $1,500. Holds until the quarter resets. Clear the box to go back to the automatic count."});
     if(c.key==="rate") return Object.assign({},c,{tip:k==="long"?"Worked out from View Guarantee x CPM, minimum $1,500. Small YouTube rows are sold as a bundle of up to 10 videos instead of being lifted to $1,500.":"View Estimate x CPM ($25), no minimum. The production fee ($3,000, $5,000 from 100k views, $7,500 from 250k) is added in Total Rate."});
     return c;
   });
@@ -692,13 +695,16 @@ function startEdit(td){
   if(td.dataset.list){ startListEdit(td); return; }
   const f=findRow(td.dataset.id); if(!f) return;
   // Views are edited per video (a bundle's guarantee is that x the number of videos).
-  const field=td.dataset.edit, cur=!f.row.brand?"":field==="vg"?(f.row.vgPer!=null?f.row.vgPer:f.row.brand.vg):(f.row.cpm!=null?f.row.cpm:f.row.brand.cpm);
-  td.innerHTML=`<input type="number" min="0" step="${field==="cpm"?"0.01":"1"}" value="${cur==null?"":cur}"${field==="vg"&&f.row.minVideos>1?` title="Views per video. The bundle guarantee is this x ${f.row.minVideos}."`:""}>`;
+  const field=td.dataset.edit, isVid=field==="videos";
+  const cur=!f.row.brand?"":isVid?(f.row.minVideos||1):field==="vg"?(f.row.vgPer!=null?f.row.vgPer:f.row.brand.vg):(f.row.cpm!=null?f.row.cpm:f.row.brand.cpm);
+  td.innerHTML=`<input type="number" min="${isVid?1:0}"${isVid?' max="50"':""} step="${field==="cpm"?"0.01":"1"}" value="${cur==null?"":cur}"${isVid?' title="Number of videos brands are quoted. Clear it to go back to the automatic count."':field==="vg"&&f.row.minVideos>1?` title="Views per video. The bundle guarantee is this x ${f.row.minVideos}."`:""}>`;
   const inp=td.querySelector("input"); inp.focus(); inp.select();
   let done=false;
   const finish=commit=>{ if(done) return; done=true;
-    const v=numv(inp.value);
+    const raw=inp.value.trim(), v=numv(raw);
+    if(isVid&&raw===""){ if(!commit||!f.row.videosSet){ render(); return; } td.classList.add("saving"); save({op:"edit",id:td.dataset.id,show:td.dataset.show==="1",videos:null}); return; }
     if(!commit||v==null||v===cur){ render(); return; }
+    if(isVid&&!(v>=1&&v<=50&&Math.round(v)===v)){ toast("Videos must be a whole number from 1 to 50",true); render(); return; }
     td.classList.add("saving");
     save({op:"edit",id:td.dataset.id,show:td.dataset.show==="1",[field]:v});
   };
