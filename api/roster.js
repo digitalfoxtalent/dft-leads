@@ -71,6 +71,20 @@ const CAP = { long: 30, short: 50 };
 const PRICE = { long: { mult: 1.5, cpm: 25 }, short: { mult: 1, cpm: 25 } };
 const FLOOR = 1500;
 const FEE = 3000;
+// Production fee tiers by View Estimate (Margot, 8 Oct 2026): under 100k views $3,000,
+// 100k to 250k $5,000, 250k and over $7,500. A fee typed on a saved list still wins.
+const feeFor = vg => (vg >= 250000 ? 7500 : vg >= 100000 ? 5000 : FEE);
+// Round numbers for clients (Margot, 8 Oct 2026), every tab: views to the nearest 1,000,
+// rates to the nearest $100. The CPM is left exactly as priced, so it stays a clean $25.
+const r1k = n => (n == null ? n : Math.max(1000, Math.round(n / 1000) * 1000));
+const r100 = n => (n == null ? n : Math.round(n / 100) * 100);
+function roundNums(b) {
+  if (!b) return b;
+  const o = Object.assign({}, b, { vg: r1k(b.vg), rate: r100(b.rate) });
+  if (b.vgPer != null) o.vgPer = r1k(b.vgPer);
+  if (b.ratePer != null) o.ratePer = r100(b.ratePer);
+  return o;
+}
 const RIGHTS = "12 months digital usage + boosting rights included";
 // Every creator is sold with ads of up to 60 seconds (Tom, 5 Oct 2026). This replaced the
 // old "Videos / mo" column on the roster page.
@@ -341,7 +355,8 @@ function listNumbers(b, p, kind) {
 // Content production fee and total (short form only; YouTube's total is its rate).
 function addFee(b, kind) {
   if (!b) return b;
-  const fee = kind === "long" ? 0 : (b.fee != null ? b.fee : FEE);
+  b = roundNums(b);
+  const fee = kind === "long" ? 0 : (b.fee != null ? b.fee : feeFor(b.vg || 0));
   return Object.assign({}, b, { fee: kind === "long" ? null : fee, total: (b.rate || 0) + fee });
 }
 
@@ -362,7 +377,7 @@ function brandRow(r, includeHiddenByRule, prices, team) {
   if (team && b.custom) o.custom = true; // only the team sees which prices are list-only
   o.shows = r.kind !== "long" ? [] : r.shows.map(s => {
     const sown = brandNumbers(s.cv, SC, "long");
-    const sb = bundle(listNumbers(sown, prices[s.id], "long") || sown, "long");
+    const sb = roundNums(bundle(listNumbers(sown, prices[s.id], "long") || sown, "long"));
     const sv = visibility(sb, s.cv[SC.vis], s.cv[SC.bnote], "long");
     if (!(sv.show || (includeHiddenByRule && sb && s.cv[SC.vis] !== "Hide"))) return null;
     return { id: s.id, name: s.name, url: s.cv[SC.url] || "", rate: sb.rate, total: sb.rate, vg: sb.vg, cpm: sb.cpm, minVideos: sb.videos, vgPer: sb.vgPer, custom: team && sb.custom ? true : undefined };
@@ -384,7 +399,7 @@ function teamRow(r) {
   const o = baseFields(r);
   const b = addFee(bundle(brandNumbers(r.cv, C, r.kind), r.kind), r.kind);
   const v = visibility(b, r.cv[C.vis], r.cv[C.bnote], r.kind);
-  if (r.kind !== "long") Object.assign(o, { fee: b ? b.fee : FEE, total: b ? b.total : null, rights: RIGHTS });
+  if (r.kind !== "long") Object.assign(o, { fee: b ? b.fee : feeFor(0), total: b ? b.total : null, rights: RIGHTS });
   else o.total = b ? b.rate : null;
   Object.assign(o, {
     brand: b, override: r.cv[C.vis] || "Auto", show: v.show, why: v.why,
@@ -393,7 +408,7 @@ function teamRow(r) {
     minVideos: b && r.kind === "long" ? b.videos : null, vgPer: b ? b.vgPer : null,
   });
   o.shows = r.shows.map(s => {
-    const sb = bundle(brandNumbers(s.cv, SC, "long"), "long");
+    const sb = roundNums(bundle(brandNumbers(s.cv, SC, "long"), "long"));
     const sv = visibility(sb, s.cv[SC.vis], s.cv[SC.bnote], "long");
     return { id: s.id, name: s.name, url: s.cv[SC.url] || "", brand: sb, total: sb ? sb.rate : null, override: s.cv[SC.vis] || "Auto", show: sv.show, why: sv.why,
       rate: sb ? sb.rate : null, vg: sb ? sb.vg : null, cpm: sb ? sb.cpm : null,

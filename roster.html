@@ -347,9 +347,9 @@ function brandColsFor(){
     return c;
   });
   if(team) cols=cols.map(c=>{
-    if(c.key==="vg") return Object.assign({},c,{w:146,edit:"vg",head:k==="long"?"View Guarantee ✎":"View Estimate ✎",tip:k==="long"?"Click to edit what brands see. Holds until the quarter resets.":"Brands see this as an estimate, not a guarantee. Rate = estimate x CPM ($25), plus the $3,000 production fee. Click to edit."});
+    if(c.key==="vg") return Object.assign({},c,{w:146,edit:"vg",head:k==="long"?"View Guarantee ✎":"View Estimate ✎",tip:k==="long"?"Click to edit what brands see. Holds until the quarter resets.":"Brands see this as an estimate, not a guarantee. Rate = estimate x CPM ($25), plus the production fee ($3,000, or $5,000 from 100k views, $7,500 from 250k). Click to edit."});
     if(c.key==="cpm") return Object.assign({},c,{edit:"cpm",head:"CPM ✎",w:84,tip:k==="long"?"Click to edit what brands see. Holds until the quarter resets.":"Not shown to brands. Sets the rate. Click to edit."});
-    if(c.key==="rate") return Object.assign({},c,{tip:k==="long"?"Worked out from View Guarantee x CPM, minimum $1,500. Small YouTube rows are sold as a bundle of up to 4 videos instead of being lifted to $1,500.":"View Estimate x CPM ($25), no minimum. The $3,000 production fee is added in Total Rate."});
+    if(c.key==="rate") return Object.assign({},c,{tip:k==="long"?"Worked out from View Guarantee x CPM, minimum $1,500. Small YouTube rows are sold as a bundle of up to 4 videos instead of being lifted to $1,500.":"View Estimate x CPM ($25), no minimum. The production fee ($3,000, $5,000 from 100k views, $7,500 from 250k) is added in Total Rate."});
     return c;
   });
   // Signed in on a saved list's page (brand preview): the numbers are editable for THIS
@@ -672,7 +672,7 @@ function startListEdit(td){
     td.classList.add("saving");
     const body={op:"list-price",slug:LIST_SLUG,id:td.dataset.id};
     if(raw==="") body.clear=true;
-    else { body[field]=v; body.curVg=r.vgPer!=null?r.vgPer:r.vg; body.curCpm=r.cpm; if(f.kind!=="long") body.curFee=r.fee!=null?r.fee:3000; }
+    else { body[field]=v; body.curVg=r.vgPer!=null?r.vgPer:r.vg; body.curCpm=r.cpm; if(f.kind!=="long") body.curFee=r.fee!=null?r.fee:(r.vg>=250000?7500:r.vg>=100000?5000:3000); }
     try{ const j=await post(body); applyBrand(j); toast(body.clear?"Back to the roster price for this list":"Saved for this list only"); }
     catch(e){ toast(e.message,true); render(); }
   };
