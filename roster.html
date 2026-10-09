@@ -349,7 +349,7 @@ function brandColsFor(){
   if(team) cols=cols.map(c=>{
     if(c.key==="vg") return Object.assign({},c,{w:146,edit:"vg",head:k==="long"?"View Guarantee ✎":"View Estimate ✎",tip:k==="long"?"Click to edit what brands see. Holds until the quarter resets.":"Brands see this as an estimate, not a guarantee. Rate = estimate x CPM ($25), plus the production fee ($3,000, or $5,000 from 100k views, $7,500 from 250k). Click to edit."});
     if(c.key==="cpm") return Object.assign({},c,{edit:"cpm",head:"CPM ✎",w:84,tip:k==="long"?"Click to edit what brands see. Holds until the quarter resets.":"Not shown to brands. Sets the rate. Click to edit."});
-    if(c.key==="rate") return Object.assign({},c,{tip:k==="long"?"Worked out from View Guarantee x CPM, minimum $1,500. Small YouTube rows are sold as a bundle of up to 4 videos instead of being lifted to $1,500.":"View Estimate x CPM ($25), no minimum. The production fee ($3,000, $5,000 from 100k views, $7,500 from 250k) is added in Total Rate."});
+    if(c.key==="rate") return Object.assign({},c,{tip:k==="long"?"Worked out from View Guarantee x CPM, minimum $1,500. Small YouTube rows are sold as a bundle of up to 10 videos instead of being lifted to $1,500.":"View Estimate x CPM ($25), no minimum. The production fee ($3,000, $5,000 from 100k views, $7,500 from 250k) is added in Total Rate."});
     return c;
   });
   // Signed in on a saved list's page (brand preview): the numbers are editable for THIS
@@ -360,6 +360,9 @@ function brandColsFor(){
     if(c.key==="vg") return Object.assign({},c,{w:146,edit:"vg",head:k==="long"?"View Guarantee ✎":"View Estimate ✎",tip});
     if(c.key==="cpm") return Object.assign({},c,{edit:"cpm",head:k==="long"?"CPM ✎":"CPM ✎ (DFT only)",w:k==="long"?84:130,tip:k==="long"?tip:"Brands do not see this column. "+tip});
     if(c.key==="fee") return Object.assign({},c,{edit:"fee",head:"Production Rate ✎",w:160,tip});
+    // Number of videos (Tom, 9 Oct 2026): the view guarantee and rate follow it. Fewer
+    // videos than the $1,500 minimum needs are still priced at $1,500.
+    if(c.key==="minVideos"&&k==="long") return Object.assign({},c,{edit:"videos",head:"Videos ✎",w:112,tip:"Number of videos for this list only. View Guarantee = views per video x videos, Rate = that x CPM, minimum $1,500. Clear the box to go back to the automatic count."});
     return c;
   });
   if(colOrder&&colOrder.length){
@@ -661,19 +664,23 @@ function findListRow(id){
 // Editing a price on a saved list's page: kept on that list only.
 function startListEdit(td){
   const f=findListRow(td.dataset.id); if(!f) return;
-  const field=td.dataset.edit, r=f.row;
-  const cur=field==="vg"?(r.vgPer!=null?r.vgPer:r.vg):r[field];
-  td.innerHTML=`<input type="number" min="0" step="${field==="cpm"?"0.01":"1"}" value="${cur==null?"":cur}" title="${field==="vg"?(f.kind==="long"?"Views per video":"Estimated views per post")+", for this list only":"For this list only"}. Clear it to go back to the roster price.">`;
+  const field=td.dataset.edit, r=f.row, isVid=field==="videos";
+  const cur=isVid?(r.minVideos||1):field==="vg"?(r.vgPer!=null?r.vgPer:r.vg):(field==="cpm"&&r.videosSet&&r.askCpm?r.askCpm:r[field]);
+  const hint=isVid?"Number of videos, for this list only. Clear it to go back to the automatic count."
+    :`${field==="vg"?(f.kind==="long"?"Views per video":"Estimated views per post")+", for this list only":"For this list only"}. Clear it to go back to the roster price.`;
+  td.innerHTML=`<input type="number" min="${isVid?1:0}"${isVid?' max="50"':""} step="${field==="cpm"?"0.01":"1"}" value="${cur==null?"":cur}" title="${hint}">`;
   const inp=td.querySelector("input"); inp.focus(); inp.select();
   let done=false;
   const finish=async commit=>{ if(done) return; done=true;
     const raw=inp.value.trim(), v=numv(raw);
-    if(!commit||(raw!==""&&(v==null||v===cur))||(raw===""&&!r.custom)){ render(); return; }
+    if(!commit||(raw!==""&&(v==null||v===cur))||(raw===""&&!(isVid?r.videosSet:r.custom))){ render(); return; }
+    if(isVid&&raw!==""&&!(v>=1&&v<=50&&Math.round(v)===v)){ toast("Videos must be a whole number from 1 to 50",true); render(); return; }
     td.classList.add("saving");
     const body={op:"list-price",slug:LIST_SLUG,id:td.dataset.id};
-    if(raw==="") body.clear=true;
-    else { body[field]=v; body.curVg=r.vgPer!=null?r.vgPer:r.vg; body.curCpm=r.cpm; if(f.kind!=="long") body.curFee=r.fee!=null?r.fee:(r.vg>=250000?7500:r.vg>=100000?5000:3000); }
-    try{ const j=await post(body); applyBrand(j); toast(body.clear?"Back to the roster price for this list":"Saved for this list only"); }
+    if(raw===""){ body.clear=true; if(isVid) body.field="videos"; }
+    else if(isVid) body.videos=v;
+    else { body[field]=v; body.curVg=r.vgPer!=null?r.vgPer:r.vg; body.curCpm=r.askCpm||r.cpm; if(f.kind!=="long") body.curFee=r.fee!=null?r.fee:(r.vg>=250000?7500:r.vg>=100000?5000:3000); }
+    try{ const j=await post(body); applyBrand(j); toast(body.clear?(isVid?"Back to the automatic number of videos":"Back to the roster price for this list"):(isVid?"Videos saved for this list only":"Saved for this list only")); }
     catch(e){ toast(e.message,true); render(); }
   };
   inp.addEventListener("keydown",e=>{ if(e.key==="Enter") finish(true); if(e.key==="Escape") finish(false); });
