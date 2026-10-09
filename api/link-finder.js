@@ -98,7 +98,8 @@ export default async function handler(req, res) {
     return res.status(200).json(out);
   }
   // Flight audit (?pass=audit, cron Mondays 08:30 UTC): finished flights of the last 120 days whose row is
-  // missing videos from its own flight dates with its own tracking link (Rhapsody, 9 Oct 2026). See _reports/flight-audit.js.
+  // missing videos from its own flight dates, proven by its own tracking link or a sponsor read heard in the
+  // video's transcript (Rhapsody, 9 Oct 2026). See _reports/flight-audit.js.
   if (String(req.query && req.query.pass || "") === "audit") {
     let out;
     try { out = await runAudit(token, { dry: String(req.query.dry || "") === "1" || !fromCron || !AUDIT_WRITES, days: req.query.days }); }
