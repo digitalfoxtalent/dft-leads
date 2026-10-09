@@ -167,17 +167,30 @@ function brandNumbers(cv, K, kind) {
 
 // Bundles (Tom, 5-6 Oct 2026). A long-form channel or show whose single video cannot reach
 // the $1,500 minimum at its CPM is sold as a short bundle instead: the fewest videos that
-// get there, up to 4, at the normal CPM, with the view guarantee covering the whole
-// bundle. YouTube tab only (channels and their shows); Shorts and socials are untouched.
-// Past 4 videos the row stays hidden as before.
-const MAX_BUNDLE = 4;
+// get there, at the normal CPM, with the view guarantee covering the whole bundle.
+// YouTube tab only (channels and their shows); Shorts and socials are untouched.
+// The cap was 4 videos; Tom raised it on 9 Oct 2026 so the small channels that need a
+// few more videos are shown as bundles instead of being hidden. Past the cap a row stays
+// hidden (a 100-video bundle is not a real offer), but a saved list can still set any count.
+const MAX_BUNDLE = 10;
+const MAX_LIST_VIDEOS = 50;
 export function bundle(b, kind) {
   if (!b) return b;
   const out = Object.assign({}, b, { videos: 1, vgPer: b.vg, ratePer: b.rate });
   // A rate rounded to the dollar can leave $25.01; show the CPM it was priced at.
   if (Math.abs(out.cpm - Math.round(out.cpm)) < 0.02) out.cpm = Math.round(out.cpm);
-  if (kind !== "long" || b.rate > FLOOR + 1) return out;
-  const base = b.askCpm && b.askCpm < b.cpm - 0.01 ? b.askCpm : PRICE.long.cpm;
+  const floored = !(b.rate > FLOOR + 1);
+  // A CPM typed on a saved list (listCpm) is always the one to bundle at.
+  const base = b.listCpm || (!floored ? b.cpm : (b.askCpm && b.askCpm < b.cpm - 0.01 ? b.askCpm : PRICE.long.cpm));
+  // Video count set on a saved list (Tom, 9 Oct 2026): the view guarantee is the per-video
+  // guarantee x that many videos at the row's CPM. Fewer videos than the minimum needs are
+  // still lifted to $1,500; more videos simply add up past it.
+  if (kind === "long" && b.videosSet > 0) {
+    const n = Math.round(b.videosSet), per = b.vg * base / 1000;
+    const rate = Math.max(FLOOR, Math.round(per * n));
+    return Object.assign(out, { videos: n, vg: b.vg * n, rate, cpm: r2(rate * 1000 / (b.vg * n)), askCpm: r2(base), ratePer: Math.round(per), videosSet: n });
+  }
+  if (kind !== "long" || !floored) return out;
   // Any row the $1,500 floor lifts above its CPM is bundled, not just those over the cap,
   // so brands always see the house $25 CPM (Tom, 6 Oct 2026).
   if (b.cpm <= base + 0.005) return out;
@@ -334,11 +347,18 @@ function baseFields(r) {
 // never touches the roster or any other list. YouTube rows take a per-video view
 // guarantee and CPM, and are bundled to the $1,500 minimum like any other row; Shorts,
 // Instagram and TikTok rows take a rate.
+// A YouTube row can also carry { videos } (Tom, 9 Oct 2026): the number of videos in the
+// deal, with or without its own view guarantee and CPM. See bundle().
 function listNumbers(b, p, kind) {
   if (!p) return null;
-  if (kind === "long" && p.vg > 0 && p.cpm > 0) {
-    const rate = Math.max(FLOOR, Math.round(p.vg * p.cpm / 1000));
-    return Object.assign({}, b || {}, { vg: Math.round(p.vg), rate, cpm: r2(rate * 1000 / p.vg), askCpm: p.cpm, custom: true });
+  if (kind === "long") {
+    const videos = p.videos > 0 ? { videosSet: Math.round(p.videos) } : {};
+    if (p.vg > 0 && p.cpm > 0) {
+      const rate = Math.max(FLOOR, Math.round(p.vg * p.cpm / 1000));
+      return Object.assign({}, b || {}, { vg: Math.round(p.vg), rate, cpm: r2(rate * 1000 / p.vg), askCpm: p.cpm, listCpm: p.cpm, custom: true }, videos);
+    }
+    if (b && videos.videosSet) return Object.assign({}, b, { custom: true }, videos);
+    return null;
   }
   if (kind !== "long") {
     const base = b || {};
@@ -369,7 +389,7 @@ function brandRow(r, includeHiddenByRule, prices, team) {
   if (!allowed) return null;
   const o = baseFields(r);
   o.rate = b.rate; o.total = b.total;
-  if (r.kind === "long") { o.vg = b.vg; o.cpm = b.cpm; o.minVideos = b.videos; o.vgPer = b.vgPer; }
+  if (r.kind === "long") { o.vg = b.vg; o.cpm = b.cpm; o.minVideos = b.videos; o.vgPer = b.vgPer; if (team && b.videosSet) { o.videosSet = b.videosSet; o.askCpm = b.askCpm; } }
   // Shorts, Instagram, TikTok and Snapchat: brands see the views figure as a View Estimate
   // (not a guarantee) and never the CPM (Tom, 6 Oct 2026). The team, on a list's page, gets
   // the CPM so it can be changed for that list.
@@ -380,7 +400,7 @@ function brandRow(r, includeHiddenByRule, prices, team) {
     const sb = roundNums(bundle(listNumbers(sown, prices[s.id], "long") || sown, "long"));
     const sv = visibility(sb, s.cv[SC.vis], s.cv[SC.bnote], "long");
     if (!(sv.show || (includeHiddenByRule && sb && s.cv[SC.vis] !== "Hide"))) return null;
-    return { id: s.id, name: s.name, url: s.cv[SC.url] || "", rate: sb.rate, total: sb.rate, vg: sb.vg, cpm: sb.cpm, minVideos: sb.videos, vgPer: sb.vgPer, custom: team && sb.custom ? true : undefined };
+    return { id: s.id, name: s.name, url: s.cv[SC.url] || "", rate: sb.rate, total: sb.rate, vg: sb.vg, cpm: sb.cpm, minVideos: sb.videos, vgPer: sb.vgPer, custom: team && sb.custom ? true : undefined, videosSet: team && sb.videosSet ? sb.videosSet : undefined, askCpm: team && sb.videosSet ? sb.askCpm : undefined };
   }).filter(Boolean).sort((a, b) => b.vgPer - a.vgPer);
   return o;
 }
@@ -586,12 +606,20 @@ async function listPrice(b, email) {
   data.rows.forEach(r => { if (r.id === id) kind = r.kind; r.shows.forEach(s => { if (s.id === id) kind = "long"; }); });
   if (!kind) throw new Error("row not found");
   const prices = Object.assign({}, list.body.prices || {});
-  if (b.clear) delete prices[id];
-  else if (kind === "long") {
+  if (b.clear && b.field === "videos") { // back to the automatic count, keep any price
+    const rest = Object.assign({}, prices[id] || {}); delete rest.videos;
+    if (Object.keys(rest).length) prices[id] = rest; else delete prices[id];
+  } else if (b.clear) delete prices[id];
+  else if (kind === "long" && b.videos != null) {
+    // Number of videos for this row on this list only (Tom, 9 Oct 2026).
+    const n = num(b.videos);
+    if (!(n >= 1) || n > MAX_LIST_VIDEOS || Math.round(n) !== n) throw new Error("Videos must be a whole number from 1 to " + MAX_LIST_VIDEOS);
+    prices[id] = Object.assign({}, prices[id] || {}, { videos: n });
+  } else if (kind === "long") {
     const cur = prices[id] || {};
     const vg = Math.round(num(b.vg != null ? b.vg : (cur.vg || b.curVg)) || 0), cpm = num(b.cpm != null ? b.cpm : (cur.cpm || b.curCpm)) || 0;
     if (!(vg > 0) || !(cpm > 0) || cpm > 10000 || vg > 1e9) throw new Error("View guarantee and CPM must be positive numbers");
-    prices[id] = { vg, cpm: r2(cpm) };
+    prices[id] = Object.assign({ vg, cpm: r2(cpm) }, cur.videos ? { videos: cur.videos } : {});
   } else {
     // Short form on a list: View Estimate, CPM and the content production fee.
     const cur = prices[id] || {};
