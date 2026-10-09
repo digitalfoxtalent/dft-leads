@@ -79,8 +79,9 @@ export default async function handler(req, res) {
     try { return res.status(200).json(await runWatch(token, { dry: String(req.query.dry || "") === "1" || !fromCron })); }
     catch (e) { return res.status(200).json({ pass: "watch", error: String(e.message || e).slice(0, 300) }); }
   }
-  // Missing link alarm (?pass=alarm, cron weekdays 15:05 UTC): asks the sales lead for any live campaign
-  // still without a video link from day 2. See _reports/link-alarm.js. ?pass=alarm&dry=1 shows who would be asked.
+  // Missing link alarm (?pass=alarm, cron weekdays 15:05 UTC): since 9 Oct 2026 nobody pastes links by hand, so
+  // this tells Tom (one notification) which live campaigns the finders still have not filled 10 days after
+  // go-live, with the likely reason. See _reports/link-alarm.js. ?pass=alarm&dry=1 shows the list.
   if (String(req.query && req.query.pass || "") === "alarm") {
     let out;
     try { out = await runAlarm(token, { dry: String(req.query.dry || "") === "1" || !fromCron }); }

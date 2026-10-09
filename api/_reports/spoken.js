@@ -16,11 +16,11 @@ export const HEARD = {
   huel: ["huel", "hule", "huell", "hual", "hewel"], prizepicks: ["prizepicks", "prizepick", "prizepix"],
   liquidiv: ["liquidiv", "liquid4", "liquidfour"], betterhelp: ["betterhelp", "betterhel"],
   zocdoc: ["zocdoc", "zockdock", "zocdock", "zockdoc", "zachdoc", "zdoc"], lmnt: ["lmnt", "element", "elementt"],
-  quince: ["quince", "quints"], klover: ["klover", "clover"], outskill: ["outskill", "outskills"],
+  quince: ["quince", "quints"], klover: ["klover", "clover"], outskill: ["outskill", "outskills"], eneba: ["eneba", "aneba"], cashapp: ["cashapp"], freecash: ["freecash"],
 };
 export const COMMON = /^(meta|factor|round|dose|kora|beam|fox|outcome|opera|human|recall|worthy|webtoon|star trek|warner bros|hbo|netflix|amazon|apple)$/i;
-const BEFORE = /(thank(s| you)( so much)?( to)?|sponsored by|brought to you by|today'?s sponsor,?|our sponsor,?|partnered with|partner(ing)? with|go (over )?to|head (over )?to|check out|visit)\s*$/;
-const AFTER = /^(for sponsoring|is sponsoring|sponsored|for partnering|dot com|\.com|com\b|slash)/;
+const BEFORE = /(thank(s| you)( so much)?( to)?|sponsored by|brought to you by|today'?s sponsor,?|our sponsor,?|partnered with|partner(ing)? with|teamed up with|go (over )?to|head (over )?to|check out|visit)\s*$/;
+const AFTER = /^(for sponsoring|is sponsoring|sponsored|for partnering|dot com|\.com|com\b|slash|comes in\b)/;
 const variants = brand => { const b = sq(brand).replace(/^the/, ""); return (HEARD[b] || [b]).map(sq).filter(v => v.length >= 3); };
 // transcript: plain text, or the actor's [{ text, start }] list. Returns { heard, quote, at } or null.
 export function spokenRead(transcript, brand) {
