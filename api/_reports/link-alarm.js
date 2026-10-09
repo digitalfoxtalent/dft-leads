@@ -95,7 +95,7 @@ export async function runAlarm(token, opts) {
       "- It is missing from the Campaign Reach report, including the client's own page (for example Power Play or Rhapsody), so the client sees nothing for this campaign and is more likely to chase us.<br>" +
       "- Its eCPM cannot be calculated.<br>" +
       "- The 2-week check-in with the brand cannot go out.<br>" +
-      "The nightly link finder may fill it after the flight ends (about 8 days after go-live), but only when the video description links the brand. Do not rely on it.<br><br>" +
+      "The nightly link finders may fill it on their own (YouTube when the description links the brand; TikTok and Instagram when the sound or caption ties the post to the deal), but not every post can be matched. Do not rely on it.<br><br>" +
       (r.reminder ? "This is the last reminder from the link alarm." : "If it is still empty in a week, a reminder follows.");
     try {
       for (const u of r.people) await mondayCall(token, "mutation ($u: ID!, $t: ID!, $x: String!) { create_notification(user_id:$u, target_id:$t, target_type:Project, text:$x) { text } }", { u, t: String(r.id), x: text });
