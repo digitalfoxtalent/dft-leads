@@ -508,11 +508,24 @@ async function readBody(req) {
 }
 const stamp = () => new Date().toISOString().slice(0, 10);
 
+// Safeguards on main rate card edits (Tom, 9 Oct 2026, after a saved-list session changed 39
+// main rows by accident):
+//   * scope: the page must say it is editing the main rate card. Pages loaded before this
+//     rule (still open in someone's browser) do not send it, so they cannot change it.
+//   * undo: every edit returns the exact column values it replaced; op "undo-edit" puts
+//     them back, notes included.
+//   * audit: every change and undo is posted as an update on the monday item.
+const UNDO_KEYS = ["bvg", "bcpm", "brate", "bvideos", "bnote", "bq", "vis"];
+async function audit(itemId, text) {
+  try { await monday("mutation($i:ID!,$t:String!){create_update(item_id:$i,body:$t){id}}", { i: itemId, t: text }); } catch (e) {}
+}
 async function editRow(b, email) {
+  if (b.scope !== "roster") throw new Error("This page is out of date. Refresh it to keep editing.");
   const isShow = !!b.show;
   const board = isShow ? SUB_BOARD : BOARD, K = isShow ? SC : C;
   const id = String(b.id || "");
   if (!/^\d+$/.test(id)) throw new Error("bad id");
+  cache = null; // read the row fresh, so Undo restores exactly what was there
   const data = await loadBoard();
   let row = null, kind = "long";
   data.rows.forEach(r => {
@@ -558,9 +571,37 @@ async function editRow(b, email) {
     });
   }
   if (!Object.keys(values).length) throw new Error("nothing to change");
+  const before = {};
+  UNDO_KEYS.forEach(k => { if (K[k]) before[k] = row.cv[K[k]] || ""; });
   await monday("mutation($b:ID!,$i:ID!,$v:JSON!){change_multiple_column_values(board_id:$b,item_id:$i,column_values:$v){id}}",
     { b: String(board), i: id, v: JSON.stringify(values) });
   cache = null;
+  const what = b.override != null ? "visibility to " + b.override
+    : b.videos !== undefined ? "videos to " + (b.videos == null || b.videos === "" ? "automatic" : b.videos)
+    : [b.vg != null ? "view guarantee to " + b.vg : "", b.cpm != null ? "CPM to $" + b.cpm : ""].filter(Boolean).join(", ");
+  await audit(id, "Roster site: " + email + " changed " + what + " on the main rate card.");
+  return { ok: true, undo: { id, show: isShow, values: before } };
+}
+
+async function undoEdit(b, email) {
+  const isShow = !!b.show;
+  const board = isShow ? SUB_BOARD : BOARD, K = isShow ? SC : C;
+  const id = String(b.id || "");
+  if (!/^\d+$/.test(id)) throw new Error("bad id");
+  const src = b.values && typeof b.values === "object" ? b.values : {};
+  const values = {};
+  UNDO_KEYS.forEach(k => {
+    if (!K[k] || !(k in src)) return;
+    const v = String(src[k] == null ? "" : src[k]).slice(0, 500);
+    if (k === "vis") values[K[k]] = { label: ["Auto", "Always show", "Hide"].includes(v) ? v : "Auto" };
+    else if (["bvg", "bcpm", "brate", "bvideos"].includes(k)) values[K[k]] = v === "" ? "" : String(num(v) == null ? "" : num(v));
+    else values[K[k]] = v;
+  });
+  if (!Object.keys(values).length) throw new Error("nothing to undo");
+  await monday("mutation($b:ID!,$i:ID!,$v:JSON!){change_multiple_column_values(board_id:$b,item_id:$i,column_values:$v){id}}",
+    { b: String(board), i: id, v: JSON.stringify(values) });
+  cache = null;
+  await audit(id, "Roster site: " + email + " undid the last change on the main rate card.");
   return { ok: true };
 }
 
@@ -747,6 +788,7 @@ export default async function handler(req, res) {
       const b = await readBody(req);
       try {
         if (b.op === "edit") return res.status(200).json(await editRow(b, email));
+        if (b.op === "undo-edit") return res.status(200).json(await undoEdit(b, email));
         if (b.op === "save-list") return res.status(200).json(await saveList(b, email));
         if (b.op === "delete-list") return res.status(200).json(await deleteList(b));
         if (b.op === "columns") return res.status(200).json(await saveColumns(b, email));
