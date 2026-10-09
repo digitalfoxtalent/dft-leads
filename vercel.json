@@ -57,6 +57,10 @@
       "schedule": "40 7 * * *"
     },
     {
+      "path": "/api/link-finder?pass=social",
+      "schedule": "5 8 * * *"
+    },
+    {
       "path": "/api/link-finder?pass=alarm",
       "schedule": "5 15 * * 1-5"
     },

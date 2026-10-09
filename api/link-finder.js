@@ -23,6 +23,12 @@
 //   GET /api/link-finder?dry=1   (team cookie or CRON_SECRET) shows the plan, writes nothing.
 //   GET /api/link-finder?pass=unmatched&dry=1   the second pass's classified list, writes nothing.
 //   GET /api/link-finder?pass=watch&dry=1   the morning watchdog's checks, notifies nobody.
+//   GET /api/link-finder?pass=social&dry=1  the TikTok and Instagram finder's plan, writes nothing.
+//
+// EARLY FILL (Tom, 9 Oct 2026): a campaign that went live in the last 8 days is no longer left until its
+// flight ends. If it is the creator's one open row for the brand and a video's description links the
+// brand, the row is filled the same night (see _reports/flight-match.js). Later videos of that flight
+// are added by the unmatched pass's In-flight rule. TikTok and Instagram: ?pass=social (_reports/social-find.js).
 
 import { mondayToken } from "./_reports/monday.js";
 import { cookieOk } from "./_reports/access.js";
@@ -34,6 +40,7 @@ import { runUnmatched } from "./_reports/unmatched.js";
 import { isCron } from "./_reports/cron.js";
 import { recordRun, runWatch, JOBS } from "./_reports/runlog.js";
 import { runAlarm } from "./_reports/link-alarm.js";
+import { runSocial } from "./_reports/social-find.js";
 
 export const config = { maxDuration: 300 };
 
@@ -43,7 +50,9 @@ const WRITES_ENABLED = true; // on 27 Sep 2026 after the overnight dry runs (boa
 // links. See _reports/unmatched.js. Review rows always go to board 18433205666; these two switches gate
 // the rest. Both OFF until Tom has checked the first night's list (brief of 28 Sep 2026, tracker d39).
 const MAKEGOOD_WRITES = true;  // on 29 Sep 2026 after Tom checked the first list on board 18433205666
-const NOTIFY_TEAM = true;      // daily monday notification to Margot and Alex with the count (on 29 Sep 2026)
+const NOTIFY_TEAM = true;
+// TikTok and Instagram finder (?pass=social): set to false to make its scheduled run plan only.
+const SOCIAL_WRITES = true;      // daily monday notification to Margot and Alex with the count (on 29 Sep 2026)
 const MAX_ROWS = 25, UNIT_BUDGET = 1500, TIME_MS = 150000; // scanning stops at 150 s, leaving time for the writes and the run log inside the 300 s limit
 // Second pass budgets inside the same 300 s limit: channel scans stop at 150 s, review rows at 240 s.
 const UNMATCHED_TIME_MS = 150000, UNMATCHED_STOP_MS = 240000;
@@ -73,6 +82,15 @@ export default async function handler(req, res) {
     try { out = await runAlarm(token, { dry: String(req.query.dry || "") === "1" || !fromCron }); }
     catch (e) { out = { pass: "alarm", error: String(e.message || e).slice(0, 300) }; }
     await logRun(JOBS.alarm, out);
+    return res.status(200).json(out);
+  }
+  // TikTok and Instagram link finder (?pass=social, cron daily 08:05 UTC): short-form deals the YouTube
+  // finder cannot see, and the short-form posts of a filled YouTube + TikTok deal. See _reports/social-find.js.
+  if (String(req.query && req.query.pass || "") === "social") {
+    let out;
+    try { out = await runSocial(token, { dry: String(req.query.dry || "") === "1" || !fromCron || !SOCIAL_WRITES }); }
+    catch (e) { out = { pass: "social", error: String(e.message || e).slice(0, 300) }; }
+    await logRun(JOBS.social, out);
     return res.status(200).json(out);
   }
   if (String(req.query && req.query.pass || "") === "unmatched") {
@@ -107,12 +125,13 @@ export default async function handler(req, res) {
       for (const d of matchRows(scan.vids || [], by[h])) {
         summary.counts[d.act] = (summary.counts[d.act] || 0) + 1;
         if (d.act === "future" || d.act === "skip") continue;
-        summary.plan.push({ creator: h, id: d.r.id, deal: d.r.deal, row: d.r.row, act: d.act, why: d.why, videos: (d.vids || []).map(v => v.v + " " + v.at) });
+        summary.plan.push({ creator: h, id: d.r.id, deal: d.r.deal, row: d.r.row, act: d.act, early: d.early || undefined, why: d.why, videos: (d.vids || []).map(v => v.v + " " + v.at) });
+        if (d.early) summary.early = (summary.early || 0) + 1;
         if (d.act !== "recent" && writable(d) && toWrite.length < MAX_ROWS) toWrite.push({ id: d.r.id, v: d.vids.map(v => [v.v, v.t, v.at + ", " + (v.ev || "")]) });
       }
     }
     if (toWrite.length) {
-      const r = await applyLinks(token, { rows: toWrite, rule: "Nightly link finder: uploads from this row's date window whose description carries a link naming the brand (or whose title names it, when this is the creator's one row for the brand). Several videos means the read ran as a flight across them." }, dry);
+      const r = await applyLinks(token, { rows: toWrite, rule: "Nightly link finder: uploads from this row's date window whose description carries a link naming the brand (or whose title names it, when this is the creator's one row for the brand). Several videos means the read ran as a flight across them. A campaign still running is filled only from a brand link; later videos of the same flight are added as they go up." }, dry);
       summary.apply = { linked: r.linked, videos: r.videos, skipped: r.out.filter(o => /skipped/.test(o.result)).length };
     }
   } catch (e) { summary.failed = true; summary.errors.push(String(e.message || e).slice(0, 200)); }

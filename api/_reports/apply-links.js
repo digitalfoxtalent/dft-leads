@@ -31,9 +31,9 @@ async function mondayVars(token, query, variables) {
   if (!r.ok || (d && d.errors)) throw new Error("monday: " + JSON.stringify((d && d.errors) || r.status).slice(0, 300));
   return d.data;
 }
-const brandKey = (adv, deal) => String(adv || String(deal || "").split(/[_\s]/)[0]).toLowerCase().replace(/[^a-z0-9]/g, "").replace(/^liquidiv$/, "liquid").replace(/^prizepicks$/, "prize").replace(/^hellofresh$/, "hello");
+export const brandKey = (adv, deal) => String(adv || String(deal || "").split(/[_\s]/)[0]).toLowerCase().replace(/[^a-z0-9]/g, "").replace(/^liquidiv$/, "liquid").replace(/^prizepicks$/, "prize").replace(/^hellofresh$/, "hello");
 // video id -> set of brand keys it is already linked under
-async function linkedVideoBrands(token) {
+export async function linkedVideoBrands(token) {
   const fields = "cursor items { id parent_item { name column_values(ids:[\"dropdown_mm1a3tqp\"]) { text } } column_values(ids:[\"text_mm6aq9qp\"]) { text } }";
   let d = await monday(token, "query { boards(ids:[" + SUB_BOARD + "]) { items_page(limit:500, query_params:{rules:[{column_id:\"text_mm6aq9qp\", compare_value:[], operator:is_not_empty}]}) { " + fields + " } } }");
   let page = d.boards[0].items_page, items = page.items.slice(), guard = 0;

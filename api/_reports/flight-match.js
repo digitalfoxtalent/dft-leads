@@ -11,6 +11,12 @@
 // FLIGHTS: matching videos with no gap over 9 days are one flight. Several open rows for the same
 // brand each take one flight, oldest row first. A lone row with a live, publish or month date takes
 // every match in its window. Over 15 matches is left for a person.
+// EARLY FILL (Tom, 9 Oct 2026): a flight that started in the last 8 days used to wait until it ended,
+// so a live campaign showed nothing on its report for a week. Now, from its live (or publish) date, the
+// row is filled as soon as there is a video with a description link naming the brand, but only when it
+// is the creator's one open row for that brand (no title-only matches, no spot 1 / spot 2 guessing).
+// Later videos of the same flight are added by the unmatched-reads pass's In-flight rule (same link or
+// code, inside the row's flight). Anything less certain still waits for the flight to end.
 
 const D = 864e5;
 const sq = s => String(s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -54,14 +60,27 @@ export function matchRows(vids, rows, now) {
     const w = windowOf(r);
     if (!w) { res.push({ r, act: "review", why: "no date" }); continue; }
     if (w.a > today - 2 * D) { res.push({ r, act: "future", why: w.why }); continue; }
-    // A flight that started in the last 8 days may still be running: wait, so no video is missed.
-    if ((r.live || r.pub) && day(r.live || r.pub) > today - 8 * D) { res.push({ r, act: "recent", why: w.why + " (flight may still be running)" }); continue; }
+    // A flight that started in the last 8 days may still be running. One that has not started yet waits;
+    // one that has started is matched now, but only a sure match is kept (EARLY FILL above).
+    let early = false;
+    if ((r.live || r.pub) && day(r.live || r.pub) > today - 8 * D) {
+      if (day(r.live || r.pub) > today) { res.push({ r, act: "recent", why: w.why + " (not live yet)" }); continue; }
+      early = true;
+    }
     // Nothing goes live more than a week before the deal closed.
     if (!r.pub && r.closed) w.a = Math.max(w.a, day(r.closed) - 7 * D);
-    (byBrand[sq(r.brand)] = byBrand[sq(r.brand)] || []).push({ r, w });
+    (byBrand[sq(r.brand)] = byBrand[sq(r.brand)] || []).push({ r, w, early });
   }
+  const start = res.length;
   for (const bk of Object.keys(byBrand)) {
     const brs = byBrand[bk].sort((x, y) => x.w.a - y.w.a);
+    // Several open rows for this brand and one of them still running: which video is which spot is
+    // clearer once the flight is over, so the running ones wait.
+    if (brs.length > 1 && brs.some(b => b.early)) {
+      for (const b of brs.filter(x => x.early)) res.push({ r: b.r, act: "recent", why: b.w.why + " (flight may still be running; " + brs.length + " open rows for this brand)" });
+      for (let i = brs.length - 1; i >= 0; i--) if (brs[i].early) brs.splice(i, 1);
+      if (!brs.length) continue;
+    }
     const strongV = bk.length >= 3 ? vids.filter(v => (v.u || []).some(u => sq(u).includes(bk))) : [];
     const titleV = vids.filter(v => (v.mt || []).some(b => sq(b) === bk));
     const nameV = vids.filter(v => (v.m || []).some(b => sq(b) === bk));
@@ -86,7 +105,7 @@ export function matchRows(vids, rows, now) {
     const sameDeal = brs.filter(b => perDeal[b.r.dealId || b.r.deal] > 1);
     for (const b of sameDeal) res.push({ r: b.r, act: "review", why: b.w.why + "; " + perDeal[b.r.dealId || b.r.deal] + " open rows for this creator on one deal", vids: strongV.filter(v => day(v.at) >= b.w.a && day(v.at) <= b.w.b).slice(0, 6) });
     if (sameDeal.length) { for (const b of sameDeal) brs.splice(brs.indexOf(b), 1); if (!brs.length) continue; }
-    const tiers = standing ? [["title", titleV]] : [["link", strongV], ["title", titleV]];
+    const tiers = standing ? [["title", titleV]] : (brs.length === 1 && brs[0].early) ? [["link", strongV]] : [["link", strongV], ["title", titleV]];
     const claimed = new Set();
     for (const { r, w } of brs) {
       let done = false;
@@ -120,6 +139,13 @@ export function matchRows(vids, rows, now) {
       for (const v of extra) { claimed.add(v.v); x.vids.push({ ...v, ev: (v.u || []).find(u => sq(u).includes(bk)) }); }
       x.vids.sort((p, q) => day(p.at) - day(q.at));
     }
+  }
+  // A running flight keeps only a sure match: anything else waits for the flight to end, as before.
+  for (let i = start; i < res.length; i++) {
+    const x = res[i], b = Object.values(byBrand).flat().find(y => y.r === x.r);
+    if (!b || !b.early) continue;
+    if (x.act === "link" && writable(x)) { x.early = true; x.why += " (flight still running: filled early)"; continue; }
+    res[i] = { r: x.r, act: "recent", why: (b.w.why || "") + " (flight may still be running)", vids: x.vids };
   }
   return res;
 }
