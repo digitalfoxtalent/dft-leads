@@ -6,14 +6,20 @@
 // to a filled row to check it was complete. A hand check of every Rhapsody row the same day found 25 more
 // videos on 8 rows that had been missed the same way.
 //
-// What it does, for every creator row on US Campaigns (subitems 6162879732) that already has YouTube
-// links, a flight date (LIVE DATE, or DATE PUBLISHED taken as that day plus 6) and a flight that ended in
-// the last 120 days: it reads the creator's uploads and ADDS any video that is
+// What it does, for every creator row on US Campaigns (subitems 6162879732) with a flight date (LIVE DATE,
+// or DATE PUBLISHED taken as that day plus 6) and a flight that ended in the last 120 days: it reads the
+// creator's uploads and ADDS any video that is
 //   - published inside the row's own flight dates (not the 3 days before or 10 after: those overlap the
 //     next flight of a weekly sponsor),
-//   - carrying the same tracking link as a video already on the row (same domain and path),
-//   - on no row for the same brand, and inside no other open or linked row's window for that brand,
+//   - EITHER carrying the same tracking link as a video already on the row (same domain and path), and
+//     inside no other row's window for that brand,
+//   - OR with the brand read out as a sponsor in the video itself (transcript, see spoken.js), and inside
+//     no other row's flight for that brand. Added 9 Oct 2026: the full transcript audit found reads whose
+//     description had no brand link, and rows that were still empty because the read was never linked.
+//   - on no row for the same brand,
 //   - never named in an earlier update on the row (a link a person took out stays out).
+// Transcripts cost about $0.0007 a video (Apify); at most 80 are fetched a run, only for uploads inside a
+// finished flight that are on no row for the brand.
 // Nothing is removed. Each addition posts an update with the evidence. Rows whose additions would be more
 // than 8 videos, or rows with no tracking link of their own, are listed for a person instead.
 // Caps: 25 rows written a run, about 2,000 YouTube units (uploads are read once per creator).
@@ -25,9 +31,11 @@ import { monday } from "./monday.js";
 import { scanUploads } from "./scan.js";
 import { loadGtr } from "./backfill.js";
 import { brandKey } from "./apply-links.js";
+import { spokenRead } from "./spoken.js";
+import { transcripts } from "./timestamps.js";
 
 const SUB_BOARD = 6162879732, D = 864e5;
-const LOOKBACK_DAYS = 120, MAX_ROWS = 25, MAX_ADD = 8, UNIT_BUDGET = 2000, TIME_MS = 200000;
+const LOOKBACK_DAYS = 120, MAX_ROWS = 25, MAX_ADD = 8, UNIT_BUDGET = 2000, TIME_MS = 130000, MAX_TRANSCRIPTS = 80;
 const ID_RE = /(?:v=|youtu\.be\/|shorts\/|live\/|embed\/)([A-Za-z0-9_-]{11})/g;
 const ids = t => [...String(t || "").matchAll(ID_RE)].map(m => m[1]);
 const day = s => Date.parse(String(s).slice(0, 10) + "T00:00:00Z");
@@ -45,28 +53,32 @@ export function flight(r) {
 
 // Pure: rows (all rows of one creator, with .vids = linked ids), vids (that creator's uploads, from scan),
 // returns [{ r, add: [videos], why }] for rows with something to add, and [{ r, review }] for a person.
-export function auditCreator(rows, vids, now, lookbackDays) {
+// heard (optional): Map of video id -> transcript, for uploads that are worth checking for a spoken read.
+export function auditCreator(rows, vids, now, lookbackDays, heard) {
   const byId = new Map(vids.map(v => [v.v, v]));
   const today = now || Date.now(), from = today - (lookbackDays || LOOKBACK_DAYS) * D;
   const out = [];
   for (const r of rows) {
-    if (!r.vids.length) continue;
     const f = flight(r); if (!f || f.core[1] < from || f.core[1] > today - 2 * D) continue; // finished flights only
     const bk = sq(r.brandKey || r.brand); if (bk.length < 3) continue;
     const own = r.vids.map(id => byId.get(id)).filter(Boolean);
     const links = new Set(own.flatMap(v => (v.u || []).filter(u => sq(u).includes(bk)).map(normLink)));
-    if (!links.size) continue; // nothing to compare against: the row's videos carry no link naming the brand
+    if (!links.size && !heard) continue; // nothing to compare against
     const same = rows.filter(x => x !== r && sq(x.brandKey || x.brand) === bk);
     const taken = new Set(same.flatMap(x => x.vids).concat(r.vids));
-    const add = vids.filter(v => {
+    const add = [];
+    for (const v of vids) {
       const t = day(v.at);
-      if (t < f.core[0] || t > f.core[1] || taken.has(v.v)) return false;
-      if (!(v.u || []).some(u => links.has(normLink(u)))) return false;
-      return !same.some(x => { const g = flight(x); return g && t >= g.a && t <= g.b; }); // another flight of this brand could own it
-    });
+      if (t < f.core[0] || t > f.core[1] || taken.has(v.v)) continue;
+      const others = same.map(flight).filter(Boolean);
+      const link = links.size && (v.u || []).some(u => links.has(normLink(u)));
+      if (link && !others.some(g => t >= g.a && t <= g.b)) { add.push({ ...v, ev: "same tracking link (" + [...links].join(", ") + ") as the row's own videos" }); continue; }
+      const read = heard && heard.get(v.v) ? spokenRead(heard.get(v.v), r.brand) : null;
+      if (read && !others.some(g => t >= g.core[0] && t <= g.core[1])) add.push({ ...v, ev: "read out in the video: \"" + read.quote + "\"" + (read.at != null ? " at " + Math.floor(read.at / 60) + ":" + String(read.at % 60).padStart(2, "0") : "") });
+    }
     if (!add.length) continue;
-    if (add.length > MAX_ADD) { out.push({ r, review: add.length + " videos in the flight carry this row's link but are not on it: too many to add without a person", vids: add.slice(0, 6) }); continue; }
-    out.push({ r, add, why: "inside the row's own flight (" + iso(f.core[0]) + " to " + iso(f.core[1]) + ") with the same tracking link (" + [...links].join(", ") + ") as its own videos" });
+    if (add.length > MAX_ADD) { out.push({ r, review: add.length + " videos in the flight carry this row's link or read but are not on it: too many to add without a person", vids: add.slice(0, 6) }); continue; }
+    out.push({ r, add, why: "inside the row's own flight (" + iso(f.core[0]) + " to " + iso(f.core[1]) + ")" });
   }
   return out;
 }
@@ -102,12 +114,12 @@ export async function runAudit(token, opts) {
   const summary = { pass: "audit", dry: !!opts.dry, days, creators: 0, units: 0, rowsChecked: 0, added: 0, videos: 0, review: [], plan: [], errors: [] };
   const [rows, gtr] = await Promise.all([loadRows(token), loadGtr(token)]);
   const from = now - days * D;
-  const due = rows.filter(r => r.vids.length && r.h.startsWith("@") && (() => { const f = flight(r); return f && f.core[1] >= from && f.core[1] <= now - 2 * D; })());
+  const due = rows.filter(r => r.h.startsWith("@") && (() => { const f = flight(r); return f && f.core[1] >= from && f.core[1] <= now - 2 * D; })());
   summary.rowsChecked = due.length;
   const hs = [...new Set(due.map(r => r.h))];
-  const writes = [];
+  const writes = [], scans = [];
   for (const h of hs) {
-    if (Date.now() - t0 > TIME_MS || summary.units > UNIT_BUDGET || writes.length >= MAX_ROWS) break;
+    if (Date.now() - t0 > TIME_MS || summary.units > UNIT_BUDGET) break;
     const mine = rows.filter(r => r.h === h);
     const starts = mine.filter(r => due.includes(r)).map(r => flight(r).a);
     const since = iso(Math.min(...starts) - 20 * D);
@@ -117,10 +129,26 @@ export async function runAudit(token, opts) {
     catch (e) { summary.errors.push(h + ": " + String(e.message || e).slice(0, 120)); if (/quota|403/i.test(String(e.message))) break; continue; }
     summary.units += scan.units || 0; summary.creators++;
     if (scan.notFound) { summary.errors.push(h + ": channel not found"); continue; }
-    for (const x of auditCreator(mine, scan.vids || [], now, days)) {
+    scans.push({ h, mine, vids: scan.vids || [] });
+  }
+  // Transcripts for uploads inside a due flight that are on no row of that brand (newest flights first).
+  const want = [];
+  for (const sc of scans) for (const r of sc.mine.filter(x => due.includes(x))) {
+    const f = flight(r), bk = sq(r.brandKey || r.brand), taken = new Set(sc.mine.filter(x => sq(x.brandKey || x.brand) === bk).flatMap(x => x.vids));
+    for (const v of sc.vids) { const t = day(v.at); if (t >= f.core[0] && t <= f.core[1] && !taken.has(v.v)) want.push({ v: v.v, t }); }
+  }
+  const ids = [...new Map(want.sort((a, b) => b.t - a.t).map(x => [x.v, x])).keys()].slice(0, MAX_TRANSCRIPTS);
+  let heard = new Map();
+  if (ids.length && !opts.noTranscripts) {
+    try { const tr = await transcripts(ids, { waitMs: 110000, memory: 2048 }); heard = new Map(Object.entries(tr)); }
+    catch (e) { summary.errors.push("transcripts: " + String(e.message || e).slice(0, 160)); }
+  }
+  summary.transcripts = { asked: ids.length, got: heard.size, more: Math.max(0, new Set(want.map(x => x.v)).size - ids.length) };
+  for (const { mine, vids } of scans) {
+    for (const x of auditCreator(mine, vids, now, days, heard)) {
       if (x.review) { summary.review.push({ id: x.r.id, deal: x.r.deal, why: x.review, videos: x.vids.map(v => v.v + " " + v.at) }); continue; }
       if (!due.includes(x.r)) continue;
-      summary.plan.push({ id: x.r.id, deal: x.r.deal, row: x.r.row, why: x.why, videos: x.add.map(v => v.v + " " + v.at + " " + v.n) });
+      summary.plan.push({ id: x.r.id, deal: x.r.deal, row: x.r.row, why: x.why, videos: x.add.map(v => v.v + " " + v.at + " " + v.n + " | " + v.ev) });
       if (writes.length < MAX_ROWS) writes.push(x);
     }
   }
@@ -138,7 +166,7 @@ export async function runAudit(token, opts) {
       const next = cell.replace(/[,\s]+$/, "") + ", " + keep.map(v => "https://www.youtube.com/watch?v=" + v.v).join(", ");
       await mondayVars(token, "mutation ($b: ID!, $i: ID!, $v: JSON!) { change_multiple_column_values(board_id:$b, item_id:$i, column_values:$v) { id } }", { b: String(SUB_BOARD), i: String(x.r.id), v: JSON.stringify({ text_mm6aq9qp: next }) });
       const body = "<p><b>Flight audit: added " + keep.length + (keep.length === 1 ? " video" : " videos") + " missing from this row</b></p><p>Each was published " + esc(x.why) + ", and is on no other row for this brand. Nothing was removed.</p><ul>" +
-        keep.map(v => "<li>" + esc(v.at) + " youtube.com/watch?v=" + esc(v.v) + " " + esc(v.t) + ", " + Number(v.n || 0).toLocaleString("en-US") + " views today</li>").join("") +
+        keep.map(v => "<li>" + esc(v.at) + " youtube.com/watch?v=" + esc(v.v) + " " + esc(v.t) + ", " + Number(v.n || 0).toLocaleString("en-US") + " views today. Evidence: " + esc(v.ev) + "</li>").join("") +
         "</ul><p>The 09:00 view sync adds their views the next morning. If any is wrong, take it out of LIVE VIDEO URLS; it is never added back, because it is named in this update.</p>";
       await mondayVars(token, "mutation ($i: ID!, $t: String!) { create_update(item_id:$i, body:$t) { id } }", { i: String(x.r.id), t: body });
     } catch (e) { summary.errors.push(x.r.id + ": " + String(e.message || e).slice(0, 160)); }
