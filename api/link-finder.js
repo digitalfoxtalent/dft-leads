@@ -24,6 +24,7 @@
 //   GET /api/link-finder?pass=unmatched&dry=1   the second pass's classified list, writes nothing.
 //   GET /api/link-finder?pass=watch&dry=1   the morning watchdog's checks, notifies nobody.
 //   GET /api/link-finder?pass=social&dry=1  the TikTok and Instagram finder's plan, writes nothing.
+//   GET /api/link-finder?pass=audit&dry=1   the weekly flight audit's plan (videos missing from filled rows), writes nothing.
 //
 // EARLY FILL (Tom, 9 Oct 2026): a campaign that went live in the last 8 days is no longer left until its
 // flight ends. If it is the creator's one open row for the brand and a video's description links the
@@ -41,6 +42,7 @@ import { isCron } from "./_reports/cron.js";
 import { recordRun, runWatch, JOBS } from "./_reports/runlog.js";
 import { runAlarm } from "./_reports/link-alarm.js";
 import { runSocial } from "./_reports/social-find.js";
+import { runAudit } from "./_reports/flight-audit.js";
 
 export const config = { maxDuration: 300 };
 
@@ -52,7 +54,9 @@ const WRITES_ENABLED = true; // on 27 Sep 2026 after the overnight dry runs (boa
 const MAKEGOOD_WRITES = true;  // on 29 Sep 2026 after Tom checked the first list on board 18433205666
 const NOTIFY_TEAM = true;
 // TikTok and Instagram finder (?pass=social): set to false to make its scheduled run plan only.
-const SOCIAL_WRITES = true;      // daily monday notification to Margot and Alex with the count (on 29 Sep 2026)
+const SOCIAL_WRITES = true;
+// Weekly flight audit (?pass=audit): set to false to make its scheduled run plan only.
+const AUDIT_WRITES = true;      // daily monday notification to Margot and Alex with the count (on 29 Sep 2026)
 const MAX_ROWS = 25, UNIT_BUDGET = 1500, TIME_MS = 150000; // scanning stops at 150 s, leaving time for the writes and the run log inside the 300 s limit
 // Second pass budgets inside the same 300 s limit: channel scans stop at 150 s, review rows at 240 s.
 const UNMATCHED_TIME_MS = 150000, UNMATCHED_STOP_MS = 240000;
@@ -75,8 +79,9 @@ export default async function handler(req, res) {
     try { return res.status(200).json(await runWatch(token, { dry: String(req.query.dry || "") === "1" || !fromCron })); }
     catch (e) { return res.status(200).json({ pass: "watch", error: String(e.message || e).slice(0, 300) }); }
   }
-  // Missing link alarm (?pass=alarm, cron weekdays 15:05 UTC): asks the sales lead for any live campaign
-  // still without a video link from day 2. See _reports/link-alarm.js. ?pass=alarm&dry=1 shows who would be asked.
+  // Missing link alarm (?pass=alarm, cron weekdays 15:05 UTC): since 9 Oct 2026 nobody pastes links by hand, so
+  // this tells Tom (one notification) which live campaigns the finders still have not filled 10 days after
+  // go-live, with the likely reason. See _reports/link-alarm.js. ?pass=alarm&dry=1 shows the list.
   if (String(req.query && req.query.pass || "") === "alarm") {
     let out;
     try { out = await runAlarm(token, { dry: String(req.query.dry || "") === "1" || !fromCron }); }
@@ -91,6 +96,16 @@ export default async function handler(req, res) {
     try { out = await runSocial(token, { dry: String(req.query.dry || "") === "1" || !fromCron || !SOCIAL_WRITES }); }
     catch (e) { out = { pass: "social", error: String(e.message || e).slice(0, 300) }; }
     await logRun(JOBS.social, out);
+    return res.status(200).json(out);
+  }
+  // Flight audit (?pass=audit, cron Mondays 08:30 UTC): finished flights of the last 120 days whose row is
+  // missing videos from its own flight dates, proven by its own tracking link or a sponsor read heard in the
+  // video's transcript (Rhapsody, 9 Oct 2026). See _reports/flight-audit.js.
+  if (String(req.query && req.query.pass || "") === "audit") {
+    let out;
+    try { out = await runAudit(token, { dry: String(req.query.dry || "") === "1" || !fromCron || !AUDIT_WRITES, days: req.query.days }); }
+    catch (e) { out = { pass: "audit", error: String(e.message || e).slice(0, 300) }; }
+    await logRun(JOBS.audit, out);
     return res.status(200).json(out);
   }
   if (String(req.query && req.query.pass || "") === "unmatched") {

@@ -41,13 +41,16 @@ export async function timestampProbe(payload, match) {
 // about $0.0007 a video), then every caption line that names the brand.
 const atok = () => process.env.APIFY_TOKEN || "";
 const flat = s => String(s || "").normalize("NFKD").toLowerCase().replace(/[^a-z0-9]/g, "");
-export async function transcripts(ids) {
+// opts.waitMs: how long to wait for the run (default 200 s). opts.memory: MB for the run (the actor's default
+// of 256 MB failed on batches of a few hundred videos on 9 Oct 2026; 2048 worked).
+export async function transcripts(ids, opts) {
+  opts = opts || {};
   if (!atok()) throw new Error("APIFY_TOKEN missing");
   const A = "https://api.apify.com/v2";
-  let r = await fetch(A + "/acts/supreme_coder~youtube-transcript-scraper/runs?waitForFinish=60&maxTotalChargeUsd=1&token=" + atok(), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ urls: ids.map(id => ({ url: "https://www.youtube.com/watch?v=" + id })), outputFormat: "json" }) });
+  let r = await fetch(A + "/acts/supreme_coder~youtube-transcript-scraper/runs?waitForFinish=60&maxTotalChargeUsd=1" + (opts.memory ? "&memory=" + Number(opts.memory) : "") + "&token=" + atok(), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ urls: ids.map(id => ({ url: "https://www.youtube.com/watch?v=" + id })), outputFormat: "json" }) });
   if (!r.ok) throw new Error("Apify transcripts " + r.status + " " + (await r.text()).slice(0, 160));
   let run = (await r.json()).data; const t0 = Date.now();
-  while (!/SUCCEEDED|FAILED|ABORTED|TIMED-OUT/.test(run.status) && Date.now() - t0 < 200000) {
+  while (!/SUCCEEDED|FAILED|ABORTED|TIMED-OUT/.test(run.status) && Date.now() - t0 < (opts.waitMs || 200000)) {
     r = await fetch(A + "/actor-runs/" + run.id + "?waitForFinish=60&token=" + atok()); run = (await r.json()).data;
   }
   if (!run.defaultDatasetId) throw new Error("Apify transcripts run " + run.status);

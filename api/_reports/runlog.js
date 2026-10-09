@@ -8,8 +8,8 @@
 // Logging is best effort: it never throws and never holds a run up for more than a few seconds.
 
 export const RUN_BOARD = 18432874155;
-export const JOBS = { links: "link-finder", unmatched: "unmatched-reads", podcasts: "podcast-export", alarm: "link-alarm", social: "social-links" };
-const LABEL = { "link-finder": "Link finder (empty rows)", "unmatched-reads": "Make-good and unmatched reads pass", "podcast-export": "Podcast reach from the Megaphone export", "link-alarm": "Missing link alarm (weekdays)", "social-links": "TikTok and Instagram link finder" };
+export const JOBS = { links: "link-finder", unmatched: "unmatched-reads", podcasts: "podcast-export", alarm: "link-alarm", social: "social-links", audit: "flight-audit" };
+const LABEL = { "link-finder": "Link finder (empty rows)", "unmatched-reads": "Make-good and unmatched reads pass", "podcast-export": "Podcast reach from the Megaphone export", "link-alarm": "Links the finders could not find (weekdays, to Tom)", "social-links": "TikTok and Instagram link finder", "flight-audit": "Flight audit (weekly, Mondays)" };
 
 async function mondayCall(token, query, variables, ms) {
   const ctl = new AbortController();

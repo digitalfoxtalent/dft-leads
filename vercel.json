@@ -61,6 +61,10 @@
       "schedule": "5 8 * * *"
     },
     {
+      "path": "/api/link-finder?pass=audit",
+      "schedule": "30 8 * * 1"
+    },
+    {
       "path": "/api/link-finder?pass=alarm",
       "schedule": "5 15 * * 1-5"
     },
