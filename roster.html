@@ -47,6 +47,10 @@
   /* Banner (team identity / saved list) */
   .banner{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:8px 16px; font-size:12px; background:var(--teambg); color:var(--team); border-bottom:1px solid #d5e2ef; }
   .banner.list{ background:#fff5ea; color:#8a4a00; border-bottom-color:#f0dcc2; }
+  .banner.warn{ background:#fff4d6; color:#6e4a00; border-bottom-color:#efd98f; }
+  .banner .bbtn{ display:inline-block; border:1px solid currentColor; border-radius:7px; padding:3px 9px; font-weight:700; background:#fff; color:inherit; cursor:pointer; font-size:11.5px; text-decoration:none; }
+  .banner .bbtn:hover{ background:#fffaf0; }
+  #panel .hint{ font-size:11px; color:var(--muted); line-height:1.45; margin-top:10px; border-top:1px solid #eee3d4; padding-top:8px; }
   .banner b{ font-weight:700; }
   .banner .pkg{ margin-left:auto; display:flex; gap:14px; flex-wrap:wrap; font-weight:600; }
   .banner .pkg span b{ font-weight:800; color:#5a3000; }
@@ -126,9 +130,7 @@
   td.edit{ cursor:text; color:var(--team); font-weight:600; text-decoration:underline dotted #9db6cf; text-underline-offset:3px; }
   td.edit:hover{ background:#e1ecf7 !important; }
   td.edit input{ width:100%; font:inherit; text-align:center; border:1px solid var(--team); border-radius:5px; padding:3px; }
-  td.edit.custom{ background:#fff1d6 !important; color:#8a4a00; }
   td.edit.tcol{ color:var(--team); }
-  td.edit.custom::after{ content:"list"; font-size:9px; font-weight:800; text-transform:uppercase; letter-spacing:.04em; margin-left:5px; color:#b46a00; }
   td.saving{ opacity:.5; }
   .grip{ flex:0 0 auto; cursor:grab; user-select:none; color:#a87a4a; font-size:14px; line-height:1; }
   thead th{ position:sticky; }
@@ -305,6 +307,14 @@ const openSet=new Set(), picked=new Set();
 let editingList=null; // {slug,title} when the selection came from a saved list
 const LIST_SLUG=(location.pathname.match(/^\/r\/([a-z0-9-]+)$/)||[])[1]||null;
 const listEdit=()=>!!(LIST_SLUG&&TEAM&&mode!=="team"&&BRAND&&BRAND.list);
+// User journey (Tom, 9 Oct 2026): a list's numbers are changed on the list's own page, the
+// main rate card's numbers on the main page. While the team is adding or removing a list's
+// creators, or looking at the main roster from a list's page, the main numbers are locked so
+// nobody changes the base rate card by accident.
+const baseLocked=()=>!!(TEAM&&mode==="team"&&(editingList||LIST_SLUG));
+const lockedMsg=()=>editingList
+  ?"You're choosing creators for “"+editingList.title+"”. To change its videos or prices, use “Change "+editingList.title+"'s numbers” above."
+  :"This is the main rate card. Go back to the list to change its numbers, or open the main page to change the rate card.";
 
 const $=s=>document.querySelector(s);
 const money=v=>v==null?"":"$"+Math.round(v).toLocaleString();
@@ -346,7 +356,7 @@ function brandColsFor(){
     if(c.key==="cpm") return Object.assign({},c,{t:1,tip:"DFT only, brands never see the CPM on this tab."});
     return c;
   });
-  if(team) cols=cols.map(c=>{
+  if(team&&!baseLocked()) cols=cols.map(c=>{
     if(c.key==="vg") return Object.assign({},c,{w:146,edit:"vg",head:k==="long"?"View Guarantee ✎":"View Estimate ✎",tip:k==="long"?"Click to edit what brands see. Holds until the quarter resets.":"Brands see this as an estimate, not a guarantee. Rate = estimate x CPM ($25), plus the production fee ($3,000, or $5,000 from 100k views, $7,500 from 250k). Click to edit."});
     if(c.key==="cpm") return Object.assign({},c,{edit:"cpm",head:"CPM ✎",w:84,tip:k==="long"?"Click to edit what brands see. Holds until the quarter resets.":"Not shown to brands. Sets the rate. Click to edit."});
     // Number of videos brands are quoted (Tom, 9 Oct 2026). Clear it to go back to the
@@ -577,6 +587,7 @@ function wire(){
   if(mode==="team"){
     sc.querySelectorAll("input.pick").forEach(cb=>cb.addEventListener("change",()=>{ cb.checked?picked.add(cb.dataset.id):picked.delete(cb.dataset.id); render(); }));
     sc.querySelectorAll("button.eye").forEach(b=>b.addEventListener("click",()=>{
+      if(baseLocked()){ toast(lockedMsg(),true); return; }
       const next={"Auto":"Always show","Always show":"Hide","Hide":"Auto"}[b.dataset.o]||"Auto";
       save({op:"edit",id:b.dataset.id,show:b.dataset.show==="1",override:next});
     }));
@@ -749,22 +760,27 @@ async function saveList(asNew){
     await loadTeam(true);
   }catch(e){ toast(e.message,true); }
 }
+// "Add / remove creators": load a list's creators as ticks on the main roster.
+function chooseCreatorsFor(l){
+  picked.clear(); l.ids.forEach(id=>picked.add(String(id))); editingList={slug:l.slug,title:l.title};
+  $("#listName").value=l.title; setMode("team"); toast("Loaded “"+l.title+"”. Tick or untick creators, then Update list");
+}
 function renderPanel(){
   const lists=(TEAM&&TEAM.lists)||[];
   $("#panel").innerHTML=`<h3>Saved lists</h3>`+(lists.length?lists.map(l=>`<div class="li">
     <div class="tt">${esc(l.title)}</div>
     <div class="mm">${l.ids.length} creators · ${esc(l.by||"")}${l.updated?" · updated "+esc(l.updated):""}${l.locked?" · prices locked "+esc(fmtDate(l.locked)):""}</div>
     <div class="acts">
-      <button class="btn" data-a="copy" data-s="${esc(l.slug)}">Copy link</button>
-      <a class="btn" href="/r/${esc(l.slug)}" target="_blank">Open as brand</a>
-      <button class="btn team" data-a="edit" data-s="${esc(l.slug)}">Edit</button>
+      <a class="btn primary" href="/r/${esc(l.slug)}" title="Change this list's videos, views and prices. Nothing else changes.">Open list</a>
+      <button class="btn team" data-a="edit" data-s="${esc(l.slug)}" title="Tick or untick who is on this list">Add / remove creators</button>
+      <button class="btn" data-a="copy" data-s="${esc(l.slug)}">Copy brand link</button>
       <button class="btn" data-a="del" data-s="${esc(l.slug)}" style="color:var(--hide)">Delete</button>
-    </div></div>`).join(""):`<div class="empty">No saved lists yet. Tick creators in the DFT view, name the list and save it.</div>`);
+    </div></div>`).join("")+`<div class="hint"><b>Open list</b> to change a list's videos and prices (only that list changes).<br><b>Add / remove creators</b> to choose who is on it.</div>`:`<div class="empty">No saved lists yet. Tick creators in the DFT view, name the list and save it.</div>`);
   $("#panel").querySelectorAll("button[data-a]").forEach(b=>b.addEventListener("click",async()=>{
     const l=lists.find(x=>x.slug===b.dataset.s); if(!l) return;
     const url=location.origin+"/r/"+l.slug;
     if(b.dataset.a==="copy"){ try{await navigator.clipboard.writeText(url); toast("Link copied");}catch(_){ prompt("Copy this link",url); } }
-    if(b.dataset.a==="edit"){ picked.clear(); l.ids.forEach(id=>picked.add(String(id))); editingList={slug:l.slug,title:l.title}; $("#listName").value=l.title; $("#panel").classList.remove("on"); setMode("team"); toast("Loaded “"+l.title+"”. Tick or untick creators, then Update list"); }
+    if(b.dataset.a==="edit"){ $("#panel").classList.remove("on"); chooseCreatorsFor(l); }
     if(b.dataset.a==="del"){ if(!confirm("Delete “"+l.title+"”? Its link will stop working. (It is archived on monday and can be restored there.)")) return; try{ await post({op:"delete-list",slug:l.slug}); toast("List deleted"); await loadTeam(true); renderPanel(); }catch(e){ toast(e.message,true); } }
   }));
 }
@@ -789,11 +805,19 @@ async function toggleLock(on){
 }
 function renderBanner(){
   const b=$("#banner");
-  if(TEAM){
+  if(TEAM&&mode==="team"&&LIST_SLUG&&BRAND&&BRAND.list){
+    b.className="banner warn"; b.style.display="";
+    b.innerHTML=`This is the <b>main rate card</b>, not “${esc(BRAND.list.title)}”. Its numbers are locked here. <button class="bbtn" id="backToList">Back to “${esc(BRAND.list.title)}”</button> <a class="bbtn" href="/">Change the main rate card</a><span class="spacer"></span><a href="/auth/signout" style="text-decoration:underline">Sign out</a>`;
+    $("#backToList").onclick=()=>setMode("brand");
+  } else if(TEAM&&mode==="team"&&editingList){
+    b.className="banner warn"; b.style.display="";
+    b.innerHTML=`<span>Choosing creators for <b>“${esc(editingList.title)}”</b>: tick or untick, then press <b>Update list</b>. Prices are locked while you do this.</span> <a class="bbtn" href="/r/${esc(editingList.slug)}">Change “${esc(editingList.title)}”'s numbers</a> <button class="bbtn" id="doneList">Done</button><span class="spacer"></span><a href="/auth/signout" style="text-decoration:underline">Sign out</a>`;
+    $("#doneList").onclick=()=>{ picked.clear(); editingList=null; $("#listName").value=""; $("#selMsg").textContent=""; renderBanner(); render(); };
+  } else if(TEAM){
     b.className="banner"; b.style.display="";
     b.innerHTML=`Signed in as <b>${esc(TEAM.email)}</b> · ${mode==="team"
       ?"Blue columns are DFT-only. Click an underlined number to change what brands see, or the eye to show or hide a creator. Drag the ⠿ handles to move rows and columns, or a column's edge to resize it."
-      :(listEdit()?"Pitch list preview: click an underlined number to change it for this list only. The roster and other lists stay as they are."+lockButton():"Brand preview: exactly what brands see.")}${listEdit()?packageSummary():'<span class="spacer"></span>'}<a href="/auth/signout" style="text-decoration:underline;margin-left:${listEdit()?"14px":"0"}">Sign out</a>`;
+      :(listEdit()?`<b>“${esc(BRAND.list.title)}” numbers:</b> click an underlined number to change videos, views or prices for this list only. The main rate card and other lists stay as they are. <a class="bbtn" href="/?edit=${encodeURIComponent(LIST_SLUG)}">Add / remove creators</a>`+lockButton():"Brand preview: exactly what brands see.")}${listEdit()?packageSummary():'<span class="spacer"></span>'}<a href="/auth/signout" style="text-decoration:underline;margin-left:${listEdit()?"14px":"0"}">Sign out</a>`;
     const lb=$("#lockBtn"); if(lb) lb.onclick=()=>toggleLock(lb.dataset.lock==="1");
   } else if(BRAND&&BRAND.list){
     b.className="banner list"; b.style.display="";
@@ -866,6 +890,8 @@ async function load(){
   catch(e){ if(!(await team)){ $("#scroll").innerHTML=`<div class="state"><div>${esc(e.message)}</div></div>`; $("#count").textContent=""; } }
   const signedIn=await team;
   if(!signedIn&&!LIST_SLUG) $("#signin").style.display="";
+  const editSlug=new URLSearchParams(location.search).get("edit");
+  if(signedIn&&editSlug&&!LIST_SLUG){ const l=((TEAM&&TEAM.lists)||[]).find(x=>x.slug===editSlug); if(l) chooseCreatorsFor(l); history.replaceState(null,"","/"); }
   if(/signin=failed/.test(location.search)) toast("Sign-in did not complete. Please try again.",true);
 }
 
@@ -877,7 +903,7 @@ $("#listsBtn").addEventListener("click",e=>{e.stopPropagation(); renderPanel(); 
 document.addEventListener("click",e=>{ if(!e.target.closest("#panel")&&!e.target.closest("#listsBtn")) $("#panel").classList.remove("on"); });
 $("#saveList").addEventListener("click",()=>saveList(false));
 $("#saveAsNew").addEventListener("click",()=>saveList(true));
-$("#clearSel").addEventListener("click",()=>{picked.clear(); editingList=null; $("#listName").value=""; $("#selMsg").textContent=""; render();});
+$("#clearSel").addEventListener("click",()=>{picked.clear(); editingList=null; $("#listName").value=""; $("#selMsg").textContent=""; renderBanner(); render();});
 $("#resetLayout").addEventListener("click",()=>{
   try{ localStorage.removeItem(LAYOUT_KEY); }catch(e){}
   myLayout=null; layoutDirty=false; sortKey=null; $("#saveCols").style.display="none"; $("#resetLayout").style.display="none";
