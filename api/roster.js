@@ -48,6 +48,11 @@ const normCountry = c => { const t = String(c || "").trim(); return COUNTRY_FIX[
 const hkey = h => String(h || "").toLowerCase().replace(/^@/, "").replace(/[^a-z0-9_.]/g, "");
 const nkey = n => String(n || "").toLowerCase().replace(/\s*[-\u2013]\s*shorts\s*$/, "").replace(/[^a-z0-9]/g, "");
 const REGISTER_BOARD = 18430229380;
+// Simulcast also counts a show DFT publishes itself through Megaphone (8 Oct 2026, Margot):
+// Video Rights & Syndication board, Pipeline status Live with Spotify or Apple Podcasts in
+// "Directories live". Its "YouTube channel" cell holds @handles and/or UC channel ids.
+const MEGA_BOARD = 18428698730;
+const MEGA = { yt: "text_mm6nx38t", status: "color_mm6ncgkd", dirs: "dropdown_mm6npmzw" };
 const REG = { handle: "text_mm70axtt", supplier: "color_mm70wx2a", state: "color_mm708t66", type: "color_mm70bcs0" };
 const HOST = "roster-viewguarantee.digitalfoxtalent.com";
 
@@ -82,6 +87,7 @@ const C = {
   lastPub: "date_mm4an586", rel: "board_relation_mm49w1a4",
   bvg: "numeric_mm7vxae8", bcpm: "numeric_mm7vm3hw", brate: "numeric_mm7vx77g", bbasis: "numeric_mm7vec5",
   bq: "text_mm7v252f", bnote: "text_mm7vn2c", logo: "text_mm7v2qns", vis: "color_mm7vb4nb",
+  src: "text_mm49b3x7", // Source ID (the UC channel id), used to match Megaphone shows for Simulcast
 };
 const SC = {
   rate: "numeric_mm495xbb", vg: "numeric_mm49tej8", cpm: "numeric_mm49fe4b", avg: "numeric_mm4957y3", url: "text_mm49bb5z",
@@ -201,13 +207,22 @@ async function loadBoard() {
   const stateQ = `query{boards(ids:[${CREATOR_BOARD}]){items_page(limit:500){items{id name group{title} column_values(ids:${JSON.stringify(Object.values(GTR))}){id text value}}}}}`;
   const listsQ = `query{boards(ids:[${LISTS_BOARD}]){items_page(limit:500){items{id name column_values(ids:${JSON.stringify(Object.values(L))}){id text}}}}}`;
   const regQ = `query{boards(ids:[${REGISTER_BOARD}]){items_page(limit:500){items{column_values(ids:${JSON.stringify(Object.values(REG))}){id text}}}}}`;
-  const [groups, state, lists, register] = await Promise.all([
+  const megaQ = `query{boards(ids:[${MEGA_BOARD}]){items_page(limit:500){items{column_values(ids:${JSON.stringify(Object.values(MEGA))}){id text}}}}}`;
+  const [groups, state, lists, register, mega] = await Promise.all([
     Promise.all(GROUPS.map(g => monday(groupQ(g.id)))),
     monday(stateQ).catch(() => null),
     monday(listsQ).catch(() => null),
     monday(regQ).catch(() => null),
+    monday(megaQ).catch(() => null),
   ]);
   const simulcast = new Set();
+  const simulcastIds = new Set(); // UC channel ids, matched against the rates board's Source ID
+  ((((mega || {}).boards || [])[0] || {}).items_page || { items: [] }).items.forEach(it => {
+    const v = {}; (it.column_values || []).forEach(c => { v[c.id] = c.text || ""; });
+    if (v[MEGA.status] !== "Live" || !/Spotify|Apple Podcasts/.test(v[MEGA.dirs] || "")) return;
+    (v[MEGA.yt].match(/@[A-Za-z0-9._-]+/g) || []).forEach(h => simulcast.add(h.slice(1).toLowerCase()));
+    (v[MEGA.yt].match(/UC[A-Za-z0-9_-]{22}/g) || []).forEach(id => simulcastIds.add(id));
+  });
   ((((register || {}).boards || [])[0] || {}).items_page || { items: [] }).items.forEach(it => {
     const v = {}; (it.column_values || []).forEach(c => { v[c.id] = c.text || ""; });
     if (v[REG.supplier] === "Libsyn" && v[REG.type] === "Simulcast" && v[REG.state] === "Live" && v[REG.handle])
@@ -258,7 +273,7 @@ async function loadBoard() {
         const sc = {}; (sv.column_values || []).forEach(c => { sc[c.id] = c.text || ""; });
         return { id: String(sv.id), name: sv.name, cv: sc };
       });
-      const sim = kind === "long" && simulcast.has(String(cv[C.handle] || "").replace(/^@/, "").toLowerCase());
+      const sim = kind === "long" && (simulcast.has(String(cv[C.handle] || "").replace(/^@/, "").toLowerCase()) || simulcastIds.has(String(cv[C.src] || "").trim()));
       const geo = geoFor(creator, cv[C.handle], it.name, cv[C.location]);
       rows.push({ id: String(it.id), name: it.name, group: GROUPS[gi].id, kind, cv, creator, adEx, state: geo.region, country: geo.country, kit: kitFor(creator, cv[C.handle], it.name), shows, simulcast: sim });
     });
