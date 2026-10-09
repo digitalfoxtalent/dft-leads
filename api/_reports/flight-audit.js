@@ -45,11 +45,18 @@ const esc = s => String(s == null ? "" : s).replace(/[&<>]/g, c => ({ "&": "&amp
 const normLink = u => String(u || "").toLowerCase().replace(/^https?:\/\/(www\.)?/, "").replace(/[?#].*$/, "").replace(/\/+$/, "");
 
 // The row's own flight: LIVE DATE start to end, or DATE PUBLISHED to plus 6 days. Window adds 3 before and 10 after.
+// A week runs Monday to Sunday (Tom, 9 Oct 2026), so a LIVE DATE that ends before a Sunday runs to that Sunday.
+const toSunday = t => t + ((7 - new Date(t).getUTCDay()) % 7) * D;
 export function flight(r) {
-  if (r.live) { const a = day(r.live), b = r.liveEnd ? day(r.liveEnd) : a + 6 * D; return { core: [a, b], a: a - 3 * D, b: b + 10 * D }; }
+  if (r.live) { const a = day(r.live), b = toSunday(r.liveEnd ? day(r.liveEnd) : a + 6 * D); return { core: [a, b], a: a - 3 * D, b: b + 10 * D }; }
   if (r.pub) { const a = day(r.pub); return { core: [a, a + 6 * D], a: a - 3 * D, b: a + 16 * D }; }
   return null;
 }
+// Late or early flights (Tom, 9 Oct 2026: "sometimes content does go live later than the planned live week").
+// When a finished row has nothing at all inside its own dates, the audit looks from 7 days before to 21 days
+// after them for videos with the brand READ OUT (a link alone is not enough here), stopping at any other row's
+// dates for the same brand. LIVE DATE is not changed; the update on the row says how far the flight moved.
+const EARLY_DAYS = 7, LATE_DAYS = 21;
 
 // Pure: rows (all rows of one creator, with .vids = linked ids), vids (that creator's uploads, from scan),
 // returns [{ r, add: [videos], why }] for rows with something to add, and [{ r, review }] for a person.
@@ -67,14 +74,28 @@ export function auditCreator(rows, vids, now, lookbackDays, heard) {
     const same = rows.filter(x => x !== r && sq(x.brandKey || x.brand) === bk);
     const taken = new Set(same.flatMap(x => x.vids).concat(r.vids));
     const add = [];
+    const others = same.map(flight).filter(Boolean);
     for (const v of vids) {
       const t = day(v.at);
       if (t < f.core[0] || t > f.core[1] || taken.has(v.v)) continue;
-      const others = same.map(flight).filter(Boolean);
       const link = links.size && (v.u || []).some(u => links.has(normLink(u)));
       if (link && !others.some(g => t >= g.a && t <= g.b)) { add.push({ ...v, ev: "same tracking link (" + [...links].join(", ") + ") as the row's own videos" }); continue; }
       const read = heard && heard.get(v.v) ? spokenRead(heard.get(v.v), r.brand) : null;
       if (read && !others.some(g => t >= g.core[0] && t <= g.core[1])) add.push({ ...v, ev: "read out in the video: \"" + read.quote + "\"" + (read.at != null ? " at " + Math.floor(read.at / 60) + ":" + String(read.at % 60).padStart(2, "0") : "") });
+    }
+    // Nothing in the planned week at all: the flight may have moved.
+    if (!add.length && !own.some(v => day(v.at) >= f.core[0] && day(v.at) <= f.core[1]) && heard) {
+      const lo = f.core[0] - EARLY_DAYS * D, hi = f.core[1] + LATE_DAYS * D;
+      for (const v of vids) {
+        const t = day(v.at);
+        if (t < lo || t > hi || (t >= f.core[0] && t <= f.core[1]) || taken.has(v.v)) continue;
+        // never cross into another row's dates for the brand, nor past one
+        if (others.some(g => (t >= g.core[0] && t <= g.core[1]) || (t > f.core[1] && g.core[0] > f.core[1] && g.core[0] <= t) || (t < f.core[0] && g.core[1] < f.core[0] && g.core[1] >= t))) continue;
+        const read = heard.get(v.v) ? spokenRead(heard.get(v.v), r.brand) : null;
+        if (!read) continue;
+        const shift = t > f.core[1] ? Math.round((t - f.core[1]) / D) + " days after" : Math.round((f.core[0] - t) / D) + " days before";
+        add.push({ ...v, ev: "nothing went up in the planned dates; this went up " + shift + " them and the brand is read out in it: \"" + read.quote + "\"" });
+      }
     }
     if (!add.length) continue;
     if (add.length > MAX_ADD) { out.push({ r, review: add.length + " videos in the flight carry this row's link or read but are not on it: too many to add without a person", vids: add.slice(0, 6) }); continue; }
@@ -135,7 +156,9 @@ export async function runAudit(token, opts) {
   const want = [];
   for (const sc of scans) for (const r of sc.mine.filter(x => due.includes(x))) {
     const f = flight(r), bk = sq(r.brandKey || r.brand), taken = new Set(sc.mine.filter(x => sq(x.brandKey || x.brand) === bk).flatMap(x => x.vids));
-    for (const v of sc.vids) { const t = day(v.at); if (t >= f.core[0] && t <= f.core[1] && !taken.has(v.v)) want.push({ v: v.v, t }); }
+    const empty = !sc.vids.some(v => r.vids.includes(v.v) && day(v.at) >= f.core[0] && day(v.at) <= f.core[1]);
+    const lo = empty ? f.core[0] - EARLY_DAYS * D : f.core[0], hi = empty ? f.core[1] + LATE_DAYS * D : f.core[1];
+    for (const v of sc.vids) { const t = day(v.at); if (t >= lo && t <= hi && !taken.has(v.v)) want.push({ v: v.v, t }); }
   }
   const ids = [...new Map(want.sort((a, b) => b.t - a.t).map(x => [x.v, x])).keys()].slice(0, MAX_TRANSCRIPTS);
   let heard = new Map();
