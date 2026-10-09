@@ -247,8 +247,8 @@ const BRAND_COLS=[
   {key:"rate",   head:"Rate",        w:92,  fmt:"money"},
   {key:"vg",     head:"View Guarantee", w:128, fmt:"int", longOnly:true},
   {key:"cpm",    head:"CPM",         w:64,  fmt:"money2", longOnly:true},
-  {key:"fee",    head:"Content Production", w:150, fmt:"money", shortOnly:true, tip:"Content production fee for the post."},
-  {key:"total",  head:"Total Rate",  w:112, fmt:"money", shortOnly:true, tip:"Rate plus the content production fee."},
+  {key:"fee",    head:"Production Rate", w:140, fmt:"money", shortOnly:true, tip:"Production rate for the post."},
+  {key:"total",  head:"Total Rate",  w:112, fmt:"money", shortOnly:true, tip:"Publishing Rate plus Production Rate."},
   {key:"rights", head:"Usage Rights", w:340, shortOnly:true, tip:"12 months of digital usage rights and boosting rights are included in the total."},
   {key:"minVideos",head:"Min. videos", w:112, longOnly:true, tip:"Smaller channels are booked as a short bundle so the deal reaches the $1,500 minimum at the normal CPM. The rate and view guarantee cover the whole bundle."},
   {key:"simulcast",head:"Simulcast",  w:100, longOnly:true, tip:"Also published to Spotify Video, Apple Podcasts and other podcast apps. That extra reach is included at the same rate."},
@@ -342,7 +342,7 @@ function brandColsFor(){
   if(k!=="long"&&!team) cols=cols.filter(c=>!SHORT_HIDE.has(c.key));
   if(k!=="long") cols=cols.map(c=>{
     if(c.key==="vg") return Object.assign({},c,{head:"View Estimate",tip:"Estimated views per post, based on recent averages. An estimate, not a guarantee."});
-    if(c.key==="rate") return Object.assign({},c,{tip:"View Estimate x $25 CPM. The content production fee is added in Total Rate."});
+    if(c.key==="rate") return Object.assign({},c,{head:"Publishing Rate",w:132,tip:"View Estimate x $25 CPM. The Production Rate is added in Total Rate."});
     if(c.key==="cpm") return Object.assign({},c,{t:1,tip:"DFT only, brands never see the CPM on this tab."});
     return c;
   });
@@ -359,7 +359,7 @@ function brandColsFor(){
     const tip="Price for this list only. The roster and other lists are not changed. Clear the box to go back to the roster price.";
     if(c.key==="vg") return Object.assign({},c,{w:146,edit:"vg",head:k==="long"?"View Guarantee ✎":"View Estimate ✎",tip});
     if(c.key==="cpm") return Object.assign({},c,{edit:"cpm",head:k==="long"?"CPM ✎":"CPM ✎ (DFT only)",w:k==="long"?84:130,tip:k==="long"?tip:"Brands do not see this column. "+tip});
-    if(c.key==="fee") return Object.assign({},c,{edit:"fee",head:"Content Production ✎",w:170,tip});
+    if(c.key==="fee") return Object.assign({},c,{edit:"fee",head:"Production Rate ✎",w:160,tip});
     return c;
   });
   if(colOrder&&colOrder.length){
