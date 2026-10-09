@@ -11,9 +11,10 @@
 // for the brands below; brands that are common words (Factor, Meta, Round...) are never matched here.
 const decode = s => String(s || "").replace(/&#39;|&#x27;/g, "'").replace(/&quot;/g, '"').replace(/&amp;/g, "&").replace(/&gt;|&lt;/g, " ");
 const sq = s => String(s || "").toLowerCase().normalize("NFKD").replace(/[^a-z0-9]/g, "");
-// Spellings seen in real auto captions. Add only ones seen in a transcript.
+// Spellings seen in real auto captions. Add only ones seen in a transcript. A spelling under 3 letters (Huel as "Hu",
+// seen 9 Oct 2026 on TRR 9 Feb 2026) is only matched because it is listed here, and still only inside a sponsor phrase.
 export const HEARD = {
-  huel: ["huel", "hule", "huell", "hual", "hewel"], prizepicks: ["prizepicks", "prizepick", "prizepix"],
+  huel: ["huel", "hule", "huell", "hual", "hewel", "hu"], prizepicks: ["prizepicks", "prizepick", "prizepix"],
   liquidiv: ["liquidiv", "liquid4", "liquidfour"], betterhelp: ["betterhelp", "betterhel"],
   zocdoc: ["zocdoc", "zockdock", "zocdock", "zockdoc", "zachdoc", "zdoc"], lmnt: ["lmnt", "element", "elementt"],
   quince: ["quince", "quints"], klover: ["klover", "clover"], outskill: ["outskill", "outskills"], eneba: ["eneba", "aneba"], cashapp: ["cashapp"], freecash: ["freecash"],
@@ -21,7 +22,7 @@ export const HEARD = {
 export const COMMON = /^(meta|factor|round|dose|kora|beam|fox|outcome|opera|human|recall|worthy|webtoon|star trek|warner bros|hbo|netflix|amazon|apple)$/i;
 const BEFORE = /(thank(s| you)( so much)?( to)?|sponsored by|brought to you by|today'?s sponsor,?|our sponsor,?|partnered with|partner(ing)? with|teamed up with|go (over )?to|head (over )?to|check out|visit)\s*$/;
 const AFTER = /^(for sponsoring|is sponsoring|sponsored|for partnering|dot com|\.com|com\b|slash|comes in\b)/;
-const variants = brand => { const b = sq(brand).replace(/^the/, ""); return (HEARD[b] || [b]).map(sq).filter(v => v.length >= 3); };
+const variants = brand => { const b = sq(brand).replace(/^the/, ""); return (HEARD[b] || [b]).map(sq).filter(v => v.length >= 3 || (HEARD[b] || []).includes(v)); };
 // transcript: plain text, or the actor's [{ text, start }] list. Returns { heard, quote, at } or null.
 export function spokenRead(transcript, brand) {
   if (!transcript || !brand || COMMON.test(String(brand).trim())) return null;
