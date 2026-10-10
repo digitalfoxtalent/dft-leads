@@ -467,13 +467,13 @@ function logoHtml(c){
   const letter=esc((dispHandle(c).replace(/^@/,"")[0]||"?").toUpperCase());
   return c.logo?`<img class="av" src="${esc(c.logo)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.outerHTML='<span class=avx>${letter}</span>'">`:`<span class="avx">${letter}</span>`;
 }
-// Show-to-brands switch beside the name (DFT view only): Auto -> Always show -> Hide.
-const EYE={"Auto":["Auto: brands see this unless it breaks the CPM cap","#8a7d70"],"Always show":["Always shown to brands","#2f7d4f"],"Hide":["Hidden from brands","#b23a2a"]};
+// Show-to-brands switch beside the name (DFT view only): Auto -> Always show -> Hide -> List only.
+const EYE={"Auto":["Auto: brands see this unless it breaks the CPM cap","#8a7d70"],"Always show":["Always shown to brands","#2f7d4f"],"Hide":["Hidden from brands","#b23a2a"],"List only":["List only: can go on a saved list, never shown on the main rate card","#2a6fb0"]};
 function eyeBtn(c,isShow){
   if(mode!=="team") return "";
   const o=c.override||"Auto", [t,col]=EYE[o]||EYE.Auto;
   const slash=o==="Hide"?'<line x1="3" y1="3" x2="21" y2="21"/>':"";
-  return `<button class="eye" data-id="${c.id}" data-show="${isShow?1:0}" data-o="${o}" title="${t}. Click to change." style="color:${col}" onclick="event.stopPropagation()"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>${slash}</svg>${o==="Always show"?'<b>+</b>':""}</button>`;
+  return `<button class="eye" data-id="${c.id}" data-show="${isShow?1:0}" data-o="${o}" title="${t}. Click to change." style="color:${col}" onclick="event.stopPropagation()"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>${slash}</svg>${o==="Always show"?'<b>+</b>':o==="List only"?'<b>L</b>':""}</button>`;
 }
 function nameCell(c){
   const has=(c.shows||[]).length;
@@ -623,7 +623,7 @@ function wire(){
     sc.querySelectorAll("input.pick").forEach(cb=>cb.addEventListener("change",()=>{ cb.checked?picked.add(cb.dataset.id):picked.delete(cb.dataset.id); render(); }));
     sc.querySelectorAll("button.eye").forEach(b=>b.addEventListener("click",()=>{
       if(baseLocked()){ toast(lockedMsg(),true); return; }
-      const next={"Auto":"Always show","Always show":"Hide","Hide":"Auto"}[b.dataset.o]||"Auto";
+      const next={"Auto":"Always show","Always show":"Hide","Hide":"List only","List only":"Auto"}[b.dataset.o]||"Auto";
       const f=findRow(b.dataset.id), who=(f&&f.row.name)||"This creator";
       changeMain({op:"edit",id:b.dataset.id,show:b.dataset.show==="1",override:next},`${who}: brands see it → ${next}`);
     }));
