@@ -40,3 +40,32 @@ export function spokenRead(transcript, brand) {
   }
   return null;
 }
+
+// Same ad copy? (Tom, 9 Oct 2026: catch late and early videos, but do not mix them up with a new campaign
+// for the same brand.) A new booking normally comes with a new brief, so the words around the brand change.
+// adGrams: every 3-word run in the 45 words from each place the brand is said. copyMatch: the share of the
+// candidate's runs (leaving out runs made only of short filler words like "thank you to ... for") that also
+// appear in the row's own videos. Calibrated on 18 real cases (9 Oct 2026): late reads of the same flight
+// scored 0.42 to 0.95; 3 of 4 videos with a new Huel brief the week after a Huel flight scored 0.05 to 0.09
+// (the 4th mixed old and new copy and scored 0.63, which is why the nearest-row rule below also has to hold).
+export const COPY_MIN = 0.4;
+const FILLER = /^(thank|thanks|you|to|for|sponsoring|sponsored|this|video|videos|more|on|them|in|just|a|bit|by|brought|and|the|week's|weeks|are|is|of|music)$/;
+export function adGrams(transcript, brand) {
+  const g = new Set(); if (!transcript || !brand) return g;
+  const lines = Array.isArray(transcript) ? transcript : [{ text: transcript }];
+  const words = []; for (const l of lines) for (const w of decode(l.text).toLowerCase().normalize("NFKD").replace(/[^a-z0-9.'\s]/g, " ").split(/\s+/).filter(Boolean)) words.push(sq(w));
+  const vs = new Set(variants(brand)); if (!vs.size) return g;
+  for (let i = 0; i < words.length; i++) { let key = "";
+    for (let k = 1; k <= 4 && i + k <= words.length; k++) { key += words[i + k - 1]; if (!vs.has(key.replace(/dotcom$|com$/, ""))) continue;
+      const seg = words.slice(i, i + 45); for (let j = 0; j + 3 <= seg.length; j++) { const tri = seg.slice(j, j + 3); if (!tri.every(w => FILLER.test(w) || vs.has(w))) g.add(tri.join(" ")); }
+      break; } }
+  return g;
+}
+// Returns the share (0 to 1) of the candidate's ad copy found in the row's own videos, or null if either side has none.
+export function copyMatch(candidate, own, brand) {
+  const c = adGrams(candidate, brand); if (!c.size) return null;
+  const u = new Set(); for (const t of own || []) for (const x of adGrams(t, brand)) u.add(x);
+  if (!u.size) return null;
+  let hit = 0; for (const x of c) if (u.has(x)) hit++;
+  return hit / c.size;
+}

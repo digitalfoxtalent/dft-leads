@@ -25,6 +25,7 @@
 //   GET /api/link-finder?pass=watch&dry=1   the morning watchdog's checks, notifies nobody.
 //   GET /api/link-finder?pass=social&dry=1  the TikTok and Instagram finder's plan, writes nothing.
 //   GET /api/link-finder?pass=audit&dry=1   the weekly flight audit's plan (videos missing from filled rows), writes nothing.
+//   GET /api/link-finder?pass=audit&accept=ROW:VIDEO   (team sign-in) the one-click page for a flagged video; its button adds it.
 //
 // EARLY FILL (Tom, 9 Oct 2026): a campaign that went live in the last 8 days is no longer left until its
 // flight ends. If it is the creator's one open row for the brand and a video's description links the
@@ -42,7 +43,7 @@ import { isCron } from "./_reports/cron.js";
 import { recordRun, runWatch, JOBS } from "./_reports/runlog.js";
 import { runAlarm } from "./_reports/link-alarm.js";
 import { runSocial } from "./_reports/social-find.js";
-import { runAudit } from "./_reports/flight-audit.js";
+import { runAudit, acceptFlag } from "./_reports/flight-audit.js";
 
 export const config = { maxDuration: 300 };
 
@@ -69,6 +70,24 @@ export default async function handler(req, res) {
   // A signed-in team member may also post the second pass's review rows by hand (?pass=unmatched&post=1).
   // That writes to the review board only: make-goods and notifications stay with the cron.
   const post = String(req.query && req.query.pass || "") === "unmatched" && String(req.query && req.query.post || "") === "1";
+  // One-click add from a flight audit flag (?pass=audit&accept=row:video). Team sign-in only. GET shows what
+  // will be added and an Add button; the button POSTs, so opening the link alone changes nothing.
+  if (String(req.query && req.query.pass || "") === "audit" && req.query.accept) {
+    const page = (code, body) => { res.setHeader("Content-Type", "text/html; charset=utf-8"); return res.status(code).send("<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'><title>Flight audit</title><body style='font:16px system-ui;max-width:560px;margin:40px auto;padding:0 16px'>" + body + "</body>"); };
+    const [rowId, vid] = String(req.query.accept).split(":");
+    const safe = s => String(s || "").replace(/[&<>"']/g, c => "&#" + c.charCodeAt(0) + ";");
+    if (!token || !cookieOk(req, token)) return page(401, "<p>Sign in to <a href='https://reports.digitalfoxtalent.com/'>reports.digitalfoxtalent.com</a> first, then open this link again.</p>");
+    try {
+      if (req.method !== "POST") {
+        const look = await acceptFlag(token, rowId, vid, { dry: true });
+        if (!look.ok) return page(400, "<p>" + safe(look.error) + "</p>");
+        if (look.already) return page(200, "<p>youtube.com/watch?v=" + safe(vid) + " is already on <b>" + safe(look.deal) + "</b>. Nothing to do.</p>");
+        return page(200, "<p>Add <a href='https://www.youtube.com/watch?v=" + safe(vid) + "' target=_blank>youtube.com/watch?v=" + safe(vid) + "</a> to <b>" + safe(look.deal) + "</b>?</p><form method=post><button style='font:inherit;padding:10px 18px'>Add</button></form><p style='color:#666'>Its views count from the next 09:00 sync. You can take it off later in LIVE VIDEO URLS.</p>");
+      }
+      const done = await acceptFlag(token, rowId, vid);
+      return page(done.ok ? 200 : 400, done.ok ? "<p>" + (done.already ? "Already on " : "Added to ") + "<b>" + safe(done.deal) + "</b>.</p>" : "<p>" + safe(done.error) + "</p>");
+    } catch (e) { return page(500, "<p>Could not add it: " + safe(String(e.message || e).slice(0, 200)) + "</p>"); }
+  }
   if (!fromCron && !((String(req.query && req.query.dry || "") === "1" || post) && token && cookieOk(req, token))) return res.status(401).json({ error: "Unauthorized" });
   if (!token || !process.env.YOUTUBE_API_KEY) return res.status(500).json({ error: "Setup: monday or YouTube key missing" });
   // Scheduled, writing runs go on the run log so a missing or failed night is noticed (?pass=watch).
