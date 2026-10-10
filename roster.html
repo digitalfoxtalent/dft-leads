@@ -381,6 +381,7 @@ function brandColsFor(){
     if(c.key==="cpm") return Object.assign({},c,{t:1,tip:"DFT only, brands never see the CPM on this tab."});
     return c;
   });
+  if(k==="long"&&estLong()) cols=cols.map(c=>c.key==="vg"?Object.assign({},c,{head:"Estimated Views",tip:"Estimated views across the videos, based on each channel's recent averages. An estimate, not a guarantee."}):c);
   if(team&&!baseLocked()) cols=cols.map(c=>{
     if(c.key==="vg") return Object.assign({},c,{w:146,edit:"vg",head:k==="long"?"View Guarantee ✎":"View Estimate ✎",tip:k==="long"?"Click to edit what brands see. Holds until the quarter resets.":"Brands see this as an estimate, not a guarantee. Rate = estimate x CPM ($25), plus the production fee ($3,000, or $5,000 from 100k views, $7,500 from 250k). Click to edit."});
     if(c.key==="cpm") return Object.assign({},c,{edit:"cpm",head:"CPM ✎",w:84,tip:k==="long"?"Click to edit what brands see. Holds until the quarter resets.":"Not shown to brands. Sets the rate. Click to edit."});
@@ -395,7 +396,7 @@ function brandColsFor(){
   // Every tab: View Guarantee / Estimate and CPM; short form also the production fee.
   if(listEdit()) cols=cols.map(c=>{
     const tip="Price for this list only. The roster and other lists are not changed. Clear the box to go back to the roster price.";
-    if(c.key==="vg") return Object.assign({},c,{w:146,edit:"vg",head:k==="long"?"View Guarantee ✎":"View Estimate ✎",tip});
+    if(c.key==="vg") return Object.assign({},c,{w:146,edit:"vg",head:k==="long"?(estLong()?"Estimated Views ✎":"View Guarantee ✎"):"View Estimate ✎",tip});
     if(c.key==="cpm") return Object.assign({},c,{edit:"cpm",head:k==="long"?"CPM ✎":"CPM ✎ (DFT only)",w:k==="long"?84:130,tip:k==="long"?tip:"Brands do not see this column. "+tip});
     if(c.key==="fee") return Object.assign({},c,{edit:"fee",head:"Production Rate ✎",w:160,tip});
     // Number of videos (Tom, 9 Oct 2026): the view guarantee and rate follow it. Fewer
@@ -454,7 +455,7 @@ function fmtCell(c,col,isShow){
   if(col.fmt==="money") return money(v);
   if(col.fmt==="money2") return money2(v);
   if(col.fmt==="int") return int(v);
-  if(col.key==="minVideos") return v==null?"":(v>1?`<span class="pill bundle" title="${esc(v+" videos. View guarantee and rate cover all "+v+(c.vgPer?" (about "+int(c.vgPer)+" views each)":""))}">${v} videos</span>`:"1");
+  if(col.key==="minVideos") return v==null?"":(v>1?`<span class="pill bundle" title="${esc(v+" videos. "+(estLong()?"Estimated views":"View guarantee")+" and rate cover all "+v+(c.vgPer?" (about "+int(c.vgPer)+" views each)":""))}">${v} videos</span>`:"1");
   if(col.key==="simulcast") return v?`<span class="pill ok" title="Also on Spotify Video and podcast apps, included at this rate">${esc(v)}</span>`:"";
   if(col.key==="kit") return v?`<a class="exlink" href="${esc(v)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">Audience ↗</a>`:"";
   if(col.key==="adEx") return v?`<a class="exlink" href="${esc(v)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">Examples ↗</a>`:"";
@@ -559,6 +560,8 @@ function currentList(){
 // summary in the banner (Tom, 6 Oct 2026). Show sub-rows are alternatives to the channel
 // package, so totals count channel rows only.
 const isPitch=()=>!!(BRAND&&BRAND.list&&mode!=="team");
+// A list set to "Estimated Views" (Tom, 10 Oct 2026) says estimated, not guaranteed, for YouTube.
+const estLong=()=>!!(isPitch()&&BRAND.list.estViews);
 function sumBy(list,k){ return list.reduce((a,c)=>a+(typeof c[k]==="number"?c[k]:0),0); }
 function totalsRow(list,cols){
   const long=kindOf()==="long";
@@ -569,7 +572,7 @@ function totalsRow(list,cols){
       case "name": return `Total<span class="sub">${list.length} creator${list.length===1?"":"s"}</span>`;
       case "subs": return int(subs);
       case "rate": { const was=list.reduce((a,c)=>a+(c.wasRate||c.rate||0),0); return money(rate)+(was>rate?`<span class="sub">saves ${money(was-rate)}</span>`:""); }
-      case "vg": return vg?int(vg)+`<span class="sub">${long?"guaranteed views":"estimated views"}</span>`:"";
+      case "vg": return vg?int(vg)+`<span class="sub">${long&&!estLong()?"guaranteed views":"estimated views"}</span>`:"";
       case "cpm": return long&&vg?money2(Math.round(rate*100000/vg)/100):"";
       case "minVideos": return `${vids} video${vids===1?"":"s"}`;
       case "fee": return money(fee);
@@ -586,7 +589,7 @@ function packageSummary(){
   const vids=all.reduce((a,c)=>a+(c.kind==="long"?(c.minVideos||1):1),0);
   const saved=all.reduce((a,c)=>a+(c.wasTotal?(c.wasTotal-(typeof c.total==="number"?c.total:c.rate||0)):0),0);
   const conf=all.filter(c=>c.confirmed).length, appr=listEdit()?all.filter(c=>c.stage==="approached").length:0;
-  return `<span class="pkg"><span>Package total <b>${money(rate)}</b></span>${saved>0?`<span>Discount <b>${money(saved)}</b></span>`:""}${appr?`<span><b>${appr}</b> approached</span>`:""}${conf?`<span><b>${conf}</b> of ${all.length} confirmed</span>`:""}<span><b>${all.length}</b> profile${all.length===1?"":"s"}</span><span><b>${vids}</b> video${vids===1?"":"s"}</span>${vg?`<span><b>${int(vg)}</b> guaranteed YouTube views</span>`:""}${est?`<span><b>${int(est)}</b> estimated short-form views</span>`:""}</span>`;
+  return `<span class="pkg"><span>Package total <b>${money(rate)}</b></span>${saved>0?`<span>Discount <b>${money(saved)}</b></span>`:""}${appr?`<span><b>${appr}</b> approached</span>`:""}${conf?`<span><b>${conf}</b> of ${all.length} confirmed</span>`:""}<span><b>${all.length}</b> profile${all.length===1?"":"s"}</span><span><b>${vids}</b> video${vids===1?"":"s"}</span>${vg?`<span><b>${int(vg)}</b> ${estLong()?"estimated":"guaranteed"} YouTube views</span>`:""}${est?`<span><b>${int(est)}</b> estimated short-form views</span>`:""}</span>`;
 }
 
 function render(){
@@ -893,6 +896,10 @@ function lockButton(){
     ?` <button class="btn" id="lockBtn" data-lock="0" title="Go back to updating with each quarter">Locked for this campaign on ${esc(fmtDate(lk.on))} · Unlock</button>`
     :` <button class="btn" id="lockBtn" data-lock="1" title="Keep these prices past the quarter reset, for this campaign">Lock prices for this campaign</button>`;
 }
+function viewsButton(){
+  const est=!!(BRAND&&BRAND.list&&BRAND.list.estViews);
+  return ` <button class="btn" id="viewsBtn" data-est="${est?0:1}" title="What brands see as the YouTube views heading on this list">${est?"Showing Estimated Views · use View Guarantee":"Showing View Guarantee · use Estimated Views"}</button>`;
+}
 const fmtDate=d=>{ const t=new Date(String(d)+"T12:00:00Z"); return isNaN(t)?String(d||""):t.toLocaleDateString("en-US",{day:"numeric",month:"short",year:"numeric"}); };
 async function toggleLock(on){
   try{ const j=await post({op:"list-lock",slug:LIST_SLUG,lock:on}); applyBrand(j); toast(on?"Prices locked for this campaign":"Unlocked: this list follows the quarterly prices again"); loadTeam(true).catch(()=>{}); }
@@ -912,8 +919,9 @@ function renderBanner(){
     b.className="banner"; b.style.display="";
     b.innerHTML=`Signed in as <b>${esc(TEAM.email)}</b> · ${mode==="team"
       ?"Blue columns are DFT-only. Click an underlined number to change what brands see, or the eye to show or hide a creator. Drag the ⠿ handles to move rows and columns, or a column's edge to resize it."
-      :(listEdit()?`<b>“${esc(BRAND.list.title)}” numbers:</b> click an underlined number to change videos, views or prices for this list only. The main rate card and other lists stay as they are. <a class="bbtn" href="/?edit=${encodeURIComponent(LIST_SLUG)}">Add / remove creators</a>`+lockButton():"Brand preview: exactly what brands see.")}${listEdit()?packageSummary():'<span class="spacer"></span>'}<a href="/auth/signout" style="text-decoration:underline;margin-left:${listEdit()?"14px":"0"}">Sign out</a>`;
+      :(listEdit()?`<b>“${esc(BRAND.list.title)}” numbers:</b> click an underlined number to change videos, views or prices for this list only. The main rate card and other lists stay as they are. <a class="bbtn" href="/?edit=${encodeURIComponent(LIST_SLUG)}">Add / remove creators</a>`+lockButton()+viewsButton():"Brand preview: exactly what brands see.")}${listEdit()?packageSummary():'<span class="spacer"></span>'}<a href="/auth/signout" style="text-decoration:underline;margin-left:${listEdit()?"14px":"0"}">Sign out</a>`;
     const lb=$("#lockBtn"); if(lb) lb.onclick=()=>toggleLock(lb.dataset.lock==="1");
+    const vb=$("#viewsBtn"); if(vb) vb.onclick=async()=>{ const est=vb.dataset.est==="1"; try{ applyBrand(await post({op:"list-label",slug:LIST_SLUG,est})); toast(est?"Brands now see Estimated Views":"Brands now see View Guarantee"); }catch(e){ toast(e.message,true); } };
   } else if(BRAND&&BRAND.list){
     b.className="banner list"; b.style.display="";
     b.innerHTML=`Prepared for you by Digital Fox Talent: <b>${esc(BRAND.list.title)}</b>${packageSummary()}`;
