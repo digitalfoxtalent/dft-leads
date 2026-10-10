@@ -448,7 +448,10 @@ function brandColsFor(){
 }
 // Column widths: drag a header's right edge (Tom, 8 Oct 2026). Kept per browser, and the
 // team can save them for everyone with the layout.
-function sized(cols){ return cols.map(c=>c.key!=="sel"&&colWidths[c.key]?Object.assign({},c,{w:colWidths[c.key]}):c); }
+// Stage never goes narrower than its buttons need (a width saved before Approve / Reject was
+// added clipped the Note button, Tom 10 Oct 2026).
+const MIN_W={confirmed:232};
+function sized(cols){ return cols.map(c=>c.key!=="sel"&&colWidths[c.key]?Object.assign({},c,{w:Math.max(colWidths[c.key],MIN_W[c.key]||0)}):c); }
 function columns(){
   const name={key:"name",head:"Creator / Shows",w:280,cls:"name"};
   if(mode!=="team") return sized([name].concat(brandColsFor()));
