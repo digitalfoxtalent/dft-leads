@@ -119,6 +119,9 @@
   td.wide{ white-space:normal; padding-top:6px; padding-bottom:6px; }
   .clamp{ display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:3; overflow:hidden; line-height:1.4; overflow-wrap:anywhere; }
   td.wide.exp .clamp{ -webkit-line-clamp:unset; display:block; }
+  /* Every channel row is as tall as three lines of About text, so a creator with a short
+     description is not a squashed row (Tom, 10 Oct 2026). Expanded text still grows. */
+  tr.chan > td.wide{ height:calc(4.2em + 13px); }
   .tag{ display:inline-block; font-size:10.5px; font-weight:800; color:#fff; background:#c26a00; border:1px solid #c26a00; border-radius:999px; padding:2px 9px; margin-left:8px; cursor:pointer; white-space:nowrap; box-shadow:0 1px 2px rgba(0,0,0,.15); }
   tr.chan:hover .tag{ background:#a85600; border-color:#a85600; }
   tr.chan.open .tag{ background:#fff; color:#a85f00; border-color:#e8b77a; box-shadow:none; }
