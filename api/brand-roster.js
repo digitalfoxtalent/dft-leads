@@ -42,7 +42,10 @@ const AGES = [["13-17", "text_mm5n6m90"], ["18-24", "text_mm5n69hv"], ["25-34", 
 // are only a fallback for a row the snapshot has not reached yet.
 const B_GUARANTEE = "numeric_mm7vxae8", B_CPM = "numeric_mm7vm3hw", B_RATE = "numeric_mm7vx77g";
 const B_SHOW_GUARANTEE = "numeric_mm7vzc0y";
-const COLS = [HANDLE, GUARANTEE, SUBS, CPM, RATE, ADS, AUD.m, AUD.f, AUD.us, AUD.uk, B_GUARANTEE, B_CPM, B_RATE].concat(AGES.map(a => a[1]));
+// Brands see (roster.js "vis"). "List only" rows are creators DFT pitches on saved lists but
+// does not represent (Tom, 10 Oct 2026), so the website never shows them.
+const VIS = "color_mm7vb4nb";
+const COLS = [HANDLE, GUARANTEE, SUBS, CPM, RATE, ADS, AUD.m, AUD.f, AUD.us, AUD.uk, B_GUARANTEE, B_CPM, B_RATE, VIS].concat(AGES.map(a => a[1]));
 
 // Answer only on the roster host, like the sibling. The Host header is the URL the
 // page fetched, so a request from digitalfoxtalent.com still carries this host.
@@ -90,7 +93,7 @@ export default async function handler(req, res) {
 
     const groups = (body.data && body.data.boards && body.data.boards[0] && body.data.boards[0].groups) || [];
     const items = (groups[0] && groups[0].items_page && groups[0].items_page.items) || [];
-    const rows = items.map(it => {
+    const rows = items.filter(it => ((it.column_values || []).find(c => c && c.id === VIS) || {}).text !== "List only").map(it => {
       const cvs = it.column_values || [];
       const raw = id => (cvs.find(c => c && c.id === id) || {}).text;
       // Frozen quarter numbers first, live only where none are frozen yet.

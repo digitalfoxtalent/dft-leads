@@ -250,6 +250,9 @@ export function bundle(b, kind) {
 function visibility(b, override, note, kind) {
   if (override === "Always show") return { show: true, why: "Always show (set by DFT)" };
   if (override === "Hide") return { show: false, why: "Hidden by DFT" };
+  // List only (Tom, 10 Oct 2026): creators we pitch but do not represent, such as The Critical
+  // Drinker. They can go on a saved list but never show on the main rate card or the website.
+  if (override === "List only") return { show: false, why: "List only: shows on saved lists, never the main rate card" };
   if (!b) return { show: false, why: "No figures yet" };
   // Shorts, Instagram and TikTok are never hidden by a rule (Tom, 6 Oct 2026): brands see
   // a rate and a View Estimate there, never the CPM, so the $1,500 minimum simply applies.
@@ -595,7 +598,7 @@ async function editRow(b, email) {
   if (!row) throw new Error("row not found");
   const values = {};
   if (b.override != null) {
-    if (!["Auto", "Always show", "Hide"].includes(b.override)) throw new Error("bad override");
+    if (!["Auto", "Always show", "Hide", "List only"].includes(b.override)) throw new Error("bad override");
     values[K.vis] = { label: b.override };
   }
   if (b.videos !== undefined) {
@@ -653,7 +656,7 @@ async function undoEdit(b, email) {
   UNDO_KEYS.forEach(k => {
     if (!K[k] || !(k in src)) return;
     const v = String(src[k] == null ? "" : src[k]).slice(0, 500);
-    if (k === "vis") values[K[k]] = { label: ["Auto", "Always show", "Hide"].includes(v) ? v : "Auto" };
+    if (k === "vis") values[K[k]] = { label: ["Auto", "Always show", "Hide", "List only"].includes(v) ? v : "Auto" };
     else if (["bvg", "bcpm", "brate", "bvideos"].includes(k)) values[K[k]] = v === "" ? "" : String(num(v) == null ? "" : num(v));
     else values[K[k]] = v;
   });
