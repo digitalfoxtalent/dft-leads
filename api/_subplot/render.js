@@ -13,6 +13,7 @@ import { headTag as adHead, unit as adUnit } from "./ads.js";
 import { FORMATS, formatCss } from "./formats.js";
 import { LIVE as CROSSLINKS_LIVE, dftPageFor } from "./crosslinks.js";
 import { LAUNCHED } from "./launch.js";
+import { box as amazonBox } from "./affiliate.js";
 import { homePage3, snippetsPage as snippetsBody, card3, wire3Deps, CSS3 } from "./home3.js";
 
 // Brand-dependent strings resolve per request; see brand.js.
@@ -514,6 +515,7 @@ export function articlePage(a, data, base) {
       ${editorNote(a, data, base)}
       <div class="prose">${withInArticleAds(siteContacts(a.body))}</div>
       ${a.short ? `<p class="deckacts" style="margin:1.2rem 0 0"><a href="https://www.youtube.com/shorts/${esc(a.v)}" target="_blank" rel="noopener" style="color:${(FORMATS[a.f] || FORMATS.breakdown).ink}">Watch the Short</a><a class="ghost" href="${base}/snippets#s-${esc(a.id)}">More Snippets</a></p>` : ""}
+      ${amazonBox(a, data)}
       ${bioFor(a.c) ? `<aside class="crbio" aria-label="About the creator" style="margin:2.4rem 0 0;padding:1rem 1.25rem;border:1px solid var(--rule-2);border-radius:4px">
         <p style="margin:0 0 .5rem;font-size:.72rem;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3)">About the creator</p>
         <p style="margin:0">${esc(bioFor(a.c))} <a href="${base}/c/${esc(slugH(a.c))}" style="color:var(--blue)">More from ${esc(a.b)} &rarr;</a></p>
