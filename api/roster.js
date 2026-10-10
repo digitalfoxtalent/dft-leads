@@ -529,15 +529,16 @@ function brandPayload(data, list, team, noLock) {
   const ids = list ? new Set((list.body.ids || []).map(String)) : null;
   const prices = (list && list.body.prices) || {};
   const lock = list && list.body.lock;
-  // Confirmed (Tom, 10 Oct 2026): creators the team has locked in for this campaign. Shown to
-  // brands too.
+  // Stage (Tom, 10 Oct 2026): Approached, then Confirmed, per creator on a list. Brands see
+  // Confirmed only; Approached is for the team.
   const confirmed = new Set(((list && list.body.confirmed) || []).map(String));
+  const approached = new Set(((list && list.body.approached) || []).map(String));
   const groups = {};
   GROUPS.forEach(g => { groups[g.id] = []; });
   data.rows.forEach(r => {
     if (ids && !ids.has(r.id)) return;
     const o = brandRow(r, !!ids, prices, team);
-    if (o && list) o.confirmed = confirmed.has(r.id);
+    if (o && list) { o.confirmed = confirmed.has(r.id); if (team) o.stage = o.confirmed ? "confirmed" : approached.has(r.id) ? "approached" : ""; }
     if (o && lock && !noLock) applyLock(o, lock);
     if (o) groups[r.group].push(o);
   });
@@ -787,9 +788,14 @@ async function listConfirm(b, email) {
   if (list.bad) throw new Error(LIST_READ_ERROR);
   const id = String(b.id || "");
   if (!(list.body.ids || []).map(String).includes(id)) throw new Error("That creator is not on this list");
-  const set = new Set((list.body.confirmed || []).map(String));
-  if (b.on) set.add(id); else set.delete(id);
-  const body = Object.assign({}, list.body, { confirmed: [...set] });
+  // stage: "" | "approached" | "confirmed". The older on:true/false still means confirmed.
+  const stage = b.stage != null ? String(b.stage) : (b.on ? "confirmed" : "");
+  if (!["", "approached", "confirmed"].includes(stage)) throw new Error("Unknown stage");
+  const conf = new Set((list.body.confirmed || []).map(String)), appr = new Set((list.body.approached || []).map(String));
+  conf.delete(id); appr.delete(id);
+  if (stage === "confirmed") conf.add(id);
+  if (stage === "approached") appr.add(id);
+  const body = Object.assign({}, list.body, { confirmed: [...conf], approached: [...appr] });
   await writeList(list.id, body, { [L.updated]: email + " " + stamp() });
   const fresh = await loadBoard();
   return brandPayload(fresh, fresh.lists.find(x => x.slug === list.slug) || Object.assign({}, list, { body }), true);
