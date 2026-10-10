@@ -187,6 +187,23 @@
   .stg input{ width:14px; height:14px; margin:0; cursor:pointer; accent-color:var(--orange); }
   .stg label:last-child input{ accent-color:var(--ok); }
   .pill.conf{ background:#e3f3e9; color:var(--ok); }
+  .fbw{ display:inline-flex; flex-direction:column; align-items:center; gap:4px; }
+  .fbr{ display:inline-flex; gap:5px; }
+  .fba,.fbn{ font:inherit; font-size:11px; font-weight:700; border-radius:999px; padding:3px 9px; cursor:pointer; line-height:1.2; white-space:nowrap; }
+  .fba{ border:1.5px solid var(--ok); background:#fff; color:var(--ok); }
+  .fba:hover{ background:#e3f3e9; }
+  .fba.on{ background:var(--ok); color:#fff; }
+  .fbn{ border:1.5px solid #c9b8a6; background:#fff; color:#6b5c4d; }
+  .fbn:hover,.fbn.has{ border-color:var(--orange); color:#a85f00; background:#fff7ee; }
+  .bfb{ display:flex; align-items:center; gap:6px; font-size:11px; color:var(--ok); }
+  .bfb .fbn{ padding:1px 7px; font-size:10.5px; }
+  #fbpop{ position:fixed; z-index:50; width:280px; background:#fff; border:1px solid #e2d6c8; border-radius:10px; box-shadow:0 10px 30px rgba(0,0,0,.18); padding:12px; display:none; }
+  #fbpop.on{ display:block; }
+  #fbpop b{ display:block; font-size:12.5px; margin-bottom:6px; }
+  #fbpop textarea{ width:100%; box-sizing:border-box; min-height:84px; font:inherit; font-size:13px; border:1px solid #d8c9b8; border-radius:6px; padding:7px; resize:vertical; }
+  #fbpop .ro{ font-size:13px; white-space:pre-wrap; line-height:1.4; max-height:200px; overflow:auto; }
+  #fbpop .acts{ display:flex; gap:6px; justify-content:flex-end; margin-top:8px; }
+  .banner .hint{ font-weight:600; margin-left:10px; }
   .cbar{ position:fixed; left:50%; bottom:58px; transform:translateX(-50%) translateY(12px); display:flex; align-items:center; gap:12px; max-width:calc(100vw - 32px); background:var(--charcoal); color:#fff; font-size:12.5px; padding:10px 12px 10px 16px; border-radius:12px; box-shadow:0 12px 34px rgba(0,0,0,.28); z-index:31; opacity:0; pointer-events:none; transition:opacity .15s, transform .15s; }
   .cbar.on{ opacity:1; pointer-events:auto; transform:translateX(-50%) translateY(0); }
   .cbar .ct{ line-height:1.4; } .cbar .ct b{ font-weight:700; } .cbar .cs{ display:block; color:#cfc6bb; font-size:11px; }
@@ -265,7 +282,7 @@ const RENAME={ "Down To Earth With Kristian Harloff (UAP NEWS)":"Down to Earth" 
 // "Save column order") and is then the same for every viewer.
 const BRAND_COLS=[
   // Saved lists only (Tom, 10 Oct 2026): Confirmed sits first after the handle.
-  {key:"confirmed",head:"Confirmed", w:128, listOnly:true, tip:"Approached, then Confirmed. Brands only see Confirmed."},
+  {key:"confirmed",head:"Your feedback", w:184, listOnly:true, tip:"Approve the creators you would like, or leave a note for our team."},
   {key:"subs",   head:"Subscribers", w:112, fmt:"int"},
   {key:"rate",   head:"Rate",        w:92,  fmt:"money"},
   {key:"vg",     head:"View Guarantee", w:128, fmt:"int", longOnly:true},
@@ -364,8 +381,8 @@ function brandColsFor(){
   // the usage-rights note. Never the CPM. Signed in, the team also sees and edits the CPM.
   const showShortCpm=team||listEdit();
   let cols=BRAND_COLS.filter(c=>{
-    // Brands only see Confirmed once at least one creator on the list is confirmed.
-    if(c.listOnly) return !!(BRAND&&BRAND.list&&mode!=="team")&&(listEdit()||GROUPS.some(g=>(BRAND.groups[g.id]||[]).some(x=>x.confirmed)));
+    // Saved lists: the team's Stage column, which brands see as "Your feedback".
+    if(c.listOnly) return !!(BRAND&&BRAND.list&&mode!=="team");
     if(c.listEditOnly) return listEdit();
     if(c.shortOnly) return k!=="long";
     if(c.key==="vg") return true;
@@ -443,8 +460,11 @@ function fmtCell(c,col,isShow){
   if(col.key==="confirmed"){
     if(isShow) return "";
     if(listEdit()){ const st=c.stage||(c.confirmed?"confirmed":"");
-      return `<span class="stg" onclick="event.stopPropagation()"><label title="We have reached out to this creator"><input type="checkbox" class="conf" data-id="${c.id}" data-st="approached" ${st?"checked":""}>Approached</label><label title="Locked in for this campaign. Brands see this."><input type="checkbox" class="conf" data-id="${c.id}" data-st="confirmed" ${st==="confirmed"?"checked":""}>Confirmed</label></span>`; }
-    return c.confirmed?`<span class="pill conf">✓ Confirmed</span>`:"";
+      const fb=c.fb?`<span class="bfb">${c.fb.ok?'<b>Brand ✓</b>':""}${c.fb.note?`<button class="fbn ro" data-id="${c.id}" title="${esc(c.fb.note)}">Brand note</button>`:""}</span>`:"";
+      return `<span class="stg" onclick="event.stopPropagation()"><label title="We have reached out to this creator"><input type="checkbox" class="conf" data-id="${c.id}" data-st="approached" ${st?"checked":""}>Approached</label><label title="Locked in for this campaign. Brands see this."><input type="checkbox" class="conf" data-id="${c.id}" data-st="confirmed" ${st==="confirmed"?"checked":""}>Confirmed</label>${fb}</span>`; }
+    // Brands (Tom, 10 Oct 2026): approve a creator or leave a note, right on the row.
+    const ok=!!(c.fb&&c.fb.ok), note=(c.fb&&c.fb.note)||"";
+    return `<span class="fbw" onclick="event.stopPropagation()">${c.confirmed?'<span class="pill conf">✓ Confirmed</span>':""}<span class="fbr"><button class="fba${ok?" on":""}" data-id="${c.id}" title="${ok?"Approved. Click to undo":"Approve this creator"}">${ok?"✓ Approved":"Approve"}</button><button class="fbn${note?" has":""}" data-id="${c.id}" title="${note?esc(note):"Add a note for our team"}">${note?"Note ✎":"+ Note"}</button></span></span>`;
   }
   if(col.key==="disc") return `<label class="ckc disc" onclick="event.stopPropagation()"><input type="checkbox" class="dsc" data-id="${c.id}"${isShow?' data-show="1"':""} ${c.disc?"checked":""} title="Discount: tick, then type a lower CPM"></label>`;
   if((col.key==="rate"||col.key==="total")&&c.wasRate&&(col.key==="rate"||c.kind!=="long")){
@@ -588,8 +608,8 @@ function packageSummary(){
   const rate=all.reduce((a,c)=>a+(typeof c.total==="number"?c.total:(typeof c.rate==="number"?c.rate:0)),0), vg=sumBy(all.filter(c=>c.kind==="long"),"vg"), est=sumBy(all.filter(c=>c.kind!=="long"),"vg");
   const vids=all.reduce((a,c)=>a+(c.kind==="long"?(c.minVideos||1):1),0);
   const saved=all.reduce((a,c)=>a+(c.wasTotal?(c.wasTotal-(typeof c.total==="number"?c.total:c.rate||0)):0),0);
-  const conf=all.filter(c=>c.confirmed).length, appr=listEdit()?all.filter(c=>c.stage==="approached").length:0;
-  return `<span class="pkg"><span>Package total <b>${money(rate)}</b></span>${saved>0?`<span>Discount <b>${money(saved)}</b></span>`:""}${appr?`<span><b>${appr}</b> approached</span>`:""}${conf?`<span><b>${conf}</b> of ${all.length} confirmed</span>`:""}<span><b>${all.length}</b> profile${all.length===1?"":"s"}</span><span><b>${vids}</b> video${vids===1?"":"s"}</span>${vg?`<span><b>${int(vg)}</b> ${estLong()?"estimated":"guaranteed"} YouTube views</span>`:""}${est?`<span><b>${int(est)}</b> estimated short-form views</span>`:""}</span>`;
+  const conf=all.filter(c=>c.confirmed).length, appr=listEdit()?all.filter(c=>c.stage==="approached").length:0, bok=all.filter(c=>c.fb&&c.fb.ok).length;
+  return `<span class="pkg"><span>Package total <b>${money(rate)}</b></span>${saved>0?`<span>Discount <b>${money(saved)}</b></span>`:""}${appr?`<span><b>${appr}</b> approached</span>`:""}${bok?`<span><b>${bok}</b> ${listEdit()?"approved by brand":"approved"}</span>`:""}${conf?`<span><b>${conf}</b> of ${all.length} confirmed</span>`:""}<span><b>${all.length}</b> profile${all.length===1?"":"s"}</span><span><b>${vids}</b> video${vids===1?"":"s"}</span>${vg?`<span><b>${int(vg)}</b> ${estLong()?"estimated":"guaranteed"} YouTube views</span>`:""}${est?`<span><b>${int(est)}</b> estimated short-form views</span>`:""}</span>`;
 }
 
 function render(){
@@ -625,6 +645,7 @@ function wire(){
   }));
   sc.querySelectorAll("td.wide").forEach(td=>{ if(!td.textContent.trim()) return; td.classList.add("clickable"); td.addEventListener("click",e=>{e.stopPropagation();td.classList.toggle("exp");}); });
   wireRowDrag(sc);
+  wireFeedback(sc);
   wireResize(sc);
 
   if(mode==="team"){
@@ -637,6 +658,7 @@ function wire(){
     }));
     sc.querySelectorAll("td.edit").forEach(td=>td.addEventListener("click",e=>{e.stopPropagation(); startEdit(td);}));
   } else if(listEdit()){
+    sc.querySelectorAll("button.fbn.ro").forEach(bt=>bt.addEventListener("click",e=>{ e.stopPropagation(); const f=findListRow(bt.dataset.id); if(f) fbPopup(bt,f.row,true); }));
     sc.querySelectorAll("td.edit").forEach(td=>td.addEventListener("click",e=>{e.stopPropagation(); startEdit(td);}));
     sc.querySelectorAll("input.conf").forEach(cb=>cb.addEventListener("change",async()=>{
       // Approached comes first: ticking Confirmed ticks it too, unticking Approached clears both.
@@ -736,6 +758,33 @@ async function saveListOrder(order){
   const ids=l.ids.map(String).map(id=>inTab.has(id)?queue.shift():id).concat(queue);
   try{ await post({op:"save-list",title:BRAND.list.title,slug:LIST_SLUG,ids}); l.ids=ids; toast("Order saved. Brands see the list in this order"); }
   catch(e){ BRAND.groups[activeTab]=prev; render(); toast(e.message,true); }
+}
+// Brand feedback (Tom, 10 Oct 2026). Approve toggles; Note opens a small box.
+function wireFeedback(sc){
+  if(!isPitch()||listEdit()) return;
+  sc.querySelectorAll("button.fba").forEach(bt=>bt.addEventListener("click",async e=>{
+    e.stopPropagation(); const f=findListRow(bt.dataset.id); if(!f) return; const r=f.row, ok=!(r.fb&&r.fb.ok);
+    bt.disabled=true;
+    try{ applyBrand(await post({op:"brand-feedback",slug:LIST_SLUG,id:r.id,ok,note:(r.fb&&r.fb.note)||""})); toast(ok?"Approved. Thank you, our team can see it":"Approval removed"); }
+    catch(err){ bt.disabled=false; toast(err.message,true); }
+  }));
+  sc.querySelectorAll("button.fbn").forEach(bt=>bt.addEventListener("click",e=>{ e.stopPropagation(); const f=findListRow(bt.dataset.id); if(f) fbPopup(bt,f.row,false); }));
+}
+function fbPopup(anchor,r,readOnly){
+  let p=$("#fbpop"); if(!p){ p=document.createElement("div"); p.id="fbpop"; document.body.appendChild(p); document.addEventListener("mousedown",ev=>{ const q=$("#fbpop"); if(q&&q.classList.contains("on")&&!q.contains(ev.target)) q.classList.remove("on"); }); }
+  const note=(r.fb&&r.fb.note)||"", who=esc(dispHandle(r));
+  p.innerHTML=readOnly
+    ?`<b>Brand note on ${who}</b><div class="ro">${esc(note)}</div><div class="acts"><button class="btn" data-a="x">Close</button></div>`
+    :`<b>Note on ${who}</b><textarea maxlength="500" placeholder="Anything our team should know: questions, timing, a different number of videos...">${esc(note)}</textarea><div class="acts">${note?'<button class="btn" data-a="del">Remove</button>':""}<button class="btn" data-a="x">Cancel</button><button class="btn primary" data-a="save">Save note</button></div>`;
+  const rc=anchor.getBoundingClientRect(); p.style.left=Math.max(8,Math.min(window.innerWidth-296,rc.left))+"px"; p.style.top=Math.min(window.innerHeight-220,rc.bottom+6)+"px"; p.classList.add("on");
+  const ta=p.querySelector("textarea"); if(ta){ ta.focus(); ta.setSelectionRange(ta.value.length,ta.value.length); }
+  p.querySelectorAll("button").forEach(bt=>bt.onclick=async()=>{
+    const a=bt.dataset.a; if(a==="x"){ p.classList.remove("on"); return; }
+    const text=a==="del"?"":(ta?ta.value:"");
+    bt.disabled=true;
+    try{ applyBrand(await post({op:"brand-feedback",slug:LIST_SLUG,id:r.id,ok:!!(r.fb&&r.fb.ok),note:text})); p.classList.remove("on"); toast(text?"Note saved. Our team can see it":"Note removed"); }
+    catch(err){ bt.disabled=false; toast(err.message,true); }
+  });
 }
 function findRow(id){
   for(const g of GROUPS) for(const c of (TEAM.groups[g.id]||[])){ if(c.id===id) return {row:c,kind:g.kind}; for(const s of (c.shows||[])) if(s.id===id) return {row:s,kind:"long",parent:c}; }
@@ -924,7 +973,7 @@ function renderBanner(){
     const vb=$("#viewsBtn"); if(vb) vb.onclick=async()=>{ const est=vb.dataset.est==="1"; try{ applyBrand(await post({op:"list-label",slug:LIST_SLUG,est})); toast(est?"Brands now see Estimated Views":"Brands now see View Guarantee"); }catch(e){ toast(e.message,true); } };
   } else if(BRAND&&BRAND.list){
     b.className="banner list"; b.style.display="";
-    b.innerHTML=`Prepared for you by Digital Fox Talent: <b>${esc(BRAND.list.title)}</b>${packageSummary()}`;
+    b.innerHTML=`Prepared for you by Digital Fox Talent: <b>${esc(BRAND.list.title)}</b><span class="hint">Approve the creators you'd like, or add a note to any row.</span>${packageSummary()}`;
   } else b.style.display="none";
 }
 function renderTabs(){
