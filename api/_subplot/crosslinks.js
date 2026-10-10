@@ -13,7 +13,9 @@
 // pages that carry noindex does nothing for search, and the back-link would visibly
 // connect the two sites before there is any benefit. Flip LIVE to true in the same
 // commit that removes SUBPLOT's noindex. Nothing else needs changing.
-export const LIVE = false;
+// 10 Oct 2026: follows the launch switch in launch.js, so the links and the noindex change go live together.
+import { LAUNCHED } from "./launch.js";
+export const LIVE = LAUNCHED;
 
 export const SUBPLOT_ORIGIN = "https://subplot.tv";
 export const DFT_CREATOR_PAGE = "https://digitalfoxtalent.com/brands/creators/";
