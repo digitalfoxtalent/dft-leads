@@ -550,7 +550,10 @@ function brandPayload(data, list, team, noLock) {
     Object.values(groups).forEach(a => a.sort((x, y) => order[x.id] - order[y.id]));
   } else Object.values(groups).forEach(a => a.sort((x, y) => (y.vgPer || y.vg || y.rate || 0) - (x.vgPer || x.vg || x.rate || 0)));
   return { view: "brand", quarter: quarterLabel(), columns: data.columns, widths: data.widths, rows: ids ? {} : data.rowOrder, list: list ? { title: list.name, slug: list.slug, manual: !!list.body.manual,
-    lock: list.body.lock ? { on: list.body.lock.on, quarter: list.body.lock.quarter } : null } : null, groups };
+    lock: list.body.lock ? { on: list.body.lock.on, quarter: list.body.lock.quarter } : null,
+    // Estimated Views (Tom, 10 Oct 2026): a list can call YouTube's View Guarantee
+    // "Estimated Views" instead, for pitches where the views are not guaranteed.
+    estViews: !!list.body.estViews } : null, groups };
 }
 
 function teamPayload(data, email) {
@@ -784,6 +787,17 @@ async function listPrice(b, email) {
   return brandPayload(fresh, fresh.lists.find(x => x.slug === list.slug) || Object.assign({}, list, { body }), true);
 }
 
+async function listLabel(b, email) {
+  const data = await loadBoard();
+  const list = data.lists.find(x => x.slug === String(b.slug || ""));
+  if (!list) throw new Error("list not found");
+  if (list.bad) throw new Error(LIST_READ_ERROR);
+  const body = Object.assign({}, list.body, { estViews: !!b.est });
+  await writeList(list.id, body, { [L.updated]: email + " " + stamp() });
+  const fresh = await loadBoard();
+  return brandPayload(fresh, fresh.lists.find(x => x.slug === list.slug) || Object.assign({}, list, { body }), true);
+}
+
 async function listConfirm(b, email) {
   const data = await loadBoard();
   const list = data.lists.find(x => x.slug === String(b.slug || ""));
@@ -880,6 +894,7 @@ export default async function handler(req, res) {
         if (b.op === "list-price") return res.status(200).json(await listPrice(b, email));
         if (b.op === "list-lock") return res.status(200).json(await listLock(b, email));
         if (b.op === "list-confirm") return res.status(200).json(await listConfirm(b, email));
+        if (b.op === "list-label") return res.status(200).json(await listLabel(b, email));
       } catch (e) {
         return res.status(400).json({ error: String(e && e.message || e) });
       }
