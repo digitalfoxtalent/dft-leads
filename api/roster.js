@@ -536,12 +536,17 @@ function brandPayload(data, list, team, noLock) {
   // Confirmed only; Approached is for the team.
   const confirmed = new Set(((list && list.body.confirmed) || []).map(String));
   const approached = new Set(((list && list.body.approached) || []).map(String));
+  // Brand feedback (Tom, 10 Oct 2026): the brand can approve a creator or leave a note.
+  const feedback = (list && list.body.feedback) || {};
   const groups = {};
   GROUPS.forEach(g => { groups[g.id] = []; });
   data.rows.forEach(r => {
     if (ids && !ids.has(r.id)) return;
     const o = brandRow(r, !!ids, prices, team);
-    if (o && list) { o.confirmed = confirmed.has(r.id); if (team) o.stage = o.confirmed ? "confirmed" : approached.has(r.id) ? "approached" : ""; }
+    if (o && list) {
+      o.confirmed = confirmed.has(r.id); if (team) o.stage = o.confirmed ? "confirmed" : approached.has(r.id) ? "approached" : "";
+      const f = feedback[r.id]; if (f && (f.ok || f.note)) o.fb = { ok: !!f.ok, note: String(f.note || "") };
+    }
     if (o && lock && !noLock) applyLock(o, lock);
     if (o) groups[r.group].push(o);
   });
@@ -787,6 +792,34 @@ async function listPrice(b, email) {
   return brandPayload(fresh, fresh.lists.find(x => x.slug === list.slug) || Object.assign({}, list, { body }), true);
 }
 
+// The brand's own feedback on a list (Tom, 10 Oct 2026). Brands are not signed in: the list's
+// link (with its random tail) is what lets them in, the same as viewing it. They can only
+// approve or un-approve a creator already on the list and leave a short note on it. Each
+// change is posted as an update on the list's monday item so the team hears about it.
+async function brandFeedback(b) {
+  cache = null; // read the list fresh so one brand click never undoes another
+  const data = await loadBoard();
+  const list = data.lists.find(x => x.slug === String(b.slug || ""));
+  if (!list) throw new Error("This list is no longer available");
+  if (list.bad) throw new Error("Sorry, that could not be saved. Please let Digital Fox Talent know.");
+  const id = String(b.id || "");
+  if (!(list.body.ids || []).map(String).includes(id)) throw new Error("That creator is not on this list");
+  const note = String(b.note == null ? "" : b.note).replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, "").trim().slice(0, 500);
+  const ok = !!b.ok;
+  const feedback = Object.assign({}, list.body.feedback || {});
+  const before = feedback[id] || {};
+  if (ok || note) feedback[id] = { ok, note, at: stamp() }; else delete feedback[id];
+  const body = Object.assign({}, list.body, { feedback });
+  await writeList(list.id, body, {});
+  const row = data.rows.find(r => r.id === id), who = (row && row.name) || "a creator";
+  const bits = [];
+  if (!!before.ok !== ok) bits.push(ok ? "approved " + who : "took the approval off " + who);
+  if (String(before.note || "") !== note) bits.push(note ? "left a note on " + who + ": " + note : "removed their note on " + who);
+  if (bits.length) await audit(list.id, "Brand feedback on \u201c" + list.name + "\u201d: " + bits.join("; "));
+  const fresh = await loadBoard();
+  return brandPayload(fresh, fresh.lists.find(x => x.slug === list.slug) || Object.assign({}, list, { body }), false);
+}
+
 async function listLabel(b, email) {
   const data = await loadBoard();
   const list = data.lists.find(x => x.slug === String(b.slug || ""));
@@ -882,9 +915,15 @@ export default async function handler(req, res) {
     if (req.method === "POST") {
       res.setHeader("Cache-Control", "private, no-store");
       const origin = String(req.headers.origin || "");
-      if (!email) return res.status(401).json({ error: "Sign in with your DFT Google account" });
       if (origin && origin !== "https://" + host) return res.status(403).json({ error: "Bad origin" });
       const b = await readBody(req);
+      // The only thing a brand (not signed in) can do: feedback on the list it was sent.
+      if (b && b.op === "brand-feedback") {
+        if (!origin) return res.status(403).json({ error: "Bad origin" });
+        try { return res.status(200).json(await brandFeedback(b)); }
+        catch (e) { return res.status(400).json({ error: String(e && e.message || e) }); }
+      }
+      if (!email) return res.status(401).json({ error: "Sign in with your DFT Google account" });
       try {
         if (b.op === "edit") return res.status(200).json(await editRow(b, email));
         if (b.op === "undo-edit") return res.status(200).json(await undoEdit(b, email));
@@ -918,7 +957,8 @@ export default async function handler(req, res) {
         res.setHeader("Cache-Control", "private, no-store");
         return res.status(200).json(brandPayload(data, list, true));
       }
-      res.setHeader("Cache-Control", "s-maxage=60, stale-while-revalidate=600");
+      // Not edge-cached: a brand's own approvals and notes must show as soon as they reload.
+      res.setHeader("Cache-Control", "private, no-store");
       return res.status(200).json(brandPayload(data, list, false));
     }
     // Brand numbers change once a quarter or when the team edits one, so a short edge
