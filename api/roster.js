@@ -544,8 +544,9 @@ function brandPayload(data, list, team, noLock) {
     if (ids && !ids.has(r.id)) return;
     const o = brandRow(r, !!ids, prices, team);
     if (o && list) {
-      o.confirmed = confirmed.has(r.id); if (team) o.stage = o.confirmed ? "confirmed" : approached.has(r.id) ? "approached" : "";
-      const f = feedback[r.id]; if (f && (f.ok || f.note)) o.fb = { ok: !!f.ok, note: String(f.note || "") };
+      // Brands see the whole Stage too (Tom, 10 Oct 2026), read only apart from Brand approved.
+      o.confirmed = confirmed.has(r.id); o.stage = o.confirmed ? "confirmed" : approached.has(r.id) ? "approached" : "";
+      const f = feedback[r.id]; if (f && (f.ok || f.no || f.note)) o.fb = { ok: !!f.ok, no: !f.ok && !!f.no, note: String(f.note || "") };
     }
     if (o && lock && !noLock) applyLock(o, lock);
     if (o) groups[r.group].push(o);
@@ -796,7 +797,7 @@ async function listPrice(b, email) {
 // link (with its random tail) is what lets them in, the same as viewing it. They can only
 // approve or un-approve a creator already on the list and leave a short note on it. Each
 // change is posted as an update on the list's monday item so the team hears about it.
-async function brandFeedback(b) {
+async function brandFeedback(b, email) {
   cache = null; // read the list fresh so one brand click never undoes another
   const data = await loadBoard();
   const list = data.lists.find(x => x.slug === String(b.slug || ""));
@@ -805,19 +806,24 @@ async function brandFeedback(b) {
   const id = String(b.id || "");
   if (!(list.body.ids || []).map(String).includes(id)) throw new Error("That creator is not on this list");
   const note = String(b.note == null ? "" : b.note).replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, "").trim().slice(0, 500);
-  const ok = !!b.ok;
+  // The brand's decision on a creator (Tom, 10 Oct 2026): "yes" approved, "no" rejected, "" none.
+  const decision = b.decision != null ? String(b.decision) : (b.ok ? "yes" : "");
+  if (!["", "yes", "no"].includes(decision)) throw new Error("Unknown decision");
+  const ok = decision === "yes", no = decision === "no";
   const feedback = Object.assign({}, list.body.feedback || {});
   const before = feedback[id] || {};
-  if (ok || note) feedback[id] = { ok, note, at: stamp() }; else delete feedback[id];
+  if (ok || no || note) feedback[id] = { ok, no, note, at: stamp() }; else delete feedback[id];
   const body = Object.assign({}, list.body, { feedback });
   await writeList(list.id, body, {});
   const row = data.rows.find(r => r.id === id), who = (row && row.name) || "a creator";
   const bits = [];
-  if (!!before.ok !== ok) bits.push(ok ? "approved " + who : "took the approval off " + who);
+  const was = before.ok ? "yes" : before.no ? "no" : "";
+  if (was !== decision) bits.push(decision === "yes" ? "approved " + who : decision === "no" ? "rejected " + who : "cleared their decision on " + who);
   if (String(before.note || "") !== note) bits.push(note ? "left a note on " + who + ": " + note : "removed their note on " + who);
-  if (bits.length) await audit(list.id, "Brand feedback on \u201c" + list.name + "\u201d: " + bits.join("; "));
+  // The team can tick "Brand approved" in Stage for a brand that approved by email.
+  if (bits.length) await audit(list.id, (email ? email + " (for the brand)" : "Brand feedback") + " on \u201c" + list.name + "\u201d: " + bits.join("; "));
   const fresh = await loadBoard();
-  return brandPayload(fresh, fresh.lists.find(x => x.slug === list.slug) || Object.assign({}, list, { body }), false);
+  return brandPayload(fresh, fresh.lists.find(x => x.slug === list.slug) || Object.assign({}, list, { body }), !!email);
 }
 
 async function listLabel(b, email) {
@@ -920,7 +926,7 @@ export default async function handler(req, res) {
       // The only thing a brand (not signed in) can do: feedback on the list it was sent.
       if (b && b.op === "brand-feedback") {
         if (!origin) return res.status(403).json({ error: "Bad origin" });
-        try { return res.status(200).json(await brandFeedback(b)); }
+        try { return res.status(200).json(await brandFeedback(b, email)); }
         catch (e) { return res.status(400).json({ error: String(e && e.message || e) }); }
       }
       if (!email) return res.status(401).json({ error: "Sign in with your DFT Google account" });
