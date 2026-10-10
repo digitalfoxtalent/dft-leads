@@ -190,6 +190,22 @@
   .stg label.bap .fbn{ padding:0 6px; font-size:10px; margin-left:2px; }
   .stg label.dft{ cursor:default; }
   .stg label.dft input{ cursor:default; pointer-events:none; }
+  /* Stage tick boxes, one look for all three steps (Tom, 10 Oct 2026). */
+  .stg{ gap:3px; width:138px; }
+  .stg input[type=checkbox]{ appearance:none; -webkit-appearance:none; width:14px; height:14px; margin:0; border:1.5px solid #b9a996; border-radius:3px; background:#fff; display:inline-grid; place-content:center; flex:0 0 auto; }
+  .stg input[type=checkbox]:checked{ background:var(--orange); border-color:var(--orange); }
+  .stg label:last-child input[type=checkbox]:checked{ background:var(--ok); border-color:var(--ok); }
+  .stg input[type=checkbox]:checked::after{ content:"✓"; color:#fff; font-size:10px; font-weight:800; line-height:1; }
+  .drow{ display:flex; align-items:center; gap:4px; }
+  .tri{ display:flex; align-items:center; gap:5px; background:none; border:0; padding:0; font:inherit; font-size:11px; font-weight:600; color:inherit; cursor:pointer; white-space:nowrap; }
+  .tri .bx{ width:14px; height:14px; box-sizing:border-box; border:1.5px solid #b9a996; border-radius:3px; background:#fff; display:inline-grid; place-content:center; flex:0 0 auto; }
+  .tri.yes .bx{ background:var(--ok); border-color:var(--ok); }
+  .tri.yes .bx::after{ content:"✓"; color:#fff; font-size:10px; font-weight:800; line-height:1; }
+  .tri.no .bx{ background:#b23a2a; border-color:#b23a2a; }
+  .tri.no .bx::after{ content:"✕"; color:#fff; font-size:9px; font-weight:800; line-height:1; }
+  .tri.yes .lb{ color:var(--ok); } .tri.no .lb{ color:#b23a2a; }
+  .nt{ display:inline-flex; align-items:center; background:none; border:0; padding:1px; cursor:pointer; color:#b9a996; }
+  .nt:hover{ color:#a85f00; } .nt.has{ color:var(--orange); }
   .dec{ display:flex; align-items:center; gap:4px; margin:1px 0 1px 1px; }
   .dbt{ font:inherit; font-size:10.5px; font-weight:700; border-radius:999px; padding:1px 8px; cursor:pointer; line-height:1.35; background:#fff; white-space:nowrap; }
   .dbt.yes{ border:1.5px solid var(--ok); color:var(--ok); }
@@ -294,7 +310,7 @@ const RENAME={ "Down To Earth With Kristian Harloff (UAP NEWS)":"Down to Earth" 
 // "Save column order") and is then the same for every viewer.
 const BRAND_COLS=[
   // Saved lists only (Tom, 10 Oct 2026): Confirmed sits first after the handle.
-  {key:"confirmed",head:"Stage", w:232, listOnly:true, tip:"Approached and Confirmed are set by Digital Fox Talent. Approve or reject each creator, and add a note to tell us why."},
+  {key:"confirmed",head:"Stage", w:176, listOnly:true, tip:"Approached and Confirmed are set by Digital Fox Talent. Tick a creator to approve, tick again to reject. The speech bubble adds a note."},
   {key:"subs",   head:"Subscribers", w:112, fmt:"int"},
   {key:"rate",   head:"Rate",        w:92,  fmt:"money"},
   {key:"vg",     head:"View Guarantee", w:128, fmt:"int", longOnly:true},
@@ -450,7 +466,7 @@ function brandColsFor(){
 // team can save them for everyone with the layout.
 // Stage never goes narrower than its buttons need (a width saved before Approve / Reject was
 // added clipped the Note button, Tom 10 Oct 2026).
-const MIN_W={confirmed:232};
+const MIN_W={confirmed:176};
 function sized(cols){ return cols.map(c=>c.key!=="sel"&&colWidths[c.key]?Object.assign({},c,{w:Math.max(colWidths[c.key],MIN_W[c.key]||0)}):c); }
 function columns(){
   const name={key:"name",head:"Creator / Shows",w:280,cls:"name"};
@@ -474,13 +490,15 @@ function cellVal(c,col){
     default: return c[col.key];
   }
 }
-// The middle Stage step: the brand's Approve / Reject and a note.
+// The middle Stage step (Tom, 10 Oct 2026): one tick box that cycles approved (green tick),
+// rejected (red cross), clear, plus a small note icon. Same box as Approached and Confirmed.
+const NOTE_ICON='<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>';
 function decisionRow(c,team){
   const ok=!!(c.fb&&c.fb.ok), no=!!(c.fb&&c.fb.no), note=(c.fb&&c.fb.note)||"";
-  const noteBtn=team
-    ?(note?`<button class="fbn ro has" data-id="${c.id}" title="${esc(note)}">Note</button>`:"")
-    :`<button class="fbn${note?" has":""}" data-id="${c.id}" title="${note?esc(note):"Tell us why, or anything else we should know"}">${note?"Note ✎":"+ Note"}</button>`;
-  return `<span class="dec"><button class="dbt yes${ok?" on":""}" data-id="${c.id}" data-d="yes" title="${team?"The brand approved this creator":"Approve this creator"}">${ok?"✓ Approved":"Approve"}</button><button class="dbt no${no?" on":""}" data-id="${c.id}" data-d="no" title="${team?"The brand rejected this creator":"Not for us"}">${no?"✗ Rejected":"Reject"}</button>${noteBtn}</span>`;
+  const state=ok?"yes":no?"no":"", label=ok?"Brand approved":no?"Brand rejected":"Brand approval";
+  const tip=team?"The brand's decision. Click to set it for them: approved, rejected, clear.":"Click once to approve, twice to reject, again to clear.";
+  const noteBtn=(team&&!note)?"":`<button class="nt${note?" has":""}${team?" ro":""}" data-id="${c.id}" title="${note?esc(note):"Add a note: tell us why, or anything else"}">${NOTE_ICON}</button>`;
+  return `<span class="drow"><button class="tri ${state}" data-id="${c.id}" data-s="${state}" title="${tip}"><span class="bx"></span><span class="lb">${label}</span></button>${noteBtn}</span>`;
 }
 function fmtCell(c,col,isShow){
   if(col.key==="status") return statusCell(c,isShow);
@@ -688,10 +706,10 @@ function wire(){
     }));
     sc.querySelectorAll("td.edit").forEach(td=>td.addEventListener("click",e=>{e.stopPropagation(); startEdit(td);}));
   } else if(listEdit()){
-    sc.querySelectorAll("button.fbn.ro").forEach(bt=>bt.addEventListener("click",e=>{ e.preventDefault(); e.stopPropagation(); const f=findListRow(bt.dataset.id); if(f) fbPopup(bt,f.row,true); }));
-    sc.querySelectorAll("button.dbt").forEach(bt=>bt.addEventListener("click",async e=>{
+    sc.querySelectorAll("button.nt.ro").forEach(bt=>bt.addEventListener("click",e=>{ e.preventDefault(); e.stopPropagation(); const f=findListRow(bt.dataset.id); if(f) fbPopup(bt,f.row,true); }));
+    sc.querySelectorAll("button.tri").forEach(bt=>bt.addEventListener("click",async e=>{
       e.stopPropagation(); const f=findListRow(bt.dataset.id); if(!f) return; const r=f.row;
-      const cur=r.fb&&r.fb.ok?"yes":r.fb&&r.fb.no?"no":"", d=cur===bt.dataset.d?"":bt.dataset.d;
+      const d={"":"yes",yes:"no",no:""}[bt.dataset.s||""];
       try{ applyBrand(await post({op:"brand-feedback",slug:LIST_SLUG,id:r.id,decision:d,note:(r.fb&&r.fb.note)||""})); toast(d==="yes"?"Marked as approved by the brand":d==="no"?"Marked as rejected by the brand":"Brand decision cleared"); }
       catch(err){ toast(err.message,true); }
     }));
@@ -799,17 +817,17 @@ async function saveListOrder(order){
 function wireFeedback(sc){
   if(!isPitch()||listEdit()) return;
   if(TEAM){ // previewing as the brand: show the controls, save nothing
-    sc.querySelectorAll(".dec button").forEach(bt=>bt.addEventListener("click",e=>{ e.stopPropagation(); toast("Preview only: this is where the brand approves, rejects or adds a note. Nothing was saved."); }));
+    sc.querySelectorAll(".drow button").forEach(bt=>bt.addEventListener("click",e=>{ e.stopPropagation(); toast("Preview only: the brand ticks here to approve or reject, and adds a note. Nothing was saved."); }));
     return;
   }
-  sc.querySelectorAll("button.dbt").forEach(bt=>bt.addEventListener("click",async e=>{
+  sc.querySelectorAll("button.tri").forEach(bt=>bt.addEventListener("click",async e=>{
     e.stopPropagation(); const f=findListRow(bt.dataset.id); if(!f) return; const r=f.row;
-    const cur=r.fb&&r.fb.ok?"yes":r.fb&&r.fb.no?"no":"", d=cur===bt.dataset.d?"":bt.dataset.d;
+    const d={"":"yes",yes:"no",no:""}[bt.dataset.s||""];
     bt.disabled=true;
-    try{ applyBrand(await post({op:"brand-feedback",slug:LIST_SLUG,id:r.id,decision:d,note:(r.fb&&r.fb.note)||""})); toast(d==="yes"?"Approved. Our team can see it":d==="no"?"Rejected. Add a note to tell us why":"Decision cleared"); }
+    try{ applyBrand(await post({op:"brand-feedback",slug:LIST_SLUG,id:r.id,decision:d,note:(r.fb&&r.fb.note)||""})); toast(d==="yes"?"Approved. Tick again to reject":d==="no"?"Rejected. Add a note to tell us why":"Cleared"); }
     catch(err){ bt.disabled=false; toast(err.message,true); }
   }));
-  sc.querySelectorAll(".dec button.fbn").forEach(bt=>bt.addEventListener("click",e=>{ e.stopPropagation(); const f=findListRow(bt.dataset.id); if(f) fbPopup(bt,f.row,false); }));
+  sc.querySelectorAll(".drow button.nt").forEach(bt=>bt.addEventListener("click",e=>{ e.stopPropagation(); const f=findListRow(bt.dataset.id); if(f) fbPopup(bt,f.row,false); }));
 }
 function fbPopup(anchor,r,readOnly){
   let p=$("#fbpop"); if(!p){ p=document.createElement("div"); p.id="fbpop"; document.body.appendChild(p); document.addEventListener("mousedown",ev=>{ const q=$("#fbpop"); if(q&&q.classList.contains("on")&&!q.contains(ev.target)) q.classList.remove("on"); }); }
@@ -1015,7 +1033,7 @@ function renderBanner(){
     $("#doneList").onclick=()=>{ picked.clear(); editingList=null; $("#listName").value=""; $("#selMsg").textContent=""; renderBanner(); render(); };
   } else if(TEAM&&asBrand&&BRAND&&BRAND.list&&mode!=="team"){
     b.className="banner list"; b.style.display="";
-    b.innerHTML=`<b>Brand preview:</b>&nbsp;exactly what the brand sees. Their buttons do not save here.<span class="hint">Approve or reject each creator, and add a note to tell us why.</span>${packageSummary()}`;
+    b.innerHTML=`<b>Brand preview:</b>&nbsp;exactly what the brand sees. Their buttons do not save here.<span class="hint">Tick a creator to approve, tick again to reject. The speech bubble adds a note.</span>${packageSummary()}`;
   } else if(TEAM){
     b.className="banner"; b.style.display="";
     b.innerHTML=`Signed in as <b>${esc(TEAM.email)}</b> · ${mode==="team"
@@ -1025,7 +1043,7 @@ function renderBanner(){
     const vb=$("#viewsBtn"); if(vb) vb.onclick=async()=>{ const est=vb.dataset.est==="1"; try{ applyBrand(await post({op:"list-label",slug:LIST_SLUG,est})); toast(est?"Brands now see Estimated Views":"Brands now see View Guarantee"); }catch(e){ toast(e.message,true); } };
   } else if(BRAND&&BRAND.list){
     b.className="banner list"; b.style.display="";
-    b.innerHTML=`Prepared for you by Digital Fox Talent: <b>${esc(BRAND.list.title)}</b><span class="hint">Approve or reject each creator, and add a note to tell us why.</span>${packageSummary()}`;
+    b.innerHTML=`Prepared for you by Digital Fox Talent: <b>${esc(BRAND.list.title)}</b><span class="hint">Tick a creator to approve, tick again to reject. The speech bubble adds a note.</span>${packageSummary()}`;
   } else b.style.display="none";
 }
 function renderTabs(){
