@@ -484,7 +484,9 @@ function nameCell(c){
   const dn=dispHandle(c), real=dispName(c.name);
   const ttl=(real&&real!==dn)?` title="${esc(real)}"`:"";
   const nm=c.url?`<a href="${esc(c.url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${esc(dn)}</a>`:esc(dn);
-  return `<div class="nmwrap"><span class="grip" title="Drag to move this row">⠿</span>${chev}${logoHtml(c)}<span class="nmtext"${ttl}>${nm}</span>${eyeBtn(c,false)}</div>`;
+  // On a saved list only the team can reorder (the order is saved to the list); brands get no handle.
+  const grip=(isPitch()&&!listEdit())?"":`<span class="grip" title="${listEdit()?"Drag to move this creator. Brands see the list in this order":"Drag to move this row"}">⠿</span>`;
+  return `<div class="nmwrap">${grip}${chev}${logoHtml(c)}<span class="nmtext"${ttl}>${nm}</span>${eyeBtn(c,false)}</div>`;
 }
 function showNameCell(s){
   const nm=s.url?`<a href="${esc(s.url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${esc(s.name)}</a>`:esc(s.name);
@@ -714,9 +716,23 @@ function wireRowDrag(sc){
       const order=orderedAll().map(c=>c.id);
       order.splice(order.indexOf(dragId),1);
       order.splice(order.indexOf(target)+(after?1:0),0,dragId);
-      rowOrder[activeTab]=order; sortKey=null; dragId=null; layoutChanged(); render();
+      dragId=null;
+      if(isPitch()){ if(listEdit()) saveListOrder(order); return; }
+      rowOrder[activeTab]=order; sortKey=null; layoutChanged(); render();
     });
   });
+}
+// Reordering a saved list (Tom, 10 Oct 2026): the list's own creator order is saved, so the
+// brand link shows it too. Only this tab's creators move; other tabs keep their places.
+async function saveListOrder(order){
+  const l=((TEAM&&TEAM.lists)||[]).find(x=>x.slug===LIST_SLUG);
+  if(!l){ toast("Sign in again to reorder this list",true); return; }
+  const prev=(BRAND.groups[activeTab]||[]).slice(), pos={}; order.forEach((id,i)=>pos[id]=i);
+  BRAND.groups[activeTab]=prev.slice().sort((a,b)=>pos[a.id]-pos[b.id]); sortKey=null; render();
+  const inTab=new Set(order), queue=order.slice();
+  const ids=l.ids.map(String).map(id=>inTab.has(id)?queue.shift():id).concat(queue);
+  try{ await post({op:"save-list",title:BRAND.list.title,slug:LIST_SLUG,ids}); l.ids=ids; toast("Order saved. Brands see the list in this order"); }
+  catch(e){ BRAND.groups[activeTab]=prev; render(); toast(e.message,true); }
 }
 function findRow(id){
   for(const g of GROUPS) for(const c of (TEAM.groups[g.id]||[])){ if(c.id===id) return {row:c,kind:g.kind}; for(const s of (c.shows||[])) if(s.id===id) return {row:s,kind:"long",parent:c}; }
