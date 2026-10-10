@@ -21,6 +21,19 @@ const TOUCH = { subplot: APPLE_PNG };
 
 const CATS = new Set(["marvel", "dc", "scifi", "gaming", "anime", "screen"]);
 
+// Canonical tag (Tom, 10 Oct 2026): every page names its own subplot.tv address as the original, so
+// once the site is indexable Google treats SUBPLOT's copy as the original rather than the copies of
+// the same articles on MSN. Always the public domain, never the /subplot preview path, and without
+// preview-only query strings (?d=). Paged front and section pages keep their page number, as Google
+// asks for paginated series. Harmless while the site is noindex.
+export function withCanonical(html, path, pg = 1) {
+  if (typeof html !== "string" || /<link[^>]+rel="canonical"/i.test(html) || !html.includes("</head>")) return html;
+  const paged = (path === "/" || path.startsWith("/s/")) && pg > 1 ? "?p=" + pg : "";
+  const href = siteUrl() + (path === "/" ? "/" : path) + paged;
+  const safe = href.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+  return html.replace("</head>", `<link rel="canonical" href="${safe}">\n</head>`);
+}
+
 function unauthorised(res) {
   res.setHeader("WWW-Authenticate", 'Basic realm="SUBPLOT preview"');
   res.setHeader("Cache-Control", "no-store");
@@ -192,5 +205,6 @@ export default async function handler(req, res) {
   else if (path === "/about") html = aboutPage(data, base);
   else if (["/contact", "/privacy", "/terms", "/creators"].includes(path)) html = legalPage(path.slice(1), data, base);
   if (!html) { html = notFound(base); status = 404; res.setHeader("Cache-Control", "no-store"); }
+  else html = withCanonical(html, path, pg);
   return res.status(status).send(html);
 }
