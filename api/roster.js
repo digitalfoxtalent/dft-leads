@@ -111,6 +111,38 @@ const SC = {
   bvideos: "numeric_mm7z2dv1",
 };
 const L = { slug: "text_mm7vgrr5", items: "long_text_mm7vtnkw", by: "text_mm7v2v06", link: "link_mm7vwxw0", updated: "text_mm7vj42p" };
+// List storage (Tom, 10 Oct 2026). monday cuts a long text at 2,000 characters. Locking a
+// big list went past that, the cut-off JSON could not be read, and the next save wrote the
+// list back empty (Alex's "Avengers: Doomsday"). The JSON is now split across "Items" and
+// "Items 2" to "Items 8" (about 15,000 characters), a list that cannot be read is never
+// written over, a list is never saved without creators, and every write is read back.
+const ITEM_COLS = [L.items, "long_text_mm80t78r", "long_text_mm80ndjr", "long_text_mm80wpxt", "long_text_mm80gas0", "long_text_mm801cds", "long_text_mm80dann", "long_text_mm80qawp"];
+const CHUNK = 1900;
+const LIST_READ_ERROR = "This list's saved data could not be read, so nothing was changed. Ask Tom to check it.";
+function bodyValues(obj) {
+  const s = JSON.stringify(obj);
+  if (s.length > CHUNK * ITEM_COLS.length) throw new Error("This list is too big to save (" + s.length + " characters). Take some creators or list prices off and try again.");
+  const v = {};
+  ITEM_COLS.forEach((c, i) => { v[c] = { text: s.slice(i * CHUNK, (i + 1) * CHUNK) }; });
+  return { values: v, text: s };
+}
+function readListBody(cv) {
+  const s = ITEM_COLS.map(c => cv[c] || "").join("");
+  if (!s.trim()) return { body: {}, bad: false };
+  try { const b = JSON.parse(s); return { body: b && typeof b === "object" ? b : {}, bad: !(b && typeof b === "object") }; }
+  catch (e) { return { body: {}, bad: true }; }
+}
+// Write a list's JSON (plus any other columns) and read it back to be sure it stuck.
+async function writeList(itemId, body, extra, isSettings) {
+  if (!isSettings && !(Array.isArray(body.ids) && body.ids.length)) throw new Error("A list needs at least one creator, so nothing was changed.");
+  const { values, text } = bodyValues(body);
+  await monday("mutation($b:ID!,$i:ID!,$v:JSON!){change_multiple_column_values(board_id:$b,item_id:$i,column_values:$v){id}}",
+    { b: String(LISTS_BOARD), i: String(itemId), v: JSON.stringify(Object.assign({}, extra || {}, values)) });
+  cache = null;
+  const d = await monday(`query{items(ids:[${itemId}]){column_values(ids:${JSON.stringify(ITEM_COLS)}){id text}}}`);
+  const cv = {}; ((((d || {}).items || [])[0] || {}).column_values || []).forEach(c => { cv[c.id] = c.text || ""; });
+  if (ITEM_COLS.map(c => cv[c] || "").join("") !== text) throw new Error("monday did not save the whole list. Please try again, and tell Tom if it keeps happening.");
+}
 const TEXT_FIELDS = ["host", "category", "location", "about", "hostGender", "hostRead", "exclusive", "adTypes", "audience",
   "male", "female", "a1317", "a1824", "a2534", "a3544", "a4554", "a5564", "us", "uk"];
 
@@ -243,7 +275,7 @@ async function loadBoard() {
   // is empty on every row, so State/Region showed blank for everyone. Rows are matched on
   // handle (YouTube, Instagram or TikTok), then on name. Audit 6 Oct 2026.
   const stateQ = `query{boards(ids:[${CREATOR_BOARD}]){items_page(limit:500){items{id name group{title} column_values(ids:${JSON.stringify(Object.values(GTR))}){id text value}}}}}`;
-  const listsQ = `query{boards(ids:[${LISTS_BOARD}]){items_page(limit:500){items{id name column_values(ids:${JSON.stringify(Object.values(L))}){id text}}}}}`;
+  const listsQ = `query{boards(ids:[${LISTS_BOARD}]){items_page(limit:500){items{id name column_values(ids:${JSON.stringify([...new Set(Object.values(L).concat(ITEM_COLS))])}){id text}}}}}`;
   const regQ = `query{boards(ids:[${REGISTER_BOARD}]){items_page(limit:500){items{column_values(ids:${JSON.stringify(Object.values(REG))}){id text}}}}}`;
   const megaQ = `query{boards(ids:[${MEGA_BOARD}]){items_page(limit:500){items{column_values(ids:${JSON.stringify(Object.values(MEGA))}){id text}}}}}`;
   const [groups, state, lists, register, mega] = await Promise.all([
@@ -327,8 +359,8 @@ async function loadBoard() {
 
   const listItems = ((((lists || {}).boards || [])[0] || {}).items_page || { items: [] }).items.map(it => {
     const cv = {}; (it.column_values || []).forEach(c => { cv[c.id] = c.text || ""; });
-    let body = {}; try { body = JSON.parse(cv[L.items] || "{}"); } catch (e) {}
-    return { id: String(it.id), name: it.name, slug: cv[L.slug], body, by: cv[L.by], updated: cv[L.updated] };
+    const { body, bad } = readListBody(cv);
+    return { id: String(it.id), name: it.name, slug: cv[L.slug], body, bad, by: cv[L.by], updated: cv[L.updated] };
   });
   const settings = listItems.find(x => x.name === "__settings");
   const data = { rows, lists: listItems.filter(x => x.name !== "__settings" && x.slug), columns: (settings && settings.body.columns) || null,
@@ -635,24 +667,22 @@ async function saveList(b, email) {
   if (!ids.length) throw new Error("Pick at least one creator");
   const data = await loadBoard();
   const existing = b.slug ? data.lists.find(l => l.slug === b.slug) : null;
+  if (existing && existing.bad) throw new Error(LIST_READ_ERROR);
   const nextBody = Object.assign({}, existing ? existing.body : {}, { ids });
   if (existing && nextBody.lock) { // creators added to a locked list are locked at today's prices
     const fresh = new Set(ids.filter(id => !(nextBody.lock.rows || {})[id]));
     if (fresh.size) nextBody.lock = Object.assign({}, nextBody.lock, { rows: Object.assign({}, nextBody.lock.rows, lockSnapshot(data, { name: title, slug: existing.slug, body: nextBody }, fresh)) });
   }
-  const items = JSON.stringify(nextBody);
   if (existing) {
-    await monday("mutation($b:ID!,$i:ID!,$v:JSON!){change_multiple_column_values(board_id:$b,item_id:$i,column_values:$v){id}}",
-      { b: String(LISTS_BOARD), i: existing.id, v: JSON.stringify({ name: title, [L.items]: { text: items }, [L.updated]: email + " " + stamp() }) });
-    cache = null;
+    await writeList(existing.id, nextBody, { name: title, [L.updated]: email + " " + stamp() });
     return { ok: true, slug: existing.slug, url: "https://" + HOST + "/r/" + existing.slug };
   }
   // A random tail so one brand cannot guess another brand's list from its name.
   const slug = listSlug(title, email);
   const url = "https://" + HOST + "/r/" + slug;
-  await monday("mutation($b:ID!,$n:String!,$v:JSON!){create_item(board_id:$b,item_name:$n,column_values:$v){id}}",
-    { b: String(LISTS_BOARD), n: title, v: JSON.stringify({ [L.slug]: slug, [L.items]: { text: items }, [L.by]: email + " " + stamp(), [L.link]: { url, text: "Open list" } }) });
-  cache = null;
+  const created = await monday("mutation($b:ID!,$n:String!,$v:JSON!){create_item(board_id:$b,item_name:$n,column_values:$v){id}}",
+    { b: String(LISTS_BOARD), n: title, v: JSON.stringify({ [L.slug]: slug, [L.by]: email + " " + stamp(), [L.link]: { url, text: "Open list" } }) });
+  await writeList(created.create_item.id, nextBody, {});
   return { ok: true, slug, url };
 }
 
@@ -675,6 +705,7 @@ async function listPrice(b, email) {
   let kind = null;
   data.rows.forEach(r => { if (r.id === id) kind = r.kind; r.shows.forEach(s => { if (s.id === id) kind = "long"; }); });
   if (!kind) throw new Error("row not found");
+  if (list.bad) throw new Error(LIST_READ_ERROR);
   const prices = Object.assign({}, list.body.prices || {});
   if (b.clear && b.field === "videos") { // back to the automatic count, keep any price
     const rest = Object.assign({}, prices[id] || {}); delete rest.videos;
@@ -705,9 +736,7 @@ async function listPrice(b, email) {
     const rows = Object.assign({}, body.lock.rows); delete rows[id]; Object.assign(rows, snap);
     body.lock = Object.assign({}, body.lock, { rows });
   }
-  await monday("mutation($b:ID!,$i:ID!,$v:JSON!){change_multiple_column_values(board_id:$b,item_id:$i,column_values:$v){id}}",
-    { b: String(LISTS_BOARD), i: list.id, v: JSON.stringify({ [L.items]: { text: JSON.stringify(body) }, [L.updated]: email + " " + stamp() }) });
-  cache = null;
+  await writeList(list.id, body, { [L.updated]: email + " " + stamp() });
   const fresh = await loadBoard();
   return brandPayload(fresh, fresh.lists.find(x => x.slug === list.slug) || Object.assign({}, list, { body }), true);
 }
@@ -716,12 +745,11 @@ async function listLock(b, email) {
   const data = await loadBoard();
   const list = data.lists.find(x => x.slug === String(b.slug || ""));
   if (!list) throw new Error("list not found");
+  if (list.bad) throw new Error(LIST_READ_ERROR);
   const body = Object.assign({}, list.body);
   if (b.lock) body.lock = { on: stamp(), by: email, quarter: quarterLabel(), rows: lockSnapshot(data, list) };
   else delete body.lock;
-  await monday("mutation($b:ID!,$i:ID!,$v:JSON!){change_multiple_column_values(board_id:$b,item_id:$i,column_values:$v){id}}",
-    { b: String(LISTS_BOARD), i: list.id, v: JSON.stringify({ [L.items]: { text: JSON.stringify(body) }, [L.updated]: email + " " + stamp() }) });
-  cache = null;
+  await writeList(list.id, body, { [L.updated]: email + " " + stamp() });
   const fresh = await loadBoard();
   return brandPayload(fresh, fresh.lists.find(x => x.slug === list.slug) || Object.assign({}, list, { body }), true);
 }
@@ -738,15 +766,9 @@ async function saveColumns(b, email) {
   const ws = b.widths && typeof b.widths === "object" ? b.widths : {};
   Object.keys(ws).slice(0, 80).forEach(k => { const w = Math.round(num(ws[k]) || 0); if (/^[a-zA-Z0-9]+$/.test(k) && w >= 40 && w <= 1600) widths[k] = w; });
   const data = await loadBoard();
-  const v = { [L.items]: { text: JSON.stringify({ columns: cols, rows, widths }) }, [L.updated]: email + " " + stamp() };
-  if (data.settingsId) {
-    await monday("mutation($b:ID!,$i:ID!,$v:JSON!){change_multiple_column_values(board_id:$b,item_id:$i,column_values:$v){id}}",
-      { b: String(LISTS_BOARD), i: data.settingsId, v: JSON.stringify(v) });
-  } else {
-    await monday("mutation($b:ID!,$n:String!,$v:JSON!){create_item(board_id:$b,item_name:$n,column_values:$v){id}}",
-      { b: String(LISTS_BOARD), n: "__settings", v: JSON.stringify(v) });
-  }
-  cache = null;
+  let sid = data.settingsId;
+  if (!sid) sid = (await monday("mutation($b:ID!,$n:String!){create_item(board_id:$b,item_name:$n){id}}", { b: String(LISTS_BOARD), n: "__settings" })).create_item.id;
+  await writeList(sid, { columns: cols, rows, widths }, { [L.updated]: email + " " + stamp() }, true);
   return { ok: true };
 }
 
