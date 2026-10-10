@@ -12,6 +12,7 @@ import { ch, CAST_META } from "./cast.js";
 import { headTag as adHead, unit as adUnit } from "./ads.js";
 import { FORMATS, formatCss } from "./formats.js";
 import { LIVE as CROSSLINKS_LIVE, dftPageFor } from "./crosslinks.js";
+import { LAUNCHED } from "./launch.js";
 import { homePage3, snippetsPage as snippetsBody, card3, wire3Deps, CSS3 } from "./home3.js";
 
 // Brand-dependent strings resolve per request; see brand.js.
@@ -248,7 +249,7 @@ function shell({ base, title, desc, body, current = "all", bodyClass = "", rule 
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="robots" content="noindex,noarchive">
+${LAUNCHED ? "" : '<meta name="robots" content="noindex,noarchive">'}
 ${brand().gsc ? `<meta name="google-site-verification" content="${brand().gsc}">` : ""}
 <title>${esc(title)}</title>
 <meta name="description" content="${esc(desc)}">
