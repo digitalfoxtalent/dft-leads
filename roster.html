@@ -232,7 +232,7 @@
     <div class="spacer"></div>
     <div class="count" id="count">Loading…</div>
     <span id="teamTools" style="display:none;gap:8px;align-items:center;flex-wrap:wrap">
-      <span class="seg"><button id="vTeam" class="on" title="Live numbers, edits and hidden creators">DFT view</button><button id="vBrand" title="Exactly what brands see">Brand preview</button></span>
+      <span class="seg"><button id="vTeam" class="on" title="Live numbers, edits and hidden creators">DFT view</button><button id="vEdit" style="display:none" title="Change this list's videos, prices, stages and order">Edit list</button><button id="vBrand" title="Exactly what brands see">Brand preview</button></span>
       <button class="btn team" id="listsBtn">Saved lists</button>
       <button class="btn team" id="saveCols" style="display:none" title="Every viewer, brands included, gets this row and column order and these column widths">Save layout for everyone</button>
     </span>
@@ -345,7 +345,11 @@ function applyLayout(shared){
 const openSet=new Set(), picked=new Set();
 let editingList=null; // {slug,title} when the selection came from a saved list
 const LIST_SLUG=(location.pathname.match(/^\/r\/([a-z0-9-]+)$/)||[])[1]||null;
-const listEdit=()=>!!(LIST_SLUG&&TEAM&&mode!=="team"&&BRAND&&BRAND.list);
+// "Preview as brand" (Tom, 10 Oct 2026): signed in, a list's page is where its numbers are
+// edited, so the team never saw the brand's Approve / Note buttons. This switch shows the page
+// exactly as the brand gets it; nothing clicked in it is saved.
+let asBrand=false;
+const listEdit=()=>!!(LIST_SLUG&&TEAM&&mode!=="team"&&BRAND&&BRAND.list&&!asBrand);
 // User journey (Tom, 9 Oct 2026): a list's numbers are changed on the list's own page, the
 // main rate card's numbers on the main page. While the team is adding or removing a list's
 // creators, or looking at the main roster from a list's page, the main numbers are locked so
@@ -762,6 +766,10 @@ async function saveListOrder(order){
 // Brand feedback (Tom, 10 Oct 2026). Approve toggles; Note opens a small box.
 function wireFeedback(sc){
   if(!isPitch()||listEdit()) return;
+  if(TEAM){ // previewing as the brand: show the buttons, save nothing
+    sc.querySelectorAll("button.fba,button.fbn").forEach(bt=>bt.addEventListener("click",e=>{ e.stopPropagation(); toast(bt.classList.contains("fba")?"Preview only: the brand clicks this to approve. Nothing was saved.":"Preview only: the brand adds a note here. Nothing was saved."); }));
+    return;
+  }
   sc.querySelectorAll("button.fba").forEach(bt=>bt.addEventListener("click",async e=>{
     e.stopPropagation(); const f=findListRow(bt.dataset.id); if(!f) return; const r=f.row, ok=!(r.fb&&r.fb.ok);
     bt.disabled=true;
@@ -933,9 +941,17 @@ function renderPanel(){
 }
 
 // ---------- modes / loading ----------
+// On a saved list's page the team gets three views (Tom, 10 Oct 2026): DFT view (the main
+// rate card, locked), Edit list (this list's numbers, stages and order) and Brand preview,
+// which is always exactly what the brand sees.
 function setMode(m){
-  mode=m; PAYLOAD=m==="team"?TEAM:BRAND;
-  $("#vTeam").classList.toggle("on",m==="team"); $("#vBrand").classList.toggle("on",m!=="team");
+  const onList=!!(LIST_SLUG&&TEAM&&BRAND&&BRAND.list);
+  if(m==="edit"){ mode="brand"; asBrand=false; } else if(m==="brand"){ mode="brand"; asBrand=onList; } else { mode="team"; asBrand=false; }
+  PAYLOAD=mode==="team"?TEAM:BRAND;
+  $("#vEdit").style.display=onList?"":"none";
+  $("#vTeam").classList.toggle("on",mode==="team");
+  $("#vEdit").classList.toggle("on",mode!=="team"&&onList&&!asBrand);
+  $("#vBrand").classList.toggle("on",mode!=="team"&&(asBrand||!onList));
   renderBanner(); renderTabs(); render();
 }
 // Campaign lock: a list follows the quarter unless it is locked for a campaign.
@@ -959,11 +975,14 @@ function renderBanner(){
   if(TEAM&&mode==="team"&&LIST_SLUG&&BRAND&&BRAND.list){
     b.className="banner warn"; b.style.display="";
     b.innerHTML=`This is the <b>main rate card</b>, not “${esc(BRAND.list.title)}”. Its numbers are locked here. <button class="bbtn" id="backToList">Back to “${esc(BRAND.list.title)}”</button> <a class="bbtn" href="/">Change the main rate card</a><span class="spacer"></span><a href="/auth/signout" style="text-decoration:underline">Sign out</a>`;
-    $("#backToList").onclick=()=>setMode("brand");
+    $("#backToList").onclick=()=>setMode("edit");
   } else if(TEAM&&mode==="team"&&editingList){
     b.className="banner warn"; b.style.display="";
     b.innerHTML=`<span>Choosing creators for <b>“${esc(editingList.title)}”</b>: tick or untick, then press <b>Update list</b>. Prices are locked while you do this.</span> <a class="bbtn" href="/r/${esc(editingList.slug)}">Change “${esc(editingList.title)}”'s numbers</a> <button class="bbtn" id="doneList">Done</button><span class="spacer"></span><a href="/auth/signout" style="text-decoration:underline">Sign out</a>`;
     $("#doneList").onclick=()=>{ picked.clear(); editingList=null; $("#listName").value=""; $("#selMsg").textContent=""; renderBanner(); render(); };
+  } else if(TEAM&&asBrand&&BRAND&&BRAND.list&&mode!=="team"){
+    b.className="banner list"; b.style.display="";
+    b.innerHTML=`<b>Brand preview:</b>&nbsp;exactly what the brand sees. Their buttons do not save here.<span class="hint">Approve the creators you'd like, or add a note to any row.</span>${packageSummary()}`;
   } else if(TEAM){
     b.className="banner"; b.style.display="";
     b.innerHTML=`Signed in as <b>${esc(TEAM.email)}</b> · ${mode==="team"
@@ -1033,7 +1052,7 @@ async function loadTeam(fresh){
   $("#teamTools").style.display="inline-flex"; $("#signin").style.display="none";
   if(first&&!LIST_SLUG) mode="team";
   if(fresh||(first&&LIST_SLUG)){ try{ await loadBrand(!!LIST_SLUG); }catch(_){} }
-  setMode(mode);
+  setMode(mode==="brand"&&LIST_SLUG?"edit":mode);
   return true;
 }
 async function load(){
@@ -1051,6 +1070,7 @@ async function load(){
 $("#search").addEventListener("input",e=>{query=e.target.value; render();});
 $("#vTeam").addEventListener("click",()=>setMode("team"));
 $("#vBrand").addEventListener("click",()=>setMode("brand"));
+$("#vEdit").addEventListener("click",()=>setMode("edit"));
 $("#listsBtn").addEventListener("click",e=>{e.stopPropagation(); renderPanel(); $("#panel").classList.toggle("on");});
 document.addEventListener("click",e=>{ if(!e.target.closest("#panel")&&!e.target.closest("#listsBtn")) $("#panel").classList.remove("on"); });
 $("#saveList").addEventListener("click",()=>saveList(false));
