@@ -423,6 +423,19 @@ function addFee(b, kind) {
   return Object.assign({}, b, { fee: kind === "long" ? null : fee, total: (b.rate || 0) + fee });
 }
 
+// Discounts on a saved list (Tom, 10 Oct 2026): a row ticked "Discount" keeps the CPM it had
+// when ticked (discFrom); the CPM typed after that is the discounted one. Brands see the
+// price at discFrom crossed out beside the new one, and the % off.
+function priced(own, p, kind, isShow) {
+  const x = bundle(listNumbers(own, p, kind) || own, kind);
+  return isShow ? roundNums(x) : addFee(x, kind);
+}
+function discountFor(own, p, kind, now, isShow) {
+  if (!p || !p.disc || !(p.discFrom > 0) || !now) return null;
+  const was = priced(own, Object.assign({}, p, { cpm: p.discFrom }), kind, isShow);
+  if (!was || !(was.rate > now.rate)) return null;
+  return { wasRate: was.rate, wasTotal: isShow ? was.rate : was.total, discPct: Math.round((1 - now.rate / was.rate) * 100) };
+}
 function brandRow(r, includeHiddenByRule, prices, team) {
   prices = prices || {};
   const own = brandNumbers(r.cv, C, r.kind);
@@ -438,12 +451,16 @@ function brandRow(r, includeHiddenByRule, prices, team) {
   // the CPM so it can be changed for that list.
   else { o.vg = b.vg || null; o.fee = b.fee; o.rights = RIGHTS; if (team) o.cpm = b.cpm; }
   if (team && b.custom) o.custom = true; // only the team sees which prices are list-only
+  const d = discountFor(own, prices[r.id], r.kind, b, false);
+  if (d) Object.assign(o, d);
+  if (team && prices[r.id] && prices[r.id].disc) o.disc = true;
   o.shows = r.kind !== "long" ? [] : r.shows.map(s => {
     const sown = brandNumbers(s.cv, SC, "long");
     const sb = roundNums(bundle(listNumbers(sown, prices[s.id], "long") || sown, "long"));
     const sv = visibility(sb, s.cv[SC.vis], s.cv[SC.bnote], "long");
     if (!(sv.show || (includeHiddenByRule && sb && s.cv[SC.vis] !== "Hide"))) return null;
-    return { id: s.id, name: s.name, url: s.cv[SC.url] || "", rate: sb.rate, total: sb.rate, vg: sb.vg, cpm: sb.cpm, minVideos: sb.videos, vgPer: sb.vgPer, custom: team && sb.custom ? true : undefined, videosSet: team && sb.videosSet ? sb.videosSet : undefined, askCpm: team && sb.videosSet ? sb.askCpm : undefined };
+    const sd = discountFor(sown, prices[s.id], "long", sb, true);
+    return Object.assign({ id: s.id, name: s.name, url: s.cv[SC.url] || "", rate: sb.rate, total: sb.rate, vg: sb.vg, cpm: sb.cpm, minVideos: sb.videos, vgPer: sb.vgPer, custom: team && sb.custom ? true : undefined, videosSet: team && sb.videosSet ? sb.videosSet : undefined, askCpm: team && sb.videosSet ? sb.askCpm : undefined, disc: team && prices[s.id] && prices[s.id].disc ? true : undefined }, sd || {});
   }).filter(Boolean).sort((a, b) => b.vgPer - a.vgPer);
   return o;
 }
@@ -485,7 +502,7 @@ function teamRow(r) {
 // Campaign lock (Tom, 6 Oct 2026). Lists follow the quarter by default. Locking a list
 // for a campaign keeps every price on it as it was when locked, past the quarter reset,
 // until it is unlocked. Stored as { lock: { on, by, quarter, rows: { id: numbers } } }.
-const LOCK_FIELDS = ["rate", "vg", "cpm", "minVideos", "vgPer", "fee", "total"];
+const LOCK_FIELDS = ["rate", "vg", "cpm", "minVideos", "vgPer", "fee", "total", "wasRate", "wasTotal", "discPct"];
 function applyLock(o, lock) {
   const put = (x) => { const n = lock.rows && lock.rows[x.id]; if (n) LOCK_FIELDS.forEach(k => { if (n[k] != null) x[k] = n[k]; }); };
   put(o); (o.shows || []).forEach(put);
@@ -506,11 +523,15 @@ function brandPayload(data, list, team, noLock) {
   const ids = list ? new Set((list.body.ids || []).map(String)) : null;
   const prices = (list && list.body.prices) || {};
   const lock = list && list.body.lock;
+  // Confirmed (Tom, 10 Oct 2026): creators the team has locked in for this campaign. Shown to
+  // brands too.
+  const confirmed = new Set(((list && list.body.confirmed) || []).map(String));
   const groups = {};
   GROUPS.forEach(g => { groups[g.id] = []; });
   data.rows.forEach(r => {
     if (ids && !ids.has(r.id)) return;
     const o = brandRow(r, !!ids, prices, team);
+    if (o && list) o.confirmed = confirmed.has(r.id);
     if (o && lock && !noLock) applyLock(o, lock);
     if (o) groups[r.group].push(o);
   });
@@ -711,7 +732,19 @@ async function listPrice(b, email) {
     const rest = Object.assign({}, prices[id] || {}); delete rest.videos;
     if (Object.keys(rest).length) prices[id] = rest; else delete prices[id];
   } else if (b.clear) delete prices[id];
-  else if (kind === "long" && b.videos != null) {
+  else if (b.disc != null) {
+    // Discount tick: remember the CPM it starts from; unticking puts that CPM back.
+    const cur = Object.assign({}, prices[id] || {});
+    if (b.disc) {
+      const from = r2(num(cur.cpm != null ? cur.cpm : b.curCpm) || 0), vg = Math.round(num(cur.vg != null ? cur.vg : b.curVg) || 0);
+      if (!(from > 0) || !(vg > 0)) throw new Error("This row has no price to discount yet");
+      Object.assign(cur, { disc: true, discFrom: from, cpm: from, vg });
+    } else {
+      if (cur.discFrom > 0) cur.cpm = cur.discFrom;
+      delete cur.disc; delete cur.discFrom;
+    }
+    prices[id] = cur;
+  } else if (kind === "long" && b.videos != null) {
     // Number of videos for this row on this list only (Tom, 9 Oct 2026).
     const n = num(b.videos);
     if (!(n >= 1) || n > MAX_LIST_VIDEOS || Math.round(n) !== n) throw new Error("Videos must be a whole number from 1 to " + MAX_LIST_VIDEOS);
@@ -720,7 +753,7 @@ async function listPrice(b, email) {
     const cur = prices[id] || {};
     const vg = Math.round(num(b.vg != null ? b.vg : (cur.vg || b.curVg)) || 0), cpm = num(b.cpm != null ? b.cpm : (cur.cpm || b.curCpm)) || 0;
     if (!(vg > 0) || !(cpm > 0) || cpm > 10000 || vg > 1e9) throw new Error("View guarantee and CPM must be positive numbers");
-    prices[id] = Object.assign({ vg, cpm: r2(cpm) }, cur.videos ? { videos: cur.videos } : {});
+    prices[id] = Object.assign({ vg, cpm: r2(cpm) }, cur.videos ? { videos: cur.videos } : {}, cur.disc ? { disc: true, discFrom: cur.discFrom } : {});
   } else {
     // Short form on a list: View Estimate, CPM and the content production fee.
     const cur = prices[id] || {};
@@ -728,7 +761,7 @@ async function listPrice(b, email) {
     const vg = Math.round(pick("vg", "curVg") || 0), cpm = pick("cpm", "curCpm") || 0, fee = pick("fee", "curFee");
     if (!(vg > 0) || !(cpm > 0) || cpm > 10000 || vg > 1e9) throw new Error("View estimate and CPM must be positive numbers");
     if (fee == null || fee < 0 || fee > 1e6) throw new Error("Production fee must be zero or more");
-    prices[id] = { vg, cpm: r2(cpm), fee: Math.round(fee) };
+    prices[id] = Object.assign({ vg, cpm: r2(cpm), fee: Math.round(fee) }, cur.disc ? { disc: true, discFrom: cur.discFrom } : {});
   }
   const body = Object.assign({}, list.body, { prices });
   if (body.lock) { // a price changed on a locked list is locked at its new value
@@ -736,6 +769,21 @@ async function listPrice(b, email) {
     const rows = Object.assign({}, body.lock.rows); delete rows[id]; Object.assign(rows, snap);
     body.lock = Object.assign({}, body.lock, { rows });
   }
+  await writeList(list.id, body, { [L.updated]: email + " " + stamp() });
+  const fresh = await loadBoard();
+  return brandPayload(fresh, fresh.lists.find(x => x.slug === list.slug) || Object.assign({}, list, { body }), true);
+}
+
+async function listConfirm(b, email) {
+  const data = await loadBoard();
+  const list = data.lists.find(x => x.slug === String(b.slug || ""));
+  if (!list) throw new Error("list not found");
+  if (list.bad) throw new Error(LIST_READ_ERROR);
+  const id = String(b.id || "");
+  if (!(list.body.ids || []).map(String).includes(id)) throw new Error("That creator is not on this list");
+  const set = new Set((list.body.confirmed || []).map(String));
+  if (b.on) set.add(id); else set.delete(id);
+  const body = Object.assign({}, list.body, { confirmed: [...set] });
   await writeList(list.id, body, { [L.updated]: email + " " + stamp() });
   const fresh = await loadBoard();
   return brandPayload(fresh, fresh.lists.find(x => x.slug === list.slug) || Object.assign({}, list, { body }), true);
@@ -816,6 +864,7 @@ export default async function handler(req, res) {
         if (b.op === "columns") return res.status(200).json(await saveColumns(b, email));
         if (b.op === "list-price") return res.status(200).json(await listPrice(b, email));
         if (b.op === "list-lock") return res.status(200).json(await listLock(b, email));
+        if (b.op === "list-confirm") return res.status(200).json(await listConfirm(b, email));
       } catch (e) {
         return res.status(400).json({ error: String(e && e.message || e) });
       }
