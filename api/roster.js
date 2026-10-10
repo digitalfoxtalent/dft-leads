@@ -78,11 +78,16 @@ const feeFor = vg => (vg >= 250000 ? 7500 : vg >= 100000 ? 5000 : FEE);
 // rates to the nearest $100. The CPM is left exactly as priced, so it stays a clean $25.
 const r1k = n => (n == null ? n : Math.max(1000, Math.round(n / 1000) * 1000));
 const r100 = n => (n == null ? n : Math.round(n / 100) * 100);
-function roundNums(b) {
+// A discounted row on a saved list rounds its rate to the nearest $10 instead (Tom, 9 Oct 2026),
+// so the new price is the full price less exactly the % taken off the CPM. Rounding both to
+// $100 made small rates drift a point either side (e.g. $6,800 to $6,500 showed 4% off).
+const r10 = n => (n == null ? n : Math.round(n / 10) * 10);
+function roundNums(b, fine) {
   if (!b) return b;
-  const o = Object.assign({}, b, { vg: r1k(b.vg), rate: r100(b.rate) });
+  const rr = fine ? r10 : r100;
+  const o = Object.assign({}, b, { vg: r1k(b.vg), rate: rr(b.rate) });
   if (b.vgPer != null) o.vgPer = r1k(b.vgPer);
-  if (b.ratePer != null) o.ratePer = r100(b.ratePer);
+  if (b.ratePer != null) o.ratePer = rr(b.ratePer);
   return o;
 }
 const RIGHTS = "12 months digital usage + boosting rights included";
@@ -416,9 +421,9 @@ function listNumbers(b, p, kind) {
 }
 
 // Content production fee and total (short form only; YouTube's total is its rate).
-function addFee(b, kind) {
+function addFee(b, kind, fine) {
   if (!b) return b;
-  b = roundNums(b);
+  b = roundNums(b, fine);
   const fee = kind === "long" ? 0 : (b.fee != null ? b.fee : feeFor(b.vg || 0));
   return Object.assign({}, b, { fee: kind === "long" ? null : fee, total: (b.rate || 0) + fee });
 }
@@ -430,8 +435,9 @@ function priced(own, p, kind, isShow) {
   const x = bundle(listNumbers(own, p, kind) || own, kind);
   return isShow ? roundNums(x) : addFee(x, kind);
 }
+const isDisc = p => !!(p && p.disc && p.discFrom > 0);
 function discountFor(own, p, kind, now, isShow) {
-  if (!p || !p.disc || !(p.discFrom > 0) || !now) return null;
+  if (!isDisc(p) || !now) return null;
   const was = priced(own, Object.assign({}, p, { cpm: p.discFrom }), kind, isShow);
   if (!was || !(was.rate > now.rate)) return null;
   return { wasRate: was.rate, wasTotal: isShow ? was.rate : was.total, discPct: Math.round((1 - now.rate / was.rate) * 100) };
@@ -439,7 +445,7 @@ function discountFor(own, p, kind, now, isShow) {
 function brandRow(r, includeHiddenByRule, prices, team) {
   prices = prices || {};
   const own = brandNumbers(r.cv, C, r.kind);
-  const b = addFee(bundle(listNumbers(own, prices[r.id], r.kind) || own, r.kind), r.kind);
+  const b = addFee(bundle(listNumbers(own, prices[r.id], r.kind) || own, r.kind), r.kind, isDisc(prices[r.id]));
   const v = visibility(b, r.cv[C.vis], r.cv[C.bnote], r.kind);
   const allowed = v.show || (includeHiddenByRule && b && r.cv[C.vis] !== "Hide");
   if (!allowed) return null;
@@ -456,7 +462,7 @@ function brandRow(r, includeHiddenByRule, prices, team) {
   if (team && prices[r.id] && prices[r.id].disc) o.disc = true;
   o.shows = r.kind !== "long" ? [] : r.shows.map(s => {
     const sown = brandNumbers(s.cv, SC, "long");
-    const sb = roundNums(bundle(listNumbers(sown, prices[s.id], "long") || sown, "long"));
+    const sb = roundNums(bundle(listNumbers(sown, prices[s.id], "long") || sown, "long"), isDisc(prices[s.id]));
     const sv = visibility(sb, s.cv[SC.vis], s.cv[SC.bnote], "long");
     if (!(sv.show || (includeHiddenByRule && sb && s.cv[SC.vis] !== "Hide"))) return null;
     const sd = discountFor(sown, prices[s.id], "long", sb, true);
