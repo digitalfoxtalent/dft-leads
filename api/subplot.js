@@ -1,6 +1,7 @@
 // SUBPLOT — server-rendered site. Routed here by vercel.json for the SUBPLOT
 // host (and, for preview, the /subplot path on the roster host).
-// Private preview: every response is noindex, and robots.txt lets Google crawl but nobody else.
+// Launch state lives in _subplot/launch.js. Before launch every response is noindex and robots.txt lets only
+// Google crawl; after launch both are open (the revenue and health pages stay noindex).
 // Optional gate: set SUBPLOT_PASS in Vercel env to require a password (user "subplot").
 import { getData, findArt, SNIPPETS_LIVE } from "./_subplot/data.js";
 import { brandFor, setBrand, siteUrl } from "./_subplot/brand.js";
@@ -8,6 +9,7 @@ import { runHealth } from "./_subplot/health.js";
 import { smartnewsFeed, SN_LOGO, SN_LOGO_DARK } from "./_subplot/smartnews.js";
 import { setDesign } from "./_subplot/design.js";
 import { listMonths, readMonth } from "./_subplot/archive.js";
+import { LAUNCHED } from "./_subplot/launch.js";
 import { homePage, articlePage, snippetsPage, creatorPage, joinPage, aboutPage, threadPage, rssFeed, notFound, legalPage, artPath, revenuePage, sitemap } from "./_subplot/render.js";
 import { CAST } from "./_subplot/cast.js";
 import { faviconSvg, assetKey } from "./_subplot/brand.js";
@@ -45,7 +47,8 @@ export default async function handler(req, res) {
   // NOFOLLOW was dropped 6 Sep 2026: it tells a crawler not to follow links out of the page,
   // which would leave an AdSense reviewer looking at the home page and nothing else. Under
   // noindex nothing gets indexed however far it crawls, so following links costs nothing.
-  res.setHeader("X-Robots-Tag", "noindex, noarchive, nosnippet");
+  // Launch (launch.js): no noindex once LAUNCHED is true.
+  if (!LAUNCHED) res.setHeader("X-Robots-Tag", "noindex, noarchive, nosnippet");
 
   // Which publication is this? Resolved from the host before anything renders.
   setBrand(brandFor(req.headers["x-forwarded-host"] || req.headers.host || ""));
@@ -85,12 +88,14 @@ export default async function handler(req, res) {
     // undefined to undefined and let anyone through.)
     if (!fromCron && !(secret && req.query.key === secret)) return res.status(404).send("Not found");
     res.setHeader("Cache-Control", "no-store");
+    res.setHeader("X-Robots-Tag", "noindex, nofollow"); // stays out of search after launch too
     return runHealth(req, res);
   }
 
   // The revenue archive is money data: its own gate, and it FAILS CLOSED. No password set in
   // the environment means the page does not exist, whatever the rest of the site is doing.
   if (path === "/revenue") {
+    res.setHeader("X-Robots-Tag", "noindex, nofollow, noarchive"); // stays out of search after launch too
     const rp = process.env.SUBPLOT_REVENUE_PASS;
     if (!rp) return res.status(404).send("Not found");
     const h = req.headers.authorization || "";
@@ -155,6 +160,11 @@ export default async function handler(req, res) {
       "AdsBot-Google-Mobile",
       "Google-Adstxt",          // fetches /ads.txt
     ];
+    // Launched (launch.js): every crawler may fetch everything.
+    if (LAUNCHED) return res.status(200).send([
+      "User-agent: *", "Allow: /", "",
+      "Sitemap: " + siteUrl() + base + "/sitemap.xml", "",
+    ].join("\n"));
     return res.status(200).send([
       ...googleAgents.flatMap(a => ["User-agent: " + a, "Allow: /", ""]),
       "User-agent: *", "Allow: /ads.txt", "Disallow: /", "",
