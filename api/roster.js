@@ -143,10 +143,23 @@ async function writeList(itemId, body, extra, isSettings) {
   const { values, text } = bodyValues(body);
   await monday("mutation($b:ID!,$i:ID!,$v:JSON!){change_multiple_column_values(board_id:$b,item_id:$i,column_values:$v){id}}",
     { b: String(LISTS_BOARD), i: String(itemId), v: JSON.stringify(Object.assign({}, extra || {}, values)) });
-  cache = null;
+  const cached = cache; cache = null;
   const d = await monday(`query{items(ids:[${itemId}]){column_values(ids:${JSON.stringify(ITEM_COLS)}){id text}}}`);
   const cv = {}; ((((d || {}).items || [])[0] || {}).column_values || []).forEach(c => { cv[c.id] = c.text || ""; });
   if (ITEM_COLS.map(c => cv[c] || "").join("") !== text) throw new Error("monday did not save the whole list. Please try again, and tell Tom if it keeps happening.");
+  // Speed (Tom, 10 Oct 2026): the list just saved is patched into the board already in memory,
+  // so the reply does not reload the whole roster from monday (1 to 3 seconds).
+  const l = !isSettings && cached && cached.data && cached.data.lists.find(x => String(x.id) === String(itemId));
+  if (l) { l.body = body; l.bad = false; if (extra && extra.name) l.name = extra.name; cache = cached; }
+}
+// Read one list fresh from monday (one small query) before changing it, so a change made from
+// another browser in the last minute is never written over, without reloading the whole board.
+async function refreshList(list) {
+  const d = await monday(`query{items(ids:[${list.id}]){column_values(ids:${JSON.stringify(ITEM_COLS)}){id text}}}`);
+  const it = (((d || {}).items) || [])[0]; if (!it) return list;
+  const cv = {}; (it.column_values || []).forEach(c => { cv[c.id] = c.text || ""; });
+  const r = readListBody(cv); list.body = r.body; list.bad = r.bad;
+  return list;
 }
 const TEXT_FIELDS = ["host", "category", "location", "about", "hostGender", "hostRead", "exclusive", "adTypes", "audience",
   "male", "female", "a1317", "a1824", "a2534", "a3544", "a4554", "a5564", "us", "uk"];
@@ -740,6 +753,7 @@ async function listPrice(b, email) {
   const data = await loadBoard();
   const list = data.lists.find(x => x.slug === String(b.slug || ""));
   if (!list) throw new Error("list not found");
+  await refreshList(list);
   const id = String(b.id || "");
   if (!/^\d+$/.test(id)) throw new Error("bad id");
   let kind = null;
@@ -798,10 +812,10 @@ async function listPrice(b, email) {
 // approve or un-approve a creator already on the list and leave a short note on it. Each
 // change is posted as an update on the list's monday item so the team hears about it.
 async function brandFeedback(b, email) {
-  cache = null; // read the list fresh so one brand click never undoes another
   const data = await loadBoard();
   const list = data.lists.find(x => x.slug === String(b.slug || ""));
   if (!list) throw new Error("This list is no longer available");
+  await refreshList(list); // read the list fresh so one brand click never undoes another
   if (list.bad) throw new Error("Sorry, that could not be saved. Please let Digital Fox Talent know.");
   const id = String(b.id || "");
   if (!(list.body.ids || []).map(String).includes(id)) throw new Error("That creator is not on this list");
@@ -814,14 +828,15 @@ async function brandFeedback(b, email) {
   const before = feedback[id] || {};
   if (ok || no || note) feedback[id] = { ok, no, note, at: stamp() }; else delete feedback[id];
   const body = Object.assign({}, list.body, { feedback });
-  await writeList(list.id, body, {});
   const row = data.rows.find(r => r.id === id), who = (row && row.name) || "a creator";
   const bits = [];
   const was = before.ok ? "yes" : before.no ? "no" : "";
   if (was !== decision) bits.push(decision === "yes" ? "approved " + who : decision === "no" ? "rejected " + who : "cleared their decision on " + who);
   if (String(before.note || "") !== note) bits.push(note ? "left a note on " + who + ": " + note : "removed their note on " + who);
   // The team can tick "Brand approved" in Stage for a brand that approved by email.
-  if (bits.length) await audit(list.id, (email ? email + " (for the brand)" : "Brand feedback") + " on \u201c" + list.name + "\u201d: " + bits.join("; "));
+  // The monday update is posted at the same time as the save, not after it.
+  await Promise.all([writeList(list.id, body, {}),
+    bits.length ? audit(list.id, (email ? email + " (for the brand)" : "Brand feedback") + " on \u201c" + list.name + "\u201d: " + bits.join("; ")) : null]);
   const fresh = await loadBoard();
   return brandPayload(fresh, fresh.lists.find(x => x.slug === list.slug) || Object.assign({}, list, { body }), !!email);
 }
@@ -830,6 +845,7 @@ async function listLabel(b, email) {
   const data = await loadBoard();
   const list = data.lists.find(x => x.slug === String(b.slug || ""));
   if (!list) throw new Error("list not found");
+  await refreshList(list);
   if (list.bad) throw new Error(LIST_READ_ERROR);
   const body = Object.assign({}, list.body, { estViews: !!b.est });
   await writeList(list.id, body, { [L.updated]: email + " " + stamp() });
@@ -841,6 +857,7 @@ async function listConfirm(b, email) {
   const data = await loadBoard();
   const list = data.lists.find(x => x.slug === String(b.slug || ""));
   if (!list) throw new Error("list not found");
+  await refreshList(list);
   if (list.bad) throw new Error(LIST_READ_ERROR);
   const id = String(b.id || "");
   if (!(list.body.ids || []).map(String).includes(id)) throw new Error("That creator is not on this list");

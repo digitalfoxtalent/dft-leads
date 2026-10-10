@@ -707,11 +707,10 @@ function wire(){
     sc.querySelectorAll("td.edit").forEach(td=>td.addEventListener("click",e=>{e.stopPropagation(); startEdit(td);}));
   } else if(listEdit()){
     sc.querySelectorAll("button.nt.ro").forEach(bt=>bt.addEventListener("click",e=>{ e.preventDefault(); e.stopPropagation(); const f=findListRow(bt.dataset.id); if(f) fbPopup(bt,f.row,true); }));
-    sc.querySelectorAll("button.tri").forEach(bt=>bt.addEventListener("click",async e=>{
+    sc.querySelectorAll("button.tri").forEach(bt=>bt.addEventListener("click",e=>{
       e.stopPropagation(); const f=findListRow(bt.dataset.id); if(!f) return; const r=f.row;
       const d={"":"yes",yes:"no",no:""}[bt.dataset.s||""];
-      try{ applyBrand(await post({op:"brand-feedback",slug:LIST_SLUG,id:r.id,decision:d,note:(r.fb&&r.fb.note)||""})); toast(d==="yes"?"Marked as approved by the brand":d==="no"?"Marked as rejected by the brand":"Brand decision cleared"); }
-      catch(err){ toast(err.message,true); }
+      saveFeedback(r,d,(r.fb&&r.fb.note)||"",d==="yes"?"Marked as approved by the brand":d==="no"?"Marked as rejected by the brand":"Brand decision cleared");
     }));
     sc.querySelectorAll("td.edit").forEach(td=>td.addEventListener("click",e=>{e.stopPropagation(); startEdit(td);}));
     sc.querySelectorAll("input.conf").forEach(cb=>cb.addEventListener("change",async()=>{
@@ -820,14 +819,26 @@ function wireFeedback(sc){
     sc.querySelectorAll(".drow button").forEach(bt=>bt.addEventListener("click",e=>{ e.stopPropagation(); toast("Preview only: the brand ticks here to approve or reject, and adds a note. Nothing was saved."); }));
     return;
   }
-  sc.querySelectorAll("button.tri").forEach(bt=>bt.addEventListener("click",async e=>{
+  sc.querySelectorAll("button.tri").forEach(bt=>bt.addEventListener("click",e=>{
     e.stopPropagation(); const f=findListRow(bt.dataset.id); if(!f) return; const r=f.row;
     const d={"":"yes",yes:"no",no:""}[bt.dataset.s||""];
-    bt.disabled=true;
-    try{ applyBrand(await post({op:"brand-feedback",slug:LIST_SLUG,id:r.id,decision:d,note:(r.fb&&r.fb.note)||""})); toast(d==="yes"?"Approved. Tick again to reject":d==="no"?"Rejected. Add a note to tell us why":"Cleared"); }
-    catch(err){ bt.disabled=false; toast(err.message,true); }
+    saveFeedback(r,d,(r.fb&&r.fb.note)||"",d==="yes"?"Approved. Tick again to reject":d==="no"?"Rejected. Add a note to tell us why":"Cleared");
   }));
   sc.querySelectorAll(".drow button.nt").forEach(bt=>bt.addEventListener("click",e=>{ e.stopPropagation(); const f=findListRow(bt.dataset.id); if(f) fbPopup(bt,f.row,false); }));
+}
+// Instant feedback (Tom, 10 Oct 2026): a tick or note shows straight away and saves in the
+// background. Saves go one at a time so quick clicks land in order; if one fails the row goes
+// back to how it was and says so.
+let fbQueue=Promise.resolve(), fbPending=0;
+function saveFeedback(r,decision,note,msg){
+  const prev=r.fb?Object.assign({},r.fb):null;
+  r.fb=(decision||note)?{ok:decision==="yes",no:decision==="no",note:note||""}:null;
+  renderBanner(); render(); if(msg) toast(msg);
+  fbPending++;
+  fbQueue=fbQueue.then(async()=>{
+    try{ const j=await post({op:"brand-feedback",slug:LIST_SLUG,id:r.id,decision,note:note||""}); if(--fbPending===0) applyBrand(j); }
+    catch(e){ fbPending--; r.fb=prev; renderBanner(); render(); toast(e.message+" That change was not saved.",true); }
+  });
 }
 function fbPopup(anchor,r,readOnly){
   let p=$("#fbpop"); if(!p){ p=document.createElement("div"); p.id="fbpop"; document.body.appendChild(p); document.addEventListener("mousedown",ev=>{ const q=$("#fbpop"); if(q&&q.classList.contains("on")&&!q.contains(ev.target)) q.classList.remove("on"); }); }
@@ -839,10 +850,9 @@ function fbPopup(anchor,r,readOnly){
   const ta=p.querySelector("textarea"); if(ta){ ta.focus(); ta.setSelectionRange(ta.value.length,ta.value.length); }
   p.querySelectorAll("button").forEach(bt=>bt.onclick=async()=>{
     const a=bt.dataset.a; if(a==="x"){ p.classList.remove("on"); return; }
-    const text=a==="del"?"":(ta?ta.value:"");
-    bt.disabled=true;
-    try{ applyBrand(await post({op:"brand-feedback",slug:LIST_SLUG,id:r.id,decision:r.fb&&r.fb.ok?"yes":r.fb&&r.fb.no?"no":"",note:text})); p.classList.remove("on"); toast(text?"Note saved. Our team can see it":"Note removed"); }
-    catch(err){ bt.disabled=false; toast(err.message,true); }
+    const text=(a==="del"?"":(ta?ta.value:"")).trim().slice(0,500);
+    p.classList.remove("on");
+    saveFeedback(r,r.fb&&r.fb.ok?"yes":r.fb&&r.fb.no?"no":"",text,text?"Note saved. Our team can see it":"Note removed");
   });
 }
 function findRow(id){
@@ -868,6 +878,7 @@ function startListEdit(td){
     if(!commit||(raw!==""&&(v==null||v===cur))||(raw===""&&!(isVid?r.videosSet:r.custom))){ render(); return; }
     if(isVid&&raw!==""&&!(v>=1&&v<=50&&Math.round(v)===v)){ toast("Videos must be a whole number from 1 to 50",true); render(); return; }
     td.classList.add("saving");
+    if(raw!=="") td.textContent=isVid?String(v):field==="cpm"?money2(v):int(v); // show the new number while it saves
     const body={op:"list-price",slug:LIST_SLUG,id:td.dataset.id};
     if(raw===""){ body.clear=true; if(isVid) body.field="videos"; }
     else if(isVid) body.videos=v;
