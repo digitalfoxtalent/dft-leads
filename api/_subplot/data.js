@@ -62,6 +62,20 @@ export const CREATORS = [
   // Handle checked on YouTube: @CommentatorsCurseFGC, channel UCWrdZpY_HEdTnmIpjOm3voQ.
   // SUBPLOT rate card row 13189706168 created the same day.
   { slug: "commentatorscursefgc", name: "Commentator's Curse FGC",               handles: ["@commentatorscursefgc"] },         // Commentator's Curse FGC (Trey Cooper), approved 1 Oct 2026
+  // Added 11 Oct 2026 for the launch (Tom: creators approved for MSN articles count as approved for SUBPLOT; "Yes, you can
+  // add them"). Slugs are the real YouTube handles the site already resolves from each video, so they match the
+  // /a/<slug>/ URLs. Each has a SUBPLOT row on the Platform Rate Card (row id in the comment). Rocket Riley stays off (Tom).
+  { slug: "thecosmicwonder", name: "The Cosmic Wonder",                               handles: ["@thecosmicwonder"] },        // rate card row 13156463868
+  { slug: "cinepals", name: "CinePals",                                               handles: ["@cinepals"] },               // rate card row 13260159694
+  { slug: "newrockstars", name: "New Rockstars",                                      handles: ["@newrockstars"] },           // rate card row 13260159251
+  { slug: "ajm_nerdcore", name: "AJM Nerdcore",                                       handles: ["@ajm_nerdcore"] },           // rate card row 13260159459
+  { slug: "deepdivenr", name: "The Deep Dive",                                        handles: ["@deepdivenr"] },             // rate card row 13260159636
+  { slug: "themoviecouple", name: "The Movie Couple",                                 handles: ["@themoviecouple"] },         // rate card row 13260159637
+  { slug: "thegoldman25", name: "The Gold Man",                                       handles: ["@thegoldman25"] },           // rate card row 13260176886
+  { slug: "cinedesi", name: "CineDesi",                                               handles: ["@cinedesi"] },               // rate card row 13260159547
+  { slug: "moviefactsproyt", name: "Movie Facts Pro",                                 handles: ["@moviefactsproyt"] },        // rate card row 13260177181
+  { slug: "vettedpodcast", name: "Vetted",                                            handles: ["@vettedpodcast"] },          // rate card row 13260159458
+  { slug: "galaxygeeks", name: "Galaxy Geeks",                                        handles: ["@galaxygeeks"] },            // rate card row 13260159577
 ];
 
 export const APPROVED_HANDLES = CREATORS.flatMap(c => c.handles);
