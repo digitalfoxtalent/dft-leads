@@ -138,15 +138,23 @@ function readListBody(cv) {
   catch (e) { return { body: {}, bad: true }; }
 }
 // Write a list's JSON (plus any other columns) and read it back to be sure it stuck.
+// Speed (Tom, 11 Oct 2026): the read-back comes back in the same call as the write, and the
+// warm copy of the board is patched with the new list instead of being thrown away, so a
+// tick or price edit costs one monday call rather than a full reload of the roster.
 async function writeList(itemId, body, extra, isSettings) {
   if (!isSettings && !(Array.isArray(body.ids) && body.ids.length)) throw new Error("A list needs at least one creator, so nothing was changed.");
   const { values, text } = bodyValues(body);
-  await monday("mutation($b:ID!,$i:ID!,$v:JSON!){change_multiple_column_values(board_id:$b,item_id:$i,column_values:$v){id}}",
+  const d = await monday(`mutation($b:ID!,$i:ID!,$v:JSON!){change_multiple_column_values(board_id:$b,item_id:$i,column_values:$v){id name column_values(ids:${JSON.stringify(ITEM_COLS.concat([L.updated]))}){id text}}}`,
     { b: String(LISTS_BOARD), i: String(itemId), v: JSON.stringify(Object.assign({}, extra || {}, values)) });
-  cache = null;
-  const d = await monday(`query{items(ids:[${itemId}]){column_values(ids:${JSON.stringify(ITEM_COLS)}){id text}}}`);
-  const cv = {}; ((((d || {}).items || [])[0] || {}).column_values || []).forEach(c => { cv[c.id] = c.text || ""; });
-  if (ITEM_COLS.map(c => cv[c] || "").join("") !== text) throw new Error("monday did not save the whole list. Please try again, and tell Tom if it keeps happening.");
+  const item = (d || {}).change_multiple_column_values || {};
+  const cv = {}; (item.column_values || []).forEach(c => { cv[c.id] = c.text || ""; });
+  if (ITEM_COLS.map(c => cv[c] || "").join("") !== text) { cache = null; throw new Error("monday did not save the whole list. Please try again, and tell Tom if it keeps happening."); }
+  if (isSettings) { cache = null; return; }
+  if (cache) {
+    const l = cache.data.lists.find(x => x.id === String(itemId));
+    if (l) Object.assign(l, { body: JSON.parse(text), bad: false, updated: cv[L.updated] || l.updated, name: item.name || l.name });
+    else cache = null; // a new list: the next read loads it
+  }
 }
 const TEXT_FIELDS = ["host", "category", "location", "about", "hostGender", "hostRead", "exclusive", "adTypes", "audience",
   "male", "female", "a1317", "a1824", "a2534", "a3544", "a4554", "a5564", "us", "uk"];
@@ -377,6 +385,23 @@ async function loadBoard() {
   return data;
 }
 
+// One list, read straight from monday (Tom, 11 Oct 2026). Every change to a list starts from
+// this, never from the warm copy, so two people (or two open tabs) can never undo each
+// other's ticks, and pages always show the list as it is now. One small call, not a reload.
+async function freshList(slug) {
+  let data = await loadBoard();
+  let l = data.lists.find(x => x.slug === String(slug || ""));
+  if (!l) { cache = null; data = await loadBoard(); l = data.lists.find(x => x.slug === String(slug || "")); }
+  if (!l) return { data, list: null };
+  const d = await monday(`query{items(ids:[${l.id}]){id name state column_values(ids:${JSON.stringify([...new Set(Object.values(L).concat(ITEM_COLS))])}){id text}}}`);
+  const it = ((d || {}).items || [])[0];
+  if (!it || it.state === "archived" || it.state === "deleted") { data.lists = data.lists.filter(x => x !== l); return { data, list: null }; }
+  const cv = {}; (it.column_values || []).forEach(c => { cv[c.id] = c.text || ""; });
+  const { body, bad } = readListBody(cv);
+  Object.assign(l, { name: it.name, slug: cv[L.slug] || l.slug, body, bad, by: cv[L.by], updated: cv[L.updated] });
+  return { data, list: l };
+}
+
 // ---------------------------------------------------------------- shaping
 
 function baseFields(r) {
@@ -591,13 +616,9 @@ const UNDO_KEYS = ["bvg", "bcpm", "brate", "bvideos", "bnote", "bq", "vis"];
 async function audit(itemId, text) {
   try { await monday("mutation($i:ID!,$t:String!){create_update(item_id:$i,body:$t){id}}", { i: itemId, t: text }); } catch (e) {}
 }
-async function editRow(b, email) {
-  if (b.scope !== "roster") throw new Error("This page is out of date. Refresh it to keep editing.");
-  const isShow = !!b.show;
-  const board = isShow ? SUB_BOARD : BOARD, K = isShow ? SC : C;
-  const id = String(b.id || "");
-  if (!/^\d+$/.test(id)) throw new Error("bad id");
-  cache = null; // read the row fresh, so Undo restores exactly what was there
+// Main rate card rows (Tom, 11 Oct 2026): read and write one row, and patch the warm copy
+// of the board with what monday sends back, instead of reloading the whole roster twice.
+async function freshRow(id, isShow) {
   const data = await loadBoard();
   let row = null, kind = "long";
   data.rows.forEach(r => {
@@ -605,6 +626,33 @@ async function editRow(b, email) {
     if (isShow) r.shows.forEach(s => { if (s.id === id) { row = s; kind = "long"; } });
   });
   if (!row) throw new Error("row not found");
+  const d = await monday(`query{items(ids:[${id}]){id name column_values(ids:${JSON.stringify(isShow ? SCOLS : PCOLS)}){id text}}}`);
+  const it = ((d || {}).items || [])[0];
+  if (!it) throw new Error("row not found");
+  (it.column_values || []).forEach(c => { row.cv[c.id] = c.text || ""; });
+  return { data, row, kind };
+}
+async function writeRow(board, id, values, K, isShow) {
+  const ids = Object.keys(values);
+  const d = await monday(`mutation($b:ID!,$i:ID!,$v:JSON!){change_multiple_column_values(board_id:$b,item_id:$i,column_values:$v){id column_values(ids:${JSON.stringify(ids)}){id text}}}`,
+    { b: String(board), i: id, v: JSON.stringify(values) });
+  const got = {}; ((((d || {}).change_multiple_column_values || {}).column_values) || []).forEach(c => { got[c.id] = c.text || ""; });
+  if (!cache) return;
+  cache.data.rows.forEach(r => {
+    if (!isShow && r.id === id) Object.assign(r.cv, got);
+    if (isShow) r.shows.forEach(s => { if (s.id === id) Object.assign(s.cv, got); });
+  });
+}
+
+async function editRow(b, email) {
+  if (b.scope !== "roster") throw new Error("This page is out of date. Refresh it to keep editing.");
+  const isShow = !!b.show;
+  const board = isShow ? SUB_BOARD : BOARD, K = isShow ? SC : C;
+  const id = String(b.id || "");
+  if (!/^\d+$/.test(id)) throw new Error("bad id");
+  // The row itself is read fresh (one small call, not a reload of the roster), so Undo
+  // restores exactly what was there.
+  const { data, row, kind } = await freshRow(id, isShow);
   const values = {};
   if (b.override != null) {
     if (!["Auto", "Always show", "Hide", "List only"].includes(b.override)) throw new Error("bad override");
@@ -645,14 +693,13 @@ async function editRow(b, email) {
   if (!Object.keys(values).length) throw new Error("nothing to change");
   const before = {};
   UNDO_KEYS.forEach(k => { if (K[k]) before[k] = row.cv[K[k]] || ""; });
-  await monday("mutation($b:ID!,$i:ID!,$v:JSON!){change_multiple_column_values(board_id:$b,item_id:$i,column_values:$v){id}}",
-    { b: String(board), i: id, v: JSON.stringify(values) });
-  cache = null;
+  await writeRow(board, id, values, K, isShow);
   const what = b.override != null ? "visibility to " + b.override
     : b.videos !== undefined ? "videos to " + (b.videos == null || b.videos === "" ? "automatic" : b.videos)
     : [b.vg != null ? "view guarantee to " + b.vg : "", b.cpm != null ? "CPM to $" + b.cpm : ""].filter(Boolean).join(", ");
   await audit(id, "Roster site: " + email + " changed " + what + " on the main rate card.");
-  return { ok: true, undo: { id, show: isShow, values: before } };
+  // The page gets the updated roster back with the answer, so it does not reload it.
+  return { ok: true, undo: { id, show: isShow, values: before }, team: teamPayload(data, email) };
 }
 
 async function undoEdit(b, email) {
@@ -670,11 +717,10 @@ async function undoEdit(b, email) {
     else values[K[k]] = v;
   });
   if (!Object.keys(values).length) throw new Error("nothing to undo");
-  await monday("mutation($b:ID!,$i:ID!,$v:JSON!){change_multiple_column_values(board_id:$b,item_id:$i,column_values:$v){id}}",
-    { b: String(board), i: id, v: JSON.stringify(values) });
-  cache = null;
+  const { data } = await freshRow(id, isShow);
+  await writeRow(board, id, values, K, isShow);
   await audit(id, "Roster site: " + email + " undid the last change on the main rate card.");
-  return { ok: true };
+  return { ok: true, team: teamPayload(data, email) };
 }
 
 const slugify = s => String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "roster";
@@ -705,8 +751,8 @@ async function saveList(b, email) {
   const ids = (Array.isArray(b.ids) ? b.ids : []).map(String).filter(x => /^\d+$/.test(x)).slice(0, 300);
   if (!title) throw new Error("Give the list a name");
   if (!ids.length) throw new Error("Pick at least one creator");
-  const data = await loadBoard();
-  const existing = b.slug ? data.lists.find(l => l.slug === b.slug) : null;
+  const { data, list: existing } = b.slug ? await freshList(b.slug) : { data: await loadBoard(), list: null };
+  if (b.slug && !existing) throw new Error("list not found");
   if (existing && existing.bad) throw new Error(LIST_READ_ERROR);
   const nextBody = Object.assign({}, existing ? existing.body : {}, { ids });
   if (existing && nextBody.lock) { // creators added to a locked list are locked at today's prices
@@ -727,8 +773,7 @@ async function saveList(b, email) {
 }
 
 async function deleteList(b) {
-  const data = await loadBoard();
-  const l = data.lists.find(x => x.slug === String(b.slug || ""));
+  const { list: l } = await freshList(b.slug);
   if (!l) throw new Error("list not found");
   // Archived, not deleted: it can be restored from the board's archive.
   await monday("mutation($i:ID!){archive_item(item_id:$i){id}}", { i: l.id });
@@ -737,8 +782,7 @@ async function deleteList(b) {
 }
 
 async function listPrice(b, email) {
-  const data = await loadBoard();
-  const list = data.lists.find(x => x.slug === String(b.slug || ""));
+  const { data, list } = await freshList(b.slug);
   if (!list) throw new Error("list not found");
   const id = String(b.id || "");
   if (!/^\d+$/.test(id)) throw new Error("bad id");
@@ -789,8 +833,7 @@ async function listPrice(b, email) {
     body.lock = Object.assign({}, body.lock, { rows });
   }
   await writeList(list.id, body, { [L.updated]: email + " " + stamp() });
-  const fresh = await loadBoard();
-  return brandPayload(fresh, fresh.lists.find(x => x.slug === list.slug) || Object.assign({}, list, { body }), true);
+  return brandPayload(data, Object.assign({}, list, { body }), true);
 }
 
 // The brand's own feedback on a list (Tom, 10 Oct 2026). Brands are not signed in: the list's
@@ -798,9 +841,7 @@ async function listPrice(b, email) {
 // approve or un-approve a creator already on the list and leave a short note on it. Each
 // change is posted as an update on the list's monday item so the team hears about it.
 async function brandFeedback(b, email) {
-  cache = null; // read the list fresh so one brand click never undoes another
-  const data = await loadBoard();
-  const list = data.lists.find(x => x.slug === String(b.slug || ""));
+  const { data, list } = await freshList(b.slug); // fresh, so one brand click never undoes another
   if (!list) throw new Error("This list is no longer available");
   if (list.bad) throw new Error("Sorry, that could not be saved. Please let Digital Fox Talent know.");
   const id = String(b.id || "");
@@ -822,24 +863,20 @@ async function brandFeedback(b, email) {
   if (String(before.note || "") !== note) bits.push(note ? "left a note on " + who + ": " + note : "removed their note on " + who);
   // The team can tick "Brand approved" in Stage for a brand that approved by email.
   if (bits.length) await audit(list.id, (email ? email + " (for the brand)" : "Brand feedback") + " on \u201c" + list.name + "\u201d: " + bits.join("; "));
-  const fresh = await loadBoard();
-  return brandPayload(fresh, fresh.lists.find(x => x.slug === list.slug) || Object.assign({}, list, { body }), !!email);
+  return brandPayload(data, Object.assign({}, list, { body }), !!email);
 }
 
 async function listLabel(b, email) {
-  const data = await loadBoard();
-  const list = data.lists.find(x => x.slug === String(b.slug || ""));
+  const { data, list } = await freshList(b.slug);
   if (!list) throw new Error("list not found");
   if (list.bad) throw new Error(LIST_READ_ERROR);
   const body = Object.assign({}, list.body, { estViews: !!b.est });
   await writeList(list.id, body, { [L.updated]: email + " " + stamp() });
-  const fresh = await loadBoard();
-  return brandPayload(fresh, fresh.lists.find(x => x.slug === list.slug) || Object.assign({}, list, { body }), true);
+  return brandPayload(data, Object.assign({}, list, { body }), true);
 }
 
 async function listConfirm(b, email) {
-  const data = await loadBoard();
-  const list = data.lists.find(x => x.slug === String(b.slug || ""));
+  const { data, list } = await freshList(b.slug);
   if (!list) throw new Error("list not found");
   if (list.bad) throw new Error(LIST_READ_ERROR);
   const id = String(b.id || "");
@@ -853,21 +890,47 @@ async function listConfirm(b, email) {
   if (stage === "approached") appr.add(id);
   const body = Object.assign({}, list.body, { confirmed: [...conf], approached: [...appr] });
   await writeList(list.id, body, { [L.updated]: email + " " + stamp() });
-  const fresh = await loadBoard();
-  return brandPayload(fresh, fresh.lists.find(x => x.slug === list.slug) || Object.assign({}, list, { body }), true);
+  return brandPayload(data, Object.assign({}, list, { body }), true);
 }
 
 async function listLock(b, email) {
-  const data = await loadBoard();
-  const list = data.lists.find(x => x.slug === String(b.slug || ""));
+  const { data, list } = await freshList(b.slug);
   if (!list) throw new Error("list not found");
   if (list.bad) throw new Error(LIST_READ_ERROR);
   const body = Object.assign({}, list.body);
   if (b.lock) body.lock = { on: stamp(), by: email, quarter: quarterLabel(), rows: lockSnapshot(data, list) };
   else delete body.lock;
   await writeList(list.id, body, { [L.updated]: email + " " + stamp() });
-  const fresh = await loadBoard();
-  return brandPayload(fresh, fresh.lists.find(x => x.slug === list.slug) || Object.assign({}, list, { body }), true);
+  return brandPayload(data, Object.assign({}, list, { body }), true);
+}
+
+// Reordering and removing (Tom, 11 Oct 2026). These used to send the page's whole copy of
+// the list, so a tab opened a while ago could put back creators removed since. Now the page
+// sends only the order it wants, or the creators to take off, and the server applies that
+// to the list as it is on monday right now.
+async function listOrder(b, email) {
+  const { data, list } = await freshList(b.slug);
+  if (!list) throw new Error("list not found");
+  if (list.bad) throw new Error(LIST_READ_ERROR);
+  const cur = (list.body.ids || []).map(String), have = new Set(cur);
+  const want = (Array.isArray(b.ids) ? b.ids : []).map(String).filter((x, i, a) => have.has(x) && a.indexOf(x) === i);
+  // The moved creators take the slots those same creators held; everyone else stays put.
+  const moved = new Set(want), queue = want.slice();
+  const ids = cur.map(id => moved.has(id) ? queue.shift() : id);
+  const body = Object.assign({}, list.body, { ids });
+  await writeList(list.id, body, { [L.updated]: email + " " + stamp() });
+  return brandPayload(data, Object.assign({}, list, { body }), true);
+}
+async function listRemove(b, email) {
+  const { data, list } = await freshList(b.slug);
+  if (!list) throw new Error("list not found");
+  if (list.bad) throw new Error(LIST_READ_ERROR);
+  const drop = new Set((Array.isArray(b.ids) ? b.ids : []).map(String));
+  const ids = (list.body.ids || []).map(String).filter(id => !drop.has(id));
+  if (!ids.length) throw new Error("That would leave the list empty, so nothing was changed.");
+  const body = Object.assign({}, list.body, { ids });
+  await writeList(list.id, body, { [L.updated]: email + " " + stamp() });
+  return brandPayload(data, Object.assign({}, list, { body }), true);
 }
 
 async function saveColumns(b, email) {
@@ -940,6 +1003,8 @@ export default async function handler(req, res) {
         if (b.op === "list-lock") return res.status(200).json(await listLock(b, email));
         if (b.op === "list-confirm") return res.status(200).json(await listConfirm(b, email));
         if (b.op === "list-label") return res.status(200).json(await listLabel(b, email));
+        if (b.op === "list-order") return res.status(200).json(await listOrder(b, email));
+        if (b.op === "list-remove") return res.status(200).json(await listRemove(b, email));
       } catch (e) {
         return res.status(400).json({ error: String(e && e.message || e) });
       }
@@ -955,9 +1020,10 @@ export default async function handler(req, res) {
       return res.status(200).json(teamPayload(data, email));
     }
 
-    const data = await loadBoard();
     if (q.list) {
-      const list = data.lists.find(l => l.slug === String(q.list));
+      // The list itself is read fresh every time (one small call), so a page never shows, or
+      // later saves over, an older copy of it.
+      const { data, list } = await freshList(q.list);
       if (!list) { res.setHeader("Cache-Control", "s-maxage=30"); return res.status(404).json({ error: "This list is no longer available" }); }
       if (email) { // the team sees which prices are list-only; never cache that copy
         res.setHeader("Cache-Control", "private, no-store");
@@ -967,6 +1033,7 @@ export default async function handler(req, res) {
       res.setHeader("Cache-Control", "private, no-store");
       return res.status(200).json(brandPayload(data, list, false));
     }
+    const data = await loadBoard();
     // Brand numbers change once a quarter or when the team edits one, so a short edge
     // cache with a long stale window keeps the page instant without hiding an edit for long.
     res.setHeader("Cache-Control", "s-maxage=120, stale-while-revalidate=86400");
