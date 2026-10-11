@@ -54,6 +54,23 @@ function siteContacts(bodyHtml) {
     .replace(/corrections@digitalfoxtalent\.com/gi, mail("corrections"));
 }
 
+// END NOTE TIDY, 11 Oct 2026 (Tom). The publisher closes every article with one or two
+// orange-ruled "ai-disclosure" paragraphs (two shapes in the store: a two-paragraph note, and a
+// single "About this article" paragraph). At render time the whole run becomes ONE line:
+// "Adapted with AI from <Creator>'s video of <date> and reviewed by Digital Fox Talent before
+// publication. Editorial standards · Corrections". Display only: the stored body and the MSN copy
+// are untouched. The date is the video's own, read from the note; failing that the upload date.
+// Possessive is <Creator>' when the name ends in s, otherwise <Creator>'s.
+const possessive = n => /s$/i.test(n) ? `${n}'` : `${n}'s`;
+function endNote(bodyHtml, a, base) {
+  const run = /(?:<p class="ai-disclosure">[\s\S]*?<\/p>\s*)+/i;
+  const m = bodyHtml.match(run); if (!m) return bodyHtml;
+  const said = (m[0].match(/first published on (\d{1,2} [A-Z][a-z]+ \d{4})/) || [])[1];
+  const when = said || (a.u && !isNaN(new Date(a.u)) ? fmt(a.u) : "");
+  const line = `<p class="ai-disclosure"><em>Adapted with AI from ${esc(possessive(a.b))} video${when ? ` of ${esc(when)}` : ""} and reviewed by Digital Fox Talent before publication. <a href="${base}/about#standards">Editorial standards</a> &middot; <a href="mailto:${mail("corrections")}">Corrections</a></em></p>`;
+  return bodyHtml.replace(run, () => line);
+}
+
 function withInArticleAds(bodyHtml, every = 5) {
   const parts = bodyHtml.split(/(?<=<\/p>)/);
   const paras = parts.filter(p => /<p>/.test(p)).length;
@@ -515,7 +532,7 @@ export function articlePage(a, data, base) {
         <span class="nm"><b><a href="${base}/c/${esc(slugH(a.c))}" style="color:inherit;text-decoration:none">${esc(a.c)}</a></b><span>${esc(fmt(a.p))}</span></span>
         <span class="meta">${a.w.toLocaleString("en-GB")} words · ${a.rt} min read</span></div>
       ${editorNote(a, data, base)}
-      <div class="prose">${withInArticleAds(siteContacts(a.body))}</div>
+      <div class="prose">${withInArticleAds(endNote(siteContacts(a.body), a, base))}</div>
       ${a.short ? `<p class="deckacts" style="margin:1.2rem 0 0"><a href="https://www.youtube.com/shorts/${esc(a.v)}" target="_blank" rel="noopener" style="color:${(FORMATS[a.f] || FORMATS.breakdown).ink}">Watch the Short</a><a class="ghost" href="${base}/snippets#s-${esc(a.id)}">More Snippets</a></p>` : ""}
       ${bioFor(a.c) ? `<aside class="crbio" aria-label="About the creator" style="margin:2.4rem 0 0;padding:1rem 1.25rem;border:1px solid var(--rule-2);border-radius:4px">
         <p style="margin:0 0 .5rem;font-size:.72rem;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3)">About the creator</p>
