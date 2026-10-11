@@ -285,10 +285,39 @@ async function fetchJson(url) {
   return r.json();
 }
 
+// FEED READS THAT FAIL, 11 Oct 2026 (Tom approved). Seen live that day: for several minutes the
+// site showed 27 of its 43 articles and every piece from five creators returned 404, then all 43
+// came back. The store still held every article. Likely cause: one read per feed, all ~70 fired at
+// once, and a feed whose read failed was silently dropped until the next cache turn. Now each
+// read is retried (three tries, short backoff), reads run a few at a time instead of all at once,
+// and if a feed still cannot be read this instance keeps serving the last copy it read
+// successfully. A feed only disappears from the site when the store stops listing it.
+const lastGood = new Map();                      // store key -> last array read successfully
+async function readFeed(k) {
+  let err;
+  for (let t = 0; t < 3; t++) {
+    try {
+      const v = await fetchJson(STORE + "/records/" + k);
+      if (!Array.isArray(v)) throw new Error(`not an array for ${k}`);
+      lastGood.set(k, v);
+      return v;
+    } catch (e) { err = e; await new Promise(r => setTimeout(r, 300 * (t + 1))); }
+  }
+  if (lastGood.has(k)) { console.warn(`SUBPLOT: feed read failed, serving last good copy: ${k}`); return lastGood.get(k); }
+  console.error(`SUBPLOT: feed read failed with no earlier copy, feed missing this turn: ${k}`, String(err));
+  throw err;
+}
+async function readAll(keys, width = 8) {
+  const out = new Array(keys.length); let next = 0;
+  const worker = async () => { while (next < keys.length) { const i = next++; try { out[i] = { status: "fulfilled", value: await readFeed(keys[i]) }; } catch (e) { out[i] = { status: "rejected", reason: e }; } } };
+  await Promise.all(Array.from({ length: Math.min(width, keys.length) }, worker));
+  return out;
+}
+
 async function load() {
   const keys = (await fetchJson(STORE + "/keys?limit=1000")).data.items
     .map(i => i.key).filter(k => k.endsWith("__items"));
-  const results = await Promise.allSettled(keys.map(k => fetchJson(STORE + "/records/" + k)));
+  const results = await readAll(keys);
   const seen = new Set(); const arts = [];
   results.forEach((res, i) => {
     if (res.status !== "fulfilled" || !Array.isArray(res.value)) return;
