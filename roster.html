@@ -214,6 +214,7 @@
   .dbt.no.on{ background:#b23a2a; color:#fff; }
   .dec .fbn{ padding:1px 7px; font-size:10.5px; }
   .stg label.mine{ color:#1f4f80; }
+  body.saving-list #count::after{ content:" · saving…"; color:var(--muted,#888); }
   .pill.conf{ background:#e3f3e9; color:var(--ok); }
   .fbw{ display:inline-flex; flex-direction:column; align-items:center; gap:4px; }
   .fbr{ display:inline-flex; gap:5px; }
@@ -709,22 +710,22 @@ function wire(){
     sc.querySelectorAll("button.nt.ro").forEach(bt=>bt.addEventListener("click",e=>{ e.preventDefault(); e.stopPropagation(); const f=findListRow(bt.dataset.id); if(f) fbPopup(bt,f.row,true); }));
     sc.querySelectorAll("button.tri").forEach(bt=>bt.addEventListener("click",async e=>{
       e.stopPropagation(); const f=findListRow(bt.dataset.id); if(!f) return; const r=f.row;
-      const d={"":"yes",yes:"no",no:""}[bt.dataset.s||""];
-      try{ applyBrand(await post({op:"brand-feedback",slug:LIST_SLUG,id:r.id,decision:d,note:(r.fb&&r.fb.note)||""})); toast(d==="yes"?"Marked as approved by the brand":d==="no"?"Marked as rejected by the brand":"Brand decision cleared"); }
-      catch(err){ toast(err.message,true); }
+      const d={"":"yes",yes:"no",no:""}[bt.dataset.s||""], note=(r.fb&&r.fb.note)||"";
+      patchListRow(r.id,x=>{ x.fb=(d||note)?{ok:d==="yes",no:d==="no",note}:undefined; });
+      listSave({op:"brand-feedback",slug:LIST_SLUG,id:r.id,decision:d,note},d==="yes"?"Marked as approved by the brand":d==="no"?"Marked as rejected by the brand":"Brand decision cleared").catch(()=>{});
     }));
     sc.querySelectorAll("td.edit").forEach(td=>td.addEventListener("click",e=>{e.stopPropagation(); startEdit(td);}));
     sc.querySelectorAll("input.conf").forEach(cb=>cb.addEventListener("change",async()=>{
       // Approached comes first: ticking Confirmed ticks it too, unticking Approached clears both.
       const stage=cb.dataset.st==="confirmed"?(cb.checked?"confirmed":"approached"):(cb.checked?"approached":"");
-      try{ const j=await post({op:"list-confirm",slug:LIST_SLUG,id:cb.dataset.id,stage}); applyBrand(j); toast({confirmed:"Confirmed",approached:"Approached","":"Stage cleared"}[stage]); }
-      catch(e){ toast(e.message,true); render(); }
+      patchListRow(cb.dataset.id,x=>{ x.stage=stage; x.confirmed=stage==="confirmed"; });
+      listSave({op:"list-confirm",slug:LIST_SLUG,id:cb.dataset.id,stage},{confirmed:"Confirmed",approached:"Approached","":"Stage cleared"}[stage]).catch(()=>{});
     }));
     sc.querySelectorAll("input.dsc").forEach(cb=>cb.addEventListener("change",async()=>{
       const f=findListRow(cb.dataset.id); if(!f){ render(); return; } const r=f.row;
       const body={op:"list-price",slug:LIST_SLUG,id:cb.dataset.id,disc:cb.checked,curCpm:r.askCpm||r.cpm,curVg:r.vgPer!=null?r.vgPer:r.vg};
-      try{ const j=await post(body); applyBrand(j); toast(cb.checked?"Discount on: now type the lower CPM":"Discount off: CPM put back"); }
-      catch(e){ toast(e.message,true); render(); }
+      patchListRow(cb.dataset.id,x=>{ x.disc=cb.checked||undefined; });
+      listSave(body,cb.checked?"Discount on: now type the lower CPM":"Discount off: CPM put back").catch(()=>{});
     }));
   }
   // Column drag (the orange columns; the blue DFT columns stay first).
@@ -808,10 +809,9 @@ async function saveListOrder(order){
   if(!l){ toast("Sign in again to reorder this list",true); return; }
   const prev=(BRAND.groups[activeTab]||[]).slice(), pos={}; order.forEach((id,i)=>pos[id]=i);
   BRAND.groups[activeTab]=prev.slice().sort((a,b)=>pos[a.id]-pos[b.id]); sortKey=null; render();
-  const inTab=new Set(order), queue=order.slice();
-  const ids=l.ids.map(String).map(id=>inTab.has(id)?queue.shift():id).concat(queue);
-  try{ await post({op:"save-list",title:BRAND.list.title,slug:LIST_SLUG,ids}); l.ids=ids; toast("Order saved. Brands see the list in this order"); }
-  catch(e){ BRAND.groups[activeTab]=prev; render(); toast(e.message,true); }
+  // Only this tab's new order is sent; the server applies it to the list as it is now, so
+  // an older open tab can never put back creators that were removed (Tom, 11 Oct 2026).
+  listSave({op:"list-order",slug:LIST_SLUG,ids:order},"Order saved. Brands see the list in this order").then(j=>{ l.ids=[].concat(...Object.values(j.groups).map(a=>a.map(c=>c.id))); }).catch(()=>{});
 }
 // Brand feedback (Tom, 10 Oct 2026). Approve toggles; Note opens a small box.
 function wireFeedback(sc){
@@ -822,10 +822,9 @@ function wireFeedback(sc){
   }
   sc.querySelectorAll("button.tri").forEach(bt=>bt.addEventListener("click",async e=>{
     e.stopPropagation(); const f=findListRow(bt.dataset.id); if(!f) return; const r=f.row;
-    const d={"":"yes",yes:"no",no:""}[bt.dataset.s||""];
-    bt.disabled=true;
-    try{ applyBrand(await post({op:"brand-feedback",slug:LIST_SLUG,id:r.id,decision:d,note:(r.fb&&r.fb.note)||""})); toast(d==="yes"?"Approved. Tick again to reject":d==="no"?"Rejected. Add a note to tell us why":"Cleared"); }
-    catch(err){ bt.disabled=false; toast(err.message,true); }
+    const d={"":"yes",yes:"no",no:""}[bt.dataset.s||""], note=(r.fb&&r.fb.note)||"";
+    patchListRow(r.id,x=>{ x.fb=(d||note)?{ok:d==="yes",no:d==="no",note}:undefined; });
+    listSave({op:"brand-feedback",slug:LIST_SLUG,id:r.id,decision:d,note},d==="yes"?"Approved. Tick again to reject":d==="no"?"Rejected. Add a note to tell us why":"Cleared").catch(()=>{});
   }));
   sc.querySelectorAll(".drow button.nt").forEach(bt=>bt.addEventListener("click",e=>{ e.stopPropagation(); const f=findListRow(bt.dataset.id); if(f) fbPopup(bt,f.row,false); }));
 }
@@ -840,9 +839,10 @@ function fbPopup(anchor,r,readOnly){
   p.querySelectorAll("button").forEach(bt=>bt.onclick=async()=>{
     const a=bt.dataset.a; if(a==="x"){ p.classList.remove("on"); return; }
     const text=a==="del"?"":(ta?ta.value:"");
-    bt.disabled=true;
-    try{ applyBrand(await post({op:"brand-feedback",slug:LIST_SLUG,id:r.id,decision:r.fb&&r.fb.ok?"yes":r.fb&&r.fb.no?"no":"",note:text})); p.classList.remove("on"); toast(text?"Note saved. Our team can see it":"Note removed"); }
-    catch(err){ bt.disabled=false; toast(err.message,true); }
+    const d=r.fb&&r.fb.ok?"yes":r.fb&&r.fb.no?"no":"";
+    p.classList.remove("on");
+    patchListRow(r.id,x=>{ x.fb=(d||text)?{ok:d==="yes",no:d==="no",note:text}:undefined; });
+    listSave({op:"brand-feedback",slug:LIST_SLUG,id:r.id,decision:d,note:text},text?"Note saved. Our team can see it":"Note removed").catch(()=>{});
   });
 }
 function findRow(id){
@@ -872,8 +872,9 @@ function startListEdit(td){
     if(raw===""){ body.clear=true; if(isVid) body.field="videos"; }
     else if(isVid) body.videos=v;
     else { body[field]=v; body.curVg=r.vgPer!=null?r.vgPer:r.vg; body.curCpm=r.askCpm||r.cpm; if(f.kind!=="long") body.curFee=r.fee!=null?r.fee:(r.vg>=250000?7500:r.vg>=100000?5000:3000); }
-    try{ const j=await post(body); applyBrand(j); toast(body.clear?(isVid?"Back to the automatic number of videos":"Back to the roster price for this list"):(isVid?"Videos saved for this list only":"Saved for this list only")); }
-    catch(e){ toast(e.message,true); render(); }
+    // The typed number shows at once; the totals follow when the save comes back.
+    td.textContent=raw===""?"…":field==="cpm"?money2(v):int(v);
+    listSave(body,body.clear?(isVid?"Back to the automatic number of videos":"Back to the roster price for this list"):(isVid?"Videos saved for this list only":"Saved for this list only")).catch(()=>{});
   };
   inp.addEventListener("keydown",e=>{ if(e.key==="Enter") finish(true); if(e.key==="Escape") finish(false); });
   inp.addEventListener("blur",()=>finish(true));
@@ -916,7 +917,7 @@ function startEdit(td){
     if(isVid&&raw===""){ if(!commit||!f.row.videosSet){ render(); return; } td.classList.add("saving"); changeMain(Object.assign(base,{videos:null}),`${who}: videos ${cur} → automatic`); return; }
     if(!commit||v==null||v===cur){ render(); return; }
     if(isVid&&!(v>=1&&v<=50&&Math.round(v)===v)){ toast("Videos must be a whole number from 1 to 50",true); render(); return; }
-    td.classList.add("saving");
+    td.classList.add("saving"); td.textContent=fmtNum(field,v); // shows at once; Cancel puts it back
     changeMain(Object.assign(base,{[field]:v}),`${who}: ${FIELD_NAME[field]} ${fmtNum(field,cur)} → ${fmtNum(field,v)}`);
   };
   inp.addEventListener("keydown",e=>{ if(e.key==="Enter") finish(true); if(e.key==="Escape") finish(false); });
@@ -924,19 +925,43 @@ function startEdit(td){
   inp.addEventListener("click",e=>e.stopPropagation());
 }
 
+// Saved-list changes (Tom, 11 Oct 2026): the page changes straight away and the save runs
+// behind it. Saves for a list go one at a time, in the order they were made, so quick
+// clicks can never overtake each other. If a save fails, the list is put back to what
+// monday holds and the reason is shown.
+let listQ=Promise.resolve(), listPending=0;
+function listSave(body,okMsg){
+  listPending++; document.body.classList.add("saving-list");
+  const run=listQ.then(async()=>{
+    try{ const j=await post(body); listPending--; if(!listPending) applyBrand(j); if(okMsg) toast(okMsg); return j; }
+    catch(e){ listPending--; toast("Not saved, so it has been put back: "+e.message,true); try{ await loadBrand(true); }catch(_){ render(); } throw e; }
+    finally{ if(!listPending) document.body.classList.remove("saving-list"); }
+  });
+  listQ=run.catch(()=>{});
+  return run;
+}
+// Re-shows the list with one row changed locally (the save is already on its way).
+function patchListRow(id,fn){ const f=findListRow(id); if(!f) return; fn(f.row); renderBanner(); render(); }
 async function post(body){
   const r=await fetch("/api/roster",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(body),credentials:"same-origin"});
   const j=await r.json().catch(()=>({}));
   if(!r.ok) throw new Error(j.error||("HTTP "+r.status));
   return j;
 }
+// The answer carries the updated roster (Tom, 11 Oct 2026), so the page no longer reloads it.
+function applyTeam(t){
+  if(!t) return false;
+  TEAM=t; applyLayout(TEAM); if(mode==="team") PAYLOAD=TEAM; renderBanner(); render();
+  loadBrand(!!LIST_SLUG).catch(()=>{}); // brand preview catches up in the background
+  return true;
+}
 async function save(body){
   try{
     const j=await post(body);
-    await loadTeam(true);
+    if(!applyTeam(j&&j.team)) await loadTeam(true);
     if(j&&j.undo){
       const close=confirmBar(`<b>Main rate card updated.</b><span class="cs">${body.override?"Visibility: "+esc(body.override):"Holds until the quarter resets."}</span>`,"Undo",async()=>{
-        try{ await post({op:"undo-edit",id:j.undo.id,show:j.undo.show,values:j.undo.values}); await loadTeam(true); toast("Change undone"); }
+        try{ const u=await post({op:"undo-edit",id:j.undo.id,show:j.undo.show,values:j.undo.values}); if(!applyTeam(u&&u.team)) await loadTeam(true); toast("Change undone"); }
         catch(e){ toast(e.message,true); }
       },null);
       setTimeout(()=>{ if(cbarDone===close){ cbarDone=null; $("#cbar").classList.remove("on"); } },10000);
@@ -1070,10 +1095,10 @@ async function removeTabFromList(gid){
   if(!ids.length) return;
   const label=(GROUPS.find(g=>g.id===gid)||{}).label||"That tab";
   try{
-    await post({op:"save-list",title:BRAND.list.title,ids,slug:LIST_SLUG});
-    l.ids=ids; await loadBrand(true);
+    await listSave({op:"list-remove",slug:LIST_SLUG,ids:[...drop]});
+    l.ids=ids;
     toast(label+" taken off this list. Add creators back from the DFT view.");
-  }catch(e){ toast(e.message,true); }
+  }catch(e){}
 }
 function applyBrand(p){
   BRAND=p; if(!TEAM) applyLayout(p);
