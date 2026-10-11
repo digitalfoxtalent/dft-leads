@@ -502,7 +502,9 @@ export async function getData() {
 }
 
 // See the REVIEW SET note in loadData. true = only these article ids render (43 as at 3 Oct 2026).
-export const REVIEW_SET_ON = true;
+// LAUNCH (Tom, 11 Oct 2026: "Before opening to search, we would need to get all of the articles live"). The review set
+// ends with the launch: merging this PR shows every article again alongside dropping the noindex. Set true to restore it.
+export const REVIEW_SET_ON = false;
 export const REVIEW_SET = [
   "JOFMVYJFVR4", "dVDVnbpeco4", "jkJfhdqfSrE", "QKEOyUJ5oJQ", "ECdZTmkiN5U", "tmdRhQm4Ask",
   "N69s8oDSD-E", "ZHMmndWNelQ", "hVHYb8lZKhk", "RcyW0YLDxYU", "1yeVdXjnPMM", "dVpDUQoeM_Q",
