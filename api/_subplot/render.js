@@ -471,14 +471,18 @@ export function homePage(data, base, section = "all", page = 1) {
 
 // Editor's note (see notes.js): SUBPLOT's own short framing of a piece, signed by the person who
 // approved it. Links are only rendered when the target article is live on the site.
+// TIDY, 11 Oct 2026 (Tom): the note's summary sentences repeated the standfirst directly above
+// it, so the box now carries only the "Read it alongside" links and the signature. The text in
+// notes.js is untouched. When none of a note's links is live, the box keeps ONE short line of
+// context (the note's first sentence) rather than showing an empty signed box.
+const firstSentence = t => String(t || "").split(/(?<=[a-z0-9)'"][.!?])\s+(?=[A-Z])/)[0];
 function editorNote(a, data, base) {
   const n = NOTES[a.id]; if (!n) return "";
   const [text, links] = n;
   const live = (links || []).filter(([, href]) => data.arts.some(x => artPath(x) === href));
-  const read = live.length ? `<p style="margin:0 0 .7rem">Read it alongside ${live.map(([label, href]) => `<a href="${base}${esc(href)}" style="color:var(--blue)">${esc(label)}</a>`).join(" and ")}.</p>` : "";
+  const read = live.length ? `<p style="margin:0 0 .7rem">Read it alongside ${live.map(([label, href]) => `<a href="${base}${esc(href)}" style="color:var(--blue)">${esc(label)}</a>`).join(" and ")}.</p>` : `<p style="margin:0 0 .7rem">${esc(firstSentence(text))}</p>`;
   return `<aside class="ednote" aria-label="Editor's note" style="margin:1.6rem 0 2.2rem;padding:1.1rem 1.3rem;border-left:3px solid var(--blue);background:var(--paper-3)">
         <p style="margin:0 0 .55rem;font-size:.72rem;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3)">Editor's note</p>
-        <p style="margin:0 0 .7rem">${esc(text)}</p>
         ${read}
         <p style="margin:0;font-size:.85rem;color:var(--ink-3)">${esc(NOTE_SIGNOFF)}</p>
       </aside>`;
