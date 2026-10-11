@@ -33,6 +33,14 @@ const initials = n => n.replace(/[^A-Za-z ]/g, "").split(/\s+/).filter(Boolean).
 const mark = (name, url) => url
   ? `<span class="mono av"><img src="${esc(url)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer"></span>`
   : `<span class="mono">${esc(initials(name))}</span>`;
+// BYLINE AVATAR, 11 Oct 2026 (Tom: the circle by the @handle under the headline showed empty
+// grey). The byline sits above the fold, so its picture loads eagerly rather than lazily (a lazy
+// image leaves the grey circle showing until the browser gets round to it), and if YouTube's image
+// host fails for any reason the circle falls back to the creator's initials instead of staying
+// empty. Display only.
+const bylineMark = (name, url) => url
+  ? `<span class="mono av"><img src="${esc(url)}" alt="" width="36" height="36" decoding="async" fetchpriority="high" referrerpolicy="no-referrer" onerror="this.parentNode.className='mono';this.parentNode.textContent='${esc(initials(name))}'"></span>`
+  : mark(name, url);
 const slugH = h => h.replace(/^@/, "");
 
 // ---- Ad slots. Placeholders for now; each becomes one network tag at launch.
@@ -528,7 +536,7 @@ export function articlePage(a, data, base) {
       ${design() === 3 ? `<span class="tagrow" style="justify-content:flex-start;gap:1rem"><span class="fmt" style="color:${(FORMATS[a.f] || FORMATS.breakdown).ink}"><i style="background:${(FORMATS[a.f] || FORMATS.breakdown).col}"></i>${(FORMATS[a.f] || FORMATS.breakdown).name}${a.short ? " · Snippet" : ""}</span><span class="kicker" style="color:var(--ink-3)">${esc(CATS[a.k])}</span></span>` : `<span class="kicker">${esc(CATS[a.k])}</span>`}
       <h1 class="headline">${esc(a.h)}</h1>
       <p class="dek">${esc(a.s)}</p>
-      <div class="authorbar">${mark(a.b, data.avatars && data.avatars[a.c])}
+      <div class="authorbar">${bylineMark(a.b, data.avatars && data.avatars[a.c])}
         <span class="nm"><b><a href="${base}/c/${esc(slugH(a.c))}" style="color:inherit;text-decoration:none">${esc(a.c)}</a></b><span>${esc(fmt(a.p))}</span></span>
         <span class="meta">${a.w.toLocaleString("en-GB")} words · ${a.rt} min read</span></div>
       ${editorNote(a, data, base)}
