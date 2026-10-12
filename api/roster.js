@@ -933,6 +933,31 @@ async function listRemove(b, email) {
   return brandPayload(data, Object.assign({}, list, { body }), true);
 }
 
+// Live totals while choosing creators (Tom, 12 Oct 2026). Read only: works out what a list
+// would cost with these creators, at the prices brands would see (the list's own prices,
+// discounts and any campaign lock included), plus the saved list's total to compare with.
+function totalsOf(p) {
+  let total = 0, was = 0, ytViews = 0, shortViews = 0, videos = 0, profiles = 0;
+  GROUPS.forEach(g => (p.groups[g.id] || []).forEach(c => {
+    const t = typeof c.total === "number" ? c.total : (typeof c.rate === "number" ? c.rate : 0);
+    total += t; was += c.wasTotal ? c.wasTotal - t : 0; profiles++;
+    if (g.kind === "long") { ytViews += c.vg || 0; videos += c.minVideos || 1; } else { shortViews += c.vg || 0; videos += 1; }
+  }));
+  return { total, discount: was, ytViews, shortViews, videos, profiles };
+}
+async function listPreview(b) {
+  const ids = (Array.isArray(b.ids) ? b.ids : []).map(String).filter(x => /^\d+$/.test(x)).slice(0, 300);
+  const { data, list } = b.slug ? await freshList(b.slug) : { data: await loadBoard(), list: null };
+  if (list && list.bad) throw new Error(LIST_READ_ERROR);
+  const base = list ? list.body : {};
+  const asList = body => ({ name: list ? list.name : "", slug: list ? list.slug : "", body });
+  const now = totalsOf(brandPayload(data, asList(Object.assign({}, base, { ids })), false));
+  const saved = list ? totalsOf(brandPayload(data, asList(base), false)) : null;
+  // Creators chosen that brands would not see on a list (set to Hide, or no figures yet).
+  const missing = ids.length - now.profiles;
+  return { now, saved, missing, estViews: !!base.estViews };
+}
+
 async function saveColumns(b, email) {
   const cols = (Array.isArray(b.columns) ? b.columns : []).map(String).filter(x => /^[a-zA-Z0-9]+$/.test(x)).slice(0, 60);
   if (!cols.length) throw new Error("no columns");
@@ -1004,6 +1029,7 @@ export default async function handler(req, res) {
         if (b.op === "list-confirm") return res.status(200).json(await listConfirm(b, email));
         if (b.op === "list-label") return res.status(200).json(await listLabel(b, email));
         if (b.op === "list-order") return res.status(200).json(await listOrder(b, email));
+        if (b.op === "list-preview") return res.status(200).json(await listPreview(b));
         if (b.op === "list-remove") return res.status(200).json(await listRemove(b, email));
       } catch (e) {
         return res.status(400).json({ error: String(e && e.message || e) });

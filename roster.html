@@ -166,6 +166,10 @@
   .selbar input{ font-family:var(--font); font-size:12.5px; border:0; border-radius:7px; padding:7px 10px; width:240px; max-width:100%; }
   .selbar .btn{ background:#fff; }
   .selbar .msg{ color:#ffcf99; font-weight:600; }
+  .selbar .seltot{ display:flex; gap:14px; flex-wrap:wrap; flex-basis:100%; order:9; padding-top:6px; margin-top:2px; border-top:1px solid rgba(255,255,255,.15); }
+  .selbar .seltot:empty{ display:none; }
+  .selbar .seltot b{ color:#ffcf99; }
+  .selbar .seltot .up{ color:#ffb3a6; } .selbar .seltot .dn{ color:#9fe0b4; } .selbar .seltot.busy{ opacity:.55; }
 
   /* Lists panel */
   .panel{ position:fixed; right:16px; top:60px; width:420px; max-width:calc(100vw - 32px); max-height:70vh; overflow:auto; background:#fff; border:1px solid #e4d8c7; border-radius:12px; box-shadow:0 18px 50px rgba(0,0,0,.18); z-index:20; display:none; }
@@ -281,6 +285,7 @@
 
   <div class="selbar" id="selbar">
     <span id="selCount"></span>
+    <span id="selTotals" class="seltot"></span>
     <input id="listName" placeholder="Name this list, e.g. Marvel pitch - Disney" maxlength="80">
     <button class="btn" id="saveList">Save list</button>
     <button class="btn" id="saveAsNew" style="display:none">Save as new</button>
@@ -987,6 +992,33 @@ function renderSelbar(){
   $("#selCount").textContent=picked.size+" selected"+(editingList?" · editing “"+editingList.title+"”":"");
   $("#saveList").textContent=editingList?"Update list":"Save list";
   $("#saveAsNew").style.display=editingList?"":"none";
+  queueTotals();
+}
+// Live package total while choosing creators (Tom, 12 Oct 2026): what the list would cost
+// with the creators ticked right now, at the prices brands would see, and how that compares
+// with the saved list. Worked out by the server so list prices and discounts are included.
+let totTimer=null, totSeq=0, totKey="";
+function queueTotals(){
+  const ids=[]; GROUPS.forEach(g=>((TEAM&&TEAM.groups[g.id])||[]).forEach(c=>{ if(picked.has(c.id)) ids.push(c.id); }));
+  const key=(editingList?editingList.slug:"")+"|"+ids.join(",");
+  if(key===totKey) return; totKey=key;
+  $("#selTotals").classList.add("busy");
+  clearTimeout(totTimer);
+  totTimer=setTimeout(async()=>{
+    const seq=++totSeq;
+    try{
+      const j=await post({op:"list-preview",slug:editingList?editingList.slug:null,ids});
+      if(seq!==totSeq) return;
+      const n=j.now, sv=j.saved, d=sv?n.total-sv.total:0;
+      const views=[n.ytViews?`<span><b>${int(n.ytViews)}</b> ${j.estViews?"estimated":"guaranteed"} YouTube views</span>`:"",n.shortViews?`<span><b>${int(n.shortViews)}</b> estimated short-form views</span>`:""].join("");
+      $("#selTotals").innerHTML=`<span>Package total <b>${money(n.total)}</b></span>`
+        +(sv&&d?`<span class="${d>0?"up":"dn"}" title="Compared with the saved list (${money(sv.total)})">${d>0?"+":"−"}${money(Math.abs(d))} vs saved</span>`:sv?`<span title="Same as the saved list">same as saved</span>`:"")
+        +(n.discount>0?`<span>Discount <b>${money(n.discount)}</b></span>`:"")
+        +`<span><b>${n.videos}</b> video${n.videos===1?"":"s"}</span>${views}`
+        +(j.missing>0?`<span title="Set to Hide, or no figures yet, so brands would not see them on the list">${j.missing} not shown to brands</span>`:"");
+    }catch(e){ if(seq===totSeq) $("#selTotals").textContent=""; }
+    finally{ if(seq===totSeq) $("#selTotals").classList.remove("busy"); }
+  },350);
 }
 async function saveList(asNew){
   const title=$("#listName").value.trim()||(editingList&&editingList.title)||"";
@@ -998,6 +1030,7 @@ async function saveList(asNew){
     try{ await navigator.clipboard.writeText(j.url); }catch(_){}
     $("#selMsg").innerHTML=`Saved. Link copied: <a href="${esc(j.url)}" target="_blank" style="text-decoration:underline">${esc(j.url.replace(/^https:\/\//,""))}</a>`;
     editingList={slug:j.slug,title};
+    totKey=""; // the saved list changed, so "vs saved" starts again from it
     await loadTeam(true);
   }catch(e){ toast(e.message,true); }
 }
