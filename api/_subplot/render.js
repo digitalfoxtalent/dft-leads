@@ -510,7 +510,7 @@ export function articlePage(a, data, base) {
       <h1 class="headline">${esc(a.h)}</h1>
       <p class="dek">${esc(a.s)}</p>
       <div class="authorbar">${mark(a.b, data.avatars && data.avatars[a.c])}
-        <span class="nm"><b><a href="${base}/c/${esc(slugH(a.c))}" style="color:inherit;text-decoration:none">${esc(a.c)}</a></b><span>${esc(fmt(a.p))}</span></span>
+        <span class="nm"><b><a href="${base}/c/${esc(slugH(a.c))}" style="color:inherit;text-decoration:none">${esc(a.b || a.c)}</a> <span style="font-weight:400">(AI-assisted)</span></b><span>${esc(fmt(a.p))}</span></span>
         <span class="meta">${a.w.toLocaleString("en-GB")} words · ${a.rt} min read</span></div>
       ${editorNote(a, data, base)}
       <div class="prose">${withInArticleAds(siteContacts(a.body))}</div>
@@ -602,7 +602,7 @@ export function joinPage(data, base) {
       <div class="step"><span class="n">03</span><h3>It runs under your name.</h3><p>Your byline, your channel link on every piece, your audience. Pull any article at any time. Leave whenever you like.</p></div>
     </div>
     <div class="honest"><span class="lbl">The honest bit</span>
-      <div><p>The first draft is written by AI, from your YouTube video transcript. A fidelity check then compares it with the video and holds anything that drifts. Every article says so in a short note at the end - readers don&rsquo;t mind how something was made; they mind being lied to about it.</p>
+      <div><p>The first draft is written by AI, from your YouTube video transcript. A fidelity check then compares it with the video and holds anything that drifts. Our editorial team then reviews it, and nothing runs until it is signed off. Every article says so in a short note at the end - readers don&rsquo;t mind how something was made; they mind being lied to about it.</p>
         <p>What&rsquo;s never AI: the ideas, the takes, the jokes, the reporting, the personality. Those are yours, which is the whole point.</p></div>
     </div>
     <div class="twocol">
@@ -707,16 +707,16 @@ export function aboutPage(data, base) {
     <p>${BRAND_()} is a publication written by the people who actually watch the things it covers. Every article here started life as a video by one of the ${data.panel.length} creators on <a href="${base}/#panel" style="color:var(--blue)">The Panel</a>, and runs under that creator&rsquo;s name with a link to the video it came from. We don&rsquo;t have staff writers. We don&rsquo;t have anonymous bylines.</p>
     <p>The name is the idea: the story under the story. Breakdowns, theories, reactions, opinions, reviews and lore - the second layer that people who love this stuff actually talk about.</p>
     ${brand().key === "subplot" ? `<h2 id="publisher">Who publishes ${BRAND_()}</h2>
-    <p>${BRAND_()} is owned and published by <a href="https://digitalfoxtalent.com" rel="noopener" style="color:var(--blue)">Digital Fox Talent LLC</a>, a creator management agency based in Denver, Colorado. It is edited by Tom James, who reads and approves the editor&rsquo;s notes that sit on its articles. Questions about the site go to ${mail("hello")}.</p>` : ""}
+    <p>${BRAND_()} is owned and published by <a href="https://digitalfoxtalent.com" rel="noopener" style="color:var(--blue)">Digital Fox Talent LLC</a>, a creator management agency based in Denver, Colorado. It is edited by Tom James, Founder of Digital Fox Talent, who leads its editorial team and signs off every article before it is published. Questions about the site go to ${mail("hello")}.</p>` : ""}
 
     <h2 id="standards">Editorial standards</h2>
-    <p><b>One creator, one byline.</b> Each article is adapted from a single creator&rsquo;s own video and published under their handle. If it isn&rsquo;t theirs, it isn&rsquo;t here.</p>
+    <p><b>One creator, one byline.</b> Each article is adapted from a single creator&rsquo;s own video and published under their name. If it isn&rsquo;t theirs, it isn&rsquo;t here.</p>
     <p><b>Claims keep their strength.</b> A rumour stays a rumour, a theory stays a theory, and a creator&rsquo;s opinion is presented as their opinion. Nothing is upgraded to fact on the way from video to page.</p>
     <p><b>The source is always one click away.</b> Every article ends with the original video. If you want the full argument, the tone, the jokes - it&rsquo;s right there.</p>
     <p><b>Corrections.</b> If we&rsquo;ve got something wrong, tell us at ${mail("corrections")} and we&rsquo;ll fix it and say so.</p>
 
     <h2 id="ai">How we use AI</h2>
-    <p>The first draft of every article is written by AI, from the creator&rsquo;s own transcript. A fidelity check then compares the draft with the video and holds back anything that drifts from what was actually said. Every article carries a short note saying so.</p>
+    <p>The first draft of every article is written by AI, from the creator&rsquo;s own transcript. A fidelity check then compares the draft with the video and holds back anything that drifts from what was actually said. Every article carries a short note saying so. Our editorial team then reviews each article, and Tom James signs off every one before it is published.</p>
     <p>What&rsquo;s never AI: the ideas, the takes, the jokes, the reporting, the personality. Those belong to the creator, which is the whole point.</p>
     <p>Creators join by applying with their handle and agreeing to the same standard terms as everyone else; nothing publishes under a creator&rsquo;s name without that agreement, and any creator can pull any article at any time.</p>
 
