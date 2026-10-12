@@ -168,7 +168,9 @@ export default async function handler(req, res) {
 
     // The board is rewritten once a day by the sync, so serve from the edge cache
     // and refresh behind the visitor, the same as the sibling endpoint.
-    res.setHeader("Cache-Control", "s-maxage=1800, stale-while-revalidate=86400");
+    // Five minutes, not thirty (Tom, 12 Oct 2026): a DFT edit reaches the website about as
+    // fast as it reaches the roster. The warm-up job refreshes it every five minutes.
+    res.setHeader("Cache-Control", "s-maxage=300, stale-while-revalidate=86400");
     return res.status(200).json(out);
   } catch (e) {
     return res.status(500).json({ error: String(e && e.message || e) });

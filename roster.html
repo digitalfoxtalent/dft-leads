@@ -166,6 +166,10 @@
   .selbar input{ font-family:var(--font); font-size:12.5px; border:0; border-radius:7px; padding:7px 10px; width:240px; max-width:100%; }
   .selbar .btn{ background:#fff; }
   .selbar .msg{ color:#ffcf99; font-weight:600; }
+  .selbar .seltot{ display:flex; gap:14px; flex-wrap:wrap; flex-basis:100%; order:9; padding-top:6px; margin-top:2px; border-top:1px solid rgba(255,255,255,.15); }
+  .selbar .seltot:empty{ display:none; }
+  .selbar .seltot b{ color:#ffcf99; }
+  .selbar .seltot .up{ color:#ffb3a6; } .selbar .seltot .dn{ color:#9fe0b4; } .selbar .seltot.busy{ opacity:.55; }
 
   /* Lists panel */
   .panel{ position:fixed; right:16px; top:60px; width:420px; max-width:calc(100vw - 32px); max-height:70vh; overflow:auto; background:#fff; border:1px solid #e4d8c7; border-radius:12px; box-shadow:0 18px 50px rgba(0,0,0,.18); z-index:20; display:none; }
@@ -281,6 +285,7 @@
 
   <div class="selbar" id="selbar">
     <span id="selCount"></span>
+    <span id="selTotals" class="seltot"></span>
     <input id="listName" placeholder="Name this list, e.g. Marvel pitch - Disney" maxlength="80">
     <button class="btn" id="saveList">Save list</button>
     <button class="btn" id="saveAsNew" style="display:none">Save as new</button>
@@ -821,7 +826,7 @@ async function saveListOrder(order){
   BRAND.groups[activeTab]=prev.slice().sort((a,b)=>pos[a.id]-pos[b.id]); sortKey=null; render();
   // Only this tab's new order is sent; the server applies it to the list as it is now, so
   // an older open tab can never put back creators that were removed (Tom, 11 Oct 2026).
-  listSave({op:"list-order",slug:LIST_SLUG,ids:order},"Order saved. Brands see the list in this order").then(j=>{ l.ids=[].concat(...Object.values(j.groups).map(a=>a.map(c=>c.id))); }).catch(()=>{});
+  listSave({op:"list-order",slug:LIST_SLUG,ids:order},"Order saved. Brands see the list in this order").catch(()=>{});
 }
 // Brand feedback (Tom, 10 Oct 2026). Approve toggles; Note opens a small box.
 function wireFeedback(sc){
@@ -896,11 +901,13 @@ function startListEdit(td){
 // cannot change it.
 let cbarDone=null;
 function confirmBar(html,yes,onYes,onNo){
+  // Close any bar still showing first (Tom, 12 Oct 2026): closing it after opening the new one
+  // hid the new bar too, so a second edit made within 10 seconds of the last was never saved.
+  if(cbarDone) cbarDone(false);
   const bar=$("#cbar"); $("#cbarText").innerHTML=html; $("#cbarYes").textContent=yes; $("#cbarNo").style.display=onNo===null?"none":"";
   bar.classList.add("on");
   const close=ok=>{ if(cbarDone!==close) return; cbarDone=null; bar.classList.remove("on"); document.removeEventListener("keydown",key,true); (ok?onYes:(onNo||(()=>{})))(); };
   const key=e=>{ if(e.key==="Escape"){ e.preventDefault(); close(false); } if(e.key==="Enter"&&!e.target.closest("input")){ e.preventDefault(); close(true); } };
-  if(cbarDone) cbarDone(false);
   cbarDone=close; $("#cbarYes").onclick=()=>close(true); $("#cbarNo").onclick=()=>close(false);
   setTimeout(()=>document.addEventListener("keydown",key,true),0);
   return close;
@@ -943,12 +950,17 @@ let listQ=Promise.resolve(), listPending=0;
 function listSave(body,okMsg){
   listPending++; document.body.classList.add("saving-list");
   const run=listQ.then(async()=>{
-    try{ const j=await post(body); listPending--; if(!listPending) applyBrand(j); if(okMsg) toast(okMsg); return j; }
+    try{ const j=await post(body); listPending--; if(!listPending) applyBrand(j); if(okMsg) toast(okMsg); syncTeamList(j); return j; }
     catch(e){ listPending--; toast("Not saved, so it has been put back: "+e.message,true); try{ await loadBrand(true); }catch(_){ render(); } throw e; }
     finally{ if(!listPending) document.body.classList.remove("saving-list"); }
   });
   listQ=run.catch(()=>{});
   return run;
+}
+// Keeps the saved-lists panel and "Add / remove creators" in step with a change made here.
+function syncTeamList(j){
+  const l=TEAM&&TEAM.lists&&j&&j.list&&TEAM.lists.find(x=>x.slug===j.list.slug); if(!l) return;
+  if(Array.isArray(j.list.ids)) l.ids=j.list.ids.slice();
 }
 // Re-shows the list with one row changed locally (the save is already on its way).
 function patchListRow(id,fn){ const f=findListRow(id); if(!f) return; fn(f.row); renderBanner(); render(); }
@@ -962,7 +974,7 @@ async function post(body){
 function applyTeam(t){
   if(!t) return false;
   TEAM=t; applyLayout(TEAM); if(mode==="team") PAYLOAD=TEAM; renderBanner(); render();
-  loadBrand(!!LIST_SLUG).catch(()=>{}); // brand preview catches up in the background
+  loadBrand(true).catch(()=>{}); // brand preview catches up in the background
   return true;
 }
 async function save(body){
@@ -987,6 +999,33 @@ function renderSelbar(){
   $("#selCount").textContent=picked.size+" selected"+(editingList?" · editing “"+editingList.title+"”":"");
   $("#saveList").textContent=editingList?"Update list":"Save list";
   $("#saveAsNew").style.display=editingList?"":"none";
+  queueTotals();
+}
+// Live package total while choosing creators (Tom, 12 Oct 2026): what the list would cost
+// with the creators ticked right now, at the prices brands would see, and how that compares
+// with the saved list. Worked out by the server so list prices and discounts are included.
+let totTimer=null, totSeq=0, totKey="";
+function queueTotals(){
+  const ids=[]; GROUPS.forEach(g=>((TEAM&&TEAM.groups[g.id])||[]).forEach(c=>{ if(picked.has(c.id)) ids.push(c.id); }));
+  const key=(editingList?editingList.slug:"")+"|"+ids.join(",");
+  if(key===totKey) return; totKey=key;
+  $("#selTotals").classList.add("busy");
+  clearTimeout(totTimer);
+  totTimer=setTimeout(async()=>{
+    const seq=++totSeq;
+    try{
+      const j=await post({op:"list-preview",slug:editingList?editingList.slug:null,ids});
+      if(seq!==totSeq) return;
+      const n=j.now, sv=j.saved, d=sv?n.total-sv.total:0;
+      const views=[n.ytViews?`<span><b>${int(n.ytViews)}</b> ${j.estViews?"estimated":"guaranteed"} YouTube views</span>`:"",n.shortViews?`<span><b>${int(n.shortViews)}</b> estimated short-form views</span>`:""].join("");
+      $("#selTotals").innerHTML=`<span>Package total <b>${money(n.total)}</b></span>`
+        +(sv&&d?`<span class="${d>0?"up":"dn"}" title="Compared with the saved list (${money(sv.total)})">${d>0?"+":"−"}${money(Math.abs(d))} vs saved</span>`:sv?`<span title="Same as the saved list">same as saved</span>`:"")
+        +(n.discount>0?`<span>Discount <b>${money(n.discount)}</b></span>`:"")
+        +`<span><b>${n.videos}</b> video${n.videos===1?"":"s"}</span>${views}`
+        +(j.missing>0?`<span title="Set to Hide, or no figures yet, so brands would not see them on the list">${j.missing} not shown to brands</span>`:"");
+    }catch(e){ if(seq===totSeq) $("#selTotals").textContent=""; }
+    finally{ if(seq===totSeq) $("#selTotals").classList.remove("busy"); }
+  },350);
 }
 async function saveList(asNew){
   const title=$("#listName").value.trim()||(editingList&&editingList.title)||"";
@@ -998,6 +1037,7 @@ async function saveList(asNew){
     try{ await navigator.clipboard.writeText(j.url); }catch(_){}
     $("#selMsg").innerHTML=`Saved. Link copied: <a href="${esc(j.url)}" target="_blank" style="text-decoration:underline">${esc(j.url.replace(/^https:\/\//,""))}</a>`;
     editingList={slug:j.slug,title};
+    totKey=""; // the saved list changed, so "vs saved" starts again from it
     await loadTeam(true);
   }catch(e){ toast(e.message,true); }
 }
@@ -1121,7 +1161,9 @@ function applyBrand(p){
 async function loadBrand(bust){
   // bust: signed-in team members on a list page fetch past the edge cache, so they get
   // the copy that marks list-only prices.
-  const url=LIST_SLUG?"/api/roster?list="+encodeURIComponent(LIST_SLUG)+(bust?"&t="+Date.now():""):"/api/roster";
+  // Signed in, the main roster is fetched past the edge copy too, so Brand preview always
+  // shows the latest numbers (Tom, 12 Oct 2026).
+  const url=LIST_SLUG?"/api/roster?list="+encodeURIComponent(LIST_SLUG)+(bust?"&t="+Date.now():""):"/api/roster"+(bust?"?t="+Date.now():"");
   const r=await fetch(url,{headers:{accept:"application/json"}});
   const j=await r.json().catch(()=>({}));
   if(!r.ok) throw new Error(j.error||"Could not load the roster right now.");
@@ -1137,7 +1179,8 @@ async function loadTeam(fresh){
   applyLayout(TEAM);
   $("#teamTools").style.display="inline-flex"; $("#signin").style.display="none";
   if(first&&!LIST_SLUG) mode="team";
-  if(fresh||(first&&LIST_SLUG)){ try{ await loadBrand(!!LIST_SLUG); }catch(_){} }
+  if(fresh||(first&&LIST_SLUG)){ try{ await loadBrand(true); }catch(_){} }
+  else if(first) loadBrand(true).catch(()=>{}); // main page: swap the brand copy for the latest, in the background
   setMode(mode==="brand"&&LIST_SLUG?"edit":mode);
   return true;
 }

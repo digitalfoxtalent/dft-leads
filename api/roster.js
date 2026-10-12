@@ -152,7 +152,7 @@ async function writeList(itemId, body, extra, isSettings) {
   if (isSettings) { cache = null; return; }
   if (cache) {
     const l = cache.data.lists.find(x => x.id === String(itemId));
-    if (l) Object.assign(l, { body: JSON.parse(text), bad: false, updated: cv[L.updated] || l.updated, name: item.name || l.name });
+    if (l) { Object.assign(l, { body: JSON.parse(text), bad: false, updated: cv[L.updated] || l.updated, name: item.name || l.name }); await noteWrite(LISTS_BOARD); }
     else cache = null; // a new list: the next read loads it
   }
 }
@@ -278,10 +278,30 @@ const normName = n => String(n || "").toLowerCase().replace(/\s*[-–]\s*shorts\
 // ---------------------------------------------------------------- load
 
 const PCOLS = Object.values(C), SCOLS = Object.values(SC);
-let cache = null; // { at, data } per warm instance
+let cache = null; // { at, data, stamps } per warm instance
+
+// Every page sees the latest (Tom, 12 Oct 2026). Each warm server copy used to keep the
+// board for up to a minute, so a change made through one copy could be missing from a page
+// served by another ("updating in some areas and not others"). Now, before using its copy,
+// a server asks monday when each board it reads last changed (one small call) and reloads
+// only if something did. Changes made here patch the copy and note the board's new time.
+const STAMP_BOARDS = [BOARD, SUB_BOARD, LISTS_BOARD, CREATOR_BOARD, REGISTER_BOARD, MEGA_BOARD];
+async function boardStamps() {
+  const d = await monday(`query{boards(ids:[${STAMP_BOARDS.join(",")}]){id updated_at}}`);
+  const o = {}; ((d || {}).boards || []).forEach(b => { o[String(b.id)] = b.updated_at || ""; });
+  return o;
+}
+const sameStamps = (a, b) => !!a && !!b && STAMP_BOARDS.every(id => (a[id] || "") === (b[id] || ""));
+async function noteWrite(boardId) { // after our own write: keep the patched copy, note the board's new time
+  if (!cache) return;
+  try { const s = await boardStamps(); STAMP_BOARDS.forEach(id => { if (String(id) !== String(boardId) && s[id] !== cache.stamps[id]) cache = null; }); if (cache) cache.stamps = s; }
+  catch (e) { cache = null; }
+}
 
 async function loadBoard() {
-  if (cache && Date.now() - cache.at < 60 * 1000) return cache.data;
+  let stamps = null;
+  try { stamps = await boardStamps(); } catch (e) { if (cache && Date.now() - cache.at < 60 * 1000) return cache.data; }
+  if (cache && sameStamps(stamps, cache.stamps)) { cache.at = Date.now(); return cache.data; }
   const p = JSON.stringify(PCOLS), s = JSON.stringify(SCOLS);
   const groupQ = g => `query{boards(ids:[${BOARD}]){groups(ids:["${g}"]){id items_page(limit:200){items{id name column_values(ids:${p}){id text value} subitems{id name column_values(ids:${s}){id text}}}}}}}`;
   // Location and State / Region come from the Global Talent Roster (Country dup__of_state6,
@@ -381,7 +401,7 @@ async function loadBoard() {
   const settings = listItems.find(x => x.name === "__settings");
   const data = { rows, lists: listItems.filter(x => x.name !== "__settings" && x.slug), columns: (settings && settings.body.columns) || null,
     rowOrder: (settings && settings.body.rows) || {}, widths: (settings && settings.body.widths) || {}, settingsId: settings && settings.id };
-  cache = { at: Date.now(), data };
+  cache = { at: Date.now(), data, stamps };
   return data;
 }
 
@@ -581,6 +601,7 @@ function brandPayload(data, list, team, noLock) {
     Object.values(groups).forEach(a => a.sort((x, y) => order[x.id] - order[y.id]));
   } else Object.values(groups).forEach(a => a.sort((x, y) => (y.vgPer || y.vg || y.rate || 0) - (x.vgPer || x.vg || x.rate || 0)));
   return { view: "brand", quarter: quarterLabel(), columns: data.columns, widths: data.widths, rows: ids ? {} : data.rowOrder, list: list ? { title: list.name, slug: list.slug, manual: !!list.body.manual,
+    ids: team ? (list.body.ids || []).map(String) : undefined, // the team's copy: every creator, shown or not
     lock: list.body.lock ? { on: list.body.lock.on, quarter: list.body.lock.quarter } : null,
     // Estimated Views (Tom, 10 Oct 2026): a list can call YouTube's View Guarantee
     // "Estimated Views" instead, for pitches where the views are not guaranteed.
@@ -642,6 +663,7 @@ async function writeRow(board, id, values, K, isShow) {
     if (!isShow && r.id === id) Object.assign(r.cv, got);
     if (isShow) r.shows.forEach(s => { if (s.id === id) Object.assign(s.cv, got); });
   });
+  await noteWrite(board);
 }
 
 async function editRow(b, email) {
@@ -698,6 +720,7 @@ async function editRow(b, email) {
     : b.videos !== undefined ? "videos to " + (b.videos == null || b.videos === "" ? "automatic" : b.videos)
     : [b.vg != null ? "view guarantee to " + b.vg : "", b.cpm != null ? "CPM to $" + b.cpm : ""].filter(Boolean).join(", ");
   await audit(id, "Roster site: " + email + " changed " + what + " on the main rate card.");
+  await noteWrite(board); // the audit note also counts as a change on monday
   // The page gets the updated roster back with the answer, so it does not reload it.
   return { ok: true, undo: { id, show: isShow, values: before }, team: teamPayload(data, email) };
 }
@@ -720,6 +743,7 @@ async function undoEdit(b, email) {
   const { data } = await freshRow(id, isShow);
   await writeRow(board, id, values, K, isShow);
   await audit(id, "Roster site: " + email + " undid the last change on the main rate card.");
+  await noteWrite(board);
   return { ok: true, team: teamPayload(data, email) };
 }
 
@@ -862,7 +886,7 @@ async function brandFeedback(b, email) {
   if (was !== decision) bits.push(decision === "yes" ? "approved " + who : decision === "no" ? "rejected " + who : "cleared their decision on " + who);
   if (String(before.note || "") !== note) bits.push(note ? "left a note on " + who + ": " + note : "removed their note on " + who);
   // The team can tick "Brand approved" in Stage for a brand that approved by email.
-  if (bits.length) await audit(list.id, (email ? email + " (for the brand)" : "Brand feedback") + " on \u201c" + list.name + "\u201d: " + bits.join("; "));
+  if (bits.length) { await audit(list.id, (email ? email + " (for the brand)" : "Brand feedback") + " on \u201c" + list.name + "\u201d: " + bits.join("; ")); await noteWrite(LISTS_BOARD); }
   return brandPayload(data, Object.assign({}, list, { body }), !!email);
 }
 
@@ -931,6 +955,31 @@ async function listRemove(b, email) {
   const body = Object.assign({}, list.body, { ids });
   await writeList(list.id, body, { [L.updated]: email + " " + stamp() });
   return brandPayload(data, Object.assign({}, list, { body }), true);
+}
+
+// Live totals while choosing creators (Tom, 12 Oct 2026). Read only: works out what a list
+// would cost with these creators, at the prices brands would see (the list's own prices,
+// discounts and any campaign lock included), plus the saved list's total to compare with.
+function totalsOf(p) {
+  let total = 0, was = 0, ytViews = 0, shortViews = 0, videos = 0, profiles = 0;
+  GROUPS.forEach(g => (p.groups[g.id] || []).forEach(c => {
+    const t = typeof c.total === "number" ? c.total : (typeof c.rate === "number" ? c.rate : 0);
+    total += t; was += c.wasTotal ? c.wasTotal - t : 0; profiles++;
+    if (g.kind === "long") { ytViews += c.vg || 0; videos += c.minVideos || 1; } else { shortViews += c.vg || 0; videos += 1; }
+  }));
+  return { total, discount: was, ytViews, shortViews, videos, profiles };
+}
+async function listPreview(b) {
+  const ids = (Array.isArray(b.ids) ? b.ids : []).map(String).filter(x => /^\d+$/.test(x)).slice(0, 300);
+  const { data, list } = b.slug ? await freshList(b.slug) : { data: await loadBoard(), list: null };
+  if (list && list.bad) throw new Error(LIST_READ_ERROR);
+  const base = list ? list.body : {};
+  const asList = body => ({ name: list ? list.name : "", slug: list ? list.slug : "", body });
+  const now = totalsOf(brandPayload(data, asList(Object.assign({}, base, { ids })), false));
+  const saved = list ? totalsOf(brandPayload(data, asList(base), false)) : null;
+  // Creators chosen that brands would not see on a list (set to Hide, or no figures yet).
+  const missing = ids.length - now.profiles;
+  return { now, saved, missing, estViews: !!base.estViews };
 }
 
 async function saveColumns(b, email) {
@@ -1004,6 +1053,7 @@ export default async function handler(req, res) {
         if (b.op === "list-confirm") return res.status(200).json(await listConfirm(b, email));
         if (b.op === "list-label") return res.status(200).json(await listLabel(b, email));
         if (b.op === "list-order") return res.status(200).json(await listOrder(b, email));
+        if (b.op === "list-preview") return res.status(200).json(await listPreview(b));
         if (b.op === "list-remove") return res.status(200).json(await listRemove(b, email));
       } catch (e) {
         return res.status(400).json({ error: String(e && e.message || e) });
@@ -1014,12 +1064,15 @@ export default async function handler(req, res) {
     if (q.view === "team") {
       res.setHeader("Cache-Control", "private, no-store");
       if (!email) return res.status(401).json({ error: "signin" });
-      if (q.fresh) cache = null;
+      // "fresh" no longer throws the copy away: loadBoard checks monday for changes anyway.
       const data = await loadBoard();
       res.setHeader("Set-Cookie", setTeamCookie(res, secret, email)); // keep the session alive while used
       return res.status(200).json(teamPayload(data, email));
     }
 
+    // Warm-up (roster-warm cron): loads the board into this server copy so the first list
+    // page or signed-in view after a quiet spell does not wait for a cold start.
+    if (q.warm) { res.setHeader("Cache-Control", "no-store"); await loadBoard(); return res.status(200).json({ ok: true }); }
     if (q.list) {
       // The list itself is read fresh every time (one small call), so a page never shows, or
       // later saves over, an older copy of it.
@@ -1034,9 +1087,11 @@ export default async function handler(req, res) {
       return res.status(200).json(brandPayload(data, list, false));
     }
     const data = await loadBoard();
-    // Brand numbers change once a quarter or when the team edits one, so a short edge
-    // cache with a long stale window keeps the page instant without hiding an edit for long.
-    res.setHeader("Cache-Control", "s-maxage=120, stale-while-revalidate=86400");
+    // Signed in: always the latest, never an edge copy (so Brand preview matches an edit
+    // straight away). Brands: a short edge copy, refreshed in the background, so the page
+    // stays instant and an edit reaches brands within a few minutes at most.
+    if (email) { res.setHeader("Cache-Control", "private, no-store"); return res.status(200).json(brandPayload(data, null)); }
+    res.setHeader("Cache-Control", "s-maxage=30, stale-while-revalidate=600");
     return res.status(200).json(brandPayload(data, null));
   } catch (e) {
     res.setHeader("Cache-Control", "no-store");
