@@ -96,6 +96,13 @@ function roundNums(b, fine, kind = "long") {
   const o = Object.assign({}, b, { vg: rv(b.vg), rate: rr(b.rate) });
   if (b.vgPer != null) o.vgPer = rv(b.vgPer);
   if (b.ratePer != null) o.ratePer = rr(b.ratePer);
+  // YouTube: the rate is the views shown x the CPM shown, so a brand checking the sum gets the
+  // same answer (116,000 views at $25 is $2,900, not the $2,911 of the unrounded 116,420).
+  // Rows held at the $1,500 minimum keep it.
+  if (kind === "long" && o.vg > 0 && o.cpm > 0 && b.rate > FLOOR + 1) {
+    o.rate = Math.max(FLOOR, Math.round(o.vg * o.cpm / 1000));
+    if (o.vgPer != null && b.ratePer != null) o.ratePer = Math.round(o.vgPer * o.cpm / 1000);
+  }
   return o;
 }
 const RIGHTS = "12 months digital usage + boosting rights included";
