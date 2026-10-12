@@ -13,7 +13,10 @@
 // pages that carry noindex does nothing for search, and the back-link would visibly
 // connect the two sites before there is any benefit. Flip LIVE to true in the same
 // commit that removes SUBPLOT's noindex. Nothing else needs changing.
-export const LIVE = false;
+// Switched on 12 Oct 2026 (Tom: "Turn both of these on"), the day after SUBPLOT opened to search.
+// Since 11 Oct Tom is happy for SUBPLOT to look DFT owned, so the old "say nothing about
+// ownership" rule above no longer applies.
+export const LIVE = true;
 
 export const SUBPLOT_ORIGIN = "https://subplot.tv";
 export const DFT_CREATOR_PAGE = "https://digitalfoxtalent.com/brands/creators/";
