@@ -164,8 +164,11 @@ export default async function handler(req, res) {
       "AdsBot-Google-Mobile",
       "Google-Adstxt",          // fetches /ads.txt
     ];
+    // BING, 12 Oct 2026 (Tom: "Turn both of these on"). Bingbot is let in on subplot.tv itself so
+    // the site can be submitted in Bing Webmaster Tools. Not on Wordie or the /subplot preview path.
+    const bingAgents = brand().key === "subplot" && !base ? ["Bingbot"] : [];
     return res.status(200).send([
-      ...googleAgents.flatMap(a => ["User-agent: " + a, "Allow: /", ""]),
+      ...[...googleAgents, ...bingAgents].flatMap(a => ["User-agent: " + a, "Allow: /", ""]),
       "User-agent: *", "Allow: /ads.txt", "Disallow: /", "",
       // Absolute by spec, and it names the sitemap even to crawlers that never see
       // Search Console. This is the line that says "the site is here".
