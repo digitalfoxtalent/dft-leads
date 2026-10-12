@@ -618,6 +618,7 @@ function orderedAll(){
   }
   return all;
 }
+const selectable=list=>list.filter(c=>c.override!=="Hide").map(c=>c.id);
 function currentList(){
   const all=(PAYLOAD&&PAYLOAD.groups[activeTab])||[];
   const q=query.trim().toLowerCase();
@@ -670,7 +671,10 @@ function render(){
     :`${all.length} profiles across ${GROUPS.filter(g=>(PAYLOAD.groups[g.id]||[]).length).length} platforms`;
   const colgroup=`<colgroup>${cols.map(c=>`<col style="width:${c.w}px">`).join("")}</colgroup>`;
   const thead=`<thead><tr>${cols.map(c=>{
-    if(c.key==="sel") return `<th class="sel" title="Pick creators for a list"></th>`;
+    // Select all (Tom, 12 Oct 2026): ticks every creator in view on this tab (after any
+    // search). Creators set to Hide are skipped, as they can never appear on a list.
+    if(c.key==="sel"){ const ids=selectable(list), n=ids.filter(id=>picked.has(id)).length;
+      return `<th class="sel" title="${n&&n===ids.length?"Untick everyone on this tab":"Select all on this tab"}${query.trim()?" (matching the search)":""}"><input type="checkbox" class="pick" id="pickAll" ${ids.length&&n===ids.length?"checked":""} ${ids.length?"":"disabled"} data-some="${n&&n<ids.length?1:""}"></th>`; }
     const active=c.key===sortKey;
     const car=""; // no sort arrows (Tom, 6 Oct 2026); the sorted column is shaded instead
     const drag=!c.t&&c.key!=="name"?` data-drag="1"`:""; // made draggable on grab, so the resize edge stays free
@@ -698,7 +702,13 @@ function wire(){
   wireResize(sc);
 
   if(mode==="team"){
-    sc.querySelectorAll("input.pick").forEach(cb=>cb.addEventListener("change",()=>{ cb.checked?picked.add(cb.dataset.id):picked.delete(cb.dataset.id); render(); }));
+    sc.querySelectorAll("input.pick[data-id]").forEach(cb=>cb.addEventListener("change",()=>{ cb.checked?picked.add(cb.dataset.id):picked.delete(cb.dataset.id); render(); }));
+    const pa=sc.querySelector("#pickAll");
+    if(pa){ pa.indeterminate=!!pa.dataset.some;
+      pa.addEventListener("click",e=>e.stopPropagation());
+      pa.addEventListener("change",()=>{ const ids=selectable(currentList()), all=ids.length&&ids.every(id=>picked.has(id));
+        ids.forEach(id=>all?picked.delete(id):picked.add(id)); render();
+        toast(all?"Unticked everyone on this tab":`Selected ${ids.length} on this tab`); }); }
     sc.querySelectorAll("button.eye").forEach(b=>b.addEventListener("click",()=>{
       if(baseLocked()){ toast(lockedMsg(),true); return; }
       const next={"Auto":"Always show","Always show":"Hide","Hide":"List only","List only":"Auto"}[b.dataset.o]||"Auto";
