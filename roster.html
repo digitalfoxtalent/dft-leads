@@ -826,7 +826,7 @@ async function saveListOrder(order){
   BRAND.groups[activeTab]=prev.slice().sort((a,b)=>pos[a.id]-pos[b.id]); sortKey=null; render();
   // Only this tab's new order is sent; the server applies it to the list as it is now, so
   // an older open tab can never put back creators that were removed (Tom, 11 Oct 2026).
-  listSave({op:"list-order",slug:LIST_SLUG,ids:order},"Order saved. Brands see the list in this order").then(j=>{ l.ids=[].concat(...Object.values(j.groups).map(a=>a.map(c=>c.id))); }).catch(()=>{});
+  listSave({op:"list-order",slug:LIST_SLUG,ids:order},"Order saved. Brands see the list in this order").catch(()=>{});
 }
 // Brand feedback (Tom, 10 Oct 2026). Approve toggles; Note opens a small box.
 function wireFeedback(sc){
@@ -901,11 +901,13 @@ function startListEdit(td){
 // cannot change it.
 let cbarDone=null;
 function confirmBar(html,yes,onYes,onNo){
+  // Close any bar still showing first (Tom, 12 Oct 2026): closing it after opening the new one
+  // hid the new bar too, so a second edit made within 10 seconds of the last was never saved.
+  if(cbarDone) cbarDone(false);
   const bar=$("#cbar"); $("#cbarText").innerHTML=html; $("#cbarYes").textContent=yes; $("#cbarNo").style.display=onNo===null?"none":"";
   bar.classList.add("on");
   const close=ok=>{ if(cbarDone!==close) return; cbarDone=null; bar.classList.remove("on"); document.removeEventListener("keydown",key,true); (ok?onYes:(onNo||(()=>{})))(); };
   const key=e=>{ if(e.key==="Escape"){ e.preventDefault(); close(false); } if(e.key==="Enter"&&!e.target.closest("input")){ e.preventDefault(); close(true); } };
-  if(cbarDone) cbarDone(false);
   cbarDone=close; $("#cbarYes").onclick=()=>close(true); $("#cbarNo").onclick=()=>close(false);
   setTimeout(()=>document.addEventListener("keydown",key,true),0);
   return close;
@@ -948,12 +950,17 @@ let listQ=Promise.resolve(), listPending=0;
 function listSave(body,okMsg){
   listPending++; document.body.classList.add("saving-list");
   const run=listQ.then(async()=>{
-    try{ const j=await post(body); listPending--; if(!listPending) applyBrand(j); if(okMsg) toast(okMsg); return j; }
+    try{ const j=await post(body); listPending--; if(!listPending) applyBrand(j); if(okMsg) toast(okMsg); syncTeamList(j); return j; }
     catch(e){ listPending--; toast("Not saved, so it has been put back: "+e.message,true); try{ await loadBrand(true); }catch(_){ render(); } throw e; }
     finally{ if(!listPending) document.body.classList.remove("saving-list"); }
   });
   listQ=run.catch(()=>{});
   return run;
+}
+// Keeps the saved-lists panel and "Add / remove creators" in step with a change made here.
+function syncTeamList(j){
+  const l=TEAM&&TEAM.lists&&j&&j.list&&TEAM.lists.find(x=>x.slug===j.list.slug); if(!l) return;
+  if(Array.isArray(j.list.ids)) l.ids=j.list.ids.slice();
 }
 // Re-shows the list with one row changed locally (the save is already on its way).
 function patchListRow(id,fn){ const f=findListRow(id); if(!f) return; fn(f.row); renderBanner(); render(); }
@@ -967,7 +974,7 @@ async function post(body){
 function applyTeam(t){
   if(!t) return false;
   TEAM=t; applyLayout(TEAM); if(mode==="team") PAYLOAD=TEAM; renderBanner(); render();
-  loadBrand(!!LIST_SLUG).catch(()=>{}); // brand preview catches up in the background
+  loadBrand(true).catch(()=>{}); // brand preview catches up in the background
   return true;
 }
 async function save(body){
@@ -1154,7 +1161,9 @@ function applyBrand(p){
 async function loadBrand(bust){
   // bust: signed-in team members on a list page fetch past the edge cache, so they get
   // the copy that marks list-only prices.
-  const url=LIST_SLUG?"/api/roster?list="+encodeURIComponent(LIST_SLUG)+(bust?"&t="+Date.now():""):"/api/roster";
+  // Signed in, the main roster is fetched past the edge copy too, so Brand preview always
+  // shows the latest numbers (Tom, 12 Oct 2026).
+  const url=LIST_SLUG?"/api/roster?list="+encodeURIComponent(LIST_SLUG)+(bust?"&t="+Date.now():""):"/api/roster"+(bust?"?t="+Date.now():"");
   const r=await fetch(url,{headers:{accept:"application/json"}});
   const j=await r.json().catch(()=>({}));
   if(!r.ok) throw new Error(j.error||"Could not load the roster right now.");
@@ -1170,7 +1179,8 @@ async function loadTeam(fresh){
   applyLayout(TEAM);
   $("#teamTools").style.display="inline-flex"; $("#signin").style.display="none";
   if(first&&!LIST_SLUG) mode="team";
-  if(fresh||(first&&LIST_SLUG)){ try{ await loadBrand(!!LIST_SLUG); }catch(_){} }
+  if(fresh||(first&&LIST_SLUG)){ try{ await loadBrand(true); }catch(_){} }
+  else if(first) loadBrand(true).catch(()=>{}); // main page: swap the brand copy for the latest, in the background
   setMode(mode==="brand"&&LIST_SLUG?"edit":mode);
   return true;
 }

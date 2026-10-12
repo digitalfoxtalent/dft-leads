@@ -46,7 +46,7 @@
     },
     {
       "path": "/api/roster-warm",
-      "schedule": "*/10 * * * *"
+      "schedule": "*/5 * * * *"
     },
     {
       "path": "/api/link-finder",

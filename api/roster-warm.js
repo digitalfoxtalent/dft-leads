@@ -3,14 +3,14 @@
 // Vercel keys its cache per deployment, and this project deploys several times a day
 // (Subplot, Wordie, leads work), so every deploy left /api/roster cold and the next
 // brand to open roster-viewguarantee.digitalfoxtalent.com waited for monday. This
-// cron requests both feeds through the public hostname every ten minutes, so the
+// cron requests both feeds through the public hostname every five minutes, so the
 // visitor gets the cached copy and the monday call happens here instead.
 //
 // It only reads. Refused unless it comes from Vercel's scheduler or carries CRON_SECRET.
 import { isCron } from "./_reports/cron.js";
 
 const HOST = "https://roster-viewguarantee.digitalfoxtalent.com";
-const PATHS = ["/api/roster", "/api/brand-roster"];
+const PATHS = ["/api/roster", "/api/brand-roster", "/api/roster?warm=1"]; // the last one keeps a server copy warm for list pages
 
 export default async function handler(req, res) {
   const fromCron = isCron(req);
