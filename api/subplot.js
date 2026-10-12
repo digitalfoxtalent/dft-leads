@@ -3,7 +3,7 @@
 // Private preview: every response is noindex, and robots.txt lets Google crawl but nobody else.
 // Optional gate: set SUBPLOT_PASS in Vercel env to require a password (user "subplot").
 import { getData, findArt, SNIPPETS_LIVE } from "./_subplot/data.js";
-import { brandFor, setBrand, siteUrl } from "./_subplot/brand.js";
+import { brandFor, setBrand, siteUrl, brand } from "./_subplot/brand.js";
 import { runHealth } from "./_subplot/health.js";
 import { smartnewsFeed, SN_LOGO, SN_LOGO_DARK } from "./_subplot/smartnews.js";
 import { setDesign } from "./_subplot/design.js";
@@ -59,6 +59,15 @@ export default async function handler(req, res) {
 
   const path = "/" + String(req.query.path || "").replace(/^\/+|\/+$/g, "");
   const base = req.query.base === "subplot" ? "/subplot" : "";
+
+  // OPEN TO SEARCH, 11 Oct 2026 (Tom's go-ahead, with the AdSense review set only). SUBPLOT on its
+  // own domain drops the noindex header set above; everything else keeps it: Wordie (not part of
+  // this go-ahead), the /subplot preview path on the roster host (a duplicate of the real site),
+  // and the password-protected /revenue page. robots.txt is deliberately unchanged. The 400-word
+  // floor and REVIEW_SET_ON in data.js still decide which articles exist, so the held-back
+  // backlog stays 404 and out of the sitemap until AdSense approves. To close the site again,
+  // delete this block (and restore the meta tag condition in render.js shell()).
+  if (brand().key === "subplot" && !base && path !== "/revenue") res.removeHeader("X-Robots-Tag");
 
   // Design preview. ?d=2 switches on the new look, ?d=1 switches it off, and the choice is
   // remembered in a cookie so links keep it while you click around. Nobody who has not asked
