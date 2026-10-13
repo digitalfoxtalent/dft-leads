@@ -1179,7 +1179,7 @@ function parseForward(b) {
   return {
     contactName: from && from[2] ? from[1].trim() : "",
     contactEmail: from ? String(from[2] || from[1]).trim().toLowerCase() : "",
-    subject: String(subj ? subj[1] : String(b.subject || "").replace(/^\s*(fwd?|fw):\s*/i, "")).replace(/\*+/g, "").trim(),
+    subject: String(String(b.subject || "").replace(/^\s*((fwd?|fw):\s*)+/i, "").trim() || (subj ? subj[1] : "")).replace(/\*+/g, "").trim(),
     to: to ? to[1].replace(/\*+/g, "").trim() : "",
     note: at > 0 ? text.slice(0, at).trim().slice(0, 1500) : "",
     body: fwd.slice(0, 12000),
