@@ -559,7 +559,7 @@ function eyeBtn(c,isShow){
   return `<button class="eye" data-id="${c.id}" data-show="${isShow?1:0}" data-o="${o}" title="${t}. Click to change." style="color:${col}" onclick="event.stopPropagation()"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>${slash}</svg>${o==="Always show"?'<b>+</b>':o==="List only"?'<b>L</b>':""}</button>`;
 }
 function nameCell(c){
-  const has=(c.shows||[]).length;
+  const has=visShows(c).length;
   const chev=`<span class="chev ${has?"":"spacer-ic"}"${has?` title="${openSet.has(c.id)?"Hide":"Show"} this channel's ${has} show${has===1?"":"s"}, each with its own price"`:""}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg></span>`;
   const dn=dispHandle(c), real=dispName(c.name);
   const ttl=(real&&real!==dn)?` title="${esc(real)}"`:"";
@@ -568,9 +568,19 @@ function nameCell(c){
   const grip=(isPitch()&&!listEdit())?"":`<span class="grip" title="${listEdit()?"Drag to move this creator. Brands see the list in this order":"Drag to move this row"}">⠿</span>`;
   return `<div class="nmwrap">${grip}${chev}${logoHtml(c)}<span class="nmtext"${ttl}>${nm}</span>${eyeBtn(c,false)}</div>`;
 }
+// Show or hide one of a channel's shows on this saved list only (Tom, 13 Oct 2026). The main
+// rate card keeps its own setting; brands opening this list see what is set here.
+function listEyeBtn(s){
+  if(!listEdit()) return "";
+  const hid=!!s.listHidden, col=hid?"#b23a2a":"#2f7d4f";
+  const t=hid?"Hidden from brands on this list. Click to show it on this list only":"Shown to brands on this list. Click to hide it on this list only";
+  return `<button class="eye leye" data-id="${s.id}" data-vis="${hid?"show":"hide"}" title="${t}" style="color:${col}" onclick="event.stopPropagation()"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>${hid?'<line x1="3" y1="3" x2="21" y2="21"/>':""}</svg></button>`;
+}
+// A show switched off for a list reaches the team (so it can be switched back on), never a brand view.
+const visShows=c=>(c.shows||[]).filter(s=>!(s.listHidden&&!listEdit()));
 function showNameCell(s){
   const nm=s.url?`<a href="${esc(s.url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${esc(s.name)}</a>`:esc(s.name);
-  return `<div class="nmwrap"><span class="nmtext"><span class="arrow">&#8627;</span>${nm}</span>${eyeBtn(s,true)}</div>`;
+  return `<div class="nmwrap"><span class="nmtext"><span class="arrow">&#8627;</span>${nm}</span>${eyeBtn(s,true)}${listEyeBtn(s)}</div>`;
 }
 
 function rowsFor(list,cols){
@@ -591,8 +601,8 @@ function rowsFor(list,cols){
       html+=`<td class="${cl}" data-k="${col.key}"${ed?` data-edit="${col.edit}" data-id="${c.id}"${listEdit()?' data-list="1"':""}`:""}${title}>${inner}</td>`;
     });
     html+=`</tr>`;
-    if(open) (c.shows||[]).forEach(s=>{
-      html+=`<tr class="show ${mode==="team"&&!s.show?"hidden":""}">`;
+    if(open) visShows(c).forEach(s=>{
+      html+=`<tr class="show ${(mode==="team"&&!s.show)||(listEdit()&&s.listHidden)?"hidden":""}">`;
       cols.forEach(col=>{
         let inner="", cl=(col.cls||"")+(col.t?" tcol":"");
         if(col.key==="name") inner=showNameCell(s);
@@ -652,13 +662,13 @@ function totalsRow(list,cols){
   const cell=k=>{
     switch(k){
       case "name": return `Total<span class="sub">${list.length} creator${list.length===1?"":"s"}</span>`;
-      case "subs": return int(subs);
-      case "rate": { const was=list.reduce((a,c)=>a+(c.wasRate||c.rate||0),0); return money(rate)+(was>rate?`<span class="sub">saves ${money(was-rate)}</span>`:""); }
+      case "subs": return int(subs)+`<span class="sub">subscribers</span>`;
+      case "rate": { const was=list.reduce((a,c)=>a+(c.wasRate||c.rate||0),0); return money(rate)+`<span class="sub">${long?"total rate":"publishing rate"}</span>`+(was>rate?`<span class="sub">saves ${money(was-rate)}</span>`:""); }
       case "vg": return vg?int(vg)+`<span class="sub">${long&&!estLong()?"guaranteed views":"estimated views"}</span>`:"";
-      case "cpm": return long&&vg?money2(Math.round(rate*100000/vg)/100):"";
-      case "minVideos": return `${vids} video${vids===1?"":"s"}`;
-      case "fee": return money(fee);
-      case "total": return money(total);
+      case "cpm": return long&&vg?money2(Math.round(rate*100000/vg)/100)+`<span class="sub">CPM</span>`:"";
+      case "minVideos": return `${int(vids)}<span class="sub">video${vids===1?"":"s"}</span>`;
+      case "fee": return money(fee)+`<span class="sub">production rate</span>`;
+      case "total": return money(total)+`<span class="sub">total rate</span>`;
       case "rights": return long?"":`<span class="sub">12 months included</span>`;
       default: return "";
     }
@@ -738,6 +748,10 @@ function wire(){
     sc.querySelectorAll("td.edit").forEach(td=>td.addEventListener("click",e=>{e.stopPropagation(); startEdit(td);}));
   } else if(listEdit()){
     sc.querySelectorAll("button.nt.ro").forEach(bt=>bt.addEventListener("click",e=>{ e.preventDefault(); e.stopPropagation(); const f=findListRow(bt.dataset.id); if(f) fbPopup(bt,f.row,true); }));
+    sc.querySelectorAll("button.leye").forEach(bt=>bt.addEventListener("click",e=>{ e.preventDefault(); e.stopPropagation();
+      const vis=bt.dataset.vis; patchListRow(bt.dataset.id,x=>{ x.listHidden=vis==="hide"?true:undefined; });
+      listSave({op:"list-show",slug:LIST_SLUG,id:bt.dataset.id,vis},vis==="hide"?"Hidden on this list only":"Shown on this list only").catch(()=>{});
+    }));
     sc.querySelectorAll("button.tri").forEach(bt=>bt.addEventListener("click",async e=>{
       e.stopPropagation(); const f=findListRow(bt.dataset.id); if(!f) return; const r=f.row;
       const d={"":"yes",yes:"no",no:""}[bt.dataset.s||""], note=(r.fb&&r.fb.note)||"";
