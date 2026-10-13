@@ -1247,7 +1247,7 @@ function applyBrand(p){
   BRAND=p; if(!TEAM) applyLayout(p);
   $("#subtitle").textContent=p.list&&p.list.lock
     ?`Prices fixed for this campaign (set ${fmtDate(p.list.lock.on)}) · a selection from our roster`
-    :`Rates valid for ${p.quarter} · ${p.list?"a selection from our roster":"updated once a quarter"} · click the arrow beside a channel to see its shows`;
+    :`Rates valid for ${p.quarter} · ${p.list?"a selection from our roster":"updated once a quarter"} · click the arrow beside a channel to see its specific shows`;
   if(p.list) $("#title").textContent=p.list.title;
   if(mode!=="team"){ PAYLOAD=BRAND; renderBanner(); renderTabs(); render(); }
 }
