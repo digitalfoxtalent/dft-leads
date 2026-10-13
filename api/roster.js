@@ -1304,7 +1304,7 @@ async function pitchFromEmail(b) {
     // Only formats the enquiry asks for: dedicated and social placements need to be named; integrations and Shorts are the default.
     const wantF = { dedicated: /dedicated|full video|standalone video/i, group_mm4a1fe0: /instagram|\binsta\b|\bIG\b|\breels?\b/i, group_mm4bd5tk: /tik ?tok/i, group_mm7yw8cy: /snap ?chat/i };
     for (let k = ids.length - 1; k >= 0; k--) { const re = wantF[cat.byId[ids[k]].gid]; if (re && !re.test(f.body + " " + f.note)) ids.splice(k, 1); }
-    const bt = f.body + " " + f.note, socialOnly = [wantF.group_mm4a1fe0, wantF.group_mm4bd5tk, wantF.group_mm7yw8cy].some(re => re.test(bt)) && !/youtube|\byt\b|integration|\bshorts?\b|dedicated/i.test(bt);
+    const bt = (f.body + " " + f.note).replace(/https?:\/\/\S+|<[^>\s]+>/g, " "), socialOnly = [wantF.group_mm4a1fe0, wantF.group_mm4bd5tk, wantF.group_mm7yw8cy].some(re => re.test(bt)) && !/youtube|\byt\b|integration|\bshorts?\b|dedicated/i.test(bt);
     if (socialOnly) for (let k = ids.length - 1; k >= 0; k--) if (["topics", "dedicated", "group_mm4av3kr"].includes(cat.byId[ids[k]].gid)) ids.splice(k, 1);
     const groupsUsed = new Set(ids.map(id => cat.byId[id].gid)); if (!groupsUsed.size) { groupsUsed.add("topics"); groupsUsed.add("group_mm4av3kr"); }
     // A pointer that says to leave a creator out wins over everything else.
@@ -1359,7 +1359,7 @@ async function pitchFromEmail(b) {
     const text = "Hi " + first + ",\n\n" + paras.map(p => p.indexOf("[[LIST_LINK]]") >= 0 ? saved.url : p).join("\n\n") + (bullets.length ? "\n\n" + bullets.map(x => "- " + x).join("\n") : "") + "\n\n" + sig.join("\n");
     const subject = /^re:/i.test(f.subject) ? f.subject : "Re: " + f.subject;
     await pitchMark(b.item, "Ready: " + ids.length + " placements (" + out.model + ")", saved.url);
-    const cc = [...new Set((f.others || []).filter(x => x !== f.contactEmail && x !== fromEmail && (!/@digitalfoxtalent\.com$/.test(x) || /^(alex|margot|george)@/.test(x))).concat(["alex@digitalfoxtalent.com"]))].join(", "); // reply-all, minus DFT group inboxes
+    const cc = [...new Set((f.others || []).filter(x => x !== f.contactEmail && (!/@digitalfoxtalent\.com$/.test(x) || /^(alex|margot|george)@/.test(x))).concat(["tom@digitalfoxtalent.com", "alex@digitalfoxtalent.com"]))].filter(x => x !== fromEmail).join(", "); // reply-all minus DFT group inboxes; Tom and Alex always see what goes out (13 Oct 2026)
     return { ok: true, listUrl: saved.url, title, placements: ids.length, to: f.contactEmail, cc, subject, search: "from:" + f.contactEmail + " subject:\"" + f.subject.replace(/"/g, "") + "\" newer_than:90d", html, text, model: out.model, picks: out.picks };
   } catch (e) {
     try { await pitchMark(b.item, "Failed: " + String(e && e.message || e).slice(0, 200)); } catch (_) {}
