@@ -1293,7 +1293,8 @@ async function pitchFromEmail(b) {
     const norm = s => String(s || "").toLowerCase().replace(/[^a-z0-9]/g, ""), base = s => String(s || "").replace(/\s*-\s*(Shorts|Instagram|TikTok|Snapchat|Dedicated).*$/i, "");
     const hay = norm(f.body + " " + f.to); // names in the pointer are left to the model, so "leave out X" never forces X in
     const namedPl = Object.keys(cat.byId).filter(id => { const n = norm(base(cat.byId[id].name)), h = norm(cat.byId[id].handle); return (n.length >= 5 && hay.includes(n)) || (h.length >= 5 && hay.includes(h)); });
-    const namedNames = [...new Set(namedPl.map(id => base(cat.byId[id].name)))];
+    const namedNames = []; namedPl.map(id => base(cat.byId[id].name).replace(/^@/, "")).sort((a, b) => b.length - a.length).forEach(nm => { const k = norm(nm); if (!namedNames.some(x => norm(x).startsWith(k) || k.startsWith(norm(x)))) namedNames.push(nm); });
+    const nameOf = id => { const k = norm(base(cat.byId[id].name).replace(/^@/, "")); return namedNames.find(x => norm(x).startsWith(k) || k.startsWith(norm(x))) || ""; };
     const fwdName = String(b.fromName || "").replace(/["<>]/g, "").trim() || fromEmail.split("@")[0];
     const out = await askClaude(pitchPrompt(f, cat.lines, fwdName, aiNames, namedNames, pointers));
     const order = GROUPS.map(g => g.id);
@@ -1309,7 +1310,7 @@ async function pitchFromEmail(b) {
     const leftOut = nm => !!f.note && new RegExp("\\b(not|no|without|leave out|exclude|skip|don'?t|drop|remove)\\b[^.\\n]{0,40}" + esc(nm), "i").test(f.note);
     for (let k = ids.length - 1; k >= 0; k--) if (leftOut(base(cat.byId[ids[k]].name))) ids.splice(k, 1);
     const aiDeclined = []; // named creators who do not take AI work (unless the enquiry says DFT already confirmed them)
-    namedNames.forEach(nm => { if (leftOut(nm)) return; const mine = namedPl.filter(id => base(cat.byId[id].name) === nm); if (aiCamp && !mine.some(aiOk) && !/confirm/i.test(f.body)) { aiDeclined.push(nm); mine.forEach(id => { const k = ids.indexOf(id); if (k >= 0) ids.splice(k, 1); }); return; } const inG = mine.filter(id => groupsUsed.has(cat.byId[id].gid)); (inG.length ? inG : mine).forEach(id => { if (!ids.includes(id)) ids.push(id); }); });
+    namedNames.forEach(nm => { if (leftOut(nm)) return; const mine = namedPl.filter(id => nameOf(id) === nm); if (aiCamp && !mine.some(aiOk) && !/confirm/i.test(f.body)) { aiDeclined.push(nm); mine.forEach(id => { const k = ids.indexOf(id); if (k >= 0) ids.splice(k, 1); }); return; } const inG = mine.filter(id => groupsUsed.has(cat.byId[id].gid)); (inG.length ? inG : mine).forEach(id => { if (!ids.includes(id)) ids.push(id); }); });
     if (!ids.length) throw new Error("No creators were picked");
     ids.sort((x, y) => order.indexOf(cat.byId[x].gid) - order.indexOf(cat.byId[y].gid));
     const title = noDash(out.title || f.subject || "Pitch").slice(0, 70);
@@ -1321,7 +1322,7 @@ async function pitchFromEmail(b) {
     // Tom's voice (13 Oct 2026): short and warm, wording varied from his own sent replies so drafts do not read as a template. Facts only, never model-written.
     const pick = a => a[Math.floor(Math.random() * a.length)];
     const joinN = a => a.length > 1 ? a.slice(0, -1).join(", ") + " and " + a[a.length - 1] : a[0];
-    const listNames = namedNames.filter(nm => ids.some(id => base(cat.byId[id].name) === nm));
+    const listNames = namedNames.filter(nm => ids.some(id => nameOf(id) === nm));
     const followUp = /following up|thanks again|thank you again|coming back|earlier conversation|as discussed/i.test(f.body);
     const across = mix ? " across " + mix : "", who = aiCamp ? " who are open to working with brands on AI campaigns" : "";
     const thanks = followUp ? pick(["Thanks for coming back to me. :)", "Thanks for following up on " + product + ".", "Thanks for coming back to me on " + product + "."])
@@ -1344,7 +1345,7 @@ async function pitchFromEmail(b) {
     const text = "Hi " + first + ",\n\n" + paras.map(p => p.indexOf("[[LIST_LINK]]") >= 0 ? saved.url : p).join("\n\n") + (bullets.length ? "\n\n" + bullets.map(x => "- " + x).join("\n") : "") + "\n\n" + sig.join("\n");
     const subject = /^re:/i.test(f.subject) ? f.subject : "Re: " + f.subject;
     await pitchMark(b.item, "Ready: " + ids.length + " placements (" + out.model + ")", saved.url);
-    const cc = [...new Set((f.others || []).filter(x => x !== f.contactEmail && x !== fromEmail && !/^pitch@/.test(x)).concat(["alex@digitalfoxtalent.com"]))].join(", ");
+    const cc = [...new Set((f.others || []).filter(x => x !== f.contactEmail && x !== fromEmail && (!/@digitalfoxtalent\.com$/.test(x) || /^(alex|margot|george)@/.test(x))).concat(["alex@digitalfoxtalent.com"]))].join(", "); // reply-all, minus DFT group inboxes
     return { ok: true, listUrl: saved.url, title, placements: ids.length, to: f.contactEmail, cc, subject, search: "from:" + f.contactEmail + " subject:\"" + f.subject.replace(/"/g, "") + "\" newer_than:90d", html, text, model: out.model, picks: out.picks };
   } catch (e) {
     try { await pitchMark(b.item, "Failed: " + String(e && e.message || e).slice(0, 200)); } catch (_) {}
