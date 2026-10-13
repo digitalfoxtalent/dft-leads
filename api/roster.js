@@ -1294,6 +1294,9 @@ async function pitchFromEmail(b) {
     const aiCamp = aiIds.size > 0 && (out.ai_product === true || /\bAI\b/.test(f.subject + " " + f.body));
     const namedIds = new Set((out.picks || []).filter(p => p && p.named === true).map(p => String(p.id)));
     const ids = [...new Set((out.picks || []).map(p => String(p && p.id)).filter(id => cat.byId[id] && (!aiCamp || aiOk(id) || namedIds.has(id))))];
+    // Only formats the enquiry asks for: dedicated and social placements need to be named; integrations and Shorts are the default.
+    const wantF = { dedicated: /dedicated|full video|standalone video/i, group_mm4a1fe0: /instagram|\binsta\b|\bIG\b|\breels?\b/i, group_mm4bd5tk: /tik ?tok/i, group_mm7yw8cy: /snap ?chat/i };
+    for (let k = ids.length - 1; k >= 0; k--) { const re = wantF[cat.byId[ids[k]].gid]; if (re && !re.test(f.body + " " + f.note)) ids.splice(k, 1); }
     const groupsUsed = new Set(ids.map(id => cat.byId[id].gid)); if (!groupsUsed.size) { groupsUsed.add("topics"); groupsUsed.add("group_mm4av3kr"); }
     namedNames.forEach(nm => { const mine = namedPl.filter(id => base(cat.byId[id].name) === nm), inG = mine.filter(id => groupsUsed.has(cat.byId[id].gid)); (inG.length ? inG : mine).forEach(id => { if (!ids.includes(id)) ids.push(id); }); });
     if (!ids.length) throw new Error("No creators were picked");
@@ -1304,7 +1307,13 @@ async function pitchFromEmail(b) {
     const product = noDash(out.product || out.brand || f.subject || "your campaign").replace(/[.\s]+$/, "");
     const mix = noDash(out.mix || "").replace(/[.\s]+$/, "").replace(/\s*\/\s*/g, " and ");
     // Tom's own edit of the first live pitch (Catch Flex, 13 Oct 2026): one-line thanks, what the list is and how to use it, the link, then the ask. No pricing notes.
-    let answer = noDash(out.answer || "").trim(); if (/\bbelow\b|\battach|\$|\d/i.test(answer)) answer = ""; // never a promise the template cannot keep
+    // The answer line is built here, not by the model, so it only ever states facts (Tom, 13 Oct 2026).
+    const listNames = namedNames.filter(nm => ids.some(id => base(cat.byId[id].name) === nm));
+    const joinN = a => a.length > 1 ? a.slice(0, -1).join(", ") + " and " + a[a.length - 1] : a[0];
+    const ans = [];
+    if (listNames.length) ans.push(joinN(listNames) + (listNames.length > 1 ? " are" : " is") + " on the list" + (/\b(rates?|pric\w*|cost|budget)\b/i.test(f.body) ? " with current rates." : "."));
+    if (/availab|posting date|\bdates\b|schedule|timeline|timing|turnaround/i.test(f.body)) ans.push("We confirm availability and posting dates with each creator as soon as you approve, and can move quickly.");
+    const answer = ans.join(" ");
     const paras = ["Thanks for reaching out about " + product + ".", "I have put together a shortlist of creators" + (mix ? " across " + mix : "") + ". You can tick a creator to approve them, tick again to mark a 'no', or use the speech bubble to comment or ask questions.", "[[LIST_LINK]]"].concat(answer ? [answer] : [], ["Could you confirm which creators you would like to book?"]);
     if (!paras.some(p => p.indexOf("[[LIST_LINK]]") >= 0)) paras.splice(Math.min(2, paras.length), 0, "[[LIST_LINK]]");
     const bullets = [];
