@@ -1161,6 +1161,7 @@ async function saveColumns(b, email) {
 // links in the draft stay clean).
 export const config = { maxDuration: 60 };
 const PITCH_BOARD = 18435316650;
+const AI_LIST = "ai-campaigns-tj-50001f"; // Tom's saved list of creators open to AI brands (13 Oct 2026). Edit the list, not the code.
 const PB = { by: "text_mm83t28h", contact: "text_mm83nbr6", result: "text_mm83dzmw", list: "link_mm832b9j" };
 const PITCH_MODELS = ["claude-sonnet-4-5", "claude-haiku-4-5-20251001"];
 const PITCH_LABEL = { topics: "YouTube integration", dedicated: "YouTube dedicated video", group_mm4av3kr: "YouTube Shorts", group_mm4a1fe0: "Instagram", group_mm4bd5tk: "TikTok", group_mm7yw8cy: "Snapchat" };
@@ -1216,7 +1217,7 @@ async function askClaude(prompt) {
   throw new Error("Claude: " + last);
 }
 
-function pitchPrompt(f, lines, fwdName) {
+function pitchPrompt(f, lines, fwdName, aiNames) {
   return [
     "You help Digital Fox Talent (DFT), a creator management agency, answer a brand enquiry with a shortlist from its creator roster.",
     "",
@@ -1228,6 +1229,7 @@ function pitchPrompt(f, lines, fwdName) {
     lines.join("\n"),
     "",
     "HOW TO PICK (think like an experienced talent agent, not a category filter)",
+    "- AI campaigns: only these creators accept AI brands (AI tools, AI apps, generative AI): " + (aiNames || []).join(", ") + ". If the product or campaign is AI-related, pick ONLY from them (any of their formats) and set ai_product to true; otherwise set it to false. Never put any other creator on an AI pitch.",
     "- First work out who would buy or love this product and what kind of video would sell it. Then name 4 to 6 different angles a creator could cover it from: the same-genre angle, plus adjacent ones such as reaction and commentary, pop culture, film and TV, comedy and group personalities, family, lifestyle, fitness or tech, whichever genuinely fit.",
     "- Big, engaged reaction and personality channels (group reaction shows, for example) often sell fun, social or entertainment products better than niche specialists. Consider them seriously.",
     "- Read each creator's about line, not just the category, to judge audience and tone.",
@@ -1241,7 +1243,7 @@ function pitchPrompt(f, lines, fwdName) {
     "Do not write the email (it is built from a fixed template). Give only: product, the short brand or product name exactly as people would say it (e.g. Catch Flex, Higgsfield), never a description; and mix, a short phrase for the kinds of channels on your list (e.g. gaming, reaction, and personality channels). No em dashes, no slashes.",
     "",
     "Return ONLY JSON, no prose:",
-    "{\"brand\":\"\",\"product\":\"\",\"title\":\"short list name, e.g. EXT (Exterminauts)\",\"contact_first_name\":\"the sender's first name if known, else empty\",\"angles\":[\"\"],\"mix\":\"\",\"picks\":[{\"id\":\"\",\"why\":\"a few words\"}]}"
+    "{\"brand\":\"\",\"ai_product\":false,\"product\":\"\",\"title\":\"short list name, e.g. EXT (Exterminauts)\",\"contact_first_name\":\"the sender's first name if known, else empty\",\"angles\":[\"\"],\"mix\":\"\",\"picks\":[{\"id\":\"\",\"why\":\"a few words\"}]}"
   ].join("\n");
 }
 
@@ -1269,10 +1271,18 @@ async function pitchFromEmail(b) {
     if (!f.contactEmail || f.body.length < 40) throw new Error("No forwarded enquiry found. Forward the brand's own email.");
     const data = await loadBoard();
     const cat = pitchCatalogue(data);
+    // AI campaigns (Tom, 13 Oct 2026): only creators on the AI_LIST saved list are open to AI brands.
+    const aiL = (await freshList(AI_LIST).catch(() => ({}))).list;
+    const aiIds = new Set(((aiL && aiL.body && aiL.body.ids) || []).map(String));
+    const aiKey = id => String((cat.byId[id] || {}).name || "").toLowerCase().trim();
+    const aiNameSet = new Set([...aiIds].map(aiKey).filter(Boolean));
+    const aiOk = id => aiIds.has(String(id)) || aiNameSet.has(aiKey(id));
+    const aiNames = [...new Set([...aiIds].map(id => (cat.byId[id] || {}).name).filter(Boolean))];
     const fwdName = String(b.fromName || "").replace(/["<>]/g, "").trim() || fromEmail.split("@")[0];
-    const out = await askClaude(pitchPrompt(f, cat.lines, fwdName));
+    const out = await askClaude(pitchPrompt(f, cat.lines, fwdName, aiNames));
     const order = GROUPS.map(g => g.id);
-    const ids = [...new Set((out.picks || []).map(p => String(p && p.id)).filter(id => cat.byId[id]))];
+    const aiCamp = aiIds.size > 0 && (out.ai_product === true || /\bAI\b/.test(f.subject + " " + f.body));
+    const ids = [...new Set((out.picks || []).map(p => String(p && p.id)).filter(id => cat.byId[id] && (!aiCamp || aiOk(id))))];
     if (!ids.length) throw new Error("No creators were picked");
     ids.sort((x, y) => order.indexOf(cat.byId[x].gid) - order.indexOf(cat.byId[y].gid));
     const title = noDash(out.title || f.subject || "Pitch").slice(0, 70);
