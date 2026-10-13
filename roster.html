@@ -897,15 +897,16 @@ function startListEdit(td){
     else { body[field]=v; body.curVg=r.vgPer!=null?r.vgPer:r.vg; body.curCpm=r.askCpm||r.cpm; if(f.kind!=="long") body.curFee=r.fee!=null?r.fee:(r.vg>=250000?7500:r.vg>=100000?5000:3000); }
     // The typed number shows at once; the totals follow when the save comes back.
     td.textContent=raw===""?"…":field==="cpm"?money2(v):int(v);
-    const note=raw===""||isVid?"":minNote({kind:f.kind,row:Object.assign({},r,{brand:r})},field,v);
+    const note=raw===""||isVid?"":listMinNote(f,r,field,v);
     // YouTube rows: the new rate and any discount show straight away too (Tom, 12 Oct 2026),
     // worked out the same way the server does: views x CPM, crossed out against the CPM the
     // discount started from. The save's answer then confirms it.
     if(f.kind==="long"&&raw!==""&&!isVid&&!note&&(field==="cpm"||field==="vg")&&r.vg>0){
       const n=r.minVideos||1, per=field==="vg"?v:(r.vgPer!=null?r.vgPer:r.vg/n), cpm=field==="cpm"?v:(r.askCpm||r.cpm);
-      const rate=Math.max(1500,Math.round(per*n*cpm/1000));
+      // On a list there is no $1,500 minimum once the list sets its own CPM (Tom, 12 Oct 2026).
+      const rate=Math.round(per*n*cpm/1000);
       const from=r.disc?(r.wasRate?r.wasRate*1000/r.vg:(r.askCpm||r.cpm)):null;
-      const was=from?Math.max(1500,Math.round(per*n*from/1000)):0;
+      const was=from?Math.round(per*n*from/1000):0;
       patchListRow(td.dataset.id,x=>{ x.vg=per*n; x.vgPer=per; x.cpm=cpm; if(x.askCpm!=null) x.askCpm=cpm; x.rate=rate; x.total=rate; x.custom=true;
         if(was>rate){ x.wasRate=was; x.wasTotal=was; x.discPct=Math.round((1-rate/was)*100); } else { delete x.wasRate; delete x.wasTotal; delete x.discPct; } });
     }
@@ -945,6 +946,15 @@ function minNote(f,field,v){
   const n=Math.ceil(1500/per-1e-9);
   if(n>10) return `Under the $1,500 minimum: it would take ${n} videos to get there, so brands will not see this row.`;
   return `Under the $1,500 minimum at ${money2(cpm)} CPM, so brands will see a ${n}-video bundle: ${int(vg*n)} views for ${money(per*n)}.`;
+}
+// On a saved list a lower CPM or a discount simply lowers the price (no $1,500 minimum), but a
+// view guarantee typed below what $1,500 buys at $25 still becomes a bundle, sized at $25.
+function listMinNote(f,r,field,v){
+  if(f.kind!=="long"||field!=="vg"||r.videosSet) return "";
+  const per=v*25/1000; if(!(per>0)||per>=1499.5) return "";
+  const n=Math.ceil(1500/per-1e-9); if(n>10) return "";
+  const cpm=r.askCpm||r.cpm||25;
+  return `Under $1,500 at $25 CPM, so this is a ${n}-video bundle: ${int(v*n)} views for ${money(v*n*cpm/1000)}.`;
 }
 function changeMain(body,label,note){
   confirmBar(`<b>${esc(label)}</b>${note?`<span class="cs cwarn">${esc(note)}</span>`:""}<span class="cs">Main rate card. Brands and every list without its own number will see this.</span>`,"Update",
