@@ -1298,7 +1298,8 @@ async function pitchFromEmail(b) {
     const wantF = { dedicated: /dedicated|full video|standalone video/i, group_mm4a1fe0: /instagram|\binsta\b|\bIG\b|\breels?\b/i, group_mm4bd5tk: /tik ?tok/i, group_mm7yw8cy: /snap ?chat/i };
     for (let k = ids.length - 1; k >= 0; k--) { const re = wantF[cat.byId[ids[k]].gid]; if (re && !re.test(f.body + " " + f.note)) ids.splice(k, 1); }
     const groupsUsed = new Set(ids.map(id => cat.byId[id].gid)); if (!groupsUsed.size) { groupsUsed.add("topics"); groupsUsed.add("group_mm4av3kr"); }
-    namedNames.forEach(nm => { const mine = namedPl.filter(id => base(cat.byId[id].name) === nm), inG = mine.filter(id => groupsUsed.has(cat.byId[id].gid)); (inG.length ? inG : mine).forEach(id => { if (!ids.includes(id)) ids.push(id); }); });
+    const aiDeclined = []; // named creators who do not take AI work (unless the enquiry says DFT already confirmed them)
+    namedNames.forEach(nm => { const mine = namedPl.filter(id => base(cat.byId[id].name) === nm); if (aiCamp && !mine.some(aiOk) && !/confirm/i.test(f.body)) { aiDeclined.push(nm); mine.forEach(id => { const k = ids.indexOf(id); if (k >= 0) ids.splice(k, 1); }); return; } const inG = mine.filter(id => groupsUsed.has(cat.byId[id].gid)); (inG.length ? inG : mine).forEach(id => { if (!ids.includes(id)) ids.push(id); }); });
     if (!ids.length) throw new Error("No creators were picked");
     ids.sort((x, y) => order.indexOf(cat.byId[x].gid) - order.indexOf(cat.byId[y].gid));
     const title = noDash(out.title || f.subject || "Pitch").slice(0, 70);
@@ -1307,14 +1308,24 @@ async function pitchFromEmail(b) {
     const product = noDash(out.product || out.brand || f.subject || "your campaign").replace(/[.\s]+$/, "");
     const mix = noDash(out.mix || "").replace(/[.\s]+$/, "").replace(/\s*\/\s*/g, " and ");
     // Tom's own edit of the first live pitch (Catch Flex, 13 Oct 2026): one-line thanks, what the list is and how to use it, the link, then the ask. No pricing notes.
-    // The answer line is built here, not by the model, so it only ever states facts (Tom, 13 Oct 2026).
-    const listNames = namedNames.filter(nm => ids.some(id => base(cat.byId[id].name) === nm));
+    // Tom's voice (13 Oct 2026): short and warm, wording varied from his own sent replies so drafts do not read as a template. Facts only, never model-written.
+    const pick = a => a[Math.floor(Math.random() * a.length)];
     const joinN = a => a.length > 1 ? a.slice(0, -1).join(", ") + " and " + a[a.length - 1] : a[0];
+    const listNames = namedNames.filter(nm => ids.some(id => base(cat.byId[id].name) === nm));
+    const followUp = /following up|thanks again|thank you again|coming back|earlier conversation|as discussed/i.test(f.body);
+    const across = mix ? " across " + mix : "", who = aiCamp ? " who are open to working with brands on AI campaigns" : "";
+    const thanks = followUp ? pick(["Thanks for coming back to me. :)", "Thanks for following up on " + product + ".", "Thanks for coming back to me on " + product + "."])
+      : pick(["Thanks for reaching out about " + product + ".", "Thanks for getting in touch about " + product + ".", "Great to hear from you about " + product + ".", "Thanks for reaching out - " + product + " looks like a fun one."]);
+    const intro = pick(["I've put together a shortlist of creators" + across + who + " for you.", "Here's a shortlist of creators" + across + (who || " who'd be happy to take this on") + ".", "Please find a list of creators" + across + (who || " who would be happy to promote " + product) + " below.", "I've pulled together some creators" + across + (who || " who'd be a great fit") + "."]);
+    const howTo = pick(["You can tick a creator to approve them, tick again to mark a 'no', or use the speech bubble to comment or ask questions.", "Just tick anyone you'd like to go ahead with (tick again for a no), and use the speech bubble for any questions.", "Tick the creators you'd like to book, tick again for a no, and leave any questions in the speech bubble."]);
+    const withRates = /\b(rates?|pric\w*|cost|budget)\b/i.test(f.body) ? " with current rates." : ".";
     const ans = [];
-    if (listNames.length) ans.push(joinN(listNames) + (listNames.length > 1 ? " are" : " is") + " on the list" + (/\b(rates?|pric\w*|cost|budget)\b/i.test(f.body) ? " with current rates." : "."));
-    if (/availab|posting date|\bdates\b|schedule|timeline|timing|turnaround/i.test(f.body)) ans.push("We confirm availability and posting dates with each creator as soon as you approve, and can move quickly.");
+    if (aiDeclined.length) ans.push("Sadly, " + joinN(aiDeclined) + " won't take on AI projects, but these creators would.");
+    if (listNames.length) ans.push(pick([joinN(listNames) + (listNames.length > 1 ? " are" : " is") + " on the list" + withRates, "You'll find " + joinN(listNames) + " on there" + withRates]));
+    if (/availab|posting date|\bdates\b|schedule|timeline|timing|turnaround/i.test(f.body)) ans.push(pick(["We confirm availability and posting dates with each creator as soon as you approve, and can move quickly.", "Once you've picked, we'll confirm availability and posting dates with each creator straight away."]));
     const answer = ans.join(" ");
-    const paras = ["Thanks for reaching out about " + product + ".", "I have put together a shortlist of creators" + (mix ? " across " + mix : "") + ". You can tick a creator to approve them, tick again to mark a 'no', or use the speech bubble to comment or ask questions.", "[[LIST_LINK]]"].concat(answer ? [answer] : [], ["Could you confirm which creators you would like to book?"]);
+    const ask = pick(["Could you confirm who you would like to book?", "Could you confirm who you would like to book please?", "Who would you like to book?", "Could you confirm who you'd like to book for this?"]);
+    const paras = [thanks, intro + " " + howTo, "[[LIST_LINK]]"].concat(answer ? [answer] : [], [ask]);
     if (!paras.some(p => p.indexOf("[[LIST_LINK]]") >= 0)) paras.splice(Math.min(2, paras.length), 0, "[[LIST_LINK]]");
     const bullets = [];
     const sig = ["Warm regards", fwdName, "Digital Fox Talent", "\u{1F98A}"];
