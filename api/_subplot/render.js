@@ -513,18 +513,19 @@ export function articlePage(a, data, base) {
         <span class="nm"><b><a href="${base}/c/${esc(slugH(a.c))}" style="color:inherit;text-decoration:none">${esc(a.b || a.c)}</a> <span style="font-weight:400">(AI-assisted)</span></b><span>${esc(fmt(a.p))}</span></span>
         <span class="meta">${a.w.toLocaleString("en-GB")} words · ${a.rt} min read</span></div>
       ${editorNote(a, data, base)}
-      <div class="prose">${withInArticleAds(siteContacts(a.body))}</div>
+      <div class="prose">${withInArticleAds(siteContacts(splitDisclosure(a.body)[0]))}</div>
       ${a.short ? `<p class="deckacts" style="margin:1.2rem 0 0"><a href="https://www.youtube.com/shorts/${esc(a.v)}" target="_blank" rel="noopener" style="color:${(FORMATS[a.f] || FORMATS.breakdown).ink}">Watch the Short</a><a class="ghost" href="${base}/snippets#s-${esc(a.id)}">More Snippets</a></p>` : ""}
-      ${amazonBox(a, data)}
-      ${bioFor(a.c) ? `<aside class="crbio" aria-label="About the creator" style="margin:2.4rem 0 0;padding:1rem 1.25rem;border:1px solid var(--rule-2);border-radius:4px">
-        <p style="margin:0 0 .5rem;font-size:.72rem;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3)">About the creator</p>
-        <p style="margin:0">${esc(bioFor(a.c))} <a href="${base}/c/${esc(slugH(a.c))}" style="color:var(--blue)">More from ${esc(a.b)} &rarr;</a></p>
-      </aside>` : ""}
       <div class="rule-h" style="margin-top:2.6rem"><h2>Watch the original</h2><span class="note">${esc(a.c)} · YouTube</span></div>
       <div class="player" data-v="${esc(a.v)}" style="margin-top:1rem">
         <img alt="" src="${esc(a.thumb)}" onerror="this.onerror=null;this.src='${esc(a.thumbSmall.replace("mqdefault","hqdefault"))}'">
         <button class="play" aria-label="Play the original video"></button>
       </div>
+      ${bioFor(a.c) ? `<aside class="crbio" aria-label="About the creator" style="margin:2.4rem 0 0;padding:1rem 1.25rem;border:1px solid var(--rule-2);border-radius:4px">
+        <p style="margin:0 0 .5rem;font-size:.72rem;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3)">About the creator</p>
+        <p style="margin:0">${esc(bioFor(a.c))} <a href="${base}/c/${esc(slugH(a.c))}" style="color:var(--blue)">More from ${esc(a.b)} &rarr;</a></p>
+      </aside>` : ""}
+${splitDisclosure(a.body)[1] ? `<div class="prose artdisc" style="margin-top:2rem">${siteContacts(splitDisclosure(a.body)[1])}</div>` : ""}
+      ${amazonBox(a, data)}
       <div class="tags">${a.t.map(t => `<span>${esc(t)}</span>`).join("")}</div>
       ${thr.length ? `<section class="next"><div class="rule-h"><h2>Also on ${esc(inThread.t)}</h2><span class="note"><a href="${base}/t/${esc(inThread.slug)}" style="color:var(--blue)">${inThread.c} creators, ${inThread.n} takes &rarr;</a></span></div><div class="grid3">${thr.map(x => (design() === 3 ? card3 : card)(x, base)).join("")}</div></section>` : ""}
       ${more.length ? `<section class="next"><div class="rule-h"><h2>More from ${esc(a.c)}</h2><span class="note"><a href="${base}/c/${esc(slugH(a.c))}" style="color:var(--blue)">All &rarr;</a></span></div><div class="grid3">${more.map(x => (design() === 3 ? card3 : card)(x, base)).join("")}</div></section>` : ""}
@@ -856,4 +857,13 @@ export function sitemap(data, base) {
   }
 
   return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${out.join("")}</urlset>`;
+}
+
+// ARTICLE ORDER, 13 Oct 2026 (Tom): the article, then the original video, then About the creator, then the AI note.
+// The AI note sits at the end of every body (an <hr> then <p class="ai-disclosure">); this splits it off so the
+// article page can place it after the video and the creator bio. Snippets carry the same class and split the same way.
+function splitDisclosure(html) {
+  const s = String(html || "");
+  const i = s.search(/(<hr\s*\/?>\s*)?<p class="ai-disclosure"/);
+  return i < 0 ? [s, ""] : [s.slice(0, i), s.slice(i).replace(/^<hr\s*\/?>\s*/, "")];
 }
