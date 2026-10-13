@@ -701,7 +701,7 @@ function render(){
   const shown=mode==="team"?all.filter(c=>c.show).length:all.length;
   $("#count").textContent=mode==="team"
     ?`${all.length} profiles · ${shown} shown to brands · ${list.length} in view`
-    :`${all.length} profiles across ${GROUPS.filter(g=>g.id!=="dedicated"&&(PAYLOAD.groups[g.id]||[]).length).length} platforms`;
+    :(()=>{ const pl=GROUPS.filter(g=>g.id!=="dedicated"&&(PAYLOAD.groups[g.id]||[]).length).map(g=>g.label); const n=all.length+" profile"+(all.length===1?"":"s"); return pl.length===1?`${n} on ${pl[0]}`:pl.length&&pl.length<=3?`${n} across ${pl.slice(0,-1).join(", ")} and ${pl[pl.length-1]}`:`${n} across ${pl.length} platforms`; })();
   const colgroup=`<colgroup>${cols.map(c=>`<col style="width:${c.w}px">`).join("")}</colgroup>`;
   const thead=`<thead><tr>${cols.map(c=>{
     // Select all (Tom, 12 Oct 2026): ticks every creator in view on this tab (after any
@@ -1221,7 +1221,7 @@ function renderTabs(){
   // Saved lists (Tom, 6 Oct 2026): platforms with no creators on the list have no tab, and
   // a list on one platform has no tab bar at all. Signed in, each tab of a list with
   // several platforms has an x that takes that platform's creators off the list.
-  $("#tabs").style.display=onList&&vis.length<=1?"none":"";
+  $("#tabs").style.display=""; // always show the platform tab, even on a one-platform list, so brands know where the posts go (George, 13 Oct 2026)
   const canRemove=listEdit()&&vis.length>1;
   $("#tabs").innerHTML=vis.map(g=>`<button class="tab ${g.id===activeTab?"active":""}" data-g="${g.id}"${g.tip?` title="${esc(g.tip)}"`:""}>${esc(g.label)}<span class="n">${(PAYLOAD.groups[g.id]||[]).length}</span>${canRemove?`<span class="x" data-g="${g.id}" title="Take ${esc(g.label)} off this list">&times;</span>`:""}</button>`).join("");
   $("#tabs").querySelectorAll(".tab").forEach(b=>b.onclick=()=>{activeTab=b.dataset.g; sortKey=null; renderTabs(); render(); $("#scroll").scrollTop=0;});
