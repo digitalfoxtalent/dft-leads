@@ -99,7 +99,11 @@ function roundNums(b, fine, kind = "long") {
   // YouTube: the rate is the views shown x the CPM shown, so a brand checking the sum gets the
   // same answer (116,000 views at $25 is $2,900, not the $2,911 of the unrounded 116,420).
   // Never below the $1,500 minimum.
-  if (kind === "long" && Math.abs((b.rate || 0) - FLOOR) <= 1) o.rate = FLOOR; // held at the minimum
+  if (kind === "long" && b.listCpm > 0) { // a list's own CPM: exactly views x CPM, no minimum
+    if (o.vg > 0) o.rate = Math.round(o.vg * o.cpm / 1000);
+    if (o.vgPer != null) o.ratePer = Math.round(o.vgPer * o.cpm / 1000);
+  }
+  else if (kind === "long" && Math.abs((b.rate || 0) - FLOOR) <= 1) o.rate = FLOOR; // held at the minimum
   else if (kind === "long" && o.vg > 0 && o.cpm > 0 && b.rate >= FLOOR) {
     o.rate = Math.max(FLOOR, Math.round(o.vg * o.cpm / 1000));
     if (o.vgPer != null && b.ratePer != null) o.ratePer = Math.round(o.vgPer * o.cpm / 1000);
@@ -250,6 +254,18 @@ export function bundle(b, kind) {
   const out = Object.assign({}, b, { videos: 1, vgPer: b.vg, ratePer: b.rate });
   // A rate rounded to the dollar can leave $25.01; show the CPM it was priced at.
   if (Math.abs(out.cpm - Math.round(out.cpm)) < 0.02) out.cpm = Math.round(out.cpm);
+  // A row priced on a saved list (Tom, 12 Oct 2026): the bundle size is set at the normal CPM
+  // (or the CPM a discount started from), and the price is the views x the list's CPM, with no
+  // $1,500 minimum, so a lower CPM or a discount always lowers the rate.
+  if (kind === "long" && b.listCpm > 0) {
+    const lc = b.listCpm, per = b.vg * lc / 1000;
+    let n = b.videosSet > 0 ? Math.round(b.videosSet) : 1;
+    if (!(b.videosSet > 0)) {
+      const perRef = b.vg * (b.refCpm || PRICE.long.cpm) / 1000;
+      if (perRef > 0 && perRef < FLOOR - 0.5) { const need = Math.ceil(FLOOR / perRef - 1e-9); if (need <= MAX_BUNDLE) n = need; }
+    }
+    return Object.assign(out, { videos: n, vg: b.vg * n, rate: Math.round(per * n), cpm: r2(lc), askCpm: r2(lc), ratePer: Math.round(per) }, b.videosSet > 0 ? { videosSet: n } : {});
+  }
   const floored = !(b.rate > FLOOR + 1);
   // A CPM typed on a saved list (listCpm) is always the one to bundle at.
   const base = b.listCpm || (!floored ? b.cpm : (b.askCpm && b.askCpm < b.cpm - 0.01 ? b.askCpm : PRICE.long.cpm));
@@ -466,8 +482,13 @@ function listNumbers(b, p, kind) {
   if (kind === "long") {
     const videos = p.videos > 0 ? { videosSet: Math.round(p.videos) } : {};
     if (p.vg > 0 && p.cpm > 0) {
-      const rate = Math.max(FLOOR, Math.round(p.vg * p.cpm / 1000));
-      return Object.assign({}, b || {}, { vg: Math.round(p.vg), rate, cpm: r2(rate * 1000 / p.vg), askCpm: p.cpm, listCpm: p.cpm, custom: true }, videos);
+      // A CPM set on a saved list prices the row at exactly that CPM, below $1,500 if it comes
+      // to that (Tom, 12 Oct 2026: "we do need the rates to reduce below $1500 in line with the
+      // cpm"). refCpm is the CPM the bundle size is worked out at, so lowering the CPM or taking
+      // a discount lowers the price without adding videos.
+      const rate = Math.round(p.vg * p.cpm / 1000);
+      const refCpm = p.disc && p.discFrom > 0 ? p.discFrom : PRICE.long.cpm;
+      return Object.assign({}, b || {}, { vg: Math.round(p.vg), rate, cpm: r2(p.cpm), askCpm: p.cpm, listCpm: p.cpm, refCpm, custom: true }, videos);
     }
     if (b && videos.videosSet) return Object.assign({}, b, { custom: true }, videos);
     return null;
