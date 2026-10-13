@@ -1304,6 +1304,8 @@ async function pitchFromEmail(b) {
     // Only formats the enquiry asks for: dedicated and social placements need to be named; integrations and Shorts are the default.
     const wantF = { dedicated: /dedicated|full video|standalone video/i, group_mm4a1fe0: /instagram|\binsta\b|\bIG\b|\breels?\b/i, group_mm4bd5tk: /tik ?tok/i, group_mm7yw8cy: /snap ?chat/i };
     for (let k = ids.length - 1; k >= 0; k--) { const re = wantF[cat.byId[ids[k]].gid]; if (re && !re.test(f.body + " " + f.note)) ids.splice(k, 1); }
+    const bt = f.body + " " + f.note, socialOnly = [wantF.group_mm4a1fe0, wantF.group_mm4bd5tk, wantF.group_mm7yw8cy].some(re => re.test(bt)) && !/youtube|\byt\b|integration|\bshorts?\b|dedicated/i.test(bt);
+    if (socialOnly) for (let k = ids.length - 1; k >= 0; k--) if (["topics", "dedicated", "group_mm4av3kr"].includes(cat.byId[ids[k]].gid)) ids.splice(k, 1);
     const groupsUsed = new Set(ids.map(id => cat.byId[id].gid)); if (!groupsUsed.size) { groupsUsed.add("topics"); groupsUsed.add("group_mm4av3kr"); }
     // A pointer that says to leave a creator out wins over everything else.
     const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -1329,7 +1331,8 @@ async function pitchFromEmail(b) {
       : pick(["Thanks for reaching out about " + product + ".", "Thanks for getting in touch about " + product + ".", "Great to hear from you about " + product + ".", "Thanks for reaching out - " + product + " looks like a fun one."]);
     const intro = pick(["I've put together a shortlist of creators" + across + (who || " for you") + ".", "Here's a shortlist of creators" + across + (who || " who'd be happy to take this on") + ".", "Please find below a list of creators" + across + (who || " who would be happy to promote " + product) + ".", "I've pulled together some creators" + across + (who || " who'd be a great fit") + "."]);
     const solo = [...new Set(ids.map(id => base(cat.byId[id].name).replace(/^@/, "")))]; // one creator: say so plainly
-    const lead = solo.length === 1 ? pick(["Please find " + solo[0] + "'s rates below.", "Here are " + solo[0] + "'s rates for this.", "I've put " + solo[0] + "'s rates together for you."]) : intro;
+    const soloFirst = solo.length === 1 ? solo[0].split(/\s+/)[0] : "";
+    const lead = solo.length === 1 ? pick(["Please find " + soloFirst + "'s rates below.", "Here are " + soloFirst + "'s rates for this.", "I've put " + soloFirst + "'s rates together for you below."]) : intro;
     const howTo = pick(["You can tick a creator to approve them, tick again to mark a 'no', or use the speech bubble to comment or ask questions.", "Just tick anyone you'd like to go ahead with (tick again for a no), and use the speech bubble for any questions.", "Tick the creators you'd like to book, tick again for a no, and leave any questions in the speech bubble."]);
     const withRates = /\b(rates?|pric\w*|cost|budget)\b/i.test(f.body) ? " with current rates." : ".";
     const ans = [];
@@ -1338,7 +1341,10 @@ async function pitchFromEmail(b) {
     if (/availab|posting date|\bdates\b|schedule|timeline|timing|turnaround/i.test(f.body)) ans.push(pick(["We confirm availability and posting dates with each creator as soon as you approve, and can move quickly.", "Once you've picked, we'll confirm availability and posting dates with each creator straight away."]));
     const answer = ans.join(" ");
     const ask = pick(["Could you confirm who you would like to book?", "Could you confirm who you would like to book please?", "Who would you like to book?", "Could you confirm who you'd like to book for this?"]);
-    const paras = [thanks, lead + " " + howTo, "[[LIST_LINK]]"].concat(answer ? [answer] : [], [ask]);
+    const options = /option\s*\d|both options|\boptions\b/i.test(f.body);
+    const how = solo.length === 1 ? "" : " " + howTo;
+    const ask2 = solo.length === 1 ? (options ? pick(["Could you confirm which option you'd like to go ahead with?", "Let me know which option works best and we'll get it booked in."]) : pick(["Could you confirm if you'd like to go ahead?", "Let me know if you'd like to go ahead and we'll get it booked in."])) : ask;
+    const paras = [thanks, lead + how, "[[LIST_LINK]]"].concat(answer ? [answer] : [], [ask2]);
     if (!paras.some(p => p.indexOf("[[LIST_LINK]]") >= 0)) paras.splice(Math.min(2, paras.length), 0, "[[LIST_LINK]]");
     const bullets = [];
     const sig = ["Warm regards", fwdName, "Digital Fox Talent", "\u{1F98A}"];
