@@ -1198,7 +1198,7 @@ function pitchCatalogue(data) {
     byId[String(c.id)] = Object.assign({ gid: g.id }, c);
     const price = typeof c.total === "number" ? c.total : c.rate;
     const views = c.vg ? kfmt(c.vg) + (g.kind !== "long" ? " avg views" : g.id === "dedicated" ? " est views" : " guaranteed views") : "";
-    lines.push([c.id, PITCH_LABEL[g.id], c.name, c.handle, c.category || "", c.subs ? kfmt(c.subs) + " subs" : "", views, price ? "$" + price : "", c.us ? "US " + c.us : "", c.male ? "male " + c.male : "", String(c.about || "").replace(/\s+/g, " ").slice(0, 140)].join(" | "));
+    lines.push([c.id, PITCH_LABEL[g.id], c.name, c.handle, c.category || "", c.subs ? kfmt(c.subs) + " subs" : "", views, price ? "$" + price : "", c.location ? "based in " + c.location : "", c.us ? "US audience " + c.us : "", c.uk ? "UK audience " + c.uk : "", c.male ? "male " + c.male : "", String(c.about || "").replace(/\s+/g, " ").slice(0, 140)].join(" | "));
   }));
   return { lines, byId };
 }
@@ -1230,7 +1230,7 @@ function pitchPrompt(f, lines, fwdName, aiNames, namedNames, pointers) {
     pointers && pointers.length ? "PAST POINTERS FROM THE DFT TEAM (standing guidance learned from earlier pitches; apply wherever relevant):\n- " + pointers.join("\n- ") : "",
     "-----", f.body, "-----",
     "",
-    "THE ROSTER (one line per placement: id | format | creator | handle | category | subscribers | views | price | audience | about). Only these ids exist. guaranteed views = YouTube integration view guarantee; est views = estimated views for a dedicated video (no guarantee); avg views = short-form average, for context only (short form is priced per post).",
+    "THE ROSTER (one line per placement: id | format | creator | handle | category | subscribers | views | price | location and audience | about). Only these ids exist. guaranteed views = YouTube integration view guarantee; est views = estimated views for a dedicated video (no guarantee); avg views = short-form average, for context only (short form is priced per post).",
     lines.join("\n"),
     "",
     "HOW TO PICK (think like an experienced talent agent, not a category filter)",
@@ -1238,6 +1238,7 @@ function pitchPrompt(f, lines, fwdName, aiNames, namedNames, pointers) {
     "- First work out who would buy or love this product and what kind of video would sell it. Then name 4 to 6 different angles a creator could cover it from: the same-genre angle, plus adjacent ones such as reaction and commentary, pop culture, film and TV, comedy and group personalities, family, lifestyle, fitness or tech, whichever genuinely fit.",
     "- Big, engaged reaction and personality channels (group reaction shows, for example) often sell fun, social or entertainment products better than niche specialists. Consider them seriously.",
     "- Read each creator's about line, not just the category, to judge audience and tone.",
+    "- Respect any market or territory limit (a pointer or brief saying a campaign is for one country only means only creators based in, or with a real audience in, that country). If that leaves one creator, return one.",
     "- Always include any creator the enquiry names, asks about, or says DFT already confirmed, and any creator it was sent to (a creator's DFT inbox in the To line counts), plus any creator the note from " + fwdName + " asks for. Mark these picks named: true. A named creator who is not in the roster above has left DFT: leave them out and do not mention them.",
     namedNames && namedNames.length ? "- Named in this enquiry and on the roster: " + namedNames.join(", ") + ". They are always on the list, whatever else applies." : "",
     "- Aim for 12 to 18 creators: about half the closest fits, the rest spread across the adjacent angles, so the brand sees options it would not have thought of. Every pick must be defensible in a few words. Go smaller only if the brief is genuinely narrow.",
