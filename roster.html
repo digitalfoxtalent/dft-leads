@@ -301,6 +301,9 @@
 <script>
 const GROUPS=[
   {id:"topics",         label:"YouTube Channels", kind:"long"},
+  // YouTube Dedicated (Tom, 13 Oct 2026): a whole video about the brand, at 3x the channel's
+  // YouTube rate. Each row follows its channel on the YouTube tab; prices change there.
+  {id:"dedicated",      label:"YouTube Dedicated", kind:"long", tip:"A whole video about the brand: 3x the YouTube integration rate, one video, $1,500 minimum"},
   {id:"group_mm4av3kr", label:"YouTube Shorts",   kind:"short"},
   {id:"group_mm4a1fe0", label:"Instagram",        kind:"short"},
   {id:"group_mm4bd5tk", label:"TikTok",           kind:"short"},
@@ -309,6 +312,7 @@ const GROUPS=[
 const AFTER={fee:"rate",total:"fee",rights:"total"};
 const FOLLOWER_TABS=new Set(["group_mm4a1fe0","group_mm4bd5tk","group_mm7yw8cy"]);
 const SHORTS_GROUP="group_mm4av3kr";
+const isDed=c=>!!(c&&/^d\d+$/.test(String(c.id)));
 const SHORT_HIDE=new Set(["kit","male","female","a1317","a1824","a2534","a3544","a4554","a5564","us","uk","audience","adTypes","exclusive","host","hostGender"]);
 const RENAME={ "Down To Earth With Kristian Harloff (UAP NEWS)":"Down to Earth" };
 
@@ -551,6 +555,7 @@ function eyeBtn(c,isShow){
   if(mode!=="team") return "";
   const o=c.override||"Auto", [t,col]=EYE[o]||EYE.Auto;
   const slash=o==="Hide"?'<line x1="3" y1="3" x2="21" y2="21"/>':"";
+  if(isDed(c)) return `<span class="eye" title="${t}. Follows the channel on the YouTube Channels tab: change it there." style="color:${col};cursor:default;opacity:.75"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>${slash}</svg></span>`;
   return `<button class="eye" data-id="${c.id}" data-show="${isShow?1:0}" data-o="${o}" title="${t}. Click to change." style="color:${col}" onclick="event.stopPropagation()"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>${slash}</svg>${o==="Always show"?'<b>+</b>':o==="List only"?'<b>L</b>':""}</button>`;
 }
 function nameCell(c){
@@ -575,13 +580,15 @@ function rowsFor(list,cols){
     const cls=["chan",open?"open":"",mode==="team"&&!c.show?"hidden":"",picked.has(c.id)?"picked":""].join(" ");
     html+=`<tr class="${cls}" data-id="${c.id}">`;
     cols.forEach(col=>{
-      let inner, cl=(col.cls||"")+(col.t?" tcol":"")+(col.edit?" edit":"")+(col.edit&&listEdit()&&c.custom?" custom":"");
+      // Dedicated rows are priced from the YouTube tab, so on the main rate card they are read only.
+      const ed=col.edit&&!(isDed(c)&&!listEdit());
+      let inner, cl=(col.cls||"")+(col.t?" tcol":"")+(ed?" edit":"")+(ed&&listEdit()&&c.custom?" custom":"");
       if(col.key==="sel") inner=`<input type="checkbox" class="pick" data-id="${c.id}" ${picked.has(c.id)?"checked":""} onclick="event.stopPropagation()" title="Add to a list">`;
       else if(col.key==="name") inner=nameCell(c);
       else inner=fmtCell(c,col,false);
-      const title=(col.cls==="wide"&&cellVal(c,col))?` title="${esc(cellVal(c,col))}"`:"";
+      const title=(col.cls==="wide"&&cellVal(c,col))?` title="${esc(cellVal(c,col))}"`:(col.edit&&!ed?` title="3x this channel's YouTube rate. Change the channel's numbers on the YouTube Channels tab."`:"");
       if(col.cls==="wide"&&inner) inner=`<div class="clamp">${inner}</div>`;
-      html+=`<td class="${cl}" data-k="${col.key}"${col.edit?` data-edit="${col.edit}" data-id="${c.id}"${listEdit()?' data-list="1"':""}`:""}${title}>${inner}</td>`;
+      html+=`<td class="${cl}" data-k="${col.key}"${ed?` data-edit="${col.edit}" data-id="${c.id}"${listEdit()?' data-list="1"':""}`:""}${title}>${inner}</td>`;
     });
     html+=`</tr>`;
     if(open) (c.shows||[]).forEach(s=>{
@@ -677,11 +684,11 @@ function render(){
   if(openEdit()){ renderLater=true; return; }
   renderLater=false;
   const cols=columns(), list=currentList();
-  const all=GROUPS.reduce((a,g)=>a.concat((PAYLOAD&&PAYLOAD.groups[g.id])||[]),[]);
+  const all=GROUPS.filter(g=>g.id!=="dedicated").reduce((a,g)=>a.concat((PAYLOAD&&PAYLOAD.groups[g.id])||[]),[]);
   const shown=mode==="team"?all.filter(c=>c.show).length:all.length;
   $("#count").textContent=mode==="team"
     ?`${all.length} profiles · ${shown} shown to brands · ${list.length} in view`
-    :`${all.length} profiles across ${GROUPS.filter(g=>(PAYLOAD.groups[g.id]||[]).length).length} platforms`;
+    :`${all.length} profiles across ${GROUPS.filter(g=>g.id!=="dedicated"&&(PAYLOAD.groups[g.id]||[]).length).length} platforms`;
   const colgroup=`<colgroup>${cols.map(c=>`<col style="width:${c.w}px">`).join("")}</colgroup>`;
   const thead=`<thead><tr>${cols.map(c=>{
     // Select all (Tom, 12 Oct 2026): ticks every creator in view on this tab (after any
@@ -1172,7 +1179,7 @@ function renderTabs(){
   // several platforms has an x that takes that platform's creators off the list.
   $("#tabs").style.display=onList&&vis.length<=1?"none":"";
   const canRemove=listEdit()&&vis.length>1;
-  $("#tabs").innerHTML=vis.map(g=>`<button class="tab ${g.id===activeTab?"active":""}" data-g="${g.id}">${esc(g.label)}<span class="n">${(PAYLOAD.groups[g.id]||[]).length}</span>${canRemove?`<span class="x" data-g="${g.id}" title="Take ${esc(g.label)} off this list">&times;</span>`:""}</button>`).join("");
+  $("#tabs").innerHTML=vis.map(g=>`<button class="tab ${g.id===activeTab?"active":""}" data-g="${g.id}"${g.tip?` title="${esc(g.tip)}"`:""}>${esc(g.label)}<span class="n">${(PAYLOAD.groups[g.id]||[]).length}</span>${canRemove?`<span class="x" data-g="${g.id}" title="Take ${esc(g.label)} off this list">&times;</span>`:""}</button>`).join("");
   $("#tabs").querySelectorAll(".tab").forEach(b=>b.onclick=()=>{activeTab=b.dataset.g; sortKey=null; renderTabs(); render(); $("#scroll").scrollTop=0;});
   $("#tabs").querySelectorAll(".x").forEach(x=>x.onclick=e=>{
     e.stopPropagation();
