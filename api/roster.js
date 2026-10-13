@@ -1186,7 +1186,7 @@ function parseForward(b) {
     subject: String(String(b.subject || "").replace(/^\s*((fwd?|fw):\s*)+/i, "").trim() || (subj ? subj[1] : "")).replace(/\*+/g, "").trim(),
     to: to ? to[1].replace(/\*+/g, "").trim() : "",
     others,
-    note: at > 0 ? text.slice(0, at).split(/\n\s*Warm regards/i)[0].trim().slice(0, 1500) : "",
+    note: at > 0 ? text.slice(0, at).split(/(?:^|\n)\s*(?:Warm regards|Kind regards|Best regards|Thanks,?\s*\n\s*Tom)/i)[0].trim().slice(0, 1500) : "",
     body: fwd.slice(0, 12000),
   };
 }
@@ -1278,7 +1278,7 @@ async function pitchFromEmail(b) {
     // Tom's pointers (13 Oct 2026): the note above each forward is kept on the Pitch Requests board and fed into later pitches, so the system learns from them.
     if (f.note) await monday(`mutation{change_multiple_column_values(board_id:${PITCH_BOARD},item_id:${Number(b.item)},column_values:${JSON.stringify(JSON.stringify({ long_text_mm83jwpf: { text: f.note } }))}){id}}`).catch(() => null);
     const pastQ = await monday(`query{boards(ids:[${PITCH_BOARD}]){items_page(limit:200){items{id column_values(ids:["long_text_mm83jwpf"]){text}}}}}`).catch(() => null);
-    const pointers = (((((pastQ || {}).boards || [])[0] || {}).items_page || {}).items || []).filter(it => String(it.id) !== String(b.item)).map(it => String(((it.column_values || [])[0] || {}).text || "").trim()).filter(Boolean).slice(0, 30);
+    const pointers = (((((pastQ || {}).boards || [])[0] || {}).items_page || {}).items || []).filter(it => String(it.id) !== String(b.item)).map(it => String(((it.column_values || [])[0] || {}).text || "").trim()).filter(p => p && !/^(warm|kind|best) regards/i.test(p)).filter((p, i, a) => a.indexOf(p) === i).slice(-30);
     if (!f.contactEmail || f.body.length < 40) throw new Error("No forwarded enquiry found. Forward the brand's own email.");
     const data = await loadBoard();
     const cat = pitchCatalogue(data);
@@ -1309,8 +1309,14 @@ async function pitchFromEmail(b) {
     const groupsUsed = new Set(ids.map(id => cat.byId[id].gid)); if (!groupsUsed.size) { groupsUsed.add("topics"); groupsUsed.add("group_mm4av3kr"); }
     // A pointer that says to leave a creator out wins over everything else.
     const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const leftOut = nm => !!f.note && new RegExp("\\b(not|no|without|leave out|exclude|skip|don'?t|drop|remove)\\b[^.\\n]{0,40}" + esc(nm), "i").test(f.note);
+    const leftOut = nm => !!f.note && new RegExp("\\b(not|no|without|leave out|exclude|skip|don'?t|drop|remove)\\b[^.\\n]{0,40}" + esc(nm), "i").test(f.note) || (!!f.note && new RegExp(esc(nm) + "[^.\\n]{0,40}\\b(not|isn'?t|aren'?t|doesn'?t|don'?t)\\b[^.\\n]{0,20}\\b(fit|suit|right|work)", "i").test(f.note));
     for (let k = ids.length - 1; k >= 0; k--) if (leftOut(base(cat.byId[ids[k]].name))) ids.splice(k, 1);
+    // Past pointers that rule a creator out for a kind of brief are enforced too (Tom, 13 Oct 2026: Badd Medicine is not a fit for family/toy briefs). Creators the enquiry names stay.
+    const FIT_TOPICS = ["family", "toy", "kids", "children", "lifestyle", "beauty", "fashion", "finance", "crypto", "tech", "food", "fitness", "horror", "sports", "betting", "gambling", "alcohol"];
+    const topicIn = (t, txt) => new RegExp("\\b" + t + "s?\\b", "i").test(String(txt || ""));
+    const fitRules = pointers.filter(p => /not (a )?(good |great |right )?fit|(isn'?t|aren'?t) a (good |great |right )?fit|(doesn'?t|don'?t) suit|not suitable|not right for/i.test(p)).filter(p => { const ts = FIT_TOPICS.filter(t => topicIn(t, p)); return !ts.length || ts.some(t => topicIn(t, f.body)); });
+    const ruledOut = nm => hay.indexOf(norm(nm)) < 0 && fitRules.some(p => new RegExp(esc(nm) + "[^.\\n]{0,40}\\b(not|isn'?t|aren'?t|doesn'?t|don'?t)\\b", "i").test(p));
+    for (let k = ids.length - 1; k >= 0; k--) if (ruledOut(base(cat.byId[ids[k]].name))) ids.splice(k, 1);
     // Market limits are enforced here, not left to the model (Tom, 13 Oct 2026: "only available to the Australian market").
     const MARKETS = [["australia", /\baustralia(n)?\b|\baus\b/i], ["new zealand", /new zealand|\bnz\b|kiwi/i], ["united kingdom", /\b(uk|united kingdom|british|britain|england)\b/i], ["canada", /\bcanad(a|ian)\b/i], ["ireland", /\bireland|irish\b/i], ["united states", /\b(us only|usa|united states|american market)\b/i]];
     const limitTxt = f.note + " " + (/\bonly\b|exclusively|limited to/i.test(f.body) ? f.body : "");
