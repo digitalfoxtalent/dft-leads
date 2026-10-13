@@ -578,7 +578,7 @@ function discountFor(own, p, kind, now, isShow) {
   if (!was || !(was.rate > now.rate)) return null;
   return { wasRate: was.rate, wasTotal: isShow ? was.rate : was.total, discPct: Math.round((1 - now.rate / was.rate) * 100) };
 }
-function brandRow(r, includeHiddenByRule, prices, team) {
+function brandRow(r, includeHiddenByRule, prices, team, showVis) {
   prices = prices || {};
   const own = ownNumbers(r);
   const b = addFee(bundle(listNumbers(own, prices[r.id], r.kind) || own, r.kind), r.kind, isDisc(prices[r.id]));
@@ -600,9 +600,17 @@ function brandRow(r, includeHiddenByRule, prices, team) {
     const sown = brandNumbers(s.cv, SC, "long");
     const sb = roundNums(bundle(listNumbers(sown, prices[s.id], "long") || sown, "long"), isDisc(prices[s.id]));
     const sv = visibility(sb, s.cv[SC.vis], s.cv[SC.bnote], "long");
-    if (!(sv.show || (includeHiddenByRule && sb && s.cv[SC.vis] !== "Hide"))) return null;
+    // Shows on a saved list (Tom, 13 Oct 2026): DFT can show a show on one list even though it is
+    // hidden on the main rate card, or hide it on that list only (list JSON showVis: { <show id>:
+    // "show" | "hide" }). The team on the list's page still gets a hidden show, flagged listHidden,
+    // so it can switch it back on. Brands never receive a show that is off for their list.
+    const lv = showVis ? showVis[s.id] || "" : "";
+    let ok = !!(sv.show || (includeHiddenByRule && sb && s.cv[SC.vis] !== "Hide"));
+    if (lv === "show" && sb) ok = true;
+    if (lv === "hide") ok = false;
+    if (!ok && !(team && showVis && sb)) return null;
     const sd = discountFor(sown, prices[s.id], "long", sb, true);
-    return Object.assign({ id: s.id, name: s.name, url: s.cv[SC.url] || "", rate: sb.rate, total: sb.rate, vg: sb.vg, cpm: sb.cpm, minVideos: sb.videos, vgPer: sb.vgPer, custom: team && sb.custom ? true : undefined, videosSet: team && sb.videosSet ? sb.videosSet : undefined, askCpm: team && sb.videosSet ? sb.askCpm : undefined, disc: team && prices[s.id] && prices[s.id].disc ? true : undefined }, sd || {});
+    return Object.assign({ id: s.id, name: s.name, url: s.cv[SC.url] || "", rate: sb.rate, total: sb.rate, vg: sb.vg, cpm: sb.cpm, minVideos: sb.videos, vgPer: sb.vgPer, custom: team && sb.custom ? true : undefined, videosSet: team && sb.videosSet ? sb.videosSet : undefined, askCpm: team && sb.videosSet ? sb.askCpm : undefined, disc: team && prices[s.id] && prices[s.id].disc ? true : undefined, listHidden: ok ? undefined : true }, sd || {});
   }).filter(Boolean).sort((a, b) => b.vgPer - a.vgPer);
   return o;
 }
@@ -680,7 +688,7 @@ function brandPayload(data, list, team, noLock) {
   GROUPS.forEach(g => { groups[g.id] = []; });
   data.rows.forEach(r => {
     if (ids && !ids.has(r.id)) return;
-    const o = brandRow(r, !!ids, prices, team);
+    const o = brandRow(r, !!ids, prices, team, list ? (list.body.showVis || {}) : null);
     if (o && list) {
       // Brands see the whole Stage too (Tom, 10 Oct 2026), read only apart from Brand approved.
       o.confirmed = confirmed.has(r.id); o.stage = o.confirmed ? "confirmed" : approached.has(r.id) ? "approached" : "";
@@ -1004,6 +1012,30 @@ async function listLabel(b, email) {
   return brandPayload(data, Object.assign({}, list, { body }), true);
 }
 
+// Show or hide one of a channel's shows on this saved list only (Tom, 13 Oct 2026). The main
+// rate card is never touched. vis "show" puts it on the list even if it is hidden on the main
+// rate card, "hide" takes it off this list, "" goes back to following the main rate card.
+async function listShow(b, email) {
+  const { data, list } = await freshList(b.slug);
+  if (!list) throw new Error("list not found");
+  if (list.bad) throw new Error(LIST_READ_ERROR);
+  const id = String(b.id || "");
+  const row = data.rows.find(r => !r.dedicated && r.shows.some(s => s.id === id));
+  if (!row) throw new Error("show not found");
+  if (!(list.body.ids || []).map(String).includes(row.id)) throw new Error("That channel is not on this list");
+  const vis = String(b.vis == null ? "" : b.vis);
+  if (!["", "show", "hide"].includes(vis)) throw new Error("bad visibility");
+  const showVis = Object.assign({}, list.body.showVis || {});
+  if (vis) showVis[id] = vis; else delete showVis[id];
+  const body = Object.assign({}, list.body, { showVis });
+  if (body.lock && vis === "show") { // a show switched on for a locked list is locked at today's price
+    const snap = lockSnapshot(data, Object.assign({}, list, { body }), new Set([id]));
+    body.lock = Object.assign({}, body.lock, { rows: Object.assign({}, body.lock.rows, snap) });
+  }
+  await writeList(list.id, body, { [L.updated]: email + " " + stamp() });
+  return brandPayload(data, Object.assign({}, list, { body }), true);
+}
+
 async function listConfirm(b, email) {
   const { data, list } = await freshList(b.slug);
   if (!list) throw new Error("list not found");
@@ -1157,6 +1189,7 @@ export default async function handler(req, res) {
         if (b.op === "list-lock") return res.status(200).json(await listLock(b, email));
         if (b.op === "list-confirm") return res.status(200).json(await listConfirm(b, email));
         if (b.op === "list-label") return res.status(200).json(await listLabel(b, email));
+        if (b.op === "list-show") return res.status(200).json(await listShow(b, email));
         if (b.op === "list-order") return res.status(200).json(await listOrder(b, email));
         if (b.op === "list-preview") return res.status(200).json(await listPreview(b));
         if (b.op === "list-remove") return res.status(200).json(await listRemove(b, email));
