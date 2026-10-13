@@ -303,7 +303,7 @@ const GROUPS=[
   {id:"topics",         label:"YouTube Channels", kind:"long"},
   // YouTube Dedicated (Tom, 13 Oct 2026): a whole video about the brand, at 3x the channel's
   // YouTube rate. Each row follows its channel on the YouTube tab; prices change there.
-  {id:"dedicated",      label:"YouTube Dedicated", kind:"long", tip:"A whole video about the brand: 3x the YouTube integration rate, one video, $1,500 minimum"},
+  {id:"dedicated",      label:"YouTube Dedicated", kind:"long", tip:"A whole video about the brand: 3x the YouTube integration rate, one video, $1,500 minimum. Views are an estimate, not a guarantee."},
   {id:"group_mm4av3kr", label:"YouTube Shorts",   kind:"short"},
   {id:"group_mm4a1fe0", label:"Instagram",        kind:"short"},
   {id:"group_mm4bd5tk", label:"TikTok",           kind:"short"},
@@ -418,9 +418,9 @@ function dispHandle(c){
 function brandColsFor(){
   const k=kindOf();
   const team=mode==="team";
-  // Short form (Shorts / Instagram / TikTok / Snapchat), Tom 8 Oct 2026: brands see the
-  // View Estimate, a rate at $25 CPM, the $3,000 content production fee, the Total Rate and
-  // the usage-rights note. Never the CPM. Signed in, the team also sees and edits the CPM.
+  // Short form (Shorts / Instagram / TikTok / Snapchat), Tom 13 Oct 2026: priced by the post,
+  // not by views. Production fee (tier by channel size) + a Publishing Rate of 20% of it, and
+  // the usage-rights note. Avg Views is shown for context only. No CPM on these tabs.
   const showShortCpm=team||listEdit();
   let cols=BRAND_COLS.filter(c=>{
     // Saved lists: the team's Stage column, which brands see as "Your feedback".
@@ -428,26 +428,29 @@ function brandColsFor(){
     if(c.listEditOnly) return listEdit();
     if(c.shortOnly) return k!=="long";
     if(c.key==="vg") return true;
-    if(c.key==="cpm"&&k!=="long") return showShortCpm;
+    if(c.key==="cpm"&&k!=="long") return false;
     return !(c.longOnly&&k!=="long");
   });
   // Shorts / Instagram / TikTok for brands: no demographics, audience, ad types,
   // exclusivity, host or host gender columns (Tom, 6 Oct 2026). The DFT view keeps them.
   if(k!=="long"&&!team) cols=cols.filter(c=>!SHORT_HIDE.has(c.key));
   if(k!=="long") cols=cols.map(c=>{
-    if(c.key==="vg") return Object.assign({},c,{head:"View Estimate",tip:"Estimated views per post, based on recent averages. An estimate, not a guarantee."});
-    if(c.key==="rate") return Object.assign({},c,{head:"Publishing Rate",w:132,tip:"View Estimate x $25 CPM. The Production Rate is added in Total Rate."});
+    if(c.key==="vg") return Object.assign({},c,{head:"Avg Views",tip:"Average views per post last quarter. For context only: not a guarantee and not part of the price."});
+    if(c.key==="rate") return Object.assign({},c,{head:"Publishing Rate",w:132,tip:"20% of the Production Rate, for the creator to post it on their own channel. Total Rate = Production Rate + Publishing Rate."});
     if(c.key==="cpm") return Object.assign({},c,{t:1,tip:"DFT only, brands never see the CPM on this tab."});
     return c;
   });
   if(k==="long"&&estLong()) cols=cols.map(c=>c.key==="vg"?Object.assign({},c,{head:"Estimated Views",tip:"Estimated views across the videos, based on each channel's recent averages. An estimate, not a guarantee."}):c);
+  // Dedicated videos (Tom, 13 Oct 2026) are a flat price with no view guarantee: always
+  // shown as Estimated Views, on the main rate card and on every saved list.
+  if(k==="long"&&activeTab==="dedicated") cols=cols.map(c=>c.key==="vg"?Object.assign({},c,{head:"Estimated Views",tip:"Estimated views for a whole video about the brand, based on the channel's recent averages. An estimate, not a guarantee: a dedicated video is a flat price (3x the YouTube integration rate)."}):c);
   if(team&&!baseLocked()) cols=cols.map(c=>{
-    if(c.key==="vg") return Object.assign({},c,{w:146,edit:"vg",head:k==="long"?"View Guarantee ✎":"View Estimate ✎",tip:k==="long"?"Click to edit what brands see. Holds until the quarter resets.":"Brands see this as an estimate, not a guarantee. Rate = estimate x CPM ($25), plus the production fee ($3,000, or $5,000 from 100k views, $7,500 from 250k). Click to edit."});
+    if(c.key==="vg") return Object.assign({},c,{w:146,edit:"vg",head:k==="long"?(activeTab==="dedicated"?"Estimated Views":"View Guarantee ✎"):"Avg Views ✎",tip:k==="long"?"Click to edit what brands see. Holds until the quarter resets.":"Shown to brands for context only. It sets the production fee tier ($3,000, $5,000 from 100k, $7,500 from 250k); the Publishing Rate is 20% of that fee. Click to edit."});
     if(c.key==="cpm") return Object.assign({},c,{edit:"cpm",head:"CPM ✎",w:84,tip:k==="long"?"Click to edit what brands see. Holds until the quarter resets.":"Not shown to brands. Sets the rate. Click to edit."});
     // Number of videos brands are quoted (Tom, 9 Oct 2026). Clear it to go back to the
     // automatic bundle. Fewer videos than the minimum needs are still priced at $1,500.
     if(c.key==="minVideos"&&k==="long") return Object.assign({},c,{edit:"videos",head:"Videos ✎",w:112,tip:"Number of videos brands are quoted. View Guarantee = views per video x videos, Rate = that x CPM, minimum $1,500. Holds until the quarter resets. Clear the box to go back to the automatic count."});
-    if(c.key==="rate") return Object.assign({},c,{tip:k==="long"?"Worked out from View Guarantee x CPM, minimum $1,500. Small YouTube rows are sold as a bundle of up to 10 videos instead of being lifted to $1,500.":"View Estimate x CPM ($25), no minimum. The production fee ($3,000, $5,000 from 100k views, $7,500 from 250k) is added in Total Rate."});
+    if(c.key==="rate") return Object.assign({},c,{tip:k==="long"?"Worked out from View Guarantee x CPM, minimum $1,500. Small YouTube rows are sold as a bundle of up to 10 videos instead of being lifted to $1,500.":"20% of the production fee ($3,000, $5,000 from 100k avg views, $7,500 from 250k). Total Rate = fee + this."});
     return c;
   });
   // Signed in on a saved list's page (brand preview): the numbers are editable for THIS
@@ -455,7 +458,7 @@ function brandColsFor(){
   // Every tab: View Guarantee / Estimate and CPM; short form also the production fee.
   if(listEdit()) cols=cols.map(c=>{
     const tip="Price for this list only. The roster and other lists are not changed. Clear the box to go back to the roster price.";
-    if(c.key==="vg") return Object.assign({},c,{w:146,edit:"vg",head:k==="long"?(estLong()?"Estimated Views ✎":"View Guarantee ✎"):"View Estimate ✎",tip});
+    if(c.key==="vg") return Object.assign({},c,{w:146,edit:"vg",head:k==="long"?(estLong()||activeTab==="dedicated"?"Estimated Views ✎":"View Guarantee ✎"):"Avg Views ✎",tip});
     if(c.key==="cpm") return Object.assign({},c,{edit:"cpm",head:k==="long"?"CPM ✎":"CPM ✎ (DFT only)",w:k==="long"?84:130,tip:k==="long"?tip:"Brands do not see this column. "+tip});
     if(c.key==="fee") return Object.assign({},c,{edit:"fee",head:"Production Rate ✎",w:160,tip});
     // Number of videos (Tom, 9 Oct 2026): the view guarantee and rate follow it. Fewer
@@ -533,7 +536,7 @@ function fmtCell(c,col,isShow){
   if(col.fmt==="money") return money(v);
   if(col.fmt==="money2") return money2(v);
   if(col.fmt==="int") return int(v);
-  if(col.key==="minVideos") return v==null?"":(v>1?`<span class="pill bundle" title="${esc(v+" videos. "+(estLong()?"Estimated views":"View guarantee")+" and rate cover all "+v+(c.vgPer?" (about "+int(c.vgPer)+" views each)":""))}">${v} videos</span>`:"1");
+  if(col.key==="minVideos") return v==null?"":(v>1?`<span class="pill bundle" title="${esc(v+" videos. "+(estLong()||isDed(c)?"Estimated views":"View guarantee")+" and rate cover all "+v+(c.vgPer?" (about "+int(c.vgPer)+" views each)":""))}">${v} videos</span>`:"1");
   if(col.key==="simulcast") return v?`<span class="pill ok" title="Also on Spotify Video and podcast apps, included at this rate">${esc(v)}</span>`:"";
   if(col.key==="kit") return v?`<a class="exlink" href="${esc(v)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">Audience ↗</a>`:"";
   if(col.key==="adEx") return v?`<a class="exlink" href="${esc(v)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">Examples ↗</a>`:"";
@@ -664,7 +667,7 @@ function totalsRow(list,cols){
       case "name": return `Total<span class="sub">${list.length} creator${list.length===1?"":"s"}</span>`;
       case "subs": return int(subs)+`<span class="sub">subscribers</span>`;
       case "rate": { const was=list.reduce((a,c)=>a+(c.wasRate||c.rate||0),0); return money(rate)+`<span class="sub">${long?"total rate":"publishing rate"}</span>`+(was>rate?`<span class="sub">saves ${money(was-rate)}</span>`:""); }
-      case "vg": return vg?int(vg)+`<span class="sub">${long&&!estLong()?"guaranteed views":"estimated views"}</span>`:"";
+      case "vg": return vg?int(vg)+`<span class="sub">${long?(!estLong()&&activeTab!=="dedicated"?"guaranteed views":"estimated views"):"avg views"}</span>`:"";
       case "cpm": return long&&vg?money2(Math.round(rate*100000/vg)/100)+`<span class="sub">CPM</span>`:"";
       case "minVideos": return `${int(vids)}<span class="sub">video${vids===1?"":"s"}</span>`;
       case "fee": return money(fee)+`<span class="sub">production rate</span>`;
@@ -676,12 +679,12 @@ function totalsRow(list,cols){
   return `<tfoot><tr>${cols.map(c=>`<td class="${c.cls||""}">${cell(c.key)}</td>`).join("")}</tr></tfoot>`;
 }
 function packageSummary(){
-  const all=GROUPS.reduce((a,g)=>a.concat((BRAND.groups[g.id]||[]).map(c=>Object.assign({kind:g.kind},c))),[]);
-  const rate=all.reduce((a,c)=>a+(typeof c.total==="number"?c.total:(typeof c.rate==="number"?c.rate:0)),0), vg=sumBy(all.filter(c=>c.kind==="long"),"vg"), est=sumBy(all.filter(c=>c.kind!=="long"),"vg");
+  const all=GROUPS.reduce((a,g)=>a.concat((BRAND.groups[g.id]||[]).map(c=>Object.assign({kind:g.kind,gid:g.id},c))),[]);
+  const rate=all.reduce((a,c)=>a+(typeof c.total==="number"?c.total:(typeof c.rate==="number"?c.rate:0)),0), vg=sumBy(all.filter(c=>c.kind==="long"&&c.gid!=="dedicated"),"vg"), ded=sumBy(all.filter(c=>c.gid==="dedicated"),"vg"), est=sumBy(all.filter(c=>c.kind!=="long"),"vg");
   const vids=all.reduce((a,c)=>a+(c.kind==="long"?(c.minVideos||1):1),0);
   const saved=all.reduce((a,c)=>a+(c.wasTotal?(c.wasTotal-(typeof c.total==="number"?c.total:c.rate||0)):0),0);
   const conf=all.filter(c=>c.confirmed).length, appr=listEdit()?all.filter(c=>c.stage==="approached").length:0, bok=all.filter(c=>c.fb&&c.fb.ok).length, bno=all.filter(c=>c.fb&&c.fb.no).length, bnotes=listEdit()?all.filter(c=>c.fb&&c.fb.note).length:0;
-  return `<span class="pkg"><span>Package total <b>${money(rate)}</b></span>${saved>0?`<span>Discount <b>${money(saved)}</b></span>`:""}${appr?`<span><b>${appr}</b> approached</span>`:""}${bok?`<span><b>${bok}</b> ${listEdit()?"approved by brand":"approved"}</span>`:""}${bno?`<span><b>${bno}</b> ${listEdit()?"rejected by brand":"rejected"}</span>`:""}${bnotes?`<span><b>${bnotes}</b> brand note${bnotes===1?"":"s"}</span>`:""}${conf?`<span><b>${conf}</b> of ${all.length} confirmed</span>`:""}<span><b>${all.length}</b> profile${all.length===1?"":"s"}</span><span><b>${vids}</b> video${vids===1?"":"s"}</span>${vg?`<span><b>${int(vg)}</b> ${estLong()?"estimated":"guaranteed"} YouTube views</span>`:""}${est?`<span><b>${int(est)}</b> estimated short-form views</span>`:""}</span>`;
+  return `<span class="pkg"><span>Package total <b>${money(rate)}</b></span>${saved>0?`<span>Discount <b>${money(saved)}</b></span>`:""}${appr?`<span><b>${appr}</b> approached</span>`:""}${bok?`<span><b>${bok}</b> ${listEdit()?"approved by brand":"approved"}</span>`:""}${bno?`<span><b>${bno}</b> ${listEdit()?"rejected by brand":"rejected"}</span>`:""}${bnotes?`<span><b>${bnotes}</b> brand note${bnotes===1?"":"s"}</span>`:""}${conf?`<span><b>${conf}</b> of ${all.length} confirmed</span>`:""}<span><b>${all.length}</b> profile${all.length===1?"":"s"}</span><span><b>${vids}</b> video${vids===1?"":"s"}</span>${vg?`<span><b>${int(vg)}</b> ${estLong()?"estimated":"guaranteed"} YouTube views</span>`:""}${ded?`<span><b>${int(ded)}</b> estimated dedicated video views</span>`:""}${est?`<span><b>${int(est)}</b> average short-form views</span>`:""}</span>`;
 }
 
 // Never redraw the table under someone typing (Tom, 12 Oct 2026): a save coming back while a
@@ -1080,7 +1083,7 @@ function queueTotals(){
       const j=await post({op:"list-preview",slug:editingList?editingList.slug:null,ids});
       if(seq!==totSeq) return;
       const n=j.now, sv=j.saved, d=sv?n.total-sv.total:0;
-      const views=[n.ytViews?`<span><b>${int(n.ytViews)}</b> ${j.estViews?"estimated":"guaranteed"} YouTube views</span>`:"",n.shortViews?`<span><b>${int(n.shortViews)}</b> estimated short-form views</span>`:""].join("");
+      const views=[n.ytViews?`<span><b>${int(n.ytViews)}</b> ${j.estViews?"estimated":"guaranteed"} YouTube views</span>`:"",n.dedViews?`<span><b>${int(n.dedViews)}</b> estimated dedicated video views</span>`:"",n.shortViews?`<span><b>${int(n.shortViews)}</b> average short-form views</span>`:""].join("");
       $("#selTotals").innerHTML=`<span>Package total <b>${money(n.total)}</b></span>`
         +(sv&&d?`<span class="${d>0?"up":"dn"}" title="Compared with the saved list (${money(sv.total)})">${d>0?"+":"−"}${money(Math.abs(d))} vs saved</span>`:sv?`<span title="Same as the saved list">same as saved</span>`:"")
         +(n.discount>0?`<span>Discount <b>${money(n.discount)}</b></span>`:"")
