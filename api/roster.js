@@ -75,15 +75,20 @@ const REAL_GROUPS = () => GROUPS.filter(g => !g.virtual);
 const isDedId = id => /^d\d+$/.test(String(id));
 const ROW_ID = /^d?\d+$/; // monday item ids, or d<item id> for a channel's Dedicated row
 // Short form (Shorts, Instagram, TikTok, Snapchat), Tom 8 Oct 2026: the View Estimate x a
-// $25 CPM gives the media rate, with NO $1,500 floor, and a flat content production fee of
-// $3,000 is added on top. Total Rate = rate + fee. 12 months of digital usage and boosting
-// rights are included. YouTube long-form is unchanged ($25 CPM, $1,500 minimum, no fee).
-const PRICE = { long: { mult: 1.5, cpm: 25 }, short: { mult: 1, cpm: 25 } };
+// $25 CPM gives the media rate, with NO $1,500 floor, and a content production fee (tiered,
+// see feeFor) is added on top. Total Rate = rate + fee. 12 months of digital usage and
+// boosting rights are included. YouTube long-form is unchanged ($25 CPM, $1,500 minimum, no fee).
+// View Estimate = HALF the average (Tom and Margot, 13 Oct 2026; was 1x), so the publishing
+// rate halves with it. This is the one place that number lives for the roster: brandNumbersRaw
+// works the estimate out from Brand Basis Avg x this, and liveFor / priceFrom use it too.
+const PRICE = { long: { mult: 1.5, cpm: 25 }, short: { mult: 0.5, cpm: 25 } };
 const FLOOR = 1500;
 const FEE = 3000;
-// Production fee tiers by View Estimate (Margot, 8 Oct 2026): under 100k views $3,000,
-// 100k to 250k $5,000, 250k and over $7,500. A fee typed on a saved list still wins.
-const feeFor = vg => (vg >= 250000 ? 7500 : vg >= 100000 ? 5000 : FEE);
+// Production fee tiers (Margot, 8 Oct 2026): under 100k views $3,000, 100k to 250k $5,000,
+// 250k and over $7,500. A fee typed on a saved list still wins. The tier follows the creator's
+// FULL average, not the halved View Estimate (Tom, 13 Oct 2026), so it is worked out from the
+// estimate / PRICE.short.mult and halving the estimate never drops anyone a fee tier.
+const feeFor = vg => { const avg = (vg || 0) / PRICE.short.mult; return avg >= 250000 ? 7500 : avg >= 100000 ? 5000 : FEE; };
 // Round numbers for clients (Margot, 8 Oct 2026), every tab: views to the nearest 1,000,
 // rates to the nearest $100. The CPM is left exactly as priced, so it stays a clean $25.
 const r1k = n => (n == null ? n : Math.max(1000, Math.round(n / 1000) * 1000));
@@ -255,11 +260,18 @@ function dedNumbers(b) {
 const ownNumbers = r => r.dedicated ? dedNumbers(brandNumbers(r.cv, C, "long")) : brandNumbers(r.cv, C, r.kind);
 function brandNumbersRaw(cv, K, kind) {
   const vg = pos(cv[K.bvg]), rate = pos(cv[K.brate]);
-  if (kind !== "long" && vg) {
+  const sBasis = pos(cv[K.bbasis]);
+  if (kind !== "long" && (vg || sBasis)) {
     // Short form is re-priced here at $25 so the quarter's stored $50 numbers need no
     // rewrite. A CPM a DFT member typed in (note "Edited by") is kept.
-    const cpm = (/^Edited by/.test(cv[K.bnote] || "") && pos(cv[K.bcpm])) || PRICE.short.cpm;
-    return { vg, rate: Math.round(vg * cpm / 1000), cpm: r2(cpm), askCpm: r2(cpm), typed: /^Edited by/.test(cv[K.bnote] || ""), basis: pos(cv[K.bbasis]), quarter: cv[K.bq] || "", note: cv[K.bnote] || "", provisional: false };
+    // The View Estimate is worked out HERE from the quarter's average (Brand Basis Avg) x
+    // PRICE.short.mult (Tom, 13 Oct 2026), so the page never depends on which multiplier a
+    // sync or the quarterly snapshot last stored in Brand VG. A View Estimate a DFT member
+    // typed (note "Edited by") is shown exactly as typed.
+    const typed = /^Edited by/.test(cv[K.bnote] || "");
+    const est = typed && vg ? vg : sBasis ? Math.round(sBasis * PRICE.short.mult) : vg;
+    const cpm = (typed && pos(cv[K.bcpm])) || PRICE.short.cpm;
+    return { vg: est, rate: Math.round(est * cpm / 1000), cpm: r2(cpm), askCpm: r2(cpm), typed, basis: sBasis, quarter: cv[K.bq] || "", note: cv[K.bnote] || "", provisional: false };
   }
   // cpm is always the effective one (rate / views). askCpm is the CPM that was asked
   // for: the same thing, except on a row lifted by the $1,500 floor after a DFT edit.
@@ -595,10 +607,10 @@ function brandRow(r, includeHiddenByRule, prices, team) {
   return o;
 }
 
-// Live (daily) figures for the blue columns. The daily syncs still write YouTube-style
-// pricing (1.5x average, $25 CPM) onto Shorts, Instagram and TikTok rows, so for those the
-// live view guarantee, rate and CPM are re-priced here from the live average the way
-// brands are priced: 1x average at $50 CPM, $1,500 minimum (Tom, 6 Oct 2026).
+// Live (daily) figures for the blue columns. For Shorts, Instagram, TikTok and Snapchat the
+// live View Estimate, rate and CPM are re-priced here from the live average exactly the way
+// brands are priced (priceFrom: half the average at $25 CPM, no minimum, Tom 13 Oct 2026),
+// so they never depend on what a sync last wrote.
 function liveFor(r) {
   const avg = pos(r.cv[C.avg]), lastPub = r.cv[C.lastPub] || "";
   if (r.kind !== "long") { const p = avg ? priceFrom(avg, "short") : {}; return { avg, vg: p.vg || null, rate: p.rate || null, cpm: p.cpm || null, lastPub }; }
