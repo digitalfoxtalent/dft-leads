@@ -1238,10 +1238,10 @@ function pitchPrompt(f, lines, fwdName) {
     "- Never invent ids.",
     "",
     "THE REPLY",
-    "Write the body of a short reply from " + fwdName + " to the original sender: 2 or 3 short paragraphs, under 90 words in total. Warm, plain English, no em dashes, no hype, no markdown, no bullet points, no greeting line and no sign-off (both are added after). Thank them in one line, say you have put together a list of creators for them (write [[LIST_LINK]] as its own paragraph where the link goes), and say they can tick a creator to approve them, tick again to mark a no, and use the speech bubble to comment. Do not describe pricing or formats (a pricing note matching the list is added after). Do not quote prices, do not promise dates or availability, do not mention AI.",
+    "Do not write the email (it is built from a fixed template). Give only: product, the name of the product or campaign the enquiry is about (e.g. Catch Flex); mix, a short phrase for the kinds of channels on your list (e.g. gaming, reaction, and personality channels); and extra, one short plain sentence answering a direct practical question in the enquiry that the list itself does not answer, otherwise empty. extra never mentions pricing, formats, dates, availability or AI. No em dashes, no praise of the product.",
     "",
     "Return ONLY JSON, no prose:",
-    "{\"brand\":\"\",\"title\":\"short list name, e.g. EXT (Exterminauts)\",\"contact_first_name\":\"the sender's first name if known, else empty\",\"angles\":[\"\"],\"picks\":[{\"id\":\"\",\"why\":\"a few words\"}],\"reply_paragraphs\":[\"\"]}"
+    "{\"brand\":\"\",\"product\":\"\",\"title\":\"short list name, e.g. EXT (Exterminauts)\",\"contact_first_name\":\"the sender's first name if known, else empty\",\"angles\":[\"\"],\"mix\":\"\",\"extra\":\"\",\"picks\":[{\"id\":\"\",\"why\":\"a few words\"}]}"
   ].join("\n");
 }
 
@@ -1278,13 +1278,12 @@ async function pitchFromEmail(b) {
     const title = noDash(out.title || f.subject || "Pitch").slice(0, 70);
     const saved = await saveList({ title, ids }, fromEmail + " (pitch)");
     const first = noDash(out.contact_first_name || String(f.contactName).split(/\s+/)[0] || "there");
-    const paras = (out.reply_paragraphs || []).map(noDash).filter(Boolean);
+    const product = noDash(out.product || out.brand || f.subject || "your campaign").replace(/[.\s]+$/, "");
+    const mix = noDash(out.mix || "").replace(/[.\s]+$/, ""), extra = noDash(out.extra || "").trim();
+    // Tom's own edit of the first live pitch (Catch Flex, 13 Oct 2026): one-line thanks, what the list is and how to use it, the link, then the ask. No pricing notes.
+    const paras = ["Thanks for reaching out about " + product + ".", "I have put together a shortlist of creators" + (mix ? " across " + mix : "") + ". You can tick a creator to approve them, tick again to mark a 'no', or use the speech bubble to comment or ask questions.", "[[LIST_LINK]]"].concat(extra ? [extra] : [], ["Could you confirm which creators you would like to book?"]);
     if (!paras.some(p => p.indexOf("[[LIST_LINK]]") >= 0)) paras.splice(Math.min(2, paras.length), 0, "[[LIST_LINK]]");
-    const kinds = new Set(ids.map(id => cat.byId[id].gid)), bullets = [];
-    const shortF = [["group_mm4av3kr", "YouTube Shorts"], ["group_mm4bd5tk", "TikTok"], ["group_mm4a1fe0", "Instagram"], ["group_mm7yw8cy", "Snapchat"]].filter(x => kinds.has(x[0])).map(x => x[1]);
-    if (kinds.has("topics")) bullets.push("YouTube integrations are priced against a guaranteed view count");
-    if (kinds.has("dedicated")) bullets.push("Dedicated videos are a flat price, with estimated (not guaranteed) views");
-    if (shortF.length) bullets.push((shortF.length > 1 ? shortF.slice(0, -1).join(", ") + " and " + shortF[shortF.length - 1] : shortF[0]) + " are priced per post, including posting plus 12 months of usage and boosting rights");
+    const bullets = [];
     const sig = ["Warm regards", fwdName, "Digital Fox Talent", "\u{1F98A}"];
     const linkText = title + " creator list";
     const html = "<div dir=\"ltr\">Hi " + escH(first) + ",<br><br>" + paras.map(p => p.indexOf("[[LIST_LINK]]") >= 0 ? "<a href=\"" + saved.url + "\">" + escH(linkText) + "</a>" : escH(p)).join("<br><br>") + (bullets.length ? "<br><br>" + bullets.map(x => "- " + escH(x)).join("<br>") : "") + "<br><br>" + sig.map(escH).join("<br>") + "</div>";
