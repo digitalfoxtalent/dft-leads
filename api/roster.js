@@ -1221,7 +1221,7 @@ async function askClaude(prompt) {
   throw new Error("Claude: " + last);
 }
 
-function pitchPrompt(f, lines, fwdName, aiNames) {
+function pitchPrompt(f, lines, fwdName, aiNames, namedNames) {
   return [
     "You help Digital Fox Talent (DFT), a creator management agency, answer a brand enquiry with a shortlist from its creator roster.",
     "",
@@ -1238,13 +1238,14 @@ function pitchPrompt(f, lines, fwdName, aiNames) {
     "- Big, engaged reaction and personality channels (group reaction shows, for example) often sell fun, social or entertainment products better than niche specialists. Consider them seriously.",
     "- Read each creator's about line, not just the category, to judge audience and tone.",
     "- Always include any creator the enquiry names, asks about, or says DFT already confirmed, and any creator it was sent to (a creator's DFT inbox in the To line counts), plus any creator the note from " + fwdName + " asks for. Mark these picks named: true. A named creator who is not in the roster above has left DFT: leave them out and do not mention them.",
+    namedNames && namedNames.length ? "- Named in this enquiry and on the roster: " + namedNames.join(", ") + ". They are always on the list, whatever else applies." : "",
     "- Aim for 12 to 18 creators: about half the closest fits, the rest spread across the adjacent angles, so the brand sees options it would not have thought of. Every pick must be defensible in a few words. Go smaller only if the brief is genuinely narrow.",
     "- Formats: only the ones the enquiry asks for. If none are stated, use YouTube integration plus YouTube Shorts. Integration = YouTube integration; dedicated or full video = YouTube dedicated video; Shorts = YouTube Shorts; TikTok, Instagram and Snapchat as named. Give each creator every requested format they have; skip formats they lack.",
     "- Leave out short-form placements under 5K avg views and YouTube placements under 20K views unless the creator is named.",
     "- Never invent ids.",
     "",
     "THE REPLY",
-    "Do not write the email (it is built from a fixed template). Give only: product, the short brand or product name exactly as people would say it (e.g. Catch Flex, Higgsfield), never a description; mix, a short phrase for the kinds of channels on your list (e.g. gaming, reaction, and personality channels); and answer, one or two short plain sentences that directly answer any practical question the enquiry asks, otherwise empty. answer may only use these facts: the current rates are on the list; availability and posting dates are confirmed with each creator as soon as they approve, and we can move quickly; which named creators are on the list (name them). Never invent availability, dates, prices or numbers, never mention creators who left, and never refer to anything below or attached. No em dashes, no slashes.",
+    "Do not write the email (it is built from a fixed template). Give only: product, the short brand or product name exactly as people would say it (e.g. Catch Flex, Higgsfield), never a description; mix, a short phrase for the kinds of channels on your list (e.g. gaming, reaction, and personality channels); and answer, one or two short plain sentences that directly answer any practical question the enquiry asks, otherwise empty. answer may only use these facts: the current rates are on the list; availability and posting dates are confirmed with each creator as soon as they approve, and we can move quickly; which of the named creators are on the list (only those given above as named and on the roster). Never say a creator is not on the roster, has left, or is unavailable: simply leave other names out. Never invent availability, dates, prices or numbers, never mention creators who left, and never refer to anything below or attached. No em dashes, no slashes.",
     "",
     "Return ONLY JSON, no prose:",
     "{\"brand\":\"\",\"ai_product\":false,\"product\":\"\",\"title\":\"short list name, e.g. EXT (Exterminauts)\",\"contact_first_name\":\"the sender's first name if known, else empty\",\"angles\":[\"\"],\"mix\":\"\",\"answer\":\"\",\"picks\":[{\"id\":\"\",\"named\":false,\"why\":\"a few words\"}]}"
@@ -1282,17 +1283,19 @@ async function pitchFromEmail(b) {
     const aiNameSet = new Set([...aiIds].map(aiKey).filter(Boolean));
     const aiOk = id => aiIds.has(String(id)) || aiNameSet.has(aiKey(id));
     const aiNames = [...new Set([...aiIds].map(id => (cat.byId[id] || {}).name).filter(Boolean))];
+    // Creators the enquiry names (or was sent to) are always on the list, even on AI campaigns (Tom, 13 Oct 2026).
+    const norm = s => String(s || "").toLowerCase().replace(/[^a-z0-9]/g, ""), base = s => String(s || "").replace(/\s*-\s*(Shorts|Instagram|TikTok|Snapchat|Dedicated).*$/i, "");
+    const hay = norm(f.body + " " + f.note + " " + f.to);
+    const namedPl = Object.keys(cat.byId).filter(id => { const n = norm(base(cat.byId[id].name)), h = norm(cat.byId[id].handle); return (n.length >= 5 && hay.includes(n)) || (h.length >= 5 && hay.includes(h)); });
+    const namedNames = [...new Set(namedPl.map(id => base(cat.byId[id].name)))];
     const fwdName = String(b.fromName || "").replace(/["<>]/g, "").trim() || fromEmail.split("@")[0];
-    const out = await askClaude(pitchPrompt(f, cat.lines, fwdName, aiNames));
+    const out = await askClaude(pitchPrompt(f, cat.lines, fwdName, aiNames, namedNames));
     const order = GROUPS.map(g => g.id);
     const aiCamp = aiIds.size > 0 && (out.ai_product === true || /\bAI\b/.test(f.subject + " " + f.body));
     const namedIds = new Set((out.picks || []).filter(p => p && p.named === true).map(p => String(p.id)));
     const ids = [...new Set((out.picks || []).map(p => String(p && p.id)).filter(id => cat.byId[id] && (!aiCamp || aiOk(id) || namedIds.has(id))))];
-    // Creators the enquiry names (or was sent to) are always on the list, even on AI campaigns (Tom, 13 Oct 2026).
-    const norm = s => String(s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
-    const hay = norm(f.body + " " + f.note + " " + f.to);
     const groupsUsed = new Set(ids.map(id => cat.byId[id].gid)); if (!groupsUsed.size) { groupsUsed.add("topics"); groupsUsed.add("group_mm4av3kr"); }
-    Object.keys(cat.byId).forEach(id => { const c = cat.byId[id], n = norm(c.name), h = norm(c.handle); if (((n.length >= 5 && hay.includes(n)) || (h.length >= 5 && hay.includes(h))) && groupsUsed.has(c.gid) && !ids.includes(id)) ids.push(id); });
+    namedNames.forEach(nm => { const mine = namedPl.filter(id => base(cat.byId[id].name) === nm), inG = mine.filter(id => groupsUsed.has(cat.byId[id].gid)); (inG.length ? inG : mine).forEach(id => { if (!ids.includes(id)) ids.push(id); }); });
     if (!ids.length) throw new Error("No creators were picked");
     ids.sort((x, y) => order.indexOf(cat.byId[x].gid) - order.indexOf(cat.byId[y].gid));
     const title = noDash(out.title || f.subject || "Pitch").slice(0, 70);
