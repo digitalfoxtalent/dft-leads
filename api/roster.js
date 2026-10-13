@@ -1349,7 +1349,7 @@ async function pitchFromEmail(b) {
     const ask = pick(["Could you confirm who you would like to book?", "Could you confirm who you would like to book please?", "Who would you like to book?", "Could you confirm who you'd like to book for this?"]);
     const options = /option\s*\d|both options|\boptions\b/i.test(f.body);
     const how = solo.length === 1 ? "" : " " + howTo;
-    const ask2 = solo.length === 1 ? (options ? pick(["Could you confirm which option you'd like to go ahead with?", "Let me know which option works best and we'll get it booked in."]) : pick(["Could you confirm if you'd like to go ahead?", "Let me know if you'd like to go ahead and we'll get it booked in."])) : ask;
+    const ask2 = solo.length === 1 ? pick(["Could you confirm if you'd like to go ahead?", "Let me know if you'd like to go ahead and we'll get it booked in.", "Could you confirm if you'd like to book " + soloFirst + "?"]) : ask; // one placement: never "which option" (Tom, 13 Oct 2026)
     const paras = [thanks, lead + how, "[[LIST_LINK]]"].concat(answer ? [answer] : [], [ask2]);
     if (!paras.some(p => p.indexOf("[[LIST_LINK]]") >= 0)) paras.splice(Math.min(2, paras.length), 0, "[[LIST_LINK]]");
     const bullets = [];
