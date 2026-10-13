@@ -82,12 +82,28 @@ const r100 = n => (n == null ? n : Math.round(n / 100) * 100);
 // so the new price is the full price less exactly the % taken off the CPM. Rounding both to
 // $100 made small rates drift a point either side (e.g. $6,800 to $6,500 showed 4% off).
 const r10 = n => (n == null ? n : Math.round(n / 10) * 10);
-function roundNums(b, fine) {
+// YouTube rates are shown exactly, to the dollar (Margot, 12 Oct 2026: "$6,875 becomes
+// $6,900, can we change it back?"). Views still round to the nearest 1,000 on every tab,
+// and Shorts, Instagram, TikTok and Snapchat rates still round to $100 as before.
+const r1 = n => (n == null ? n : Math.round(n));
+function roundNums(b, fine, kind = "long") {
   if (!b) return b;
-  const rr = fine ? r10 : r100;
-  const o = Object.assign({}, b, { vg: r1k(b.vg), rate: rr(b.rate) });
-  if (b.vgPer != null) o.vgPer = r1k(b.vgPer);
+  const rr = kind === "long" ? r1 : fine ? r10 : r100;
+  // Views a DFT member typed (on the main rate card or a list) show exactly as typed (Tom and
+  // Margot, 12 Oct 2026: rounding a typed 287,500 to 288,000 felt like the page fighting back).
+  // Only the views the quarterly sync works out are rounded to the nearest 1,000.
+  const rv = b.typed || b.custom ? (n => (n == null ? n : Math.round(n))) : r1k;
+  const o = Object.assign({}, b, { vg: rv(b.vg), rate: rr(b.rate) });
+  if (b.vgPer != null) o.vgPer = rv(b.vgPer);
   if (b.ratePer != null) o.ratePer = rr(b.ratePer);
+  // YouTube: the rate is the views shown x the CPM shown, so a brand checking the sum gets the
+  // same answer (116,000 views at $25 is $2,900, not the $2,911 of the unrounded 116,420).
+  // Never below the $1,500 minimum.
+  if (kind === "long" && Math.abs((b.rate || 0) - FLOOR) <= 1) o.rate = FLOOR; // held at the minimum
+  else if (kind === "long" && o.vg > 0 && o.cpm > 0 && b.rate >= FLOOR) {
+    o.rate = Math.max(FLOOR, Math.round(o.vg * o.cpm / 1000));
+    if (o.vgPer != null && b.ratePer != null) o.ratePer = Math.round(o.vgPer * o.cpm / 1000);
+  }
   return o;
 }
 const RIGHTS = "12 months digital usage + boosting rights included";
@@ -210,11 +226,11 @@ function brandNumbersRaw(cv, K, kind) {
     // Short form is re-priced here at $25 so the quarter's stored $50 numbers need no
     // rewrite. A CPM a DFT member typed in (note "Edited by") is kept.
     const cpm = (/^Edited by/.test(cv[K.bnote] || "") && pos(cv[K.bcpm])) || PRICE.short.cpm;
-    return { vg, rate: Math.round(vg * cpm / 1000), cpm: r2(cpm), askCpm: r2(cpm), basis: pos(cv[K.bbasis]), quarter: cv[K.bq] || "", note: cv[K.bnote] || "", provisional: false };
+    return { vg, rate: Math.round(vg * cpm / 1000), cpm: r2(cpm), askCpm: r2(cpm), typed: /^Edited by/.test(cv[K.bnote] || ""), basis: pos(cv[K.bbasis]), quarter: cv[K.bq] || "", note: cv[K.bnote] || "", provisional: false };
   }
   // cpm is always the effective one (rate / views). askCpm is the CPM that was asked
   // for: the same thing, except on a row lifted by the $1,500 floor after a DFT edit.
-  if (vg && rate) { const eff = r2(rate * 1000 / vg); return { vg, rate, cpm: eff, askCpm: pos(cv[K.bcpm]) || eff, basis: pos(cv[K.bbasis]), quarter: cv[K.bq] || "", note: cv[K.bnote] || "", provisional: false }; }
+  if (vg && rate) { const eff = r2(rate * 1000 / vg); return { vg, rate, cpm: eff, askCpm: pos(cv[K.bcpm]) || eff, typed: /^Edited by/.test(cv[K.bnote] || ""), basis: pos(cv[K.bbasis]), quarter: cv[K.bq] || "", note: cv[K.bnote] || "", provisional: false }; }
   const avg = pos(cv[K.avg]);
   if (!avg) return null;
   return Object.assign(priceFrom(avg, kind), { basis: avg, quarter: "", note: "Provisional: today's average, until the quarterly snapshot runs", provisional: true });
@@ -471,7 +487,7 @@ function listNumbers(b, p, kind) {
 // Content production fee and total (short form only; YouTube's total is its rate).
 function addFee(b, kind, fine) {
   if (!b) return b;
-  b = roundNums(b, fine);
+  b = roundNums(b, fine, kind);
   const fee = kind === "long" ? 0 : (b.fee != null ? b.fee : feeFor(b.vg || 0));
   return Object.assign({}, b, { fee: kind === "long" ? null : fee, total: (b.rate || 0) + fee });
 }
@@ -699,9 +715,17 @@ async function editRow(b, email) {
   }
   if (b.vg != null || b.cpm != null) {
     const cur = brandNumbers(row.cv, K, kind) || {};
-    const vg = Math.round(num(b.vg != null ? b.vg : cur.vg) || 0);
+    // A CPM-only change keeps the views that were on screen (rounded unless typed before).
+    const vg = Math.round(num(b.vg != null ? b.vg : (cur.typed ? cur.vg : r1k(cur.vg))) || 0);
     // Short form: the CPM is $25 unless DFT has typed another one for this row.
-    const cpm = num(b.cpm != null ? b.cpm : (kind === "long" ? cur.cpm : (cur.askCpm || PRICE.short.cpm))) || 0;
+    // Keep the CPM brands see on the page, not rate / views: a bundled row stores an effective
+    // CPM like $25.77, and re-pricing at that turned a typed 60,000 into $1,546 (12 Oct 2026).
+    let longCpm = cur.cpm;
+    if (kind === "long" && cur.vg) {
+      const sb = bundle(cur, "long");
+      longCpm = sb.videosSet ? sb.askCpm : sb.needs ? (cur.askCpm && cur.askCpm < cur.cpm - 0.01 ? cur.askCpm : PRICE.long.cpm) : sb.cpm;
+    }
+    const cpm = num(b.cpm != null ? b.cpm : (kind === "long" ? longCpm : (cur.askCpm || PRICE.short.cpm))) || 0;
     if (!(vg > 0) || !(cpm > 0) || cpm > 10000 || vg > 1e9) throw new Error("View guarantee and CPM must be positive numbers");
     let rate = Math.round(vg * cpm / 1000);
     if (kind === "long" && rate < FLOOR) rate = FLOOR;

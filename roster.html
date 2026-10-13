@@ -239,7 +239,7 @@
   .banner .hint{ font-weight:600; margin-left:10px; }
   .cbar{ position:fixed; left:50%; bottom:58px; transform:translateX(-50%) translateY(12px); display:flex; align-items:center; gap:12px; max-width:calc(100vw - 32px); background:var(--charcoal); color:#fff; font-size:12.5px; padding:10px 12px 10px 16px; border-radius:12px; box-shadow:0 12px 34px rgba(0,0,0,.28); z-index:31; opacity:0; pointer-events:none; transition:opacity .15s, transform .15s; }
   .cbar.on{ opacity:1; pointer-events:auto; transform:translateX(-50%) translateY(0); }
-  .cbar .ct{ line-height:1.4; } .cbar .ct b{ font-weight:700; } .cbar .cs{ display:block; color:#cfc6bb; font-size:11px; }
+  .cbar .ct{ line-height:1.4; } .cbar .ct b{ font-weight:700; } .cbar .cs{ display:block; color:#cfc6bb; font-size:11px; } .cbar .cwarn{ color:#ffc56b; font-size:12px; font-weight:600; }
   .cbar button{ font-family:var(--font); font-size:12px; font-weight:700; border-radius:8px; padding:7px 12px; cursor:pointer; border:1px solid #5a524a; background:transparent; color:#fff; white-space:nowrap; }
   .cbar button.go{ background:var(--orange); border-color:var(--orange); color:var(--charcoal); }
   .toast{ position:fixed; left:50%; bottom:64px; transform:translateX(-50%); background:var(--charcoal); color:#fff; font-size:12.5px; font-weight:600; padding:10px 16px; border-radius:10px; box-shadow:0 10px 30px rgba(0,0,0,.25); z-index:30; opacity:0; transition:opacity .2s; pointer-events:none; }
@@ -889,7 +889,8 @@ function startListEdit(td){
     else { body[field]=v; body.curVg=r.vgPer!=null?r.vgPer:r.vg; body.curCpm=r.askCpm||r.cpm; if(f.kind!=="long") body.curFee=r.fee!=null?r.fee:(r.vg>=250000?7500:r.vg>=100000?5000:3000); }
     // The typed number shows at once; the totals follow when the save comes back.
     td.textContent=raw===""?"…":field==="cpm"?money2(v):int(v);
-    listSave(body,body.clear?(isVid?"Back to the automatic number of videos":"Back to the roster price for this list"):(isVid?"Videos saved for this list only":"Saved for this list only")).catch(()=>{});
+    const note=raw===""||isVid?"":minNote({kind:f.kind,row:Object.assign({},r,{brand:r})},field,v);
+    listSave(body,body.clear?(isVid?"Back to the automatic number of videos":"Back to the roster price for this list"):note?"Saved for this list only. "+note:(isVid?"Videos saved for this list only":"Saved for this list only")).catch(()=>{});
   };
   inp.addEventListener("keydown",e=>{ if(e.key==="Enter") finish(true); if(e.key==="Escape") finish(false); });
   inp.addEventListener("blur",()=>finish(true));
@@ -914,8 +915,20 @@ function confirmBar(html,yes,onYes,onNo){
 }
 const fmtNum=(field,v)=>v==null||v===""?"automatic":field==="cpm"?money2(v):field==="videos"?String(v):int(v);
 const FIELD_NAME={videos:"videos",vg:"view guarantee",cpm:"CPM"};
-function changeMain(body,label){
-  confirmBar(`<b>${esc(label)}</b><span class="cs">Main rate card. Brands and every list without its own number will see this.</span>`,"Update",
+// YouTube rows under the $1,500 minimum (Tom, 6 Oct 2026) are sold as a bundle at the same
+// CPM, so a typed view guarantee can come back doubled. Say so before it is saved (Margot,
+// 12 Oct 2026: the page "kept changing it to an amount I didn't want").
+function minNote(f,field,v){
+  if(f.kind!=="long"||field==="videos"||!f.row.brand) return "";
+  const br=f.row.brand, vg=field==="vg"?v:(br.vgPer!=null?br.vgPer:br.vg), cpm=field==="cpm"?v:(br.askCpm||br.cpm||25);
+  const per=vg*cpm/1000; if(!(per>0)||per>=1499.5) return "";
+  if(f.row.videosSet) return per*f.row.videosSet>=1499.5?"":`Under the $1,500 minimum for ${f.row.videosSet} videos, so the rate is lifted to $1,500.`;
+  const n=Math.ceil(1500/per-1e-9);
+  if(n>10) return `Under the $1,500 minimum: it would take ${n} videos to get there, so brands will not see this row.`;
+  return `Under the $1,500 minimum at ${money2(cpm)} CPM, so brands will see a ${n}-video bundle: ${int(vg*n)} views for ${money(per*n)}.`;
+}
+function changeMain(body,label,note){
+  confirmBar(`<b>${esc(label)}</b>${note?`<span class="cs cwarn">${esc(note)}</span>`:""}<span class="cs">Main rate card. Brands and every list without its own number will see this.</span>`,"Update",
     ()=>save(Object.assign({scope:"roster"},body)), ()=>render());
 }
 function startEdit(td){
@@ -935,7 +948,7 @@ function startEdit(td){
     if(!commit||v==null||v===cur){ render(); return; }
     if(isVid&&!(v>=1&&v<=50&&Math.round(v)===v)){ toast("Videos must be a whole number from 1 to 50",true); render(); return; }
     td.classList.add("saving"); td.textContent=fmtNum(field,v); // shows at once; Cancel puts it back
-    changeMain(Object.assign(base,{[field]:v}),`${who}: ${FIELD_NAME[field]} ${fmtNum(field,cur)} → ${fmtNum(field,v)}`);
+    changeMain(Object.assign(base,{[field]:v}),`${who}: ${FIELD_NAME[field]} ${fmtNum(field,cur)} → ${fmtNum(field,v)}`,minNote(f,field,v));
   };
   inp.addEventListener("keydown",e=>{ if(e.key==="Enter") finish(true); if(e.key==="Escape") finish(false); });
   inp.addEventListener("blur",()=>finish(true));
