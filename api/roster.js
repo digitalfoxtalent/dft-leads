@@ -1238,10 +1238,10 @@ function pitchPrompt(f, lines, fwdName) {
     "- Never invent ids.",
     "",
     "THE REPLY",
-    "Do not write the email (it is built from a fixed template). Give only: product, the name of the product or campaign the enquiry is about (e.g. Catch Flex); mix, a short phrase for the kinds of channels on your list (e.g. gaming, reaction, and personality channels); and extra, one short plain sentence answering a direct practical question in the enquiry that the list itself does not answer, otherwise empty. extra never mentions pricing, formats, dates, availability or AI. No em dashes, no praise of the product.",
+    "Do not write the email (it is built from a fixed template). Give only: product, the short brand or product name exactly as people would say it (e.g. Catch Flex, Higgsfield), never a description; and mix, a short phrase for the kinds of channels on your list (e.g. gaming, reaction, and personality channels). No em dashes, no slashes.",
     "",
     "Return ONLY JSON, no prose:",
-    "{\"brand\":\"\",\"product\":\"\",\"title\":\"short list name, e.g. EXT (Exterminauts)\",\"contact_first_name\":\"the sender's first name if known, else empty\",\"angles\":[\"\"],\"mix\":\"\",\"extra\":\"\",\"picks\":[{\"id\":\"\",\"why\":\"a few words\"}]}"
+    "{\"brand\":\"\",\"product\":\"\",\"title\":\"short list name, e.g. EXT (Exterminauts)\",\"contact_first_name\":\"the sender's first name if known, else empty\",\"angles\":[\"\"],\"mix\":\"\",\"picks\":[{\"id\":\"\",\"why\":\"a few words\"}]}"
   ].join("\n");
 }
 
@@ -1279,9 +1279,9 @@ async function pitchFromEmail(b) {
     const saved = await saveList({ title, ids }, fromEmail + " (pitch)");
     const first = noDash(out.contact_first_name || String(f.contactName).split(/\s+/)[0] || "there");
     const product = noDash(out.product || out.brand || f.subject || "your campaign").replace(/[.\s]+$/, "");
-    const mix = noDash(out.mix || "").replace(/[.\s]+$/, ""), extra = noDash(out.extra || "").trim();
+    const mix = noDash(out.mix || "").replace(/[.\s]+$/, "").replace(/\s*\/\s*/g, " and ");
     // Tom's own edit of the first live pitch (Catch Flex, 13 Oct 2026): one-line thanks, what the list is and how to use it, the link, then the ask. No pricing notes.
-    const paras = ["Thanks for reaching out about " + product + ".", "I have put together a shortlist of creators" + (mix ? " across " + mix : "") + ". You can tick a creator to approve them, tick again to mark a 'no', or use the speech bubble to comment or ask questions.", "[[LIST_LINK]]"].concat(extra ? [extra] : [], ["Could you confirm which creators you would like to book?"]);
+    const paras = ["Thanks for reaching out about " + product + ".", "I have put together a shortlist of creators" + (mix ? " across " + mix : "") + ". You can tick a creator to approve them, tick again to mark a 'no', or use the speech bubble to comment or ask questions.", "[[LIST_LINK]]", "Could you confirm which creators you would like to book?"];
     if (!paras.some(p => p.indexOf("[[LIST_LINK]]") >= 0)) paras.splice(Math.min(2, paras.length), 0, "[[LIST_LINK]]");
     const bullets = [];
     const sig = ["Warm regards", fwdName, "Digital Fox Talent", "\u{1F98A}"];
