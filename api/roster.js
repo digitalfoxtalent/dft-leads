@@ -1288,6 +1288,11 @@ async function pitchFromEmail(b) {
     const aiCamp = aiIds.size > 0 && (out.ai_product === true || /\bAI\b/.test(f.subject + " " + f.body));
     const namedIds = new Set((out.picks || []).filter(p => p && p.named === true).map(p => String(p.id)));
     const ids = [...new Set((out.picks || []).map(p => String(p && p.id)).filter(id => cat.byId[id] && (!aiCamp || aiOk(id) || namedIds.has(id))))];
+    // Creators the enquiry names (or was sent to) are always on the list, even on AI campaigns (Tom, 13 Oct 2026).
+    const norm = s => String(s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+    const hay = norm(f.body + " " + f.note + " " + f.to);
+    const groupsUsed = new Set(ids.map(id => cat.byId[id].gid)); if (!groupsUsed.size) { groupsUsed.add("topics"); groupsUsed.add("group_mm4av3kr"); }
+    Object.keys(cat.byId).forEach(id => { const c = cat.byId[id], n = norm(c.name), h = norm(c.handle); if (((n.length >= 5 && hay.includes(n)) || (h.length >= 5 && hay.includes(h))) && groupsUsed.has(c.gid) && !ids.includes(id)) ids.push(id); });
     if (!ids.length) throw new Error("No creators were picked");
     ids.sort((x, y) => order.indexOf(cat.byId[x].gid) - order.indexOf(cat.byId[y].gid));
     const title = noDash(out.title || f.subject || "Pitch").slice(0, 70);
