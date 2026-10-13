@@ -1311,8 +1311,14 @@ async function pitchFromEmail(b) {
     const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const leftOut = nm => !!f.note && new RegExp("\\b(not|no|without|leave out|exclude|skip|don'?t|drop|remove)\\b[^.\\n]{0,40}" + esc(nm), "i").test(f.note);
     for (let k = ids.length - 1; k >= 0; k--) if (leftOut(base(cat.byId[ids[k]].name))) ids.splice(k, 1);
+    // Market limits are enforced here, not left to the model (Tom, 13 Oct 2026: "only available to the Australian market").
+    const MARKETS = [["australia", /\baustralia(n)?\b|\baus\b/i], ["new zealand", /new zealand|\bnz\b|kiwi/i], ["united kingdom", /\b(uk|united kingdom|british|britain|england)\b/i], ["canada", /\bcanad(a|ian)\b/i], ["ireland", /\bireland|irish\b/i], ["united states", /\b(us only|usa|united states|american market)\b/i]];
+    const limitTxt = f.note + " " + (/\bonly\b|exclusively|limited to/i.test(f.body) ? f.body : "");
+    const market = /\bonly\b|exclusively|limited to/i.test(limitTxt) ? (MARKETS.find(m => m[1].test(limitTxt)) || [])[0] : "";
+    const inMarket = id => { const loc = String(cat.byId[id].location || "").toLowerCase(); return market === "united kingdom" ? /united kingdom|\buk\b|england|scotland|wales/.test(loc) : market === "united states" ? /united states|\busa?\b/.test(loc) : loc.includes(market); };
+    if (market) for (let k = ids.length - 1; k >= 0; k--) if (!inMarket(ids[k])) ids.splice(k, 1);
     const aiDeclined = []; // named creators who do not take AI work (unless the enquiry says DFT already confirmed them)
-    namedNames.forEach(nm => { if (leftOut(nm)) return; const mine = namedPl.filter(id => nameOf(id) === nm); if (aiCamp && !mine.some(aiOk) && !/confirm/i.test(f.body)) { aiDeclined.push(nm); mine.forEach(id => { const k = ids.indexOf(id); if (k >= 0) ids.splice(k, 1); }); return; } const inG = mine.filter(id => groupsUsed.has(cat.byId[id].gid)); (inG.length ? inG : mine).forEach(id => { if (!ids.includes(id)) ids.push(id); }); });
+    namedNames.forEach(nm => { if (leftOut(nm)) return; if (market && !namedPl.filter(id => nameOf(id) === nm).some(inMarket)) return; const mine = namedPl.filter(id => nameOf(id) === nm); if (aiCamp && !mine.some(aiOk) && !/confirm/i.test(f.body)) { aiDeclined.push(nm); mine.forEach(id => { const k = ids.indexOf(id); if (k >= 0) ids.splice(k, 1); }); return; } const inG = mine.filter(id => groupsUsed.has(cat.byId[id].gid)); (inG.length ? inG : mine).forEach(id => { if (!ids.includes(id)) ids.push(id); }); });
     if (!ids.length) throw new Error("No creators were picked");
     ids.sort((x, y) => order.indexOf(cat.byId[x].gid) - order.indexOf(cat.byId[y].gid));
     const title = noDash(out.title || f.subject || "Pitch").slice(0, 70);
