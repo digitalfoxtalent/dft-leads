@@ -141,6 +141,10 @@ const C = {
   bq: "text_mm7v252f", bnote: "text_mm7vn2c", logo: "text_mm7v2qns", vis: "color_mm7vb4nb",
   src: "text_mm49b3x7", // Source ID (the UC channel id), used to match Megaphone shows for Simulcast
   bvideos: "numeric_mm7z64rk", // Brand Videos: a video count DFT set in the DFT view (Tom, 9 Oct 2026)
+  // Short form only (Tom, 13 Oct 2026, "the board should match"): the production fee and
+  // publishing rate + fee, as the roster quotes them. Written by edits here and the quarterly
+  // snapshot; the roster itself works the fee out from the views, so it never reads these.
+  bfee: "numeric_mm833t0", btotal: "numeric_mm83h8tz",
 };
 const SC = {
   rate: "numeric_mm495xbb", vg: "numeric_mm49tej8", cpm: "numeric_mm49fe4b", avg: "numeric_mm4957y3", url: "text_mm49bb5z",
@@ -710,7 +714,7 @@ const stamp = () => new Date().toISOString().slice(0, 10);
 //   * undo: every edit returns the exact column values it replaced; op "undo-edit" puts
 //     them back, notes included.
 //   * audit: every change and undo is posted as an update on the monday item.
-const UNDO_KEYS = ["bvg", "bcpm", "brate", "bvideos", "bnote", "bq", "vis"];
+const UNDO_KEYS = ["bvg", "bcpm", "brate", "bvideos", "bnote", "bq", "vis", "bfee", "btotal"];
 async function audit(itemId, text) {
   try { await monday("mutation($i:ID!,$t:String!){create_update(item_id:$i,body:$t){id}}", { i: itemId, t: text }); } catch (e) {}
 }
@@ -790,12 +794,16 @@ async function editRow(b, email) {
     if (!(vg > 0) || !(cpm > 0) || cpm > 10000 || vg > 1e9) throw new Error("View guarantee and CPM must be positive numbers");
     let rate = Math.round(vg * cpm / 1000);
     if (kind === "long" && rate < FLOOR) rate = FLOOR;
+    // Short form: store the publishing rate the roster shows (to the $100) beside its
+    // production fee and the total, so the board reads the same as the page.
+    if (kind !== "long") rate = r100(rate);
     // Brand CPM keeps the CPM that was asked for (not rate / views), so a small row lifted
     // by the floor is bundled at the CPM DFT chose rather than the house $25.
     Object.assign(values, {
       [K.bvg]: String(vg), [K.bcpm]: String(r2(cpm)), [K.brate]: String(rate), [K.bq]: quarterLabel(),
       [K.bnote]: "Edited by " + email + " on " + stamp() + " (was VG " + (cur.vg || "-") + ", CPM $" + (cur.cpm || "-") + "); resets next quarter",
     });
+    if (kind !== "long" && K.bfee) Object.assign(values, { [K.bfee]: String(feeFor(vg)), [K.btotal]: String(rate + feeFor(vg)) });
   }
   if (!Object.keys(values).length) throw new Error("nothing to change");
   const before = {};
@@ -821,7 +829,7 @@ async function undoEdit(b, email) {
     if (!K[k] || !(k in src)) return;
     const v = String(src[k] == null ? "" : src[k]).slice(0, 500);
     if (k === "vis") values[K[k]] = { label: ["Auto", "Always show", "Hide", "List only"].includes(v) ? v : "Auto" };
-    else if (["bvg", "bcpm", "brate", "bvideos"].includes(k)) values[K[k]] = v === "" ? "" : String(num(v) == null ? "" : num(v));
+    else if (["bvg", "bcpm", "brate", "bvideos", "bfee", "btotal"].includes(k)) values[K[k]] = v === "" ? "" : String(num(v) == null ? "" : num(v));
     else values[K[k]] = v;
   });
   if (!Object.keys(values).length) throw new Error("nothing to undo");
