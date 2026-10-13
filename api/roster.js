@@ -1203,7 +1203,7 @@ async function askClaude(prompt) {
   if (!key) throw new Error("ANTHROPIC_API_KEY not set");
   let last = "";
   for (const model of PITCH_MODELS) {
-    const r = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers: { "Content-Type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01" }, body: JSON.stringify({ model, max_tokens: 3000, messages: [{ role: "user", content: prompt }] }) });
+    const r = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers: { "Content-Type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01" }, body: JSON.stringify({ model, max_tokens: 5000, messages: [{ role: "user", content: prompt }] }) });
     const d = await r.json().catch(() => ({}));
     if (r.ok && d && d.content) {
       const t = String((d.content.find(x => x.type === "text") || {}).text || "").split("```json").join("").split("```").join("");
@@ -1227,20 +1227,21 @@ function pitchPrompt(f, lines, fwdName) {
     "THE ROSTER (one line per placement: id | format | creator | handle | category | subscribers | views | price | audience | about). Only these ids exist. guaranteed views = YouTube integration view guarantee; est views = estimated views for a dedicated video (no guarantee); avg views = short-form average, for context only (short form is priced per post).",
     lines.join("\n"),
     "",
-    "HOW TO PICK",
-    "- The goal is to widen the brand's options with a tight, relevant shortlist they can review quickly: relevance first, then breadth.",
-    "- Always include any creator the enquiry names or was sent to (a creator's DFT inbox in the To line counts), in every format the enquiry asks about.",
-    "- Then the closest fits for the product and its audience, then 2 to 4 broader picks that could plausibly cover it from an adjacent angle.",
-    "- 8 to 14 creators in total (fewer if the brief is narrow). Count a creator once however many formats they get.",
-    "- Only the formats the enquiry asks for. If none are stated, use YouTube integration plus YouTube Shorts. Integration = YouTube integration; dedicated or full video = YouTube dedicated video; Shorts = YouTube Shorts; TikTok, Instagram and Snapchat as named. If a creator lacks a format, skip that format for them.",
+    "HOW TO PICK (think like an experienced talent agent, not a category filter)",
+    "- First work out who would buy or love this product and what kind of video would sell it. Then name 4 to 6 different angles a creator could cover it from: the same-genre angle, plus adjacent ones such as reaction and commentary, pop culture, film and TV, comedy and group personalities, family, lifestyle, fitness or tech, whichever genuinely fit.",
+    "- Big, engaged reaction and personality channels (group reaction shows, for example) often sell fun, social or entertainment products better than niche specialists. Consider them seriously.",
+    "- Read each creator's about line, not just the category, to judge audience and tone.",
+    "- Always include any creator the enquiry names or was sent to (a creator's DFT inbox in the To line counts), and any creator the note from " + fwdName + " asks for.",
+    "- Aim for 12 to 18 creators: about half the closest fits, the rest spread across the adjacent angles, so the brand sees options it would not have thought of. Every pick must be defensible in a few words. Go smaller only if the brief is genuinely narrow.",
+    "- Formats: only the ones the enquiry asks for. If none are stated, use YouTube integration plus YouTube Shorts. Integration = YouTube integration; dedicated or full video = YouTube dedicated video; Shorts = YouTube Shorts; TikTok, Instagram and Snapchat as named. Give each creator every requested format they have; skip formats they lack.",
     "- Leave out short-form placements under 5K avg views and YouTube placements under 20K views unless the creator is named.",
     "- Never invent ids.",
     "",
     "THE REPLY",
-    "Write the body of a reply from " + fwdName + " to the original sender. Warm, brief, plain English, no em dashes, no hype, no markdown, no greeting line and no sign-off (both are added after). 2 to 4 short paragraphs, plus up to 3 short bullet notes. Thank them, say you have put together a list of creators for them (write [[LIST_LINK]] as its own paragraph where the link goes), and explain they can tick a creator to approve them (tick again to mark a no) and use the speech bubble beside each one to leave a comment. Answer the enquiry's practical questions only with these facts: YouTube integrations are priced against a guaranteed view count; dedicated videos are a flat price with estimated, not guaranteed, views; Shorts, TikTok, Instagram and Snapchat are priced per post and include posting plus 12 months of digital usage and boosting rights; availability and posting dates are confirmed per creator once they approve. Do not quote prices, do not promise dates or availability, do not mention AI.",
+    "Write the body of a short reply from " + fwdName + " to the original sender: 2 or 3 short paragraphs, under 90 words in total. Warm, plain English, no em dashes, no hype, no markdown, no bullet points, no greeting line and no sign-off (both are added after). Thank them in one line, say you have put together a list of creators for them (write [[LIST_LINK]] as its own paragraph where the link goes), and say they can tick a creator to approve them, tick again to mark a no, and use the speech bubble to comment. Do not describe pricing or formats (a pricing note matching the list is added after). Do not quote prices, do not promise dates or availability, do not mention AI.",
     "",
     "Return ONLY JSON, no prose:",
-    "{\"brand\":\"\",\"title\":\"short list name, e.g. EXT (Exterminauts)\",\"contact_first_name\":\"the sender's first name if known, else empty\",\"picks\":[{\"id\":\"\",\"why\":\"a few words\"}],\"reply_paragraphs\":[\"\"],\"bullets\":[\"\"]}"
+    "{\"brand\":\"\",\"title\":\"short list name, e.g. EXT (Exterminauts)\",\"contact_first_name\":\"the sender's first name if known, else empty\",\"angles\":[\"\"],\"picks\":[{\"id\":\"\",\"why\":\"a few words\"}],\"reply_paragraphs\":[\"\"]}"
   ].join("\n");
 }
 
@@ -1279,7 +1280,11 @@ async function pitchFromEmail(b) {
     const first = noDash(out.contact_first_name || String(f.contactName).split(/\s+/)[0] || "there");
     const paras = (out.reply_paragraphs || []).map(noDash).filter(Boolean);
     if (!paras.some(p => p.indexOf("[[LIST_LINK]]") >= 0)) paras.splice(Math.min(2, paras.length), 0, "[[LIST_LINK]]");
-    const bullets = (out.bullets || []).map(noDash).filter(Boolean).slice(0, 4);
+    const kinds = new Set(ids.map(id => cat.byId[id].gid)), bullets = [];
+    const shortF = [["group_mm4av3kr", "YouTube Shorts"], ["group_mm4bd5tk", "TikTok"], ["group_mm4a1fe0", "Instagram"], ["group_mm7yw8cy", "Snapchat"]].filter(x => kinds.has(x[0])).map(x => x[1]);
+    if (kinds.has("topics")) bullets.push("YouTube integrations are priced against a guaranteed view count");
+    if (kinds.has("dedicated")) bullets.push("Dedicated videos are a flat price, with estimated (not guaranteed) views");
+    if (shortF.length) bullets.push((shortF.length > 1 ? shortF.slice(0, -1).join(", ") + " and " + shortF[shortF.length - 1] : shortF[0]) + " are priced per post, including posting plus 12 months of usage and boosting rights");
     const sig = ["Warm regards", fwdName, "Digital Fox Talent", "\u{1F98A}"];
     const linkText = title + " creator list";
     const html = "<div dir=\"ltr\">Hi " + escH(first) + ",<br><br>" + paras.map(p => p.indexOf("[[LIST_LINK]]") >= 0 ? "<a href=\"" + saved.url + "\">" + escH(linkText) + "</a>" : escH(p)).join("<br><br>") + (bullets.length ? "<br><br>" + bullets.map(x => "- " + escH(x)).join("<br>") : "") + "<br><br>" + sig.map(escH).join("<br>") + "</div>";
