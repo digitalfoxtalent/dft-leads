@@ -1149,6 +1149,165 @@ async function saveColumns(b, email) {
 
 // ---------------------------------------------------------------- handler
 
+// ---------------------------------------------------------------- pitch from a forwarded enquiry
+// Pitch pipeline (Tom, 13 Oct 2026). Someone at DFT forwards a brand enquiry to the Make mailhook
+// "DFT pitch". Make logs it as an item on Roster - Pitch Requests and posts it here (op "pitch")
+// with that item id. The item is the proof: only one made on that board in the last 15 minutes,
+// by the same forwarder and not yet used, can trigger a pitch, so no secret is needed. Claude reads
+// the brief and picks from what brands can see on the roster today: creators the brand named or
+// wrote to first, then the closest fits, then a few broader picks (8 to 14 creators, only the
+// formats asked for). A saved list is created, the result is written back to the item, and the
+// reply comes back for Make to save as a Gmail draft (op "pitch-mime" builds the raw message, so
+// links in the draft stay clean).
+export const config = { maxDuration: 60 };
+const PITCH_BOARD = 18435316650;
+const PB = { by: "text_mm83t28h", contact: "text_mm83nbr6", result: "text_mm83dzmw", list: "link_mm832b9j" };
+const PITCH_MODELS = ["claude-sonnet-4-5", "claude-haiku-4-5-20251001"];
+const PITCH_LABEL = { topics: "YouTube integration", dedicated: "YouTube dedicated video", group_mm4av3kr: "YouTube Shorts", group_mm4a1fe0: "Instagram", group_mm4bd5tk: "TikTok", group_mm7yw8cy: "Snapchat" };
+const kfmt = n => !n ? "" : n >= 1e6 ? (Math.round(n / 1e5) / 10) + "M" : n >= 1000 ? Math.round(n / 1000) + "K" : String(n);
+const escH = s => String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+const noDash = s => String(s == null ? "" : s).replace(/\s*\u2014\s*/g, ", ").replace(/\u2013/g, "-").trim();
+const htmlToText = h => String(h || "").replace(/<br\s*\/?>/gi, "\n").replace(/<\/(p|div|tr|li|h\d)>/gi, "\n").replace(/<[^>]+>/g, "").replace(/&nbsp;/g, " ").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&#39;/g, "'").replace(/&quot;/g, "\"").replace(/&amp;/g, "&").replace(/\n{3,}/g, "\n\n").trim();
+
+function parseForward(b) {
+  const text = String(b.text || "").trim() || htmlToText(b.html);
+  const at = text.search(/-{3,}\s*Forwarded message\s*-{3,}|Begin forwarded message:/i);
+  const fwd = at >= 0 ? text.slice(at) : text;
+  const from = fwd.match(/From:\s*\*?\s*"?([^"<\n*]*?)"?\s*\*?\s*<([^>\s]+@[^>\s]+)>/i) || fwd.match(/From:\s*\*?\s*([^\s<>*]+@[^\s<>*]+)/i);
+  const subj = fwd.match(/\nSubject:\s*\*?\s*(.+)/i);
+  const to = fwd.match(/\nTo:\s*(.+)/i);
+  return {
+    contactName: from && from[2] ? from[1].trim() : "",
+    contactEmail: from ? String(from[2] || from[1]).trim().toLowerCase() : "",
+    subject: String(subj ? subj[1] : String(b.subject || "").replace(/^\s*(fwd?|fw):\s*/i, "")).replace(/\*+/g, "").trim(),
+    to: to ? to[1].replace(/\*+/g, "").trim() : "",
+    note: at > 0 ? text.slice(0, at).trim().slice(0, 1500) : "",
+    body: fwd.slice(0, 12000),
+  };
+}
+
+// What brands can see today, one line per placement, for Claude to choose from.
+function pitchCatalogue(data) {
+  const p = brandPayload(data, null, false), lines = [], byId = {};
+  GROUPS.forEach(g => (p.groups[g.id] || []).forEach(c => {
+    byId[String(c.id)] = Object.assign({ gid: g.id }, c);
+    const price = typeof c.total === "number" ? c.total : c.rate;
+    const views = c.vg ? kfmt(c.vg) + (g.kind !== "long" ? " avg views" : g.id === "dedicated" ? " est views" : " guaranteed views") : "";
+    lines.push([c.id, PITCH_LABEL[g.id], c.name, c.handle, c.category || "", c.subs ? kfmt(c.subs) + " subs" : "", views, price ? "$" + price : "", c.us ? "US " + c.us : "", c.male ? "male " + c.male : "", String(c.about || "").replace(/\s+/g, " ").slice(0, 140)].join(" | "));
+  }));
+  return { lines, byId };
+}
+
+async function askClaude(prompt) {
+  const key = process.env.ANTHROPIC_API_KEY;
+  if (!key) throw new Error("ANTHROPIC_API_KEY not set");
+  let last = "";
+  for (const model of PITCH_MODELS) {
+    const r = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers: { "Content-Type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01" }, body: JSON.stringify({ model, max_tokens: 3000, messages: [{ role: "user", content: prompt }] }) });
+    const d = await r.json().catch(() => ({}));
+    if (r.ok && d && d.content) {
+      const t = String((d.content.find(x => x.type === "text") || {}).text || "").split("```json").join("").split("```").join("");
+      const a = t.indexOf("{"), z = t.lastIndexOf("}");
+      if (a >= 0 && z > a) return Object.assign(JSON.parse(t.slice(a, z + 1)), { model });
+      last = model + ": no JSON in the answer"; continue;
+    }
+    last = model + " " + r.status + " " + (d && d.error ? d.error.message : "");
+  }
+  throw new Error("Claude: " + last);
+}
+
+function pitchPrompt(f, lines, fwdName) {
+  return [
+    "You help Digital Fox Talent (DFT), a creator management agency, answer a brand enquiry with a shortlist from its creator roster.",
+    "",
+    "THE ENQUIRY (forwarded by " + fwdName + " at DFT. Original sender: " + (f.contactName || "unknown") + " <" + f.contactEmail + ">. Sent to: " + (f.to || "unknown") + ")",
+    f.note ? "Note from " + fwdName + ": " + f.note : "",
+    "-----", f.body, "-----",
+    "",
+    "THE ROSTER (one line per placement: id | format | creator | handle | category | subscribers | views | price | audience | about). Only these ids exist. guaranteed views = YouTube integration view guarantee; est views = estimated views for a dedicated video (no guarantee); avg views = short-form average, for context only (short form is priced per post).",
+    lines.join("\n"),
+    "",
+    "HOW TO PICK",
+    "- The goal is to widen the brand's options with a tight, relevant shortlist they can review quickly: relevance first, then breadth.",
+    "- Always include any creator the enquiry names or was sent to (a creator's DFT inbox in the To line counts), in every format the enquiry asks about.",
+    "- Then the closest fits for the product and its audience, then 2 to 4 broader picks that could plausibly cover it from an adjacent angle.",
+    "- 8 to 14 creators in total (fewer if the brief is narrow). Count a creator once however many formats they get.",
+    "- Only the formats the enquiry asks for. If none are stated, use YouTube integration plus YouTube Shorts. Integration = YouTube integration; dedicated or full video = YouTube dedicated video; Shorts = YouTube Shorts; TikTok, Instagram and Snapchat as named. If a creator lacks a format, skip that format for them.",
+    "- Leave out short-form placements under 5K avg views and YouTube placements under 20K views unless the creator is named.",
+    "- Never invent ids.",
+    "",
+    "THE REPLY",
+    "Write the body of a reply from " + fwdName + " to the original sender. Warm, brief, plain English, no em dashes, no hype, no markdown, no greeting line and no sign-off (both are added after). 2 to 4 short paragraphs, plus up to 3 short bullet notes. Thank them, say you have put together a list of creators for them (write [[LIST_LINK]] as its own paragraph where the link goes), and explain they can tick a creator to approve them (tick again to mark a no) and use the speech bubble beside each one to leave a comment. Answer the enquiry's practical questions only with these facts: YouTube integrations are priced against a guaranteed view count; dedicated videos are a flat price with estimated, not guaranteed, views; Shorts, TikTok, Instagram and Snapchat are priced per post and include posting plus 12 months of digital usage and boosting rights; availability and posting dates are confirmed per creator once they approve. Do not quote prices, do not promise dates or availability, do not mention AI.",
+    "",
+    "Return ONLY JSON, no prose:",
+    "{\"brand\":\"\",\"title\":\"short list name, e.g. EXT (Exterminauts)\",\"contact_first_name\":\"the sender's first name if known, else empty\",\"picks\":[{\"id\":\"\",\"why\":\"a few words\"}],\"reply_paragraphs\":[\"\"],\"bullets\":[\"\"]}"
+  ].join("\n");
+}
+
+async function pitchItem(id, fromEmail) {
+  const d = await monday("query($i:[ID!]){items(ids:$i){id name created_at board{id} column_values(ids:[\"" + PB.by + "\",\"" + PB.result + "\"]){id text}}}", { i: [String(id || "0")] });
+  const it = d && d.items && d.items[0];
+  if (!it || String(it.board && it.board.id) !== String(PITCH_BOARD)) throw new Error("Unknown pitch request");
+  if (Date.now() - Date.parse(it.created_at) > 15 * 60 * 1000) throw new Error("Pitch request is too old");
+  const cv = {}; (it.column_values || []).forEach(c => { cv[c.id] = String(c.text || ""); });
+  if (cv[PB.result]) throw new Error("Pitch request already used");
+  const by = cv[PB.by].trim().toLowerCase();
+  if (!/@digitalfoxtalent\.com$/.test(by) || by !== String(fromEmail || "").trim().toLowerCase()) throw new Error("Pitch request does not match the forwarder");
+  return it;
+}
+async function pitchMark(id, result, url) {
+  const v = {}; v[PB.result] = result; if (url) v[PB.list] = { url, text: "Open list" };
+  await monday("mutation($b:ID!,$i:ID!,$v:JSON!){change_multiple_column_values(board_id:$b,item_id:$i,column_values:$v){id}}", { b: String(PITCH_BOARD), i: String(id), v: JSON.stringify(v) });
+}
+
+async function pitchFromEmail(b) {
+  const fromEmail = String(b.fromEmail || "").trim().toLowerCase();
+  await pitchItem(b.item, fromEmail);
+  try {
+    const f = parseForward(b);
+    if (!f.contactEmail || f.body.length < 40) throw new Error("No forwarded enquiry found. Forward the brand's own email.");
+    const data = await loadBoard();
+    const cat = pitchCatalogue(data);
+    const fwdName = String(b.fromName || "").replace(/["<>]/g, "").trim() || fromEmail.split("@")[0];
+    const out = await askClaude(pitchPrompt(f, cat.lines, fwdName));
+    const order = GROUPS.map(g => g.id);
+    const ids = [...new Set((out.picks || []).map(p => String(p && p.id)).filter(id => cat.byId[id]))];
+    if (!ids.length) throw new Error("No creators were picked");
+    ids.sort((x, y) => order.indexOf(cat.byId[x].gid) - order.indexOf(cat.byId[y].gid));
+    const title = noDash(out.title || f.subject || "Pitch").slice(0, 70);
+    const saved = await saveList({ title, ids }, fromEmail + " (pitch)");
+    const first = noDash(out.contact_first_name || String(f.contactName).split(/\s+/)[0] || "there");
+    const paras = (out.reply_paragraphs || []).map(noDash).filter(Boolean);
+    if (!paras.some(p => p.indexOf("[[LIST_LINK]]") >= 0)) paras.splice(Math.min(2, paras.length), 0, "[[LIST_LINK]]");
+    const bullets = (out.bullets || []).map(noDash).filter(Boolean).slice(0, 4);
+    const sig = ["Warm regards", fwdName, "Digital Fox Talent", "\u{1F98A}"];
+    const linkText = title + " creator list";
+    const html = "<div dir=\"ltr\">Hi " + escH(first) + ",<br><br>" + paras.map(p => p.indexOf("[[LIST_LINK]]") >= 0 ? "<a href=\"" + saved.url + "\">" + escH(linkText) + "</a>" : escH(p)).join("<br><br>") + (bullets.length ? "<br><br>" + bullets.map(x => "- " + escH(x)).join("<br>") : "") + "<br><br>" + sig.map(escH).join("<br>") + "</div>";
+    const text = "Hi " + first + ",\n\n" + paras.map(p => p.indexOf("[[LIST_LINK]]") >= 0 ? saved.url : p).join("\n\n") + (bullets.length ? "\n\n" + bullets.map(x => "- " + x).join("\n") : "") + "\n\n" + sig.join("\n");
+    const subject = /^re:/i.test(f.subject) ? f.subject : "Re: " + f.subject;
+    await pitchMark(b.item, "Ready: " + ids.length + " placements (" + out.model + ")", saved.url);
+    return { ok: true, listUrl: saved.url, title, placements: ids.length, to: f.contactEmail, subject, search: "from:" + f.contactEmail + " subject:\"" + f.subject.replace(/"/g, "") + "\" newer_than:90d", html, text, model: out.model, picks: out.picks };
+  } catch (e) {
+    try { await pitchMark(b.item, "Failed: " + String(e && e.message || e).slice(0, 200)); } catch (_) {}
+    throw e;
+  }
+}
+
+// The raw Gmail draft for Make: a reply in the brand's thread, HTML and plain text, UTF-8.
+function pitchMime(b) {
+  const enc = s => /[^\x20-\x7e]/.test(s) ? "=?UTF-8?B?" + Buffer.from(s, "utf8").toString("base64") + "?=" : s;
+  const b64 = s => Buffer.from(String(s || ""), "utf8").toString("base64").replace(/(.{76})/g, "$1\r\n");
+  const bound = "dftpitch" + crypto.randomBytes(8).toString("hex");
+  const head = ["To: " + String(b.to || ""), "Subject: " + enc(String(b.subject || ""))];
+  if (b.cc) head.push("Cc: " + b.cc);
+  if (b.inReplyTo) head.push("In-Reply-To: " + b.inReplyTo, "References: " + (b.references ? b.references + " " : "") + b.inReplyTo);
+  head.push("MIME-Version: 1.0", "Content-Type: multipart/alternative; boundary=\"" + bound + "\"");
+  const parts = ["--" + bound, "Content-Type: text/plain; charset=\"UTF-8\"", "Content-Transfer-Encoding: base64", "", b64(b.text), "--" + bound, "Content-Type: text/html; charset=\"UTF-8\"", "Content-Transfer-Encoding: base64", "", b64(b.html), "--" + bound + "--", ""];
+  const message = { raw: Buffer.from(head.join("\r\n") + "\r\n\r\n" + parts.join("\r\n"), "utf8").toString("base64url") };
+  if (b.threadId) message.threadId = String(b.threadId);
+  return { ok: true, draft: JSON.stringify({ message }) };
+}
+
 export default async function handler(req, res) {
   try {
     const host = hostOf(req);
@@ -1188,7 +1347,10 @@ export default async function handler(req, res) {
         try { return res.status(200).json(await brandFeedback(b, email)); }
         catch (e) { return res.status(400).json({ error: String(e && e.message || e) }); }
       }
-      if (!email) return res.status(401).json({ error: "Sign in with your DFT Google account" });
+      // Pitch pipeline (Tom, 13 Oct 2026): Make, with a fresh Roster - Pitch Requests item as proof.
+    if (b && b.op === "pitch-mime") { try { return res.status(200).json(pitchMime(b)); } catch (e) { return res.status(400).json({ error: String(e && e.message || e) }); } }
+    if (b && b.op === "pitch") { try { return res.status(200).json(await pitchFromEmail(b)); } catch (e) { return res.status(400).json({ error: String(e && e.message || e) }); } }
+    if (!email) return res.status(401).json({ error: "Sign in with your DFT Google account" });
       try {
         if (b.op === "edit") return res.status(200).json(await editRow(b, email));
         if (b.op === "undo-edit") return res.status(200).json(await undoEdit(b, email));
