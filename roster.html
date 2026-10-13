@@ -1154,6 +1154,32 @@ function viewsButton(){
   const est=!!(BRAND&&BRAND.list&&BRAND.list.estViews);
   return ` <button class="btn" id="viewsBtn" data-est="${est?0:1}" title="What brands see as the YouTube views heading on this list">${est?"Showing Estimated Views · use View Guarantee":"Showing View Guarantee · use Estimated Views"}</button>`;
 }
+// Accept changes (Tom, 13 Oct 2026): once the brand has answered, take every creator they did
+// not approve (a cross, or no answer) off the list in one go. Approved creators stay. Two
+// clicks, so it never happens by accident, and it never empties a list.
+function acceptButton(){
+  return ` <button class="btn" id="acceptBtn" title="Take every creator the brand has not approved (a cross or no answer) off this list. Approved creators stay.">Accept changes</button>`;
+}
+function notApprovedIds(){
+  const out=[]; GROUPS.forEach(g=>((BRAND&&BRAND.groups[g.id])||[]).forEach(c=>{ if(!(c.fb&&c.fb.ok)) out.push(String(c.id)); }));
+  return out;
+}
+async function acceptChanges(btn){
+  const drop=notApprovedIds(), total=GROUPS.reduce((n,g)=>n+((BRAND&&BRAND.groups[g.id])||[]).length,0);
+  if(!drop.length){ toast("Every creator on this list is approved, so there is nothing to remove"); return; }
+  if(drop.length>=total){ toast("Nobody on this list is approved yet, so nothing was removed",true); return; }
+  if(!btn.classList.contains("confirm")){
+    btn.classList.add("confirm"); btn.style.color="var(--hide)";
+    btn.textContent=`Remove ${drop.length} not approved? Click again`;
+    setTimeout(()=>{ if(btn.isConnected){ btn.classList.remove("confirm"); btn.style.color=""; btn.textContent="Accept changes"; } },5000);
+    return;
+  }
+  try{
+    await listSave({op:"list-remove",slug:LIST_SLUG,ids:drop},`${drop.length} not approved ${drop.length===1?"creator":"creators"} taken off this list`);
+    const l=((TEAM&&TEAM.lists)||[]).find(x=>x.slug===LIST_SLUG);
+    if(l){ const d=new Set(drop); l.ids=l.ids.map(String).filter(id=>!d.has(id)); }
+  }catch(e){}
+}
 const fmtDate=d=>{ const t=new Date(String(d)+"T12:00:00Z"); return isNaN(t)?String(d||""):t.toLocaleDateString("en-US",{day:"numeric",month:"short",year:"numeric"}); };
 async function toggleLock(on){
   try{ const j=await post({op:"list-lock",slug:LIST_SLUG,lock:on}); applyBrand(j); toast(on?"Prices locked for this campaign":"Unlocked: this list follows the quarterly prices again"); loadTeam(true).catch(()=>{}); }
@@ -1176,8 +1202,9 @@ function renderBanner(){
     b.className="banner"; b.style.display="";
     b.innerHTML=`Signed in as <b>${esc(TEAM.email)}</b> · ${mode==="team"
       ?"Blue columns are DFT-only. Click an underlined number to change what brands see, or the eye to show or hide a creator. Drag the ⠿ handles to move rows and columns, or a column's edge to resize it."
-      :(listEdit()?`<b>“${esc(BRAND.list.title)}” numbers:</b> click an underlined number to change videos, views or prices for this list only. The main rate card and other lists stay as they are. <a class="bbtn" href="/?edit=${encodeURIComponent(LIST_SLUG)}">Add / remove creators</a>`+lockButton()+viewsButton():"Brand preview: exactly what brands see.")}${listEdit()?packageSummary():'<span class="spacer"></span>'}<a href="/auth/signout" style="text-decoration:underline;margin-left:${listEdit()?"14px":"0"}">Sign out</a>`;
+      :(listEdit()?`<b>“${esc(BRAND.list.title)}” numbers:</b> click an underlined number to change videos, views or prices for this list only. The main rate card and other lists stay as they are. <a class="bbtn" href="/?edit=${encodeURIComponent(LIST_SLUG)}">Add / remove creators</a>`+lockButton()+viewsButton()+acceptButton():"Brand preview: exactly what brands see.")}${listEdit()?packageSummary():'<span class="spacer"></span>'}<a href="/auth/signout" style="text-decoration:underline;margin-left:${listEdit()?"14px":"0"}">Sign out</a>`;
     const lb=$("#lockBtn"); if(lb) lb.onclick=()=>toggleLock(lb.dataset.lock==="1");
+    const ab=$("#acceptBtn"); if(ab) ab.onclick=()=>acceptChanges(ab);
     const vb=$("#viewsBtn"); if(vb) vb.onclick=async()=>{ const est=vb.dataset.est==="1"; try{ applyBrand(await post({op:"list-label",slug:LIST_SLUG,est})); toast(est?"Brands now see Estimated Views":"Brands now see View Guarantee"); }catch(e){ toast(e.message,true); } };
   } else if(BRAND&&BRAND.list){
     b.className="banner list"; b.style.display="";
