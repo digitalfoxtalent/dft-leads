@@ -58,12 +58,22 @@ const HOST = "roster-viewguarantee.digitalfoxtalent.com";
 
 const GROUPS = [
   { id: "topics", kind: "long" },          // YouTube channels
+  // YouTube Dedicated (Tom, 13 Oct 2026): a whole video about the brand. Not a monday group:
+  // each YouTube channel row is shown again here, priced from its own numbers (see dedNumbers).
+  { id: "dedicated", kind: "long", virtual: true },
   { id: "group_mm4av3kr", kind: "short" }, // YouTube Shorts
   { id: "group_mm4a1fe0", kind: "short" }, // Instagram
   { id: "group_mm4bd5tk", kind: "short" }, // TikTok
   { id: "group_mm7yw8cy", kind: "short" }, // Snapchat (added 8 Oct 2026; no sync, numbers kept by hand)
 ];
 const CAP = { long: 30, short: 50 };
+// Dedicated video pricing (Tom, 13 Oct 2026): 3x the channel's integration rate for the same
+// per-video view guarantee (so 3x its CPM, $75 at the house $25), one video, never bundled,
+// with the same $1,500 minimum. The brand cap scales the same way: hidden over $90 CPM.
+const DED = { mult: 3, minRate: 1500 };
+const REAL_GROUPS = () => GROUPS.filter(g => !g.virtual);
+const isDedId = id => /^d\d+$/.test(String(id));
+const ROW_ID = /^d?\d+$/; // monday item ids, or d<item id> for a channel's Dedicated row
 // Short form (Shorts, Instagram, TikTok, Snapchat), Tom 8 Oct 2026: the View Estimate x a
 // $25 CPM gives the media rate, with NO $1,500 floor, and a flat content production fee of
 // $3,000 is added on top. Total Rate = rate + fee. 12 months of digital usage and boosting
@@ -103,7 +113,10 @@ function roundNums(b, fine, kind = "long") {
     if (o.vg > 0) o.rate = Math.round(o.vg * o.cpm / 1000);
     if (o.vgPer != null) o.ratePer = Math.round(o.vgPer * o.cpm / 1000);
   }
-  else if (kind === "long" && Math.abs((b.rate || 0) - FLOOR) <= 1) o.rate = FLOOR; // held at the minimum
+  else if (kind === "long" && Math.abs((b.rate || 0) - FLOOR) <= 1) { // held at the minimum
+    o.rate = FLOOR;
+    if (b.ded && o.vg > 0) o.cpm = r2(FLOOR * 1000 / o.vg); // Dedicated: the CPM shown matches the views shown
+  }
   else if (kind === "long" && o.vg > 0 && o.cpm > 0 && b.rate >= FLOOR) {
     o.rate = Math.max(FLOOR, Math.round(o.vg * o.cpm / 1000));
     if (o.vgPer != null && b.ratePer != null) o.ratePer = Math.round(o.vgPer * o.cpm / 1000);
@@ -224,6 +237,18 @@ function brandNumbers(cv, K, kind) {
   if (b && kind === "long" && n && /^Edited by/.test(cv[K.bnote] || "")) b.videosSet = Math.round(n);
   return b;
 }
+// A channel's Dedicated numbers, from its integration numbers: the same per-video view
+// guarantee at 3x the CPM it is sold at (the house $25 for a row the minimum lifted).
+function dedNumbers(b) {
+  if (!b || !(b.vg > 0)) return null;
+  const floored = !(b.rate > FLOOR + 1);
+  const base = !floored ? (b.askCpm || b.cpm) : (b.askCpm && b.askCpm < b.cpm - 0.01 ? b.askCpm : PRICE.long.cpm);
+  const cpm = r2(base * DED.mult), rate = Math.max(DED.minRate, Math.round(b.vg * cpm / 1000));
+  const o = Object.assign({}, b, { rate, cpm: r2(rate * 1000 / b.vg), askCpm: cpm, ded: true, noBundle: true });
+  delete o.videosSet; // a video count set for integrations is not a dedicated count
+  return o;
+}
+const ownNumbers = r => r.dedicated ? dedNumbers(brandNumbers(r.cv, C, "long")) : brandNumbers(r.cv, C, r.kind);
 function brandNumbersRaw(cv, K, kind) {
   const vg = pos(cv[K.bvg]), rate = pos(cv[K.brate]);
   if (kind !== "long" && vg) {
@@ -257,10 +282,15 @@ export function bundle(b, kind) {
   // A row priced on a saved list (Tom, 12 Oct 2026): the bundle size is set at the normal CPM
   // (or the CPM a discount started from), and the price is the views x the list's CPM, with no
   // $1,500 minimum, so a lower CPM or a discount always lowers the rate.
+  if (kind === "long" && b.noBundle && !(b.listCpm > 0)) { // Dedicated: one video unless a list sets more
+    if (!(b.videosSet > 0)) return out;
+    const n = Math.round(b.videosSet), per = b.vg * (b.askCpm || b.cpm) / 1000;
+    return Object.assign(out, { videos: n, vg: b.vg * n, rate: Math.max(DED.minRate, Math.round(per * n)), ratePer: Math.round(per), videosSet: n });
+  }
   if (kind === "long" && b.listCpm > 0) {
     const lc = b.listCpm, per = b.vg * lc / 1000;
     let n = b.videosSet > 0 ? Math.round(b.videosSet) : 1;
-    if (!(b.videosSet > 0)) {
+    if (!(b.videosSet > 0) && !b.noBundle) {
       const perRef = b.vg * (b.refCpm || PRICE.long.cpm) / 1000;
       if (perRef > 0 && perRef < FLOOR - 0.5) { const need = Math.ceil(FLOOR / perRef - 1e-9); if (need <= MAX_BUNDLE) n = need; }
     }
@@ -300,7 +330,8 @@ function visibility(b, override, note, kind) {
   if (/^No uploads in/i.test(note || "")) return { show: false, why: String(note).split(";")[0] };
   if (b.needs) return { show: false, why: "Needs " + b.needs + " videos to reach $" + FLOOR.toLocaleString("en-US") + " (bundles go up to " + MAX_BUNDLE + ")" };
   // A video count DFT chose (fewer videos, lifted to $1,500) is shown even over the cap.
-  if (b.cpm > CAP[kind] + 0.005 && !b.videosSet) return { show: false, why: "CPM $" + b.cpm + " is over the $" + CAP[kind] + " cap" };
+  const cap = b.ded ? CAP.long * DED.mult : CAP[kind];
+  if (b.cpm > cap + 0.005 && !b.videosSet) return { show: false, why: "CPM $" + b.cpm + " is over the $" + cap + " cap" };
   if (b.videos > 1) return { show: true, why: "Sold as a " + b.videos + "-video bundle" };
   return { show: true, why: "" };
 }
@@ -347,7 +378,7 @@ async function loadBoard() {
   const regQ = `query{boards(ids:[${REGISTER_BOARD}]){items_page(limit:500){items{column_values(ids:${JSON.stringify(Object.values(REG))}){id text}}}}}`;
   const megaQ = `query{boards(ids:[${MEGA_BOARD}]){items_page(limit:500){items{column_values(ids:${JSON.stringify(Object.values(MEGA))}){id text}}}}}`;
   const [groups, state, lists, register, mega] = await Promise.all([
-    Promise.all(GROUPS.map(g => monday(groupQ(g.id)))),
+    Promise.all(REAL_GROUPS().map(g => monday(groupQ(g.id)))),
     monday(stateQ).catch(() => null),
     monday(listsQ).catch(() => null),
     monday(regQ).catch(() => null),
@@ -398,7 +429,7 @@ async function loadBoard() {
 
   const rows = [];
   groups.forEach((d, gi) => {
-    const kind = GROUPS[gi].kind;
+    const kind = REAL_GROUPS()[gi].kind;
     const items = ((((d.boards || [])[0] || {}).groups || [])[0] || { items_page: { items: [] } }).items_page.items || [];
     items.forEach(it => {
       const cv = {}, raw = {};
@@ -413,7 +444,7 @@ async function loadBoard() {
       });
       const sim = kind === "long" && (simulcast.has(String(cv[C.handle] || "").replace(/^@/, "").toLowerCase()) || simulcastIds.has(String(cv[C.src] || "").trim()));
       const geo = geoFor(creator, cv[C.handle], it.name, cv[C.location]);
-      rows.push({ id: String(it.id), name: it.name, group: GROUPS[gi].id, kind, cv, creator, adEx, state: geo.region, country: geo.country, kit: kitFor(creator, cv[C.handle], it.name), shows, simulcast: sim });
+      rows.push({ id: String(it.id), name: it.name, group: REAL_GROUPS()[gi].id, kind, cv, creator, adEx, state: geo.region, country: geo.country, kit: kitFor(creator, cv[C.handle], it.name), shows, simulcast: sim });
     });
   });
 
@@ -424,6 +455,9 @@ async function loadBoard() {
   // Last resort: the saved channel pictures the Campaign reach report keeps by handle.
   const saved = h => AVATARS[("@" + String(h || "").replace(/^@/, "")).toLowerCase()] || "";
   rows.forEach(r => { r.logo = r.cv[C.logo] || (r.creator && logoByCreator[r.creator]) || logoByName[normName(r.name)] || saved(r.cv[C.handle]) || ""; });
+  // The Dedicated tab: every YouTube channel again, sharing the same column values (cv), so a
+  // change to the channel on the YouTube tab is a change here too. Shows are not sold this way.
+  rows.filter(r => r.group === "topics").forEach(r => rows.push(Object.assign({}, r, { id: "d" + r.id, group: "dedicated", dedicated: true, parentId: r.id, shows: [] })));
 
   const listItems = ((((lists || {}).boards || [])[0] || {}).items_page || { items: [] }).items.map(it => {
     const cv = {}; (it.column_values || []).forEach(c => { cv[c.id] = c.text || ""; });
@@ -459,9 +493,10 @@ async function freshList(slug) {
 function baseFields(r) {
   const cv = r.cv, o = {
     id: r.id, name: r.name, handle: cv[C.handle] || "", url: cv[C.url] || "", logo: r.logo, kind: r.kind, group: r.group,
-    subs: pos(cv[C.subs]), adLength: AD_LENGTH, adEx: r.adEx, kit: r.kit || "", state: r.state,
+    subs: pos(cv[C.subs]), adLength: r.dedicated ? "Full video" : AD_LENGTH, adEx: r.adEx, kit: r.kit || "", state: r.state,
     simulcast: r.simulcast ? "Included" : "",
   };
+  if (r.dedicated) o.parentId = r.parentId;
   TEXT_FIELDS.forEach(k => { o[k] = /^(male|female|a\d|us|uk)/.test(k) ? pct(cv[C[k]]) : (cv[C[k]] || ""); });
   o.location = r.country || ""; // country, from the Global Talent Roster (see geoFor)
   // One "About" column (Margot, 6 Oct 2026): the Audience Information copy reads better, so
@@ -529,7 +564,7 @@ function discountFor(own, p, kind, now, isShow) {
 }
 function brandRow(r, includeHiddenByRule, prices, team) {
   prices = prices || {};
-  const own = brandNumbers(r.cv, C, r.kind);
+  const own = ownNumbers(r);
   const b = addFee(bundle(listNumbers(own, prices[r.id], r.kind) || own, r.kind), r.kind, isDisc(prices[r.id]));
   const v = visibility(b, r.cv[C.vis], r.cv[C.bnote], r.kind);
   const allowed = v.show || (includeHiddenByRule && b && r.cv[C.vis] !== "Hide");
@@ -566,15 +601,20 @@ function liveFor(r) {
   return { avg, vg: pos(r.cv[C.vg]), rate: pos(r.cv[C.rate]), cpm: pos(r.cv[C.cpm]), lastPub };
 }
 
+// The live (blue) figures on the Dedicated tab: today's view guarantee at 3x the house CPM.
+function dedLive(l) {
+  const rate = l.vg ? Math.max(DED.minRate, Math.round(l.vg * PRICE.long.cpm * DED.mult / 1000)) : null;
+  return Object.assign({}, l, { rate, cpm: rate && l.vg ? r2(rate * 1000 / l.vg) : null });
+}
 function teamRow(r) {
   const o = baseFields(r);
-  const b = addFee(bundle(brandNumbers(r.cv, C, r.kind), r.kind), r.kind);
+  const b = addFee(bundle(ownNumbers(r), r.kind), r.kind);
   const v = visibility(b, r.cv[C.vis], r.cv[C.bnote], r.kind);
   if (r.kind !== "long") Object.assign(o, { fee: b ? b.fee : feeFor(0), total: b ? b.total : null, rights: RIGHTS });
   else o.total = b ? b.rate : null;
   Object.assign(o, {
     brand: b, override: r.cv[C.vis] || "Auto", show: v.show, why: v.why,
-    live: liveFor(r),
+    live: r.dedicated ? dedLive(liveFor(r)) : liveFor(r),
     rate: b ? b.rate : null, vg: b ? b.vg : null, cpm: b ? b.cpm : null,
     minVideos: b && r.kind === "long" ? b.videos : null, vgPer: b ? b.vgPer : null,
     videosSet: b && b.videosSet ? b.videosSet : null,
@@ -817,7 +857,7 @@ const listSlug = (title, email) => {
 
 async function saveList(b, email) {
   const title = String(b.title || "").trim().slice(0, 80);
-  const ids = (Array.isArray(b.ids) ? b.ids : []).map(String).filter(x => /^\d+$/.test(x)).slice(0, 300);
+  const ids = (Array.isArray(b.ids) ? b.ids : []).map(String).filter(x => ROW_ID.test(x)).slice(0, 300);
   if (!title) throw new Error("Give the list a name");
   if (!ids.length) throw new Error("Pick at least one creator");
   const { data, list: existing } = b.slug ? await freshList(b.slug) : { data: await loadBoard(), list: null };
@@ -854,7 +894,7 @@ async function listPrice(b, email) {
   const { data, list } = await freshList(b.slug);
   if (!list) throw new Error("list not found");
   const id = String(b.id || "");
-  if (!/^\d+$/.test(id)) throw new Error("bad id");
+  if (!ROW_ID.test(id)) throw new Error("bad id");
   let kind = null;
   data.rows.forEach(r => { if (r.id === id) kind = r.kind; r.shows.forEach(s => { if (s.id === id) kind = "long"; }); });
   if (!kind) throw new Error("row not found");
@@ -1015,7 +1055,7 @@ function totalsOf(p) {
   return { total, discount: was, ytViews, shortViews, videos, profiles };
 }
 async function listPreview(b) {
-  const ids = (Array.isArray(b.ids) ? b.ids : []).map(String).filter(x => /^\d+$/.test(x)).slice(0, 300);
+  const ids = (Array.isArray(b.ids) ? b.ids : []).map(String).filter(x => ROW_ID.test(x)).slice(0, 300);
   const { data, list } = b.slug ? await freshList(b.slug) : { data: await loadBoard(), list: null };
   if (list && list.bad) throw new Error(LIST_READ_ERROR);
   const base = list ? list.body : {};
@@ -1033,7 +1073,7 @@ async function saveColumns(b, email) {
   // Row order per tab (the team's default for everyone), ids only.
   const rows = {};
   const src = b.rows && typeof b.rows === "object" ? b.rows : {};
-  GROUPS.forEach(g => { if (Array.isArray(src[g.id])) rows[g.id] = src[g.id].map(String).filter(x => /^\d+$/.test(x)).slice(0, 300); });
+  GROUPS.forEach(g => { if (Array.isArray(src[g.id])) rows[g.id] = src[g.id].map(String).filter(x => ROW_ID.test(x)).slice(0, 300); });
   // Column widths (dragged on a header edge), key -> pixels.
   const widths = {};
   const ws = b.widths && typeof b.widths === "object" ? b.widths : {};
