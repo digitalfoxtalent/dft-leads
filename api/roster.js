@@ -1098,13 +1098,15 @@ async function listRemove(b, email) {
 // would cost with these creators, at the prices brands would see (the list's own prices,
 // discounts and any campaign lock included), plus the saved list's total to compare with.
 function totalsOf(p) {
-  let total = 0, was = 0, ytViews = 0, shortViews = 0, videos = 0, profiles = 0;
+  let total = 0, was = 0, ytViews = 0, dedViews = 0, shortViews = 0, videos = 0, profiles = 0;
   GROUPS.forEach(g => (p.groups[g.id] || []).forEach(c => {
     const t = typeof c.total === "number" ? c.total : (typeof c.rate === "number" ? c.rate : 0);
     total += t; was += c.wasTotal ? c.wasTotal - t : 0; profiles++;
-    if (g.kind === "long") { ytViews += c.vg || 0; videos += c.minVideos || 1; } else { shortViews += c.vg || 0; videos += 1; }
+    // Dedicated videos carry no view guarantee (Tom, 13 Oct 2026), so their views are counted apart.
+    if (g.id === "dedicated") { dedViews += c.vg || 0; videos += c.minVideos || 1; }
+    else if (g.kind === "long") { ytViews += c.vg || 0; videos += c.minVideos || 1; } else { shortViews += c.vg || 0; videos += 1; }
   }));
-  return { total, discount: was, ytViews, shortViews, videos, profiles };
+  return { total, discount: was, ytViews, dedViews, shortViews, videos, profiles };
 }
 async function listPreview(b) {
   const ids = (Array.isArray(b.ids) ? b.ids : []).map(String).filter(x => ROW_ID.test(x)).slice(0, 300);
