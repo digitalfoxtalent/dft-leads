@@ -616,12 +616,12 @@ function brandRow(r, includeHiddenByRule, prices, team, showVis) {
 }
 
 // Live (daily) figures for the blue columns. For Shorts, Instagram, TikTok and Snapchat the
-// live View Estimate, rate and CPM are re-priced here from the live average exactly the way
-// brands are priced (priceFrom: half the average at $25 CPM, no minimum, Tom 13 Oct 2026),
-// so they never depend on what a sync last wrote.
+// Live Estimate is the FULL live average (1x, Tom 13 Oct 2026) and the Live Rate is that at
+// the $25 CPM. Only what brands see (the View Estimate) is half the average. Worked out here
+// from the live average, so they never depend on what a sync last wrote.
 function liveFor(r) {
   const avg = pos(r.cv[C.avg]), lastPub = r.cv[C.lastPub] || "";
-  if (r.kind !== "long") { const p = avg ? priceFrom(avg, "short") : {}; return { avg, vg: p.vg || null, rate: p.rate || null, cpm: p.cpm || null, lastPub }; }
+  if (r.kind !== "long") return { avg, vg: avg || null, rate: avg ? Math.round(avg * PRICE.short.cpm / 1000) : null, cpm: avg ? PRICE.short.cpm : null, lastPub };
   return { avg, vg: pos(r.cv[C.vg]), rate: pos(r.cv[C.rate]), cpm: pos(r.cv[C.cpm]), lastPub };
 }
 
