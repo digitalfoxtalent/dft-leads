@@ -1177,11 +1177,15 @@ function parseForward(b) {
   const from = fwd.match(/From:\s*\*?\s*"?([^"<\n*]*?)"?\s*\*?\s*<([^>\s]+@[^>\s]+)>/i) || fwd.match(/From:\s*\*?\s*([^\s<>*]+@[^\s<>*]+)/i);
   const subj = fwd.match(/\nSubject:\s*\*?\s*(.+)/i);
   const to = fwd.match(/\nTo:\s*(.+)/i);
+  const fromAt = Math.max(0, fwd.search(/From:/i)), hdrLen = fwd.slice(fromAt).search(/\n[ \t]*\n/);
+  const hdr = fwd.slice(fromAt, hdrLen > 0 ? fromAt + hdrLen : fromAt + 800).replace(/^From:[^\n]*/i, "");
+  const others = [...new Set((hdr.match(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g) || []).map(x => x.toLowerCase()))];
   return {
     contactName: from && from[2] ? from[1].trim() : "",
     contactEmail: from ? String(from[2] || from[1]).trim().toLowerCase() : "",
     subject: String(String(b.subject || "").replace(/^\s*((fwd?|fw):\s*)+/i, "").trim() || (subj ? subj[1] : "")).replace(/\*+/g, "").trim(),
     to: to ? to[1].replace(/\*+/g, "").trim() : "",
+    others,
     note: at > 0 ? text.slice(0, at).trim().slice(0, 1500) : "",
     body: fwd.slice(0, 12000),
   };
@@ -1229,21 +1233,21 @@ function pitchPrompt(f, lines, fwdName, aiNames) {
     lines.join("\n"),
     "",
     "HOW TO PICK (think like an experienced talent agent, not a category filter)",
-    "- AI campaigns: only these creators accept AI brands (AI tools, AI apps, generative AI): " + (aiNames || []).join(", ") + ". If the product or campaign is AI-related, pick ONLY from them (any of their formats) and set ai_product to true; otherwise set it to false. Never put any other creator on an AI pitch.",
+    "- AI campaigns: only these creators accept AI brands (AI tools, AI apps, generative AI): " + (aiNames || []).join(", ") + ". If the product or campaign is AI-related, set ai_product to true and pick ONLY from them (any of their formats), except creators the enquiry names or says DFT already confirmed, who are always included. Otherwise set ai_product to false.",
     "- First work out who would buy or love this product and what kind of video would sell it. Then name 4 to 6 different angles a creator could cover it from: the same-genre angle, plus adjacent ones such as reaction and commentary, pop culture, film and TV, comedy and group personalities, family, lifestyle, fitness or tech, whichever genuinely fit.",
     "- Big, engaged reaction and personality channels (group reaction shows, for example) often sell fun, social or entertainment products better than niche specialists. Consider them seriously.",
     "- Read each creator's about line, not just the category, to judge audience and tone.",
-    "- Always include any creator the enquiry names or was sent to (a creator's DFT inbox in the To line counts), and any creator the note from " + fwdName + " asks for.",
+    "- Always include any creator the enquiry names, asks about, or says DFT already confirmed, and any creator it was sent to (a creator's DFT inbox in the To line counts), plus any creator the note from " + fwdName + " asks for. Mark these picks named: true. A named creator who is not in the roster above has left DFT: leave them out and do not mention them.",
     "- Aim for 12 to 18 creators: about half the closest fits, the rest spread across the adjacent angles, so the brand sees options it would not have thought of. Every pick must be defensible in a few words. Go smaller only if the brief is genuinely narrow.",
     "- Formats: only the ones the enquiry asks for. If none are stated, use YouTube integration plus YouTube Shorts. Integration = YouTube integration; dedicated or full video = YouTube dedicated video; Shorts = YouTube Shorts; TikTok, Instagram and Snapchat as named. Give each creator every requested format they have; skip formats they lack.",
     "- Leave out short-form placements under 5K avg views and YouTube placements under 20K views unless the creator is named.",
     "- Never invent ids.",
     "",
     "THE REPLY",
-    "Do not write the email (it is built from a fixed template). Give only: product, the short brand or product name exactly as people would say it (e.g. Catch Flex, Higgsfield), never a description; and mix, a short phrase for the kinds of channels on your list (e.g. gaming, reaction, and personality channels). No em dashes, no slashes.",
+    "Do not write the email (it is built from a fixed template). Give only: product, the short brand or product name exactly as people would say it (e.g. Catch Flex, Higgsfield), never a description; mix, a short phrase for the kinds of channels on your list (e.g. gaming, reaction, and personality channels); and answer, one or two short plain sentences that directly answer any practical question the enquiry asks, otherwise empty. answer may only use these facts: the current rates are on the list; availability and posting dates are confirmed with each creator as soon as they approve, and we can move quickly; which named creators are on the list (name them). Never invent availability, dates, prices or numbers, never mention creators who left, and never refer to anything below or attached. No em dashes, no slashes.",
     "",
     "Return ONLY JSON, no prose:",
-    "{\"brand\":\"\",\"ai_product\":false,\"product\":\"\",\"title\":\"short list name, e.g. EXT (Exterminauts)\",\"contact_first_name\":\"the sender's first name if known, else empty\",\"angles\":[\"\"],\"mix\":\"\",\"picks\":[{\"id\":\"\",\"why\":\"a few words\"}]}"
+    "{\"brand\":\"\",\"ai_product\":false,\"product\":\"\",\"title\":\"short list name, e.g. EXT (Exterminauts)\",\"contact_first_name\":\"the sender's first name if known, else empty\",\"angles\":[\"\"],\"mix\":\"\",\"answer\":\"\",\"picks\":[{\"id\":\"\",\"named\":false,\"why\":\"a few words\"}]}"
   ].join("\n");
 }
 
@@ -1282,7 +1286,8 @@ async function pitchFromEmail(b) {
     const out = await askClaude(pitchPrompt(f, cat.lines, fwdName, aiNames));
     const order = GROUPS.map(g => g.id);
     const aiCamp = aiIds.size > 0 && (out.ai_product === true || /\bAI\b/.test(f.subject + " " + f.body));
-    const ids = [...new Set((out.picks || []).map(p => String(p && p.id)).filter(id => cat.byId[id] && (!aiCamp || aiOk(id))))];
+    const namedIds = new Set((out.picks || []).filter(p => p && p.named === true).map(p => String(p.id)));
+    const ids = [...new Set((out.picks || []).map(p => String(p && p.id)).filter(id => cat.byId[id] && (!aiCamp || aiOk(id) || namedIds.has(id))))];
     if (!ids.length) throw new Error("No creators were picked");
     ids.sort((x, y) => order.indexOf(cat.byId[x].gid) - order.indexOf(cat.byId[y].gid));
     const title = noDash(out.title || f.subject || "Pitch").slice(0, 70);
@@ -1291,7 +1296,8 @@ async function pitchFromEmail(b) {
     const product = noDash(out.product || out.brand || f.subject || "your campaign").replace(/[.\s]+$/, "");
     const mix = noDash(out.mix || "").replace(/[.\s]+$/, "").replace(/\s*\/\s*/g, " and ");
     // Tom's own edit of the first live pitch (Catch Flex, 13 Oct 2026): one-line thanks, what the list is and how to use it, the link, then the ask. No pricing notes.
-    const paras = ["Thanks for reaching out about " + product + ".", "I have put together a shortlist of creators" + (mix ? " across " + mix : "") + ". You can tick a creator to approve them, tick again to mark a 'no', or use the speech bubble to comment or ask questions.", "[[LIST_LINK]]", "Could you confirm which creators you would like to book?"];
+    let answer = noDash(out.answer || "").trim(); if (/\bbelow\b|\battach|\$|\d/i.test(answer)) answer = ""; // never a promise the template cannot keep
+    const paras = ["Thanks for reaching out about " + product + ".", "I have put together a shortlist of creators" + (mix ? " across " + mix : "") + ". You can tick a creator to approve them, tick again to mark a 'no', or use the speech bubble to comment or ask questions.", "[[LIST_LINK]]"].concat(answer ? [answer] : [], ["Could you confirm which creators you would like to book?"]);
     if (!paras.some(p => p.indexOf("[[LIST_LINK]]") >= 0)) paras.splice(Math.min(2, paras.length), 0, "[[LIST_LINK]]");
     const bullets = [];
     const sig = ["Warm regards", fwdName, "Digital Fox Talent", "\u{1F98A}"];
@@ -1300,7 +1306,8 @@ async function pitchFromEmail(b) {
     const text = "Hi " + first + ",\n\n" + paras.map(p => p.indexOf("[[LIST_LINK]]") >= 0 ? saved.url : p).join("\n\n") + (bullets.length ? "\n\n" + bullets.map(x => "- " + x).join("\n") : "") + "\n\n" + sig.join("\n");
     const subject = /^re:/i.test(f.subject) ? f.subject : "Re: " + f.subject;
     await pitchMark(b.item, "Ready: " + ids.length + " placements (" + out.model + ")", saved.url);
-    return { ok: true, listUrl: saved.url, title, placements: ids.length, to: f.contactEmail, subject, search: "from:" + f.contactEmail + " subject:\"" + f.subject.replace(/"/g, "") + "\" newer_than:90d", html, text, model: out.model, picks: out.picks };
+    const cc = [...new Set((f.others || []).filter(x => x !== f.contactEmail && x !== fromEmail && !/^pitch@/.test(x)).concat(["alex@digitalfoxtalent.com"]))].join(", ");
+    return { ok: true, listUrl: saved.url, title, placements: ids.length, to: f.contactEmail, cc, subject, search: "from:" + f.contactEmail + " subject:\"" + f.subject.replace(/"/g, "") + "\" newer_than:90d", html, text, model: out.model, picks: out.picks };
   } catch (e) {
     try { await pitchMark(b.item, "Failed: " + String(e && e.message || e).slice(0, 200)); } catch (_) {}
     throw e;
