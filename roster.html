@@ -667,7 +667,15 @@ function packageSummary(){
   return `<span class="pkg"><span>Package total <b>${money(rate)}</b></span>${saved>0?`<span>Discount <b>${money(saved)}</b></span>`:""}${appr?`<span><b>${appr}</b> approached</span>`:""}${bok?`<span><b>${bok}</b> ${listEdit()?"approved by brand":"approved"}</span>`:""}${bno?`<span><b>${bno}</b> ${listEdit()?"rejected by brand":"rejected"}</span>`:""}${bnotes?`<span><b>${bnotes}</b> brand note${bnotes===1?"":"s"}</span>`:""}${conf?`<span><b>${conf}</b> of ${all.length} confirmed</span>`:""}<span><b>${all.length}</b> profile${all.length===1?"":"s"}</span><span><b>${vids}</b> video${vids===1?"":"s"}</span>${vg?`<span><b>${int(vg)}</b> ${estLong()?"estimated":"guaranteed"} YouTube views</span>`:""}${est?`<span><b>${int(est)}</b> estimated short-form views</span>`:""}</span>`;
 }
 
+// Never redraw the table under someone typing (Tom, 12 Oct 2026): a save coming back while a
+// number box was open closed the box and saved the half-typed number (22.5 saved as 22).
+// The redraw waits until the box is closed with Enter, Escape or a click elsewhere.
+let renderLater=false;
+const openEdit=()=>document.querySelector("#scroll td[data-edit] input:not([data-done])");
+document.addEventListener("focusout",()=>setTimeout(()=>{ if(renderLater&&!openEdit()) render(); },0));
 function render(){
+  if(openEdit()){ renderLater=true; return; }
+  renderLater=false;
   const cols=columns(), list=currentList();
   const all=GROUPS.reduce((a,g)=>a.concat((PAYLOAD&&PAYLOAD.groups[g.id])||[]),[]);
   const shown=mode==="team"?all.filter(c=>c.show).length:all.length;
@@ -878,7 +886,7 @@ function startListEdit(td){
   td.innerHTML=`<input type="number" min="${isVid?1:0}"${isVid?' max="50"':""} step="${field==="cpm"?"0.01":"1"}" value="${cur==null?"":cur}" title="${hint}">`;
   const inp=td.querySelector("input"); inp.focus(); inp.select();
   let done=false;
-  const finish=async commit=>{ if(done) return; done=true;
+  const finish=async commit=>{ if(done) return; done=true; inp.dataset.done="1";
     const raw=inp.value.trim(), v=numv(raw);
     if(!commit||(raw!==""&&(v==null||v===cur))||(raw===""&&!(isVid?r.videosSet:r.custom))){ render(); return; }
     if(isVid&&raw!==""&&!(v>=1&&v<=50&&Math.round(v)===v)){ toast("Videos must be a whole number from 1 to 50",true); render(); return; }
@@ -890,6 +898,17 @@ function startListEdit(td){
     // The typed number shows at once; the totals follow when the save comes back.
     td.textContent=raw===""?"…":field==="cpm"?money2(v):int(v);
     const note=raw===""||isVid?"":minNote({kind:f.kind,row:Object.assign({},r,{brand:r})},field,v);
+    // YouTube rows: the new rate and any discount show straight away too (Tom, 12 Oct 2026),
+    // worked out the same way the server does: views x CPM, crossed out against the CPM the
+    // discount started from. The save's answer then confirms it.
+    if(f.kind==="long"&&raw!==""&&!isVid&&!note&&(field==="cpm"||field==="vg")&&r.vg>0){
+      const n=r.minVideos||1, per=field==="vg"?v:(r.vgPer!=null?r.vgPer:r.vg/n), cpm=field==="cpm"?v:(r.askCpm||r.cpm);
+      const rate=Math.max(1500,Math.round(per*n*cpm/1000));
+      const from=r.disc?(r.wasRate?r.wasRate*1000/r.vg:(r.askCpm||r.cpm)):null;
+      const was=from?Math.max(1500,Math.round(per*n*from/1000)):0;
+      patchListRow(td.dataset.id,x=>{ x.vg=per*n; x.vgPer=per; x.cpm=cpm; if(x.askCpm!=null) x.askCpm=cpm; x.rate=rate; x.total=rate; x.custom=true;
+        if(was>rate){ x.wasRate=was; x.wasTotal=was; x.discPct=Math.round((1-rate/was)*100); } else { delete x.wasRate; delete x.wasTotal; delete x.discPct; } });
+    }
     listSave(body,body.clear?(isVid?"Back to the automatic number of videos":"Back to the roster price for this list"):note?"Saved for this list only. "+note:(isVid?"Videos saved for this list only":"Saved for this list only")).catch(()=>{});
   };
   inp.addEventListener("keydown",e=>{ if(e.key==="Enter") finish(true); if(e.key==="Escape") finish(false); });
@@ -941,7 +960,7 @@ function startEdit(td){
   td.innerHTML=`<input type="number" min="${isVid?1:0}"${isVid?' max="50"':""} step="${field==="cpm"?"0.01":"1"}" value="${cur==null?"":cur}"${isVid?' title="Number of videos brands are quoted. Clear it to go back to the automatic count."':field==="vg"&&f.row.minVideos>1?` title="Views per video. The bundle guarantee is this x ${f.row.minVideos}."`:""}>`;
   const inp=td.querySelector("input"); inp.focus(); inp.select();
   let done=false;
-  const finish=commit=>{ if(done) return; done=true;
+  const finish=commit=>{ if(done) return; done=true; inp.dataset.done="1";
     const raw=inp.value.trim(), v=numv(raw);
     const who=f.row.name||"This row", base={op:"edit",id:td.dataset.id,show:td.dataset.show==="1"};
     if(isVid&&raw===""){ if(!commit||!f.row.videosSet){ render(); return; } td.classList.add("saving"); changeMain(Object.assign(base,{videos:null}),`${who}: videos ${cur} → automatic`); return; }
