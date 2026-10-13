@@ -1186,7 +1186,7 @@ function parseForward(b) {
     subject: String(String(b.subject || "").replace(/^\s*((fwd?|fw):\s*)+/i, "").trim() || (subj ? subj[1] : "")).replace(/\*+/g, "").trim(),
     to: to ? to[1].replace(/\*+/g, "").trim() : "",
     others,
-    note: at > 0 ? text.slice(0, at).trim().slice(0, 1500) : "",
+    note: at > 0 ? text.slice(0, at).split(/\n\s*Warm regards/i)[0].trim().slice(0, 1500) : "",
     body: fwd.slice(0, 12000),
   };
 }
@@ -1221,12 +1221,13 @@ async function askClaude(prompt) {
   throw new Error("Claude: " + last);
 }
 
-function pitchPrompt(f, lines, fwdName, aiNames, namedNames) {
+function pitchPrompt(f, lines, fwdName, aiNames, namedNames, pointers) {
   return [
     "You help Digital Fox Talent (DFT), a creator management agency, answer a brand enquiry with a shortlist from its creator roster.",
     "",
     "THE ENQUIRY (forwarded by " + fwdName + " at DFT. Original sender: " + (f.contactName || "unknown") + " <" + f.contactEmail + ">. Sent to: " + (f.to || "unknown") + ")",
-    f.note ? "Note from " + fwdName + ": " + f.note : "",
+    f.note ? "POINTER FROM " + fwdName.toUpperCase() + " FOR THIS ENQUIRY (top priority, follow it exactly: creators to add or leave out, formats, angle, list size): " + f.note : "",
+    pointers && pointers.length ? "PAST POINTERS FROM THE DFT TEAM (standing guidance learned from earlier pitches; apply wherever relevant):\n- " + pointers.join("\n- ") : "",
     "-----", f.body, "-----",
     "",
     "THE ROSTER (one line per placement: id | format | creator | handle | category | subscribers | views | price | audience | about). Only these ids exist. guaranteed views = YouTube integration view guarantee; est views = estimated views for a dedicated video (no guarantee); avg views = short-form average, for context only (short form is priced per post).",
@@ -1273,6 +1274,10 @@ async function pitchFromEmail(b) {
   await pitchItem(b.item, fromEmail);
   try {
     const f = parseForward(b);
+    // Tom's pointers (13 Oct 2026): the note above each forward is kept on the Pitch Requests board and fed into later pitches, so the system learns from them.
+    if (f.note) await monday(`mutation{change_multiple_column_values(board_id:${PITCH_BOARD},item_id:${Number(b.item)},column_values:${JSON.stringify(JSON.stringify({ long_text_mm83jwpf: { text: f.note } }))}){id}}`).catch(() => null);
+    const pastQ = await monday(`query{boards(ids:[${PITCH_BOARD}]){items_page(limit:200){items{id column_values(ids:["long_text_mm83jwpf"]){text}}}}}`).catch(() => null);
+    const pointers = (((((pastQ || {}).boards || [])[0] || {}).items_page || {}).items || []).filter(it => String(it.id) !== String(b.item)).map(it => String(((it.column_values || [])[0] || {}).text || "").trim()).filter(Boolean).slice(0, 30);
     if (!f.contactEmail || f.body.length < 40) throw new Error("No forwarded enquiry found. Forward the brand's own email.");
     const data = await loadBoard();
     const cat = pitchCatalogue(data);
@@ -1285,11 +1290,11 @@ async function pitchFromEmail(b) {
     const aiNames = [...new Set([...aiIds].map(id => (cat.byId[id] || {}).name).filter(Boolean))];
     // Creators the enquiry names (or was sent to) are always on the list, even on AI campaigns (Tom, 13 Oct 2026).
     const norm = s => String(s || "").toLowerCase().replace(/[^a-z0-9]/g, ""), base = s => String(s || "").replace(/\s*-\s*(Shorts|Instagram|TikTok|Snapchat|Dedicated).*$/i, "");
-    const hay = norm(f.body + " " + f.note + " " + f.to);
+    const hay = norm(f.body + " " + f.to); // names in the pointer are left to the model, so "leave out X" never forces X in
     const namedPl = Object.keys(cat.byId).filter(id => { const n = norm(base(cat.byId[id].name)), h = norm(cat.byId[id].handle); return (n.length >= 5 && hay.includes(n)) || (h.length >= 5 && hay.includes(h)); });
     const namedNames = [...new Set(namedPl.map(id => base(cat.byId[id].name)))];
     const fwdName = String(b.fromName || "").replace(/["<>]/g, "").trim() || fromEmail.split("@")[0];
-    const out = await askClaude(pitchPrompt(f, cat.lines, fwdName, aiNames, namedNames));
+    const out = await askClaude(pitchPrompt(f, cat.lines, fwdName, aiNames, namedNames, pointers));
     const order = GROUPS.map(g => g.id);
     const aiCamp = aiIds.size > 0 && (out.ai_product === true || /\bAI\b/.test(f.subject + " " + f.body));
     const namedIds = new Set((out.picks || []).filter(p => p && p.named === true).map(p => String(p.id)));
@@ -1298,8 +1303,12 @@ async function pitchFromEmail(b) {
     const wantF = { dedicated: /dedicated|full video|standalone video/i, group_mm4a1fe0: /instagram|\binsta\b|\bIG\b|\breels?\b/i, group_mm4bd5tk: /tik ?tok/i, group_mm7yw8cy: /snap ?chat/i };
     for (let k = ids.length - 1; k >= 0; k--) { const re = wantF[cat.byId[ids[k]].gid]; if (re && !re.test(f.body + " " + f.note)) ids.splice(k, 1); }
     const groupsUsed = new Set(ids.map(id => cat.byId[id].gid)); if (!groupsUsed.size) { groupsUsed.add("topics"); groupsUsed.add("group_mm4av3kr"); }
+    // A pointer that says to leave a creator out wins over everything else.
+    const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const leftOut = nm => !!f.note && new RegExp("\\b(not|no|without|leave out|exclude|skip|don'?t|drop|remove)\\b[^.\\n]{0,40}" + esc(nm), "i").test(f.note);
+    for (let k = ids.length - 1; k >= 0; k--) if (leftOut(base(cat.byId[ids[k]].name))) ids.splice(k, 1);
     const aiDeclined = []; // named creators who do not take AI work (unless the enquiry says DFT already confirmed them)
-    namedNames.forEach(nm => { const mine = namedPl.filter(id => base(cat.byId[id].name) === nm); if (aiCamp && !mine.some(aiOk) && !/confirm/i.test(f.body)) { aiDeclined.push(nm); mine.forEach(id => { const k = ids.indexOf(id); if (k >= 0) ids.splice(k, 1); }); return; } const inG = mine.filter(id => groupsUsed.has(cat.byId[id].gid)); (inG.length ? inG : mine).forEach(id => { if (!ids.includes(id)) ids.push(id); }); });
+    namedNames.forEach(nm => { if (leftOut(nm)) return; const mine = namedPl.filter(id => base(cat.byId[id].name) === nm); if (aiCamp && !mine.some(aiOk) && !/confirm/i.test(f.body)) { aiDeclined.push(nm); mine.forEach(id => { const k = ids.indexOf(id); if (k >= 0) ids.splice(k, 1); }); return; } const inG = mine.filter(id => groupsUsed.has(cat.byId[id].gid)); (inG.length ? inG : mine).forEach(id => { if (!ids.includes(id)) ids.push(id); }); });
     if (!ids.length) throw new Error("No creators were picked");
     ids.sort((x, y) => order.indexOf(cat.byId[x].gid) - order.indexOf(cat.byId[y].gid));
     const title = noDash(out.title || f.subject || "Pitch").slice(0, 70);
