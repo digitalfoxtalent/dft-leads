@@ -81,7 +81,12 @@ const ROW_ID = /^d?\d+$/; // monday item ids, or d<item id> for a channel's Dedi
 // View Estimate = HALF the average (Tom and Margot, 13 Oct 2026; was 1x), so the publishing
 // rate halves with it. This is the one place that number lives for the roster: brandNumbersRaw
 // works the estimate out from Brand Basis Avg x this, and liveFor / priceFrom use it too.
-const PRICE = { long: { mult: 1.5, cpm: 25 }, short: { mult: 0.5, cpm: 25 } };
+// Short form (Tom, 13 Oct 2026, from Alex): priced by the post, not by views. Brands pay the
+// production fee (tier by channel size, feeFor) plus a Publishing Rate of POST_SHARE of it for
+// the creator to post. The views figure is the plain quarter average (mult 1), shown for
+// context only. short.cpm is kept only for the team's blue Live columns.
+const PRICE = { long: { mult: 1.5, cpm: 25 }, short: { mult: 1, cpm: 25 } };
+const POST_SHARE = 0.2;
 const FLOOR = 1500;
 const FEE = 3000;
 // Production fee tiers (Margot, 8 Oct 2026): under 100k views $3,000, 100k to 250k $5,000,
@@ -560,8 +565,11 @@ function listNumbers(b, p, kind) {
 function addFee(b, kind, fine) {
   if (!b) return b;
   b = roundNums(b, fine, kind);
-  const fee = kind === "long" ? 0 : (b.fee != null ? b.fee : feeFor(b.vg || 0));
-  return Object.assign({}, b, { fee: kind === "long" ? null : fee, total: (b.rate || 0) + fee });
+  if (kind === "long") return Object.assign({}, b, { fee: null, total: b.rate || 0 });
+  // Short form: Publishing Rate = POST_SHARE of the production fee, whatever the views.
+  const fee = b.fee != null ? b.fee : feeFor(b.vg || 0);
+  const rate = Math.round(fee * POST_SHARE);
+  return Object.assign({}, b, { fee, rate, total: rate + fee });
 }
 
 // Discounts on a saved list (Tom, 10 Oct 2026): a row ticked "Discount" keeps the CPM it had
@@ -616,12 +624,12 @@ function brandRow(r, includeHiddenByRule, prices, team, showVis) {
 }
 
 // Live (daily) figures for the blue columns. For Shorts, Instagram, TikTok and Snapchat the
-// Live Estimate is the FULL live average (1x, Tom 13 Oct 2026) and the Live Rate is that at
-// the $25 CPM. Only what brands see (the View Estimate) is half the average. Worked out here
-// from the live average, so they never depend on what a sync last wrote.
+// Live Estimate is the full live average and the Live Rate is the Publishing Rate today's
+// average would give (POST_SHARE of its production fee tier, Tom 13 Oct 2026). Worked out
+// here from the live average, so they never depend on what a sync last wrote.
 function liveFor(r) {
   const avg = pos(r.cv[C.avg]), lastPub = r.cv[C.lastPub] || "";
-  if (r.kind !== "long") return { avg, vg: avg || null, rate: avg ? Math.round(avg * PRICE.short.cpm / 1000) : null, cpm: avg ? PRICE.short.cpm : null, lastPub };
+  if (r.kind !== "long") return { avg, vg: avg || null, rate: avg ? Math.round(feeFor(avg) * POST_SHARE) : null, cpm: null, lastPub };
   return { avg, vg: pos(r.cv[C.vg]), rate: pos(r.cv[C.rate]), cpm: pos(r.cv[C.cpm]), lastPub };
 }
 
