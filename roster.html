@@ -523,6 +523,8 @@ function brandColsFor(){
     if(c.shortOnly) return k!=="long";
     if(c.key==="vg") return true;
     if(c.key==="cpm"&&k!=="long") return false;
+    // Dedicated videos (Tom, 14 Oct 2026): no CPM for brands; the team still sees it, marked DFT only.
+    if(c.key==="cpm"&&activeTab==="dedicated"&&!team&&!listEdit()) return false;
     return !(c.longOnly&&k!=="long");
   });
   // Shorts / Instagram / TikTok for brands: no demographics, audience, ad types,
@@ -560,6 +562,7 @@ function brandColsFor(){
     if(c.key==="minVideos"&&k==="long") return Object.assign({},c,{edit:"videos",head:"Videos ✎",w:112,tip:"Number of videos for this list only. View Guarantee = views per video x videos, Rate = that x CPM, minimum $1,500. Clear the box to go back to the automatic count."});
     return c;
   });
+  if(activeTab==="dedicated") cols=cols.map(c=>c.key==="cpm"?Object.assign({},c,{t:1,head:c.edit?"CPM ✎ (DFT only)":"CPM (DFT only)",w:c.edit?130:112,tip:"Brands never see the CPM on dedicated videos. "+(c.tip||"")}):c);
   if(colOrder&&colOrder.length){
     const pos={}; colOrder.forEach((key,i)=>pos[key==="videos"?"adLength":key]=i);
     // A column added after an order was saved slots in beside its neighbour, not at the end.
@@ -846,7 +849,7 @@ function totalsCard(list){
   const was=list.reduce((a,c)=>a+(c.wasRate||c.rate||0),0);
   const it=(l,v)=>`<div class="cs"><div class="cl">${l}</div><div class="cv">${v}</div></div>`;
   const body=long
-    ?it("Total rate",money(rate))+(vg?it(!estLong()&&activeTab!=="dedicated"?"Guaranteed views":"Estimated views",int(vg)):"")+(vg?it("CPM",money2(Math.round(rate*100000/vg)/100)):"")+it("Videos",int(vids))
+    ?it("Total rate",money(rate))+(vg?it(!estLong()&&activeTab!=="dedicated"?"Guaranteed views":"Estimated views",int(vg)):"")+(vg&&columns().some(c=>c.key==="cpm")?it("CPM",money2(Math.round(rate*100000/vg)/100)):"")+it("Videos",int(vids))
     :it("Publishing rate",money(rate))+it("Production rate",money(fee))+it("Total rate",money(total))+(vg?it("Average views",int(vg)):"");
   return `<div class="card ctot"><div class="ctt">Total · ${list.length} creator${list.length===1?"":"s"}</div><div class="cgrid">${body}${was>rate?it("You save",money(was-rate)):""}</div></div>`;
 }
