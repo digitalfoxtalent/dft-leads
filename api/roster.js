@@ -1197,24 +1197,41 @@ const escH = s => String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g
 const noDash = s => String(s == null ? "" : s).replace(/\s*\u2014\s*/g, ", ").replace(/\u2013/g, "-").trim();
 const htmlToText = h => String(h || "").replace(/<br\s*\/?>/gi, "\n").replace(/<\/(p|div|tr|li|h\d)>/gi, "\n").replace(/<[^>]+>/g, "").replace(/&nbsp;/g, " ").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&#39;/g, "'").replace(/&quot;/g, "\"").replace(/&amp;/g, "&").replace(/\n{3,}/g, "\n\n").trim();
 
+// Which email is the brand's (Tom, 14 Oct 2026, Margot's Base44 forward): a forward of DFT's own
+// reply has a DFT address in From, so the brand is the outside address it was sent To. A forward
+// of a forward is followed down to the first header with an outside sender or recipient.
+const DFT_DOMAIN = /@digitalfoxtalent\.com$/i;
 function parseForward(b) {
   const text = String(b.text || "").trim() || htmlToText(b.html);
   const at = text.search(/-{3,}\s*Forwarded message\s*-{3,}|Begin forwarded message:/i);
   const fwd = at >= 0 ? text.slice(at) : text;
-  const from = fwd.match(/From:\s*\*?\s*"?([^"<\n*]*?)"?\s*\*?\s*<([^>\s]+@[^>\s]+)>/i) || fwd.match(/From:\s*\*?\s*([^\s<>*]+@[^\s<>*]+)/i);
-  const subj = fwd.match(/\nSubject:\s*\*?\s*(.+)/i);
-  const to = fwd.match(/\nTo:\s*(.+)/i);
-  const fromAt = Math.max(0, fwd.search(/From:/i)), hdrLen = fwd.slice(fromAt).search(/\n[ \t]*\n/);
-  const hdr = fwd.slice(fromAt, hdrLen > 0 ? fromAt + hdrLen : fromAt + 800).replace(/^From:[^\n]*/i, "");
-  const others = [...new Set((hdr.match(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g) || []).map(x => x.toLowerCase()))];
+  const addrs = s => (String(s || "").match(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g) || []).map(x => x.toLowerCase());
+  const line = (h, k) => ((h.match(new RegExp("(?:^|\\n)[ \\t*]*" + k + ":[ \\t]*\\*?[ \\t]*([^\\n]*)", "i")) || [])[1] || "").replace(/\*+/g, "").trim();
+  const nameFor = (ln, em) => { const m = ln.match(new RegExp("\"?([^\"<>,;]*?)\"?\\s*<" + em.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + ">", "i")); return m ? m[1].trim() : ""; };
+  const marks = []; const mre = /-{3,}\s*Forwarded message\s*-{3,}|Begin forwarded message:/gi; let mm;
+  while ((mm = mre.exec(text))) marks.push(mm.index);
+  if (!marks.length) marks.push(0);
+  const heads = marks.map(i => { const seg = text.slice(i); const fa = Math.max(0, seg.search(/From:/i)); const hl = seg.slice(fa).search(/\n[ \t]*\n/); return { at: i, h: seg.slice(fa, hl > 0 ? fa + hl : fa + 800) }; });
+  let pick = null;
+  for (const hd of heads) {
+    const fl = line(hd.h, "From"), fe = addrs(fl)[0] || "";
+    if (fe && !DFT_DOMAIN.test(fe)) { pick = { hd, email: fe, name: nameFor(fl, fe), fromName: nameFor(fl, fe), fromEmail: fe }; break; }
+    const tl = line(hd.h, "To"), te = addrs(tl).find(x => !DFT_DOMAIN.test(x));
+    if (te) { pick = { hd, email: te, name: nameFor(tl, te), fromName: nameFor(fl, fe) || fl.replace(/<[^>]*>/g, "").trim(), fromEmail: fe }; break; }
+  }
+  if (!pick) { const hd = heads[0], fl = line(hd.h, "From"), fe = addrs(fl)[0] || ""; pick = { hd, email: fe, name: nameFor(fl, fe), fromName: nameFor(fl, fe), fromEmail: fe }; }
+  const body = text.slice(pick.hd.at);
+  const subj = body.match(/\nSubject:\s*\*?\s*(.+)/i);
   return {
-    contactName: from && from[2] ? from[1].trim() : "",
-    contactEmail: from ? String(from[2] || from[1]).trim().toLowerCase() : "",
+    contactName: pick.name,
+    contactEmail: pick.email,
+    // Who wrote the forwarded message, for the "On ... wrote:" line above the quote.
+    quoteName: pick.fromName, quoteEmail: pick.fromEmail || pick.email,
     subject: String(String(b.subject || "").replace(/^\s*((fwd?|fw):\s*)+/i, "").trim() || (subj ? subj[1] : "")).replace(/\*+/g, "").trim(),
-    to: to ? to[1].replace(/\*+/g, "").trim() : "",
-    others,
+    to: line(pick.hd.h, "To"),
+    others: [...new Set(addrs(line(pick.hd.h, "To") + " " + line(pick.hd.h, "Cc")))].filter(x => x !== pick.email),
     note: at > 0 ? text.slice(0, at).split(/(?:^|\n)\s*(?:Warm regards|Kind regards|Best regards|Thanks,?\s*\n\s*Tom)/i)[0].trim().slice(0, 1500) : "",
-    body: fwd.slice(0, 12000),
+    body: (at >= 0 ? body : fwd).slice(0, 12000),
   };
 }
 
@@ -1524,7 +1541,7 @@ async function pitchFromEmail(b) {
     const text = "Hi " + first + ",\n\n" + paras.map(p => p.indexOf("[[LIST_LINK]]") >= 0 ? saved.url : p).join("\n\n") + (bullets.length ? "\n\n" + bullets.map(x => "- " + x).join("\n") : "") + "\n\n" + sig.join("\n");
     // Quote the brand's original email under the reply, like a normal Gmail reply (Tom, 13 Oct 2026).
     const fwdHead = (String(f.body).split(/\n[ \t]*\n/)[0] || ""), dateM = fwdHead.match(/\nDate:\s*([^\n]+)/i);
-    const attr = "On " + (dateM ? dateM[1].trim() + " " : "") + (f.contactName ? f.contactName + " " : "") + "<" + f.contactEmail + "> wrote:";
+    const attr = "On " + (dateM ? dateM[1].trim() + " " : "") + (f.quoteName ? f.quoteName + " " : "") + "<" + (f.quoteEmail || f.contactEmail) + "> wrote:";
     const origText = String(f.body).slice(fwdHead.length).trim();
     const fh = String(b.html || ""), fi = fh.search(/Forwarded message/i); let origHtml = "";
     if (fi >= 0) { const close = fh.indexOf("</div>", fi); if (close > 0) origHtml = fh.slice(close + 6).replace(/^(\s|<br\s*\/?>)+/i, ""); }
@@ -1533,7 +1550,15 @@ async function pitchFromEmail(b) {
     const quoteText = "\n\n" + attr + "\n\n" + origText.split("\n").map(l => "> " + l).join("\n");
     const subject = /^re:/i.test(f.subject) ? f.subject : "Re: " + f.subject;
     await pitchMark(b.item, (reuse ? "Ready: same list as before, " : "Ready: ") + ids.length + " placements (" + out.model + ")", saved.url);
-    const cc = [...new Set((f.others || []).filter(x => x !== f.contactEmail && (!/@digitalfoxtalent\.com$/.test(x) || /^(alex|margot|george)@/.test(x))).concat(["tom@digitalfoxtalent.com", "alex@digitalfoxtalent.com", "margot@digitalfoxtalent.com"]) /* Tom, 14 Oct 2026: Tom, Alex and Margot on every pitch draft */)].filter(x => x !== fromEmail).join(", "); // reply-all minus DFT group inboxes; Tom and Alex always see what goes out (13 Oct 2026)
+    // Who gets copied (Tom, 14 Oct 2026, after a creator's personal email was copied on Margot's Base44 draft):
+    // never a creator. Besides Tom, Alex and Margot, the only addresses kept from the forwarded email are
+    // colleagues of the brand contact at the same company domain. A free mail domain (gmail, icloud...) is
+    // never treated as a company, so nobody else on those is copied.
+    const FREE_MAIL = /^(gmail|googlemail|icloud|me|mac|yahoo|ymail|rocketmail|hotmail|outlook|live|msn|aol|proton|protonmail|pm|gmx|mail|zoho|yandex|qq|163|126|hey|fastmail)\./i;
+    const domOf = x => { const p = String(String(x || "").split("@")[1] || "").toLowerCase().split("."); return p.slice(p.length > 2 && p[p.length - 1].length === 2 && p[p.length - 2].length <= 3 ? -3 : -2).join("."); }; // company domain, e.g. creator.noxinfluencer.com and noxinfluencer.com match
+    const cDom = domOf(f.contactEmail);
+    const brandSide = x => !!cDom && !FREE_MAIL.test(cDom) && domOf(x) === cDom;
+    const cc = [...new Set((f.others || []).filter(x => x !== f.contactEmail && (brandSide(x) || /^(alex|margot|george)@digitalfoxtalent\.com$/i.test(x))).concat(["tom@digitalfoxtalent.com", "alex@digitalfoxtalent.com", "margot@digitalfoxtalent.com"]))].filter(x => x !== fromEmail).join(", ");
     const resultObj = { ok: true, listUrl: saved.url, title, placements: ids.length, to: f.contactEmail, cc, subject, search: "from:" + f.contactEmail + " subject:\"" + f.subject.replace(/"/g, "") + "\" newer_than:90d", html: html + quoteHtml, text: text + quoteText, model: out.model, picks: out.picks, research, stage: out.stage || "new", closing: out.closing === true, questions: out.questions || [], reviewed, reused: reuse ? reuse.slug : "" };
     // Teammates get the draft in their own Gmail (Tom, 14 Oct 2026); Tom's drafts still come from Make.
     resultObj.draftMade = await teamDraft(fromEmail, resultObj).catch(e => "failed: " + String((e && e.message) || e).slice(0, 200));
