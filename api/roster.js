@@ -707,6 +707,9 @@ function brandPayload(data, list, team, noLock) {
       const cr = creatorRes[r.id]; if (cr && (cr.ok || cr.no || cr.note)) o.cr = { ok: !!cr.ok, no: !cr.ok && !!cr.no, note: String(cr.note || "") };
     }
     if (o && lock && !noLock) applyLock(o, lock);
+    // Dedicated videos (Tom, 14 Oct 2026): brands never see the CPM, only the flat price and
+    // estimated views. The team keeps it so it can still change a list's price.
+    if (o && r.dedicated && !team && !noLock) { delete o.cpm; (o.shows || []).forEach(s => { delete s.cpm; }); }
     if (o) groups[r.group].push(o);
   });
   if (ids) { // keep the order the list was saved in
