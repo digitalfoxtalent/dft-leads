@@ -512,12 +512,18 @@ export async function runUnmatched(token, opts) {
   summary.overdue = overdue.length;
   if (notify && (fresh.length || overdue.length)) {
     const send = async (u, x) => { try { await mondayVars(token, "mutation ($u: ID!, $t: ID!, $x: String!) { create_notification(user_id:$u, target_id:$t, target_type:Project, text:$x) { text } }", { u: String(u), t: String(REVIEW_BOARD), x }); summary.notified = (summary.notified || 0) + 1; } catch (e) { summary.errors.push("notify " + u + ": " + String(e.message || e).slice(0, 100)); } };
-    const newTxt = fresh.length ? "Unmatched sponsor reads: " + added + " new on the review board (" + Object.entries(fresh.slice(0, added).reduce((a, f) => (a[f.cls] = (a[f.cls] || 0) + 1, a), {})).map(([k, n]) => n + " " + k).join(", ") + "), due in " + DUE_DAYS + " days." : "";
+    // Short and plain (Tom, 14 Oct 2026): monday uses this text as the email SUBJECT and the body, so a
+    // long sentence with a list of rows read badly in both. Lead with the count; the rows are on the board.
+    const day = t => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(t || "")); return m ? Number(m[3]) + " " + ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][Number(m[2]) - 1] : ""; };
+    const plural = (n, w) => n + " " + w + (n === 1 ? "" : "s");
+    const newTxt = fresh.length ? plural(added, "new read") + " to check, due " + day(iso(Date.now() + DUE_DAYS * D)) : "";
     const lateFor = u => overdue.filter(r => r.owners.includes(u) || u === TOM);
     for (const u of [...new Set(NOTIFY_USERS.concat(TOM))]) {
-      const late = lateFor(u);
-      const lateTxt = late.length ? "OVERDUE on the review board: " + late.length + " row" + (late.length === 1 ? "" : "s") + " past due and still open (" + late.slice(0, 4).map(r => r.name).join("; ") + (late.length > 4 ? "; ..." : "") + "). Close each with Done, Not a sponsor read or Billing is correct." : "";
-      const x = [NOTIFY_USERS.includes(u) ? newTxt : "", lateTxt].filter(Boolean).join(" ");
+      const late = lateFor(u).slice().sort((p, q) => String(p.due).localeCompare(String(q.due)));
+      const oldest = late[0] ? late[0].name.replace(/\s+\d{4}-\d{2}-\d{2}$/, "") + (day(late[0].due) ? " (due " + day(late[0].due) + ")" : "") : "";
+      const lateTxt = late.length ? plural(late.length, "overdue review") + (oldest ? ", oldest " + oldest : "") : "";
+      const parts = [NOTIFY_USERS.includes(u) ? newTxt : "", lateTxt].filter(Boolean);
+      const x = parts.length ? "Sponsor reads: " + parts.join(". ") : "";
       if (x) await send(u, x);
     }
   }
