@@ -1,12 +1,18 @@
 // SUBPLOT page templates. Pure functions: (data, base) -> HTML string.
 import { CSS, GRID_CSS } from "./css.js";
-import { cats, slug, slugFor } from "./data.js";
-import { brand, brandCss, member, joinCta, mail, siteUrl, hasCast, audience, taking, fontHref, hasShareCard, layout, wordmark, searchHint, usesGoogleAuth } from "./brand.js";
+import { cats, slug, slugFor, SNIPPETS_LIVE } from "./data.js";
+import { NOTES, NOTE_SIGNOFF } from "./notes.js";
+import { bioFor } from "./bios.js";
+import { brand, brandCss, member, joinCta, mail, siteUrl, hasCast, audience, taking, fontHref, hasShareCard, layout, wordmark, searchHint, usesGoogleAuth, pubFee } from "./brand.js";
+import { wordmarkSvg, accentToday, accentVars } from "./wordmark.js";
 import { design } from "./design.js";
 import { promoRail, promoCss, joinBlock } from "./promo.js";
 import { CSS2, FONTS2 } from "./design2.js";
 import { ch, CAST_META } from "./cast.js";
 import { headTag as adHead, unit as adUnit } from "./ads.js";
+import { FORMATS, formatCss } from "./formats.js";
+import { LIVE as CROSSLINKS_LIVE, dftPageFor } from "./crosslinks.js";
+import { homePage3, snippetsPage as snippetsBody, card3, wire3Deps, CSS3 } from "./home3.js";
 
 // Brand-dependent strings resolve per request; see brand.js.
 const BRAND_ = () => brand().name;
@@ -27,6 +33,14 @@ const initials = n => n.replace(/[^A-Za-z ]/g, "").split(/\s+/).filter(Boolean).
 const mark = (name, url) => url
   ? `<span class="mono av"><img src="${esc(url)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer"></span>`
   : `<span class="mono">${esc(initials(name))}</span>`;
+// BYLINE AVATAR, 11 Oct 2026 (Tom: the circle by the @handle under the headline showed empty
+// grey). The byline sits above the fold, so its picture loads eagerly rather than lazily (a lazy
+// image leaves the grey circle showing until the browser gets round to it), and if YouTube's image
+// host fails for any reason the circle falls back to the creator's initials instead of staying
+// empty. Display only.
+const bylineMark = (name, url) => url
+  ? `<span class="mono av"><img src="${esc(url)}" alt="" width="36" height="36" decoding="async" fetchpriority="high" referrerpolicy="no-referrer" onerror="this.parentNode.className='mono';this.parentNode.textContent='${esc(initials(name))}'"></span>`
+  : mark(name, url);
 const slugH = h => h.replace(/^@/, "");
 
 // ---- Ad slots. Placeholders for now; each becomes one network tag at launch.
@@ -38,6 +52,33 @@ export function adSlot(name, desktop, mobile = desktop, extraClass = "") {
     <span class="ad-lbl">Ad</span><span class="ad-meta">${name} · ${desktop}${mobile !== desktop ? " / " + mobile : ""}</span></div>`;
 }
 // Insert an in-article slot after every `every` paragraphs, never right after a heading, never in the last 2.
+// The shared "About this article" note is written by the publisher for MSN, so it gives DFT's
+// contact points (corrections@digitalfoxtalent.com and digitalfoxtalent.com/editorial-standards).
+// The wording stays shared (Tom, 19 Sep 2026); only those two contact points are swapped for this
+// site's own, so the note agrees with the About page and the footer. 4 Oct 2026 (Tom).
+function siteContacts(bodyHtml) {
+  return String(bodyHtml || "")
+    .replace(/https?:\/\/(?:www\.)?digitalfoxtalent\.com\/editorial-standards\/?/gi, `https://${brand().domain}/about#standards`)
+    .replace(/corrections@digitalfoxtalent\.com/gi, mail("corrections"));
+}
+
+// END NOTE TIDY, 11 Oct 2026 (Tom). The publisher closes every article with one or two
+// orange-ruled "ai-disclosure" paragraphs (two shapes in the store: a two-paragraph note, and a
+// single "About this article" paragraph). At render time the whole run becomes ONE line:
+// "Adapted with AI from <Creator>'s video of <date> and reviewed by Digital Fox Talent before
+// publication. Editorial standards · Corrections". Display only: the stored body and the MSN copy
+// are untouched. The date is the video's own, read from the note; failing that the upload date.
+// Possessive is <Creator>' when the name ends in s, otherwise <Creator>'s.
+const possessive = n => /s$/i.test(n) ? `${n}'` : `${n}'s`;
+function endNote(bodyHtml, a, base) {
+  const run = /(?:<p class="ai-disclosure">[\s\S]*?<\/p>\s*)+/i;
+  const m = bodyHtml.match(run); if (!m) return bodyHtml;
+  const said = (m[0].match(/first published on (\d{1,2} [A-Z][a-z]+ \d{4})/) || [])[1];
+  const when = said || (a.u && !isNaN(new Date(a.u)) ? fmt(a.u) : "");
+  const line = `<p class="ai-disclosure"><em>Adapted with AI from ${esc(possessive(a.b))} video${when ? ` of ${esc(when)}` : ""} and reviewed by Digital Fox Talent before publication. <a href="${base}/about#standards">Editorial standards</a> &middot; <a href="mailto:${mail("corrections")}">Corrections</a></em></p>`;
+  return bodyHtml.replace(run, () => line);
+}
+
 function withInArticleAds(bodyHtml, every = 5) {
   const parts = bodyHtml.split(/(?<=<\/p>)/);
   const paras = parts.filter(p => /<p>/.test(p)).length;
@@ -109,6 +150,10 @@ body[data-ads="off"] .ad{display:none}
 .ad.live.ad-anchor{height:auto;padding:.2rem 0 .1rem}
 .ad.live.ad-anchor::before{display:none}
 .ad.live:has(ins[data-ad-status="unfilled"]){display:none}
+/* 4 Oct 2026, AdSense re-review: a live unit keeps zero height until Google marks it filled, so pages never
+   show blank reserved boxes (an "under construction" look). The ad code still loads and requests normally;
+   the box opens the moment data-ad-status="filled" is set. */
+.ad.live:not(:has(ins[data-ad-status="filled"])){height:0;min-height:0;margin:0;padding:0;overflow:hidden}
 .ad.live:has(ins[data-ad-status="filled"])::before{display:block}
 /* cast-influenced: soft corners, thin ink line, pill buttons */
 .thumb,.lead .plate,.player,.thread,.box,.ad,.honest,.terms,.done,.source,.field input,.field select,.field .handle span,.band,.step{border-radius:14px}
@@ -282,13 +327,14 @@ function platformShell({ base, head, body, current, footNote, searchQ }) {
 
 function shell({ base, title, desc, body, current = "all", bodyClass = "", rule = "", trending = [], jsonld = "", searchQ = "" }) {
   const nav = [["all", "All"], ...Object.entries(cats())].map(([k, n]) =>
-    `<a href="${base}/${k === "all" ? "" : "s/" + k}" ${k === current ? 'aria-current="true"' : ""}>${esc(n)}</a>`).join("");
+    `<a href="${base}/${k === "all" ? "" : "s/" + k}" ${k === current ? 'aria-current="true"' : ""}>${esc(n)}</a>`).join("")
+    + (design() === 3 && SNIPPETS_LIVE ? `<a href="${base}/snippets" ${current === "snippets" ? 'aria-current="true"' : ""}>Snippets</a>` : "");
   const head = `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="robots" content="noindex,nofollow,noarchive">
+${brand().key === "subplot" && !base ? "" : `<meta name="robots" content="noindex,noarchive">\n`}${brand().gsc ? `<meta name="google-site-verification" content="${brand().gsc}">` : ""}
 <title>${esc(title)}</title>
 <meta name="description" content="${esc(desc)}">
 <link rel="icon" type="image/svg+xml" href="${base}/favicon.svg">
@@ -302,19 +348,21 @@ ${hasShareCard() ? `<meta property="og:image" content="https://${brand().domain}
 ${jsonld}
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="${design() === 2 ? FONTS2 : fontHref()}">
-<style>${CSS}${EXTRA_CSS}${promoCss}${layout() === "grid" ? GRID_CSS : ""}${brandCss()}${design() === 2 ? CSS2 : ""}</style>
+<link rel="stylesheet" href="${layout() !== "grid" && design() >= 2 ? FONTS2 : fontHref()}">
+<style>${CSS}${EXTRA_CSS}${promoCss}${layout() === "grid" ? GRID_CSS : ""}${brandCss()}${layout() !== "grid" && design() >= 2 ? CSS2 : ""}${layout() !== "grid" && design() === 3 ? formatCss() + CSS3 : ""}</style>
 <script defer src="/_vercel/insights/script.js"></script>
 ${adHead()}
 </head>`;
   // A layout:"grid" brand gets the platform chrome instead of the masthead and wire.
   if (layout() === "grid") return platformShell({ base, head, body, current, footNote: "", searchQ });
   return `${head}
-<body class="${bodyClass}">
+<body class="${`${bodyClass} brand-${brand().key}`.trim()}">
 <header class="top">
   <div class="wrap top-in">
-    <a class="brandblock" href="${base}/">
-      <span class="wordmark">${BRAND_()}</span>
+    <a class="brandblock" href="${base}/"${brand().key === "subplot" && accentVars() ? ` style="${accentVars()}"` : ""}>
+      ${brand().key === "subplot"
+        ? `<span class="wordmark wordmark-drawn">${wordmarkSvg({ label: BRAND_() })}</span>`
+        : `<span class="wordmark" role="img" aria-label="${esc(BRAND_())}">${BRAND_().split("").map((c, i) => c === " " ? " " : `<span class="l l-${i + 1}" aria-hidden="true">${esc(c)}</span>`).join("")}</span>`}
       <span class="plotline">${hasCast() ? `<span class="castline">${["lorekeeper","goblin","theorist","critic","speedrunner","reactor","subplot"].map(n => ch(n, 62)).join("")}</span>` : ""}</span>
       <span class="tagline">${esc(TAG_())}</span>
     </a>
@@ -335,9 +383,9 @@ ${body}
     <div><p class="fm">${art("subplot", 44)}${BRAND_()}</p><p>${esc(TAG_())}</p></div>
     <div><h3>About</h3><ul><li><a href="${base}/join">${joinCta()}</a></li><li><a href="${base}/about">Who we are</a></li><li><a href="${base}/about#standards">Editorial standards</a></li><li><a href="${base}/about#ai">How we use AI</a></li></ul></div>
     <div><h3>Sections</h3><ul>${Object.entries(cats()).map(([k, n]) => `<li><a href="${base}/s/${k}">${esc(n)}</a></li>`).join("")}</ul></div>
-    <div><h3>Contact</h3><p>${mail("hello")}</p><p>${mail("corrections")}</p><p class="legal"><a href="${base}/contact">Contact</a> &middot; <a href="${base}/terms">Terms</a> &middot; <a href="${base}/privacy">Privacy</a> &middot; <a href="${base}/creators">Creator agreement</a></p></div>
+    <div><h3>Contact</h3><p>${mail("hello")}</p><p>${mail("corrections")}</p><p class="legal"><a href="${base}/contact">Contact</a> &middot; <a href="${base}/terms">Terms</a> &middot; <a href="${base}/privacy">Privacy</a> &middot; <a href="${base}/creators">Creator agreement</a></p>${brand().key === "subplot" ? `<p class="legal">Owned and published by <a href="https://digitalfoxtalent.com" rel="noopener">Digital Fox Talent LLC</a>, Denver, Colorado</p>` : ""}</div>
   </div>
-  <div class="protolabel"><div class="wrap">Private preview &middot; not indexed &middot; articles read live from the production feed</div></div>
+  ${brand().key === "subplot" ? "" : `<div class="protolabel"><div class="wrap">Private preview &middot; not indexed &middot; articles read live from the production feed</div></div>`}
 </footer>
 ${adSlot("mobile-anchor", "320×50", "320×50", "ad-anchor")}
 <script>
@@ -565,6 +613,12 @@ export function homePage(data, base, section = "all", page = 1, q = "") {
   const pager = pages > 1 ? `<nav class="pager"><span>${page < pages ? `<a href="${pageHref(page + 1)}">Older stories &rarr;</a>` : ""}</span><span class="meta">Page ${page} of ${pages}</span><span>${page > 1 ? `<a href="${pageHref(page - 1)}">&larr; Newer stories</a>` : ""}</span></nav>` : "";
   const threads = data.threads.filter(t => section === "all" || t.k === section);
   const byId = id => data.arts.find(a => a.id === id);
+  if (design() === 3) {
+    wire3Deps({ esc, artPath, dayKey, dayLabel, adSlot, fmt, fmtViews, rail, band, avatars: data.avatars || {} });
+    const body3 = homePage3(data, base, section, page, { list, lead, rest, pages, wireList: page === 1 ? wireAll.slice(0, PAGE) : wireList, pager, threads });
+    return shell({ base, title: section === "all" ? `${BRAND_()}` : `${cats()[section]} - ${BRAND_()}`, desc: TAG_(), current: section, body: body3, trending: data.threads })
+      .replace('<span id="panelcount-slot"></span>', `<span>${data.panel.length} creators writing here</span>`);
+  }
   const body = `
 <main class="homeview">
   <div class="wrap">
@@ -606,15 +660,36 @@ export function homePage(data, base, section = "all", page = 1, q = "") {
     .replace('<span id="panelcount-slot"></span>', `<span>${data.panel.length} creators writing here</span>`);
 }
 
+// Editor's note (see notes.js): SUBPLOT's own short framing of a piece, signed by the person who
+// approved it. Links are only rendered when the target article is live on the site.
+// TIDY, 11 Oct 2026 (Tom): the note's summary sentences repeated the standfirst directly above
+// it, so the box now carries only the "Read it alongside" links and the signature. The text in
+// notes.js is untouched. When none of a note's links is live, the box keeps ONE short line of
+// context (the note's first sentence) rather than showing an empty signed box.
+const firstSentence = t => String(t || "").split(/(?<=[a-z0-9)'"][.!?])\s+(?=[A-Z])/)[0];
+function editorNote(a, data, base) {
+  const n = NOTES[a.id]; if (!n) return "";
+  const [text, links] = n;
+  const live = (links || []).filter(([, href]) => data.arts.some(x => artPath(x) === href));
+  const read = live.length ? `<p style="margin:0 0 .7rem">Read it alongside ${live.map(([label, href]) => `<a href="${base}${esc(href)}" style="color:var(--blue)">${esc(label)}</a>`).join(" and ")}.</p>` : `<p style="margin:0 0 .7rem">${esc(firstSentence(text))}</p>`;
+  return `<aside class="ednote" aria-label="Editor's note" style="margin:1.6rem 0 2.2rem;padding:1.1rem 1.3rem;border-left:3px solid var(--blue);background:var(--paper-3)">
+        <p style="margin:0 0 .55rem;font-size:.72rem;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3)">Editor's note</p>
+        ${read}
+        <p style="margin:0;font-size:.85rem;color:var(--ink-3)">${esc(NOTE_SIGNOFF)}</p>
+      </aside>`;
+}
+
 export function articlePage(a, data, base) {
+  wire3Deps({ esc, artPath, dayKey, dayLabel, adSlot, fmt, fmtViews, rail, band, avatars: data.avatars || {} });
   const more = data.arts.filter(x => x.c === a.c && x.id !== a.id).slice(0, 3);
   const inThread = Object.values(data.subjects || {}).filter(s => s.items.includes(a.id)).sort((x, y) => y.n - x.n)[0];
   const thr = inThread ? inThread.items.filter(id => id !== a.id).map(id => data.arts.find(x => x.id === id)).filter(Boolean).filter(x => x.c !== a.c).slice(0, 3) : [];
   const jsonld = `<script type="application/ld+json">${JSON.stringify({
     "@context": "https://schema.org", "@type": "Article", headline: a.h, description: a.s,
     datePublished: a.p, dateModified: a.p, image: [a.thumb], wordCount: a.w, articleSection: cats()[a.k], keywords: a.t.join(", "),
-    author: { "@type": "Person", name: a.b, alternateName: a.c, url: "https://www.youtube.com/" + a.c },
+    author: { "@type": "Person", name: a.b, alternateName: a.c, url: "https://www.youtube.com/" + a.c, ...(bioFor(a.c) ? { description: bioFor(a.c) } : {}) },
     publisher: { "@type": "Organization", name: BRAND_() },
+    ...(NOTES[a.id] ? { editor: { "@type": "Person", name: NOTE_SIGNOFF.split(",")[0] } } : {}),
     isBasedOn: "https://www.youtube.com/watch?v=" + a.v,
     mainEntityOfPage: siteUrl() + base + artPath(a),
   }).replace(/</g, "\\u003c")}</script>`;
@@ -624,22 +699,27 @@ export function articlePage(a, data, base) {
     <a class="back" href="${base}/">&larr; Back to the front page</a>
     <div class="artwrap">
     <div class="artmain">
-      <span class="kicker">${esc(cats()[a.k])}</span>
+      ${design() === 3 && hasCast() ? `<span class="tagrow" style="justify-content:flex-start;gap:1rem"><span class="fmt" style="color:${(FORMATS[a.f] || FORMATS.breakdown).ink}"><i style="background:${(FORMATS[a.f] || FORMATS.breakdown).col}"></i>${(FORMATS[a.f] || FORMATS.breakdown).name}${a.short ? " · Snippet" : ""}</span><span class="kicker" style="color:var(--ink-3)">${esc(cats()[a.k])}</span></span>` : `<span class="kicker">${esc(cats()[a.k])}</span>`}
       <h1 class="headline">${esc(a.h)}</h1>
       <p class="dek">${esc(a.s)}</p>
-      <div class="authorbar">${mark(a.b, data.avatars && data.avatars[a.c])}
+      <div class="authorbar">${bylineMark(a.b, data.avatars && data.avatars[a.c])}
         <span class="nm"><b><a href="${base}/c/${esc(slugH(a.c))}" style="color:inherit;text-decoration:none">${esc(a.c)}</a></b><span>${esc(fmt(a.p))}</span></span>
         <span class="meta">${a.w.toLocaleString("en-GB")} words · ${a.rt} min read</span></div>
-      <div class="prose">${withInArticleAds(a.body)}</div>
+      ${editorNote(a, data, base)}
+      <div class="prose">${withInArticleAds(endNote(siteContacts(a.body), a, base))}</div>
+      ${a.short ? `<p class="deckacts" style="margin:1.2rem 0 0"><a href="https://www.youtube.com/shorts/${esc(a.v)}" target="_blank" rel="noopener" style="color:${(FORMATS[a.f] || FORMATS.breakdown).ink}">Watch the Short</a><a class="ghost" href="${base}/snippets#s-${esc(a.id)}">More Snippets</a></p>` : ""}
+      ${bioFor(a.c) ? `<aside class="crbio" aria-label="About the creator" style="margin:2.4rem 0 0;padding:1rem 1.25rem;border:1px solid var(--rule-2);border-radius:4px">
+        <p style="margin:0 0 .5rem;font-size:.72rem;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3)">About the creator</p>
+        <p style="margin:0">${esc(bioFor(a.c))} <a href="${base}/c/${esc(slugH(a.c))}" style="color:var(--blue)">More from ${esc(a.b)} &rarr;</a></p>
+      </aside>` : ""}
       <div class="rule-h" style="margin-top:2.6rem"><h2>Watch the original</h2><span class="note">${esc(a.c)} · YouTube</span></div>
       <div class="player" data-v="${esc(a.v)}" style="margin-top:1rem">
         <img alt="" src="${esc(a.thumb)}" onerror="this.onerror=null;this.src='${esc(a.thumbSmall.replace("mqdefault","hqdefault"))}'">
         <button class="play" aria-label="Play the original video"></button>
       </div>
-      <p class="disclose">Adapted from ${esc(a.b)}&rsquo;s original video. Written with the help of AI from that video&rsquo;s transcript; the views and analysis are ${esc(a.b)}&rsquo;s own.</p>
       <div class="tags">${a.t.map(t => `<span>${esc(t)}</span>`).join("")}</div>
-      ${thr.length ? `<section class="next"><div class="rule-h"><h2>Also on ${esc(inThread.t)}</h2><span class="note"><a href="${base}/t/${esc(inThread.slug)}" style="color:var(--blue)">${inThread.c} creators, ${inThread.n} takes &rarr;</a></span></div><div class="grid3">${thr.map(x => card(x, base)).join("")}</div></section>` : ""}
-      ${more.length ? `<section class="next"><div class="rule-h"><h2>More from ${esc(a.c)}</h2><span class="note"><a href="${base}/c/${esc(slugH(a.c))}" style="color:var(--blue)">All &rarr;</a></span></div><div class="grid3">${more.map(x => card(x, base)).join("")}</div></section>` : ""}
+      ${thr.length ? `<section class="next"><div class="rule-h"><h2>Also on ${esc(inThread.t)}</h2><span class="note"><a href="${base}/t/${esc(inThread.slug)}" style="color:var(--blue)">${inThread.c} creators, ${inThread.n} takes &rarr;</a></span></div><div class="grid3">${thr.map(x => (design() === 3 ? card3 : card)(x, base)).join("")}</div></section>` : ""}
+      ${more.length ? `<section class="next"><div class="rule-h"><h2>More from ${esc(a.c)}</h2><span class="note"><a href="${base}/c/${esc(slugH(a.c))}" style="color:var(--blue)">All &rarr;</a></span></div><div class="grid3">${more.map(x => (design() === 3 ? card3 : card)(x, base)).join("")}</div></section>` : ""}
       ${joinBlock(base)}
     </div>
     <aside class="artrail">
@@ -650,9 +730,25 @@ export function articlePage(a, data, base) {
     </div>
   </div>
 </article>`;
-  return shell({ base, title: `${a.h} - ${BRAND_()}`, desc: a.s, current: a.k, body, rule: "var(--blue)", trending: data.threads, jsonld })
+  return shell({ base, title: `${a.h} - ${BRAND_()}`, desc: a.s, current: a.k, body, rule: design() === 3 ? (FORMATS[a.f] || FORMATS.breakdown).col : "var(--blue)", trending: data.threads, jsonld })
     .replace('<span id="panelcount-slot"></span>', `<span>${data.panel.length} creators writing here</span>`);
 }
+
+export function snippetsPage(data, base) {
+  wire3Deps({ esc, artPath, dayKey, dayLabel, adSlot, fmt, fmtViews, rail, band, avatars: data.avatars || {} });
+  const body = snippetsBody(data, base);
+  if (!body) return null;
+  return shell({ base, title: `Snippets - ${BRAND_()}`, desc: "Every Short the creators post, in writing. Twenty-second reads, newest first.", current: "snippets", body, trending: data.threads })
+    .replace('<span id="panelcount-slot"></span>', `<span>${data.panel.length} creators writing here</span>`);
+}
+
+// "Business enquiries: book <name>" on SUBPLOT only (never Wordie), for creators with a
+// Digital Fox Talent booking page, and only once crosslinks.js LIVE is switched on.
+const bookLink = (h, name) => {
+  if (!CROSSLINKS_LIVE || brand().key !== "subplot") return "";
+  const href = dftPageFor(h);
+  return href ? ` &middot; <a class="yt" href="${esc(href)}">Business enquiries: book ${esc(name)}</a>` : "";
+};
 
 export function creatorPage(handle, data, base) {
   const list = data.arts.filter(a => slugH(a.c).toLowerCase() === handle.toLowerCase());
@@ -664,8 +760,9 @@ export function creatorPage(handle, data, base) {
     <div class="chead">
       ${mark(name, data.avatars && data.avatars[h])}
       <div><h1>${esc(h)}</h1>
-        <p>${list.length} article${list.length === 1 ? "" : "s"} on ${BRAND_()} &middot; <a class="yt" href="https://www.youtube.com/${esc(h)}" target="_blank" rel="noopener">Channel on YouTube</a></p>
-        <span class="meta">Every piece below is adapted from one of ${esc(name)}&rsquo;s own videos, with the video at the end.</span></div>
+        <p>${list.length} article${list.length === 1 ? "" : "s"} on ${BRAND_()} &middot; <a class="yt" href="https://www.youtube.com/${esc(h)}" target="_blank" rel="noopener">Channel on YouTube</a>${bookLink(h, name)}</p>
+        <span class="meta">Every piece below is adapted from one of ${esc(name)}&rsquo;s own videos, with the video at the end.</span>
+        ${bioFor(h) ? `<p class="bio" style="margin:.9rem 0 0;max-width:62ch">${esc(bioFor(h))}</p>` : ""}</div>
     </div>
     <section class="grid3">${list.slice(0, 3).map(a => card(a, base)).join("")}</section>
     <div class="cols">
@@ -725,7 +822,7 @@ export function joinPage(data, base) {
       <div><h3>What you get</h3><ul>
         <li><b>An audience on top of your views, not instead of them.</b> Google and Discover surface articles, so these are readers your video wasn&rsquo;t going to reach - and every article points them at the video.</li>
         <li><b>A link back on every piece.</b> Each article points at the video it came from.</li>
-        <li><b>60% of what your articles earn.</b> Sixty to you, forty to us. No fees, no minimum term, no exclusivity. Paid monthly once your balance clears $50.</li>
+        <li><b>60% of what your articles earn.</b> Sixty to you, forty to us. ${pubFee() ? `No minimum term` : `No fees, no minimum term`}, no exclusivity. Paid monthly once your balance clears $50.</li>
         <li><b>Company.</b> Your take sits alongside other creators covering the same thing - see Threads on the front page.</li></ul></div>
       <div><h3>What we ask</h3><ul>
         <li><b>The videos are yours.</b> You own them, or hold the rights to have them adapted.</li>
@@ -753,7 +850,7 @@ export function joinPage(data, base) {
             <select id="f-size" name="size"><option value="">Rather not say</option><option>Under 10k</option><option>10k &ndash; 100k</option><option>100k &ndash; 500k</option><option>500k &ndash; 1M</option><option>Over 1M</option></select></div>
         </div>
         <div class="terms"><span class="lbl">Standard terms</span>
-          <p><b>60% to you</b> on everything your articles earn &middot; non-exclusive, so run them anywhere else you like &middot; no fees, no minimum term &middot; leave any time and we take the articles down &middot; paid monthly from $50.</p></div>
+          <p><b>60% to you</b> on everything your articles earn &middot; non-exclusive, so run them anywhere else you like &middot; ${pubFee() ? `a $${pubFee()} monthly publishing fee off your share, never more than your articles earned &middot; no minimum term` : `no fees, no minimum term`} &middot; leave any time and we take the articles down &middot; paid monthly from $50.</p></div>
         <label class="consent"><input type="checkbox" name="consent" value="yes" required><span>I own these videos, or hold the rights to have them adapted. <b>By applying I give ${BRAND_()} permission to turn my public videos into articles, drafted with AI from my transcripts, and publish them under my handle on the standard terms above and the <a href="${base}/creators" target="_blank" style="color:var(--blue)">Creator Agreement</a>.</b> I can withdraw at any time and the articles come down.</span></label>
         <input type="text" name="website" tabindex="-1" autocomplete="off" style="position:absolute;left:-9999px" aria-hidden="true">
         <input type="hidden" name="source" id="f-source" value="direct">
@@ -824,6 +921,8 @@ export function aboutPage(data, base) {
     <h1 class="headline" style="font-size:clamp(1.9rem,4vw,2.8rem);margin-top:1rem">Who we are</h1>
     <p>${BRAND_()} is a publication written by the people who actually watch the things it covers. Every article here started life as a video by one of the ${data.panel.length} creators on <a href="${base}/#panel" style="color:var(--blue)">The Panel</a>, and runs under that creator&rsquo;s name with a link to the video it came from. We don&rsquo;t have staff writers. We don&rsquo;t have anonymous bylines.</p>
     <p>The name is the idea: the story under the story. Breakdowns, theories, reactions, opinions, reviews and lore - the second layer that people who love this stuff actually talk about.</p>
+    ${brand().key === "subplot" ? `<h2 id="publisher">Who publishes ${BRAND_()}</h2>
+    <p>${BRAND_()} is owned and published by <a href="https://digitalfoxtalent.com" rel="noopener" style="color:var(--blue)">Digital Fox Talent LLC</a>, a creator management agency based in Denver, Colorado. It is edited by Tom James, who reads and approves the editor&rsquo;s notes that sit on its articles. Questions about the site go to ${mail("hello")}.</p>` : ""}
 
     <h2 id="standards">Editorial standards</h2>
     <p><b>One creator, one byline.</b> Each article is adapted from a single creator&rsquo;s own video and published under their handle. If it isn&rsquo;t theirs, it isn&rsquo;t here.</p>
@@ -929,4 +1028,47 @@ export function revenuePage(months, month, data, base) {
 .revtbl tr.house td{background:var(--paper-2)}
 .revtbl .meta{font-size:.78rem}
 </style>` + body, trending: data.threads });
+}
+
+// A sitemap exists to tell Google the site is here at all. Search Console proved on 6 Sep 2026
+// that Googlebot had NEVER fetched subplot.tv - "URL is unknown to Google", last crawl N/A -
+// with no referring sitemaps and no inbound links. Lifting the robots block opened the door;
+// this is what tells Google the door exists.
+//
+// Every page still carries noindex, so Search Console will report these as "Discovered -
+// excluded by noindex". THAT IS THE INTENDED STATE while the site is closed, not a fault:
+// the point is to get pages CRAWLED so the AdSense reviewer has something to read. When the
+// site launches, drop the noindex header and these same URLs start indexing with no change here.
+export function sitemap(data, base) {
+  const site = siteUrl() + base;
+  const seen = new Set();
+  const url = (loc, lastmod, priority) => {
+    if (seen.has(loc)) return "";                                   // a URL twice is a defect, not a hint
+    seen.add(loc);
+    return `<url><loc>${esc(site + loc)}</loc>` +
+      (lastmod ? `<lastmod>${new Date(lastmod).toISOString().slice(0, 10)}</lastmod>` : "") +
+      `<priority>${priority}</priority></url>`;
+  };
+
+  const newest = data.arts.length ? Math.max(...data.arts.map(a => +new Date(a.p) || 0)) : Date.now();
+  const out = [url("/", newest, "1.0"), url("/about", null, "0.5"), url("/join", null, "0.8")];
+
+  for (const k of Object.keys(cats())) {
+    const inSection = data.arts.filter(a => a.k === k);
+    if (inSection.length) out.push(url("/s/" + k, Math.max(...inSection.map(a => +new Date(a.p) || 0)), "0.6"));
+  }
+  // Creator pages: derive from the articles actually on the site, so a creator with nothing
+  // published never appears as a URL that would 404 the moment Google follows it.
+  for (const h of [...new Set(data.arts.map(a => a.c))]) {
+    const theirs = data.arts.filter(a => a.c === h);
+    out.push(url("/c/" + slugH(h), Math.max(...theirs.map(a => +new Date(a.p) || 0)), "0.7"));
+  }
+  for (const t of (data.threads || [])) out.push(url("/t/" + t.slug, null, "0.5"));
+  for (const a of data.arts) out.push(url(artPath(a), a.p, "0.9"));
+  if ((data.snippets || []).length) {
+    out.push(url("/snippets", Math.max(...data.snippets.map(a => +new Date(a.p) || 0)), "0.7"));
+    for (const a of data.snippets) out.push(url(artPath(a), a.p, "0.6"));
+  }
+
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${out.join("")}</urlset>`;
 }

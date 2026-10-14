@@ -1,6 +1,7 @@
 <!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
 <title>DFT Creator Roster</title>
 <link rel="icon" type="image/png" href="https://digitalfoxtalent.com/dft/favicon.png">
 <style>
@@ -8,415 +9,1511 @@
     color-scheme: light;
     --orange:#ff8800; --charcoal:#15110e; --peach:#fceedf; --namebg:#f9cb9c;
     --child:#4a4640; --grid:#e6d9c8; --muted:#8a7d70; --bg:#f4f1ec;
+    --team:#2f5d8a; --teambg:#eaf1f8; --ok:#2f7d4f; --hide:#b23a2a;
     --font:"Poppins", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-    --rowh:34px;
+    --rowh:36px;
   }
   *{ box-sizing:border-box; }
   html,body{ margin:0; height:100%; }
   body{ font-family:var(--font); color:var(--charcoal); background:var(--bg); -webkit-font-smoothing:antialiased; }
   a{ color:inherit; text-decoration:none; }
-
+  button{ font-family:var(--font); }
   .app{ display:flex; flex-direction:column; height:100vh; }
 
   /* Toolbar */
-  .toolbar{ display:flex; align-items:center; gap:12px; padding:12px 16px; background:#fff; border-bottom:1px solid #e9e0d3; flex-wrap:wrap; }
-  .brand{ display:flex; align-items:center; gap:10px; }
-  .mark{ display:grid; place-items:center; }
+  .toolbar{ display:flex; align-items:center; gap:10px; padding:12px 16px; background:#fff; border-bottom:1px solid #e9e0d3; flex-wrap:wrap; }
+  .brand{ display:flex; align-items:center; gap:10px; min-width:0; }
   .mark img{ height:26px; width:auto; display:block; }
   .brand .t{ font-size:15px; font-weight:700; letter-spacing:-.2px; }
   .brand .s{ font-size:11px; color:var(--muted); font-weight:500; margin-top:1px; }
   .spacer{ flex:1; }
   .count{ font-size:11.5px; font-weight:600; color:var(--muted); }
   .search{ position:relative; }
-  .search input{ font-family:var(--font); font-size:12.5px; color:var(--charcoal); border:1px solid #e4d8c7; background:#fff; border-radius:8px; padding:8px 12px 8px 31px; outline:none; width:230px; }
+  .search input{ font-family:var(--font); font-size:12.5px; color:var(--charcoal); border:1px solid #e4d8c7; background:#fff; border-radius:8px; padding:8px 12px 8px 31px; outline:none; width:220px; max-width:100%; }
   .search input:focus{ border-color:var(--orange); box-shadow:0 0 0 3px rgba(255,136,0,.12); }
   .search svg{ position:absolute; left:10px; top:50%; transform:translateY(-50%); color:var(--muted); }
+  .btn{ border:1px solid #e4d8c7; background:#fff; color:#a85f00; font-size:11.5px; font-weight:600; border-radius:8px; padding:7px 10px; cursor:pointer; white-space:nowrap; }
+  .btn:hover{ background:#fff5ea; }
+  .btn.team{ color:var(--team); border-color:#c9d8e8; }
+  .btn.team:hover{ background:var(--teambg); }
+  .btn.primary{ background:var(--orange); border-color:var(--orange); color:var(--charcoal); }
+  .btn.primary:hover{ background:#ff9a2e; }
+  .signin{ font-size:11px; color:var(--muted); font-weight:600; }
+  .signin:hover{ color:var(--charcoal); text-decoration:underline; }
+  .seg{ display:inline-flex; border:1px solid #c9d8e8; border-radius:8px; overflow:hidden; }
+  .seg button{ border:0; background:#fff; color:var(--team); font-size:11.5px; font-weight:600; padding:7px 10px; cursor:pointer; }
+  .seg button.on{ background:var(--team); color:#fff; }
+
+  /* Banner (team identity / saved list) */
+  .banner{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:8px 16px; font-size:12px; background:var(--teambg); color:var(--team); border-bottom:1px solid #d5e2ef; }
+  .banner.list{ background:#fff5ea; color:#8a4a00; border-bottom-color:#f0dcc2; }
+  .banner.warn{ background:#fff4d6; color:#6e4a00; border-bottom-color:#efd98f; }
+  .banner .bbtn{ display:inline-block; border:1px solid currentColor; border-radius:7px; padding:3px 9px; font-weight:700; background:#fff; color:inherit; cursor:pointer; font-size:11.5px; text-decoration:none; }
+  .banner .bbtn:hover{ background:#fffaf0; }
+  #panel .hint{ font-size:11px; color:var(--muted); line-height:1.45; margin-top:10px; border-top:1px solid #eee3d4; padding-top:8px; }
+  .banner b{ font-weight:700; }
+  .banner .pkg{ margin-left:auto; display:flex; gap:14px; flex-wrap:wrap; font-weight:600; }
+  .banner .pkg span b{ font-weight:800; color:#5a3000; }
+
+  /* Pitch-list totals (saved lists only) */
+  tfoot td{ position:sticky; bottom:0; z-index:2; background:#1a1a1a; color:#fff; font-weight:700; border-color:#333; }
+  tfoot td.name{ z-index:3; background:#1a1a1a; text-align:left; }
+  tfoot td .sub{ display:block; font-size:10px; font-weight:600; color:#ffb800; line-height:1.1; }
 
   /* Grid */
   .scroll{ flex:1; overflow:auto; background:#fff; }
   table{ border-collapse:separate; border-spacing:0; font-size:12.5px; table-layout:fixed; }
   th,td{ border-right:1px solid var(--grid); border-bottom:1px solid var(--grid); padding:0 10px; height:var(--rowh); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; text-align:center; vertical-align:middle; }
-  thead th{ position:sticky; top:0; z-index:3; background:var(--orange); color:var(--charcoal); font-weight:600; letter-spacing:.01em; box-shadow:0 1px 0 rgba(0,0,0,.06); cursor:pointer; user-select:none; }
+  thead th{ position:sticky; top:0; z-index:3; background:var(--orange); color:var(--charcoal); font-weight:600; box-shadow:0 1px 0 rgba(0,0,0,.06); cursor:pointer; user-select:none; }
   thead th:hover{ background:#ff9a2e; }
-  .sortcar{ font-size:8px; margin-left:5px; vertical-align:middle; color:var(--charcoal); }
-  .sortcar.dim{ opacity:0; transition:opacity .12s; }
+  thead th.tcol{ background:#d6e3f0; color:var(--team); }
+  thead th.tcol:hover{ background:#c7d9eb; }
+  thead th.dragging{ opacity:.45; }
+  thead th.drop-l{ box-shadow: inset 3px 0 0 0 var(--charcoal); }
+  thead th.drop-r{ box-shadow: inset -3px 0 0 0 var(--charcoal); }
+  .rsz{ position:absolute; top:0; bottom:0; right:0; width:9px; cursor:col-resize; z-index:6; }
+  .rsz::after{ content:""; position:absolute; top:6px; bottom:6px; right:2px; width:2px; border-radius:2px; background:transparent; }
+  .rsz:hover::after, .rsz.on::after{ background:var(--charcoal); }
+  body.resizing, body.resizing *{ cursor:col-resize !important; user-select:none !important; }
+  .sortcar{ font-size:8px; margin-left:5px; vertical-align:middle; }
+  .sortcar.dim{ opacity:0; }
+  thead th.sorted{ box-shadow: inset 0 -3px 0 0 var(--charcoal); }
   thead th:hover .sortcar.dim{ opacity:.4; }
-
-  /* Sticky first (name) column */
-  col.cName{ width:200px; }
   th.name, td.name{ position:sticky; left:0; z-index:2; text-align:left; box-shadow:1px 0 0 var(--grid); }
   thead th.name{ z-index:4; }
+  th.sel, td.sel{ position:sticky; left:0; z-index:2; padding:0; }
+  thead th.sel{ z-index:4; }
+  .hasSel th.name, .hasSel td.name{ left:34px; }
 
-  /* Channel rows */
-  tr.chan > td{ background:var(--peach); color:var(--charcoal); }
+  tr.chan > td{ background:var(--peach); }
   tr.chan > td.name{ background:var(--namebg); font-weight:600; }
+  tr.chan > td.sel{ background:var(--namebg); }
   tr.chan{ cursor:pointer; }
   tr.chan:hover > td{ background:#fbe6cf; }
-  tr.chan:hover > td.name{ background:#f6c191; }
-
-  /* Show (sub) rows */
+  tr.chan:hover > td.name, tr.chan:hover > td.sel{ background:#f6c191; }
+  tr.chan.hidden > td{ background:#f3efea; color:#8c847b; }
+  tr.chan.hidden > td.name, tr.chan.hidden > td.sel{ background:#e9e2d9; }
+  tr.chan.picked > td.sel, tr.chan.picked > td.name{ background:#ffd9a8; }
   tr.show > td{ background:#fff; color:var(--child); }
   tr.show > td.name{ background:#fff; }
+  tr.show.hidden > td{ color:#a39b92; background:#faf8f5; }
   tr.show .nmwrap{ padding-left:22px; }
+  td.tcol{ background-clip:padding-box; }
+  tr.chan > td.tcol{ background:#f4f8fc; }
+  tr.chan.hidden > td.tcol{ background:#eef1f4; }
 
-  /* Name cell internals */
   .nmwrap{ display:flex; align-items:center; gap:7px; }
-  .chev{ flex:0 0 auto; width:16px; height:16px; display:grid; place-items:center; color:#b45c00; transition:transform .18s; }
+  .chev{ flex:0 0 auto; width:20px; height:20px; display:grid; place-items:center; color:#b45c00; border-radius:5px; transition:transform .18s, background .15s; }
+  tr.chan:hover .chev:not(.spacer-ic){ background:rgba(180,92,0,.12); }
   .chev.spacer-ic{ visibility:hidden; }
   tr.chan.open .chev{ transform:rotate(90deg); }
-  .nmtext{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .av{ flex:0 0 auto; width:30px; height:30px; border-radius:50%; object-fit:cover; background:#fff; border:1px solid rgba(0,0,0,.08); }
+  .avx{ flex:0 0 auto; width:30px; height:30px; border-radius:50%; display:grid; place-items:center; background:#fff; color:#a85f00; font-size:13px; font-weight:700; border:1px solid #f0d3ac; }
+  .nmtext{ overflow:hidden; white-space:normal; overflow-wrap:anywhere; line-height:1.3; display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; padding:4px 0; }
   .nmtext a:hover{ text-decoration:underline; }
   .arrow{ color:var(--orange); margin-right:5px; }
   .exlink{ color:#c26a00; font-weight:600; }
   .exlink:hover{ text-decoration:underline; }
   td.wide{ text-align:left; }
   td.wide.clickable{ cursor:pointer; }
-  td.wide.exp{ white-space:normal; word-break:break-word; vertical-align:top; padding-top:8px; padding-bottom:8px; background:#fff7ee; }
-  tr.chan > td.wide.exp{ background:#fbe6cf; }
-  .grip{ display:inline-block; cursor:grab; user-select:none; margin-right:1px; color:#c9a37a; font-size:12px; line-height:1; }
+  td.wide{ white-space:normal; padding-top:6px; padding-bottom:6px; }
+  .clamp{ display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:3; overflow:hidden; line-height:1.4; overflow-wrap:anywhere; }
+  td.wide.exp .clamp{ -webkit-line-clamp:unset; display:block; }
+  /* Every channel row is as tall as three lines of About text, so a creator with a short
+     description is not a squashed row (Tom, 10 Oct 2026). Expanded text still grows. */
+  tr.chan > td.wide{ height:calc(4.2em + 13px); }
+  .tag{ display:inline-block; font-size:10.5px; font-weight:800; color:#fff; background:#c26a00; border:1px solid #c26a00; border-radius:999px; padding:2px 9px; margin-left:8px; cursor:pointer; white-space:nowrap; box-shadow:0 1px 2px rgba(0,0,0,.15); }
+  tr.chan:hover .tag{ background:#a85600; border-color:#a85600; }
+  tr.chan.open .tag{ background:#fff; color:#a85f00; border-color:#e8b77a; box-shadow:none; }
+  .pill{ display:inline-block; font-size:10.5px; font-weight:700; border-radius:999px; padding:2px 8px; }
+  .pill.ok{ background:#e3f3e9; color:var(--ok); }
+  .pill.no{ background:#f9e3df; color:var(--hide); }
+  .pill.bundle{ background:#e8eefc; color:#2b4a9a; }
+  .pill.prov{ background:#fff1d6; color:#8a5a00; margin-left:4px; }
+  td.edit{ cursor:text; color:var(--team); font-weight:600; text-decoration:underline dotted #9db6cf; text-underline-offset:3px; }
+  td.edit:hover{ background:#e1ecf7 !important; }
+  td.edit input{ width:100%; font:inherit; text-align:center; border:1px solid var(--team); border-radius:5px; padding:3px; }
+  td.edit.tcol{ color:var(--team); }
+  td.saving{ opacity:.5; }
+  .grip{ flex:0 0 auto; cursor:grab; user-select:none; color:#a87a4a; font-size:14px; line-height:1; }
+  thead th{ position:sticky; }
+  thead th.movable{ cursor:grab; padding-left:18px; }
+  .hgrip{ position:absolute; left:5px; top:50%; transform:translateY(-50%); color:rgba(21,17,14,.45); font-size:13px; }
+  thead th.movable:hover .hgrip{ color:var(--charcoal); }
   tr.chan:hover .grip{ color:#a85f00; }
   tr.chan.dragging > td{ opacity:.45; }
   tr.chan.drop-before > td{ box-shadow: inset 0 2px 0 0 var(--orange); }
   tr.chan.drop-after > td{ box-shadow: inset 0 -2px 0 0 var(--orange); }
-  .reset{ border:1px solid #e4d8c7; background:#fff; color:#a85f00; font-family:var(--font); font-size:11.5px; font-weight:600; border-radius:8px; padding:7px 10px; cursor:pointer; white-space:nowrap; }
-  .reset:hover{ background:#fff5ea; }
-  .tag{ display:inline-block; font-size:10px; font-weight:700; color:#a85f00; background:#fff; border:1px solid #f0d3ac; border-radius:5px; padding:0 5px; margin-left:6px; vertical-align:middle; }
+  button.eye{ margin-left:auto; flex:0 0 auto; display:inline-flex; align-items:center; gap:1px; border:1px solid #e4d8c7; background:#fff; border-radius:6px; padding:2px 4px; cursor:pointer; }
+  button.eye b{ font-size:10px; }
+  button.eye:hover{ background:#fff5ea; }
+  .why{ display:inline-block; max-width:110px; overflow:hidden; text-overflow:ellipsis; vertical-align:middle; font-size:11px; color:var(--hide); margin-left:6px; }
+  input.pick{ width:15px; height:15px; accent-color:var(--orange); cursor:pointer; }
 
-  /* Bottom sheet-style tabs */
-  .tabbar{ display:flex; align-items:stretch; gap:2px; background:#fff; border-top:1px solid #e9e0d3; padding:0 10px; height:40px; }
-  .tab{ border:0; background:transparent; font-family:var(--font); font-size:12.5px; font-weight:600; color:var(--muted); padding:0 16px; cursor:pointer; display:flex; align-items:center; gap:7px; border-top:3px solid transparent; }
+  /* Tabs */
+  .tabbar{ display:flex; align-items:stretch; gap:2px; background:#fff; border-top:1px solid #e9e0d3; padding:0 10px; min-height:40px; overflow-x:auto; }
+  .tab{ border:0; background:transparent; font-size:12.5px; font-weight:600; color:var(--muted); padding:0 16px; cursor:pointer; display:flex; align-items:center; gap:7px; border-top:3px solid transparent; white-space:nowrap; }
   .tab .n{ font-size:10.5px; font-weight:700; opacity:.65; }
   .tab:hover{ color:var(--charcoal); background:#faf6f0; }
   .tab.active{ color:var(--charcoal); border-top-color:var(--orange); background:#fff5ea; }
+  .tab .x{ margin-left:2px; font-size:13px; line-height:1; color:#b0a596; padding:2px 4px; border-radius:4px; }
+  .tab .x:hover{ color:#fff; background:var(--hide); }
+  .tab .x.confirm{ color:#fff; background:var(--hide); font-size:10.5px; font-weight:700; }
 
-  /* States */
-  .state{ display:grid; place-items:center; height:100%; color:var(--muted); text-align:center; }
-  .spinner{ width:24px; height:24px; border:3px solid #f0dcc2; border-top-color:var(--orange); border-radius:50%; animation:spin .8s linear infinite; margin-bottom:12px; }
+  /* Selection bar */
+  .selbar{ display:none; align-items:center; gap:8px; flex-wrap:wrap; padding:10px 16px; background:var(--charcoal); color:#fff; font-size:12.5px; }
+  .selbar.on{ display:flex; }
+  .selbar input{ font-family:var(--font); font-size:12.5px; border:0; border-radius:7px; padding:7px 10px; width:240px; max-width:100%; }
+  .selbar .btn{ background:#fff; }
+  .selbar .msg{ color:#ffcf99; font-weight:600; }
+  .selbar .seltot{ display:flex; gap:14px; flex-wrap:wrap; flex-basis:100%; order:9; padding-top:6px; margin-top:2px; border-top:1px solid rgba(255,255,255,.15); }
+  .selbar .seltot:empty{ display:none; }
+  .selbar .seltot b{ color:#ffcf99; }
+  .selbar .seltot .up{ color:#ffb3a6; } .selbar .seltot .dn{ color:#9fe0b4; } .selbar .seltot.busy{ opacity:.55; }
+
+  /* Lists panel */
+  .panel{ position:fixed; right:16px; top:60px; width:420px; max-width:calc(100vw - 32px); max-height:70vh; overflow:auto; background:#fff; border:1px solid #e4d8c7; border-radius:12px; box-shadow:0 18px 50px rgba(0,0,0,.18); z-index:20; display:none; }
+  .panel.on{ display:block; }
+  .panel h3{ margin:0; padding:14px 16px 8px; font-size:13px; }
+  .panel .li{ padding:10px 16px; border-top:1px solid #f1e8dc; font-size:12px; }
+  .panel .li .tt{ font-weight:700; font-size:12.5px; }
+  .panel .li .mm{ color:var(--muted); font-size:11px; margin:2px 0 6px; }
+  .panel .li .acts{ display:flex; gap:6px; flex-wrap:wrap; }
+  .panel .empty{ padding:12px 16px 16px; color:var(--muted); font-size:12px; }
+
+  .was{ display:block; font-size:10.5px; font-weight:600; color:#2f7d4f; line-height:1.2; margin-top:2px; }
+  .was s{ color:var(--muted); font-weight:500; margin-right:4px; }
+  .ckc{ display:inline-flex; align-items:center; justify-content:center; }
+  .ckc input{ width:16px; height:16px; accent-color:var(--ok); cursor:pointer; }
+  .ckc.disc input{ accent-color:var(--orange); }
+  .stg{ display:inline-flex; flex-direction:column; gap:2px; font-size:11px; font-weight:600; line-height:1.2; text-align:left; }
+  .stg label{ display:flex; align-items:center; gap:5px; cursor:pointer; white-space:nowrap; }
+  .stg input{ width:14px; height:14px; margin:0; cursor:pointer; accent-color:var(--orange); }
+  .stg label:last-child input{ accent-color:var(--ok); }
+  .stg label.bap input{ accent-color:#2a6fb0; }
+  .stg label.bap .fbn{ padding:0 6px; font-size:10px; margin-left:2px; }
+  .stg label.dft{ cursor:default; }
+  .stg label.dft input{ cursor:default; pointer-events:none; }
+  /* Stage tick boxes, one look for all three steps (Tom, 10 Oct 2026). */
+  .stg{ gap:3px; width:138px; margin:7px 0; } /* four steps since 14 Oct: room above and below */
+  .stg input[type=checkbox]{ appearance:none; -webkit-appearance:none; width:14px; height:14px; margin:0; border:1.5px solid #b9a996; border-radius:3px; background:#fff; display:inline-grid; place-content:center; flex:0 0 auto; }
+  .stg input[type=checkbox]:checked{ background:var(--orange); border-color:var(--orange); }
+  .stg label:last-child input[type=checkbox]:checked{ background:var(--ok); border-color:var(--ok); }
+  .stg input[type=checkbox]:checked::after{ content:"✓"; color:#fff; font-size:10px; font-weight:800; line-height:1; }
+  .drow{ display:flex; align-items:center; gap:4px; }
+  .tri{ display:flex; align-items:center; gap:5px; background:none; border:0; padding:0; font:inherit; font-size:11px; font-weight:600; color:inherit; cursor:pointer; white-space:nowrap; }
+  .tri .bx{ width:14px; height:14px; box-sizing:border-box; border:1.5px solid #b9a996; border-radius:3px; background:#fff; display:inline-grid; place-content:center; flex:0 0 auto; }
+  .tri.yes .bx{ background:var(--ok); border-color:var(--ok); }
+  .tri.yes .bx::after{ content:"✓"; color:#fff; font-size:10px; font-weight:800; line-height:1; }
+  .tri.no .bx{ background:#b23a2a; border-color:#b23a2a; }
+  .tri.no .bx::after{ content:"✕"; color:#fff; font-size:9px; font-weight:800; line-height:1; }
+  .tri.yes .lb{ color:var(--ok); } .tri.no .lb{ color:#b23a2a; }
+  .tri.cr.ro{ cursor:default; }
+  .nt{ display:inline-flex; align-items:center; background:none; border:0; padding:1px; cursor:pointer; color:#b9a996; }
+  .nt:hover{ color:#a85f00; } .nt.has{ color:var(--orange); }
+  .dec{ display:flex; align-items:center; gap:4px; margin:1px 0 1px 1px; }
+  .dbt{ font:inherit; font-size:10.5px; font-weight:700; border-radius:999px; padding:1px 8px; cursor:pointer; line-height:1.35; background:#fff; white-space:nowrap; }
+  .dbt.yes{ border:1.5px solid var(--ok); color:var(--ok); }
+  .dbt.yes.on{ background:var(--ok); color:#fff; }
+  .dbt.no{ border:1.5px solid #b23a2a; color:#b23a2a; }
+  .dbt.no.on{ background:#b23a2a; color:#fff; }
+  .dec .fbn{ padding:1px 7px; font-size:10.5px; }
+  .stg label.mine{ color:#1f4f80; }
+  body.saving-list #count::after{ content:" · saving…"; color:var(--muted,#888); }
+  .pill.conf{ background:#e3f3e9; color:var(--ok); }
+  .fbw{ display:inline-flex; flex-direction:column; align-items:center; gap:4px; }
+  .fbr{ display:inline-flex; gap:5px; }
+  .fba,.fbn{ font:inherit; font-size:11px; font-weight:700; border-radius:999px; padding:3px 9px; cursor:pointer; line-height:1.2; white-space:nowrap; }
+  .fba{ border:1.5px solid var(--ok); background:#fff; color:var(--ok); }
+  .fba:hover{ background:#e3f3e9; }
+  .fba.on{ background:var(--ok); color:#fff; }
+  .fbn{ border:1.5px solid #c9b8a6; background:#fff; color:#6b5c4d; }
+  .fbn:hover,.fbn.has{ border-color:var(--orange); color:#a85f00; background:#fff7ee; }
+  .bfb{ display:flex; align-items:center; gap:6px; font-size:11px; color:var(--ok); }
+  .bfb .fbn{ padding:1px 7px; font-size:10.5px; }
+  #fbpop{ position:fixed; z-index:50; width:280px; background:#fff; border:1px solid #e2d6c8; border-radius:10px; box-shadow:0 10px 30px rgba(0,0,0,.18); padding:12px; display:none; }
+  #fbpop.on{ display:block; }
+  #fbpop b{ display:block; font-size:12.5px; margin-bottom:6px; }
+  #fbpop textarea{ width:100%; box-sizing:border-box; min-height:84px; font:inherit; font-size:13px; border:1px solid #d8c9b8; border-radius:6px; padding:7px; resize:vertical; }
+  #fbpop .ro{ font-size:13px; white-space:pre-wrap; line-height:1.4; max-height:200px; overflow:auto; }
+  #fbpop .acts{ display:flex; gap:6px; justify-content:flex-end; margin-top:8px; }
+  .banner .hint{ font-weight:600; margin-left:10px; }
+  .cbar{ position:fixed; left:50%; bottom:58px; transform:translateX(-50%) translateY(12px); display:flex; align-items:center; gap:12px; max-width:calc(100vw - 32px); background:var(--charcoal); color:#fff; font-size:12.5px; padding:10px 12px 10px 16px; border-radius:12px; box-shadow:0 12px 34px rgba(0,0,0,.28); z-index:31; opacity:0; pointer-events:none; transition:opacity .15s, transform .15s; }
+  .cbar.on{ opacity:1; pointer-events:auto; transform:translateX(-50%) translateY(0); }
+  .cbar .ct{ line-height:1.4; } .cbar .ct b{ font-weight:700; } .cbar .cs{ display:block; color:#cfc6bb; font-size:11px; } .cbar .cwarn{ color:#ffc56b; font-size:12px; font-weight:600; }
+  .cbar button{ font-family:var(--font); font-size:12px; font-weight:700; border-radius:8px; padding:7px 12px; cursor:pointer; border:1px solid #5a524a; background:transparent; color:#fff; white-space:nowrap; }
+  .cbar button.go{ background:var(--orange); border-color:var(--orange); color:var(--charcoal); }
+  .toast{ position:fixed; left:50%; bottom:64px; transform:translateX(-50%); background:var(--charcoal); color:#fff; font-size:12.5px; font-weight:600; padding:10px 16px; border-radius:10px; box-shadow:0 10px 30px rgba(0,0,0,.25); z-index:30; opacity:0; transition:opacity .2s; pointer-events:none; }
+  .toast.on{ opacity:1; }
+  .toast.err{ background:var(--hide); }
+
+  .state{ display:grid; place-items:center; height:100%; color:var(--muted); text-align:center; padding:24px; }
+  .spinner{ width:24px; height:24px; border:3px solid #f0dcc2; border-top-color:var(--orange); border-radius:50%; animation:spin .8s linear infinite; margin:0 auto 12px; }
   @keyframes spin{ to{ transform:rotate(360deg); } }
+
+  /* Phones (Tom, 14 Oct 2026): one card per creator instead of the wide table, the page
+     scrolls as a whole, and the platform tabs stay pinned to the bottom of the screen. */
+  .shorthint{ display:none; }
+  .cards{ display:flex; flex-direction:column; gap:14px; padding:16px 16px 24px; }
+  .card{ background:#fff; border:1px solid #eadfce; border-radius:14px; padding:18px 16px; box-shadow:0 1px 2px rgba(0,0,0,.04); }
+  .card.hidden{ background:#f7f4f0; }
+  .card.hidden .ch, .card.hidden .cgrid{ opacity:.7; }
+  .card.picked{ border-color:var(--orange); box-shadow:0 0 0 2px rgba(255,136,0,.22); }
+  .ch{ display:flex; align-items:center; gap:12px; }
+  .ch input.pick{ width:20px; height:20px; flex:0 0 auto; }
+  .ch .av, .ch .avx{ width:42px; height:42px; }
+  .cn{ min-width:0; flex:1; }
+  .cn .h{ font-weight:700; font-size:15.5px; line-height:1.3; overflow-wrap:anywhere; }
+  .cn .cm{ display:block; font-size:12px; color:var(--muted); font-weight:500; margin-top:2px; }
+  .ch button.eye{ padding:6px 8px; }
+  .cstatus{ margin-top:12px; font-size:12px; line-height:1.45; }
+  .cstatus .why{ display:inline; max-width:none; white-space:normal; }
+  .cstage{ margin-top:16px; padding:14px; background:#fbf6ef; border-radius:12px; }
+  .card .stg{ display:grid; grid-template-columns:1fr 1fr; gap:12px 14px; width:auto; margin:0; font-size:12.5px; }
+  .card .stg label, .card .tri{ font-size:12.5px; white-space:normal; }
+  .card .stg input[type=checkbox], .card .tri .bx{ width:20px; height:20px; }
+  .card .nt{ padding:4px 6px; }
+  .cgrid{ display:grid; grid-template-columns:1fr 1fr; gap:14px 16px; margin-top:16px; }
+  .cs .cl{ font-size:11.5px; font-weight:600; color:var(--muted); margin-bottom:3px; }
+  .cs .cv{ font-size:15px; font-weight:700; overflow-wrap:anywhere; }
+  .card .edit{ color:var(--team); text-decoration:underline dotted #9db6cf; text-underline-offset:3px; cursor:text; min-height:24px; }
+  .card .edit input{ width:100%; font:inherit; font-size:16px; border:1px solid var(--team); border-radius:8px; padding:7px 9px; }
+  .card .saving{ opacity:.5; }
+  .card .was{ font-size:11px; }
+  .card .disc input{ width:22px; height:22px; }
+  .cabout{ margin-top:16px; font-size:13px; line-height:1.55; color:#3d3631; cursor:pointer; }
+  .cabout.exp{ -webkit-line-clamp:unset; display:block; }
+  .cmore{ margin-top:14px; border-top:1px solid #f1e8dc; padding-top:12px; }
+  .cmore summary{ font-size:12.5px; font-weight:700; color:#a85f00; cursor:pointer; list-style:none; padding:4px 0; }
+  .cmore summary::-webkit-details-marker{ display:none; }
+  .cmore summary::after{ content:" +"; }
+  .cmore[open] summary::after{ content:" \2212"; }
+  .cmore dl{ margin:10px 0 0; display:grid; gap:10px; }
+  .cmore .mr{ display:grid; grid-template-columns:44% 1fr; gap:12px; font-size:12.5px; line-height:1.45; }
+  .cmore dt{ color:var(--muted); font-weight:600; }
+  .cmore dd{ margin:0; font-weight:600; overflow-wrap:anywhere; }
+  .cshow-t{ margin-top:16px; width:100%; border:1px solid #f0d3ac; background:#fff7ee; color:#a85f00; font-family:var(--font); font-weight:700; font-size:12.5px; border-radius:10px; padding:11px; cursor:pointer; }
+  .cshows{ margin-top:12px; display:flex; flex-direction:column; gap:10px; }
+  .sh{ border:1px solid #f1e8dc; border-radius:10px; padding:12px 14px; }
+  .sh.hidden{ background:#faf8f5; color:#a39b92; }
+  .sh .nmwrap{ font-weight:600; font-size:13px; }
+  .sh .nmtext{ -webkit-line-clamp:3; }
+  .sh .cgrid{ margin-top:10px; gap:10px 14px; }
+  .sh .cs .cv{ font-size:13.5px; }
+  .ctot{ background:#1a1a1a; color:#fff; border-color:#1a1a1a; }
+  .ctot .ctt{ font-weight:700; font-size:14.5px; }
+  .ctot .cs .cl{ color:#ffb800; }
+  @media (max-width:760px){
+    .app{ height:auto; min-height:100vh; min-height:100dvh; }
+    .toolbar{ padding:16px 16px 14px; gap:10px; }
+    .brand{ flex:1 1 100%; }
+    .brand .t{ font-size:16px; line-height:1.3; }
+    .spacer{ display:none; }
+    .count{ flex:1 1 100%; font-size:12px; }
+    #teamTools{ flex:1 1 100%; flex-wrap:nowrap !important; overflow-x:auto; -webkit-overflow-scrolling:touch; padding-bottom:2px; }
+    #exportCsv, #resetLayout, #saveCols{ display:none !important; }
+    .search{ flex:1 1 100%; display:block; }
+    #teamTools > *{ flex:0 0 auto; }
+    .seg button{ white-space:nowrap; }
+    .banner{ display:block; }
+    .banner .hint{ display:block; margin:8px 0 0; }
+    .banner .bbtn, .banner .btn{ display:inline-block; margin:10px 6px 0 0; }
+    .banner .pkg{ margin-top:14px; }
+    .banner > a[href="/auth/signout"]{ display:block; width:max-content; margin:12px 0 0 !important; }
+    #teamTools, .tabbar{ scrollbar-width:none; }
+    #teamTools::-webkit-scrollbar, .tabbar::-webkit-scrollbar{ display:none; }
+    .card .tri{ text-align:left; }
+    .search input{ width:100%; font-size:16px; padding:10px 12px 10px 34px; }
+    .btn, .seg button{ font-size:12.5px; padding:9px 12px; }
+    .banner{ padding:14px 16px 16px; font-size:12.5px; line-height:1.5; }
+    .banner .longhint{ display:none; }
+    .banner .shorthint{ display:inline; }
+    .banner .bbtn, .banner .btn{ padding:8px 11px; }
+    .banner .pkg{ margin-left:0; display:grid; grid-template-columns:1fr 1fr; gap:8px 16px; }
+    .scroll{ flex:none; overflow:visible; background:var(--bg); }
+    .state{ min-height:50vh; }
+    .tabbar{ position:sticky; bottom:0; z-index:15; padding:0 8px env(safe-area-inset-bottom); min-height:50px; box-shadow:0 -4px 14px rgba(0,0,0,.06); }
+    .tab{ padding:0 14px; font-size:13px; }
+    .tab .x{ padding:6px 8px; }
+    .selbar{ position:sticky; bottom:50px; z-index:15; }
+    .selbar input{ width:100%; font-size:16px; }
+    .panel{ left:12px; right:12px; top:12px; width:auto; max-height:85vh; }
+    #fbpop{ width:auto; left:12px !important; right:12px; }
+    #fbpop textarea{ font-size:16px; }
+    .cbar{ bottom:66px; flex-wrap:wrap; }
+    .toast{ bottom:74px; max-width:calc(100vw - 32px); text-align:center; }
+  }
+  @media (max-width:640px){
+    .toolbar{ padding:10px 16px; }
+    .brand .s{ display:none; }
+    .search input{ width:100%; }
+  }
 </style>
 
 <div class="app">
   <div class="toolbar">
     <div class="brand">
       <div class="mark"><img src="https://df-cdn.b-cdn.net/GeneralLendingConfigs/landing_logo/DigitalFoxTalent-TextLogoBLACK-VECTOR.svg" alt="Digital Fox Talent"></div>
-      <div><div class="t">Creator Roster</div><div class="s">Live from the View Guarantee model · updates automatically</div></div>
+      <div><div class="t" id="title">Creator Roster</div><div class="s" id="subtitle">&nbsp;</div></div>
     </div>
     <div class="spacer"></div>
     <div class="count" id="count">Loading…</div>
-    <button id="resetOrder" class="reset" style="display:none" title="Clear your custom order">↺ Reset order</button>
-    <button id="exportCsv" class="reset" title="Export the current tab's channel rows (not shows) as a CSV">⭳ Export CSV</button>
+    <span id="teamTools" style="display:none;gap:8px;align-items:center;flex-wrap:wrap">
+      <span class="seg"><button id="vTeam" class="on" title="Live numbers, edits and hidden creators">DFT view</button><button id="vEdit" style="display:none" title="Change this list's videos, prices, stages and order">Edit list</button><button id="vBrand" title="Exactly what brands see">Brand preview</button></span>
+      <button class="btn team" id="listsBtn">Saved lists</button>
+      <button class="btn team" id="saveCols" style="display:none" title="Every viewer, brands included, gets this row and column order and these column widths">Save layout for everyone</button>
+    </span>
+    <button class="btn" id="resetLayout" style="display:none" title="Go back to the standard order and widths">Reset layout</button>
+    <button class="btn" id="exportCsv" title="Export this tab as a CSV">Export CSV</button>
     <label class="search">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
       <input id="search" type="text" placeholder="Search creator, host, category…" autocomplete="off">
     </label>
+    <a class="signin" id="signin" href="/signin" style="display:none">DFT sign in</a>
   </div>
+  <div class="banner" id="banner" style="display:none"></div>
 
   <div class="scroll" id="scroll">
     <div class="state"><div><div class="spinner"></div>Loading roster…</div></div>
   </div>
 
+  <div class="selbar" id="selbar">
+    <span id="selCount"></span>
+    <span id="selTotals" class="seltot"></span>
+    <input id="listName" placeholder="Name this list, e.g. Marvel pitch - Disney" maxlength="80">
+    <button class="btn" id="saveList">Save list</button>
+    <button class="btn" id="saveAsNew" style="display:none">Save as new</button>
+    <button class="btn" id="clearSel">Clear</button>
+    <span class="msg" id="selMsg"></span>
+  </div>
   <div class="tabbar" id="tabs"></div>
 </div>
+<div class="panel" id="panel"></div>
+<div class="toast" id="toast"></div>
+<div class="cbar" id="cbar"><span class="ct" id="cbarText"></span><button id="cbarNo">Cancel</button><button class="go" id="cbarYes">Update</button></div>
 
 <script>
 const GROUPS=[
-  {id:"topics",         label:"YouTube Channels"},
-  {id:"group_mm4av3kr", label:"YouTube Shorts"},
-  {id:"group_mm4a1fe0", label:"Instagram"},
-  {id:"group_mm4bd5tk", label:"TikTok"},
+  {id:"topics",         label:"YouTube Channels", kind:"long"},
+  // YouTube Dedicated (Tom, 13 Oct 2026): a whole video about the brand, at 3x the channel's
+  // YouTube rate. Each row follows its channel on the YouTube tab; prices change there.
+  {id:"dedicated",      label:"YouTube Dedicated", kind:"long", tip:"A whole video about the brand: 3x the YouTube integration rate, one video, $1,500 minimum. Views are an estimate, not a guarantee."},
+  {id:"group_mm4av3kr", label:"YouTube Shorts",   kind:"short"},
+  {id:"group_mm4a1fe0", label:"Instagram",        kind:"short"},
+  {id:"group_mm4bd5tk", label:"TikTok",           kind:"short"},
+  {id:"group_mm7yw8cy", label:"Snapchat",         kind:"short"},
 ];
-
-const P={ subs:"numeric_mm49cx8f", rate:"numeric_mm497vsg", vg:"numeric_mm49rr3n", cpm:"numeric_mm49bb66",
-  host:"text_mm4944gw", category:"text_mm49j2nf", location:"text_mm49s85f", handle:"text_mm49w81b",
-  about:"long_text_mm492hxg", url:"text_mm499xez",
-  hostGender:"text_mm5nmtz1", hostRead:"text_mm5n7q86", exclusive:"text_mm5n8zh3",
-  adTypes:"long_text_mm5n8f4t", adEx:"link_mm5n1zej", videos:"numeric_mm5nn2wj", audience:"long_text_mm5nw1s9",
-  male:"text_mm5nkdfn", female:"text_mm5nb2t7",
-  a1317:"text_mm5n6m90", a1824:"text_mm5n69hv", a2534:"text_mm5nbatb", a3544:"text_mm5n7syq",
-  a4554:"text_mm5n5cc8", a5564:"text_mm5nzj3n", us:"text_mm5nsagz", uk:"text_mm5n7ybc" };
-const S={ rate:"numeric_mm495xbb", vg:"numeric_mm49tej8", cpm:"numeric_mm49fe4b", url:"text_mm49bb5z" };
-
-// Synthesised server-side by /api/roster from the linked creator's State on Global
-// Talent Roster (6160485039 · dup__of_email), reached via the "Creator" board relation.
-// It is deliberately NOT in P: P's values are real column ids on the rates board and
-// are used to build the GraphQL id list. "" means no state recorded — render it blank.
-const STATE_KEY="__creator_state";
-
-// Display-name overrides (shorten unwieldy board names for the brand-facing view).
+const AFTER={fee:"rate",total:"fee",rights:"total"};
+const FOLLOWER_TABS=new Set(["group_mm4a1fe0","group_mm4bd5tk","group_mm7yw8cy"]);
+const SHORTS_GROUP="group_mm4av3kr";
+const isDed=c=>!!(c&&/^d\d+$/.test(String(c.id)));
+const SHORT_HIDE=new Set(["kit","male","female","a1317","a1824","a2534","a3544","a4554","a5564","us","uk","audience","adTypes","exclusive","host","hostGender"]);
 const RENAME={ "Down To Earth With Kristian Harloff (UAP NEWS)":"Down to Earth" };
-const dispName=n=>RENAME[n]||n;
 
-// Column layout mirrors the sheet (name is sticky-left).
-const COLS=[
-  {key:"name",   head:"Creator / Shows",   w:200, cls:"name"},
-  {key:"subs",   head:"Subscribers",       w:100, fmt:"int"},
-  {key:"rate",   head:"Rate",              w:88,  fmt:"money"},
-  {key:"vg",     head:"View Guarantee",    w:108, fmt:"int"},
-  {key:"cpm",    head:"CPM",               w:60,  fmt:"money"},
-  {key:"host",   head:"Host",              w:138},
-  {key:"adEx",   head:"Ad Examples",       w:90},
-  {key:"category",head:"Category",         w:116},
-  {key:"location",head:"Location",         w:124},
-  {key:"state",  head:"State / Region",    w:112},
-  {key:"handle", head:"Handle",            w:126},
-  {key:"about",  head:"About",             w:200, cls:"wide"},
-  {key:"hostGender",head:"Host Gender",    w:90},
-  {key:"hostRead",head:"Host Read",        w:78},
-  {key:"exclusive",head:"Exclusive",       w:80},
-  {key:"adTypes",head:"Ad Types",          w:150, cls:"wide"},
-  {key:"videos", head:"Videos / mo",       w:82,  fmt:"int"},
-  {key:"audience",head:"Audience",         w:190, cls:"wide"},
-  {key:"male",   head:"Male %",            w:64},
-  {key:"female", head:"Female %",          w:70},
-  {key:"a1317",  head:"13-17",             w:56},
-  {key:"a1824",  head:"18-24",             w:56},
-  {key:"a2534",  head:"25-34",             w:56},
-  {key:"a3544",  head:"35-44",             w:56},
-  {key:"a4554",  head:"45-54",             w:56},
-  {key:"a5564",  head:"55-64",             w:56},
-  {key:"us",     head:"US %",              w:62},
-  {key:"uk",     head:"UK %",              w:62},
+// Brand-facing columns. The order can be changed by the team (drag a header, then
+// "Save column order") and is then the same for every viewer.
+const BRAND_COLS=[
+  // Saved lists only (Tom, 10 Oct 2026): Confirmed sits first after the handle.
+  {key:"confirmed",head:"Stage", w:176, listOnly:true, tip:"Approached, the creator's response and Confirmed are set by Digital Fox Talent. Tick a creator to approve, tick again to reject. The speech bubble adds a note, or shows the creator's."},
+  {key:"subs",   head:"Subscribers", w:112, fmt:"int"},
+  {key:"rate",   head:"Rate",        w:92,  fmt:"money"},
+  {key:"vg",     head:"View Guarantee", w:128, fmt:"int", longOnly:true},
+  {key:"cpm",    head:"CPM",         w:64,  fmt:"money2", longOnly:true},
+  {key:"disc",   head:"Discount",    w:96,  listEditOnly:true, tip:"Tick, then type a lower CPM. Brands see the old rate crossed out and the % off. Untick to put the CPM back."},
+  {key:"fee",    head:"Production Rate", w:140, fmt:"money", shortOnly:true, tip:"Production rate for the post."},
+  {key:"total",  head:"Total Rate",  w:112, fmt:"money", shortOnly:true, tip:"Publishing Rate plus Production Rate."},
+  {key:"rights", head:"Usage Rights", w:340, shortOnly:true, tip:"12 months of digital usage rights and boosting rights are included in the total."},
+  {key:"minVideos",head:"Min. videos", w:112, longOnly:true, tip:"Smaller channels are booked as a short bundle so the deal reaches the $1,500 minimum at the normal CPM. The rate and view guarantee cover the whole bundle."},
+  {key:"simulcast",head:"Simulcast",  w:100, longOnly:true, tip:"Also published to Spotify Video, Apple Podcasts and other podcast apps. That extra reach is included at the same rate."},
+  {key:"category",head:"Category",   w:116},
+  {key:"host",   head:"Host",        w:138},
+  {key:"adEx",   head:"Ad Examples", w:108},
+  {key:"location",head:"Location",   w:124},
+  {key:"state",  head:"State / Region", w:126},
+  {key:"about",  head:"About",       w:460, cls:"wide"},
+  {key:"hostGender",head:"Host Gender", w:90},
+  {key:"hostRead",head:"Host Read",  w:78},
+  {key:"exclusive",head:"Category Exclusive (30 days)", w:130}, // 30-day category exclusivity (Tom, 14 Oct 2026)
+  {key:"adTypes",head:"Ad Types",    w:150, cls:"wide"},
+  {key:"adLength", head:"Ad length", w:92},
+  {key:"kit",    head:"Audience stats", w:130, tip:"The creator's audience: age, gender, countries and how they watch. Live from YouTube Analytics where the creator has connected their channel."},
+  {key:"male",   head:"Male %",      w:64},
+  {key:"female", head:"Female %",    w:70},
+  {key:"a1317",  head:"13-17",       w:56},
+  {key:"a1824",  head:"18-24",       w:56},
+  {key:"a2534",  head:"25-34",       w:56},
+  {key:"a3544",  head:"35-44",       w:56},
+  {key:"a4554",  head:"45-54",       w:56},
+  {key:"a5564",  head:"55-64",       w:56},
+  {key:"us",     head:"US %",        w:62},
+  {key:"uk",     head:"UK %",        w:62},
+];
+// DFT-only columns (blue), read-only: what the live data says and why a row is shown or hidden.
+// Everything brands see is edited in the orange columns instead (View Guarantee, CPM).
+const TEAM_COLS=[
+  {key:"status", head:"Brands see it?", w:176, t:1},
+  {key:"lavg",   head:"Live avg",    w:96, t:1, fmt:"int"},
+  {key:"lvg",    head:"Live VG",     w:92,  t:1, fmt:"int"},
+  {key:"lrate",  head:"Live Rate",   w:96,  t:1, fmt:"money"},
+  {key:"lcpm",   head:"Live CPM",    w:92,  t:1, fmt:"money2"},
+  {key:"basis",  head:"Brand basis", w:220, t:1, cls:"wide"},
 ];
 
-let DATA={}, activeTab="topics", query="";
-let sortKey="vg", sortDir="desc";
-let manualOrder = {};
-try { manualOrder = JSON.parse(localStorage.getItem("dftRosterOrder")||"{}") || {}; } catch(e){ manualOrder = {}; }
-const persistOrder = () => { try { localStorage.setItem("dftRosterOrder", JSON.stringify(manualOrder)); } catch(e){} };
-const openSet=new Set();
+let PAYLOAD=null, TEAM=null, BRAND=null, mode="brand", activeTab="topics", query="";
+let sortKey=null, sortDir="desc";
+let colOrder=null, rowOrder={}, colWidths={}, layoutDirty=false;
+// Layout: DFT saves a default for everyone (stored on monday). Anyone can also drag rows
+// and columns for themselves; that copy lives only in their own browser.
+const LAYOUT_KEY="dftRosterLayout:v2";
+let myLayout=null; try{ myLayout=JSON.parse(localStorage.getItem(LAYOUT_KEY)||"null"); }catch(e){ myLayout=null; }
+function persistMine(){ myLayout={cols:colOrder,rows:rowOrder,widths:colWidths}; try{ localStorage.setItem(LAYOUT_KEY, JSON.stringify(myLayout)); }catch(e){} }
+function applyLayout(shared){
+  if(layoutDirty) return;
+  const sh=shared||{};
+  colOrder=(myLayout&&myLayout.cols)||sh.columns||null;
+  rowOrder=Object.assign({}, sh.rows||{}, (myLayout&&myLayout.rows)||{});
+  colWidths=Object.assign({}, sh.widths||{}, (myLayout&&myLayout.widths)||{});
+}
+const openSet=new Set(), picked=new Set();
+let editingList=null; // {slug,title} when the selection came from a saved list
+const LIST_SLUG=(location.pathname.match(/^\/r\/([a-z0-9-]+)$/)||[])[1]||null;
+// "Preview as brand" (Tom, 10 Oct 2026): signed in, a list's page is where its numbers are
+// edited, so the team never saw the brand's Approve / Note buttons. This switch shows the page
+// exactly as the brand gets it; nothing clicked in it is saved.
+let asBrand=false;
+const listEdit=()=>!!(LIST_SLUG&&TEAM&&mode!=="team"&&BRAND&&BRAND.list&&!asBrand);
+// User journey (Tom, 9 Oct 2026): a list's numbers are changed on the list's own page, the
+// main rate card's numbers on the main page. While the team is adding or removing a list's
+// creators, or looking at the main roster from a list's page, the main numbers are locked so
+// nobody changes the base rate card by accident.
+const baseLocked=()=>!!(TEAM&&mode==="team"&&(editingList||LIST_SLUG));
+const lockedMsg=()=>editingList
+  ?"You're choosing creators for “"+editingList.title+"”. To change its videos or prices, use “Change "+editingList.title+"'s numbers” above."
+  :"This is the main rate card. Go back to the list to change its numbers, or open the main page to change the rate card.";
 
 const $=s=>document.querySelector(s);
-const numv=v=>{const n=parseFloat(String(v==null?"":v).replace(/[^0-9.\-]/g,""));return isNaN(n)?null:n;};
 const money=v=>v==null?"":"$"+Math.round(v).toLocaleString();
+const money2=v=>v==null?"":"$"+(Math.round(v*100)/100).toLocaleString(undefined,{maximumFractionDigits:2});
 const int=v=>v==null?"":Math.round(v).toLocaleString();
 const esc=s=>String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
-const pct=v=>{const s=String(v==null?"":v).trim();return s?(s.endsWith("%")?s:s+"%"):"";};
-function cmap(cvs){const o={};(cvs||[]).forEach(c=>{o[c.id]={text:c.text||"",value:c.value||""};});return o;}
-function linkUrl(v){try{const j=JSON.parse(v||"null");return j&&j.url?j.url:"";}catch(e){return"";}}
+const numv=v=>{const n=parseFloat(String(v==null?"":v).replace(/[^0-9.\-]/g,""));return isNaN(n)?null:n;};
+function toast(msg,err){const t=$("#toast");t.textContent=msg;t.className="toast on"+(err?" err":"");clearTimeout(toast._t);toast._t=setTimeout(()=>t.className="toast",err?5000:2600);}
 
-function parse(groups){
-  const out={}; GROUPS.forEach(g=>out[g.id]=[]);
-  (groups||[]).forEach(g=>{
-    const items=(g.items_page&&g.items_page.items)||[];
-    out[g.id]=items.map(it=>{
-      const m=cmap(it.column_values); const gv=id=>(m[id]?m[id].text:"")||"";
-      const shows=(it.subitems||[]).map(s=>{const sm=cmap(s.column_values);const sg=id=>(sm[id]?sm[id].text:"")||"";
-        return{name:s.name,rate:numv(sg(S.rate)),vg:numv(sg(S.vg)),cpm:numv(sg(S.cpm)),url:sg(S.url)};
-      }).sort((a,b)=>(b.vg||0)-(a.vg||0));
-      return{ id:it.id, name:it.name,
-        subs:numv(gv(P.subs)), rate:numv(gv(P.rate)), vg:numv(gv(P.vg)), cpm:numv(gv(P.cpm)),
-        host:gv(P.host), category:gv(P.category), location:gv(P.location), state:gv(STATE_KEY), handle:gv(P.handle),
-        about:gv(P.about), url:gv(P.url),
-        hostGender:gv(P.hostGender), hostRead:gv(P.hostRead), exclusive:gv(P.exclusive),
-        adTypes:gv(P.adTypes), adEx:linkUrl(m[P.adEx]?m[P.adEx].value:""), videos:numv(gv(P.videos)), audience:gv(P.audience),
-        male:pct(gv(P.male)), female:pct(gv(P.female)),
-        a1317:pct(gv(P.a1317)), a1824:pct(gv(P.a1824)), a2534:pct(gv(P.a2534)),
-        a3544:pct(gv(P.a3544)), a4554:pct(gv(P.a4554)), a5564:pct(gv(P.a5564)),
-        us:pct(gv(P.us)), uk:pct(gv(P.uk)),
-        shows:shows };
-    }).sort((a,b)=>(b.vg||0)-(a.vg||0));
-  });
-  return out;
+const kindOf=()=>(GROUPS.find(g=>g.id===activeTab)||{}).kind||"long";
+const dispName=n=>RENAME[n]||n;
+function dispHandle(c){
+  const h=String(c.handle||"").trim();
+  if(!h) return dispName(c.name);
+  const at=(h.charAt(0)==="@"?h:"@"+h).toLowerCase(); // handles always lowercase (Tom, 8 Oct 2026)
+  return (/[-–]\s*shorts\s*$/i.test(c.name)&&activeTab!==SHORTS_GROUP)?at+" · Shorts":at;
 }
 
-function fmtCell(c,col){
-  let v=c[col.key];
+// Column set for the current tab and mode.
+function brandColsFor(){
+  const k=kindOf();
+  const team=mode==="team";
+  // Short form (Shorts / Instagram / TikTok / Snapchat), Tom 13 Oct 2026: priced by the post,
+  // not by views. Production fee (tier by channel size) + a Publishing Rate of 20% of it, and
+  // the usage-rights note. Avg Views is shown for context only. No CPM on these tabs.
+  const showShortCpm=team||listEdit();
+  let cols=BRAND_COLS.filter(c=>{
+    // Saved lists: the team's Stage column, which brands see as "Your feedback".
+    if(c.listOnly) return !!(BRAND&&BRAND.list&&mode!=="team");
+    if(c.listEditOnly) return listEdit();
+    if(c.shortOnly) return k!=="long";
+    if(c.key==="vg") return true;
+    if(c.key==="cpm"&&k!=="long") return false;
+    // Dedicated videos (Tom, 14 Oct 2026): no CPM for brands; the team still sees it, marked DFT only.
+    if(c.key==="cpm"&&activeTab==="dedicated"&&!team&&!listEdit()) return false;
+    return !(c.longOnly&&k!=="long");
+  });
+  // Shorts / Instagram / TikTok for brands: no demographics, audience, ad types,
+  // exclusivity, host or host gender columns (Tom, 6 Oct 2026). The DFT view keeps them.
+  if(k!=="long"&&!team) cols=cols.filter(c=>!SHORT_HIDE.has(c.key));
+  if(k!=="long") cols=cols.map(c=>{
+    if(c.key==="vg") return Object.assign({},c,{head:"Avg Views",tip:"Average views per post last quarter. For context only: not a guarantee and not part of the price."});
+    if(c.key==="rate") return Object.assign({},c,{head:"Publishing Rate",w:132,tip:"20% of the Production Rate, for the creator to post it on their own channel. Total Rate = Production Rate + Publishing Rate."});
+    if(c.key==="cpm") return Object.assign({},c,{t:1,tip:"DFT only, brands never see the CPM on this tab."});
+    return c;
+  });
+  if(k==="long"&&estLong()) cols=cols.map(c=>c.key==="vg"?Object.assign({},c,{head:"Estimated Views",tip:"Estimated views across the videos, based on each channel's recent averages. An estimate, not a guarantee."}):c);
+  // Dedicated videos (Tom, 13 Oct 2026) are a flat price with no view guarantee: always
+  // shown as Estimated Views, on the main rate card and on every saved list.
+  if(k==="long"&&activeTab==="dedicated") cols=cols.map(c=>c.key==="vg"?Object.assign({},c,{head:"Estimated Views",tip:"Estimated views for a whole video about the brand, based on the channel's recent averages. An estimate, not a guarantee: a dedicated video is a flat price (3x the YouTube integration rate)."}):c);
+  if(team&&!baseLocked()) cols=cols.map(c=>{
+    if(c.key==="vg") return Object.assign({},c,{w:146,edit:"vg",head:k==="long"?(activeTab==="dedicated"?"Estimated Views":"View Guarantee ✎"):"Avg Views ✎",tip:k==="long"?"Click to edit what brands see. Holds until the quarter resets.":"Shown to brands for context only. It sets the production fee tier ($3,000, $5,000 from 100k, $7,500 from 250k); the Publishing Rate is 20% of that fee. Click to edit."});
+    if(c.key==="cpm") return Object.assign({},c,{edit:"cpm",head:"CPM ✎",w:84,tip:k==="long"?"Click to edit what brands see. Holds until the quarter resets.":"Not shown to brands. Sets the rate. Click to edit."});
+    // Number of videos brands are quoted (Tom, 9 Oct 2026). Clear it to go back to the
+    // automatic bundle. Fewer videos than the minimum needs are still priced at $1,500.
+    if(c.key==="minVideos"&&k==="long") return Object.assign({},c,{edit:"videos",head:"Videos ✎",w:112,tip:"Number of videos brands are quoted. View Guarantee = views per video x videos, Rate = that x CPM, minimum $1,500. Holds until the quarter resets. Clear the box to go back to the automatic count."});
+    if(c.key==="rate") return Object.assign({},c,{tip:k==="long"?"Worked out from View Guarantee x CPM, minimum $1,500. Small YouTube rows are sold as a bundle of up to 10 videos instead of being lifted to $1,500.":"20% of the production fee ($3,000, $5,000 from 100k avg views, $7,500 from 250k). Total Rate = fee + this."});
+    return c;
+  });
+  // Signed in on a saved list's page (brand preview): the numbers are editable for THIS
+  // list only. YouTube: view guarantee (per video) and CPM. Other tabs: the rate.
+  // Every tab: View Guarantee / Estimate and CPM; short form also the production fee.
+  if(listEdit()) cols=cols.map(c=>{
+    const tip="Price for this list only. The roster and other lists are not changed. Clear the box to go back to the roster price.";
+    if(c.key==="vg") return Object.assign({},c,{w:146,edit:"vg",head:k==="long"?(estLong()||activeTab==="dedicated"?"Estimated Views ✎":"View Guarantee ✎"):"Avg Views ✎",tip});
+    if(c.key==="cpm") return Object.assign({},c,{edit:"cpm",head:k==="long"?"CPM ✎":"CPM ✎ (DFT only)",w:k==="long"?84:130,tip:k==="long"?tip:"Brands do not see this column. "+tip});
+    if(c.key==="fee") return Object.assign({},c,{edit:"fee",head:"Production Rate ✎",w:160,tip});
+    // Number of videos (Tom, 9 Oct 2026): the view guarantee and rate follow it. Fewer
+    // videos than the $1,500 minimum needs are still priced at $1,500.
+    if(c.key==="minVideos"&&k==="long") return Object.assign({},c,{edit:"videos",head:"Videos ✎",w:112,tip:"Number of videos for this list only. View Guarantee = views per video x videos, Rate = that x CPM, minimum $1,500. Clear the box to go back to the automatic count."});
+    return c;
+  });
+  if(activeTab==="dedicated") cols=cols.map(c=>c.key==="cpm"?Object.assign({},c,{t:1,head:c.edit?"CPM ✎ (DFT only)":"CPM (DFT only)",w:c.edit?130:112,tip:"Brands never see the CPM on dedicated videos. "+(c.tip||"")}):c);
+  if(colOrder&&colOrder.length){
+    const pos={}; colOrder.forEach((key,i)=>pos[key==="videos"?"adLength":key]=i);
+    // A column added after an order was saved slots in beside its neighbour, not at the end.
+    // The short-form price columns follow Rate: Rate, Content Production, Total Rate, Usage Rights.
+    BRAND_COLS.forEach((c,i)=>{ if(pos[c.key]==null){ const a=AFTER[c.key]; if(a&&pos[a]!=null){ pos[c.key]=pos[a]+0.1; return; } const prev=BRAND_COLS.slice(0,i).reverse().find(p=>pos[p.key]!=null); pos[c.key]=prev?pos[prev.key]+0.5:-0.5; } });
+    cols=cols.slice().sort((a,b)=>(pos[a.key]??999)-(pos[b.key]??999));
+  }
+  return cols.map(c=>c.key==="subs"&&FOLLOWER_TABS.has(activeTab)?Object.assign({},c,{head:"Followers"}):c);
+}
+// Column widths: drag a header's right edge (Tom, 8 Oct 2026). Kept per browser, and the
+// team can save them for everyone with the layout.
+// Stage never goes narrower than its buttons need (a width saved before Approve / Reject was
+// added clipped the Note button, Tom 10 Oct 2026).
+const MIN_W={confirmed:176};
+function sized(cols){ return cols.map(c=>c.key!=="sel"&&colWidths[c.key]?Object.assign({},c,{w:Math.max(colWidths[c.key],MIN_W[c.key]||0)}):c); }
+function columns(){
+  const name={key:"name",head:"Creator / Shows",w:280,cls:"name"};
+  if(mode!=="team") return sized([name].concat(brandColsFor()));
+  // Signed in: the same columns in the same (movable) order brands see, with the blue
+  // DFT-only block slotted in straight after the last of Rate / View Guarantee / CPM.
+  // (These used to be pinned, which made dragging them look like it did nothing.)
+  const bc=brandColsFor();
+  const cut=Math.max(...["rate","vg","cpm","minVideos","fee","total"].map(k=>bc.findIndex(c=>c.key===k)));
+  const tc=kindOf()==="long"?TEAM_COLS:TEAM_COLS.filter(c=>c.key!=="lcpm").map(c=>c.key==="lvg"?Object.assign({},c,{head:"Live Estimate",w:104}):c);
+  return sized([{key:"sel",head:"",w:34,cls:"sel"},Object.assign({},name,{w:320})].concat(bc.slice(0,cut+1),tc,bc.slice(cut+1)));
+}
+
+function cellVal(c,col){
+  switch(col.key){
+    case "lavg": return c.live?c.live.avg:null;
+    case "lvg": return c.live?c.live.vg:null;
+    case "lrate": return c.live?c.live.rate:null;
+    case "lcpm": return c.live?c.live.cpm:null;
+    case "basis": return c.brand?((c.brand.quarter?c.brand.quarter+": ":"")+(c.brand.note||"")):"";
+    default: return c[col.key];
+  }
+}
+// The middle Stage step (Tom, 10 Oct 2026): one tick box that cycles approved (green tick),
+// rejected (red cross), clear, plus a small note icon. Same box as Approached and Confirmed.
+const NOTE_ICON='<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>';
+function decisionRow(c,team){
+  const ok=!!(c.fb&&c.fb.ok), no=!!(c.fb&&c.fb.no), note=(c.fb&&c.fb.note)||"";
+  const state=ok?"yes":no?"no":"", label=ok?"Brand approved":no?"Brand rejected":"Brand approval";
+  const tip=team?"The brand's decision. Click to set it for them: approved, rejected, clear.":"Click once to approve, twice to reject, again to clear.";
+  const noteBtn=(team&&!note)?"":`<button class="nt${note?" has":""}${team?" ro":""}" data-id="${c.id}" title="${note?esc(note):"Add a note: tell us why, or anything else"}">${NOTE_ICON}</button>`;
+  return `<span class="drow"><button class="tri ${state}" data-id="${c.id}" data-s="${state}" title="${tip}"><span class="bx"></span><span class="lb">${label}</span></button>${noteBtn}</span>`;
+}
+// The creator's response (Margot, 14 Oct 2026): DFT sets interested or declined and can add
+// a note the brand reads (why they declined, or the idea they already have). Brands read only.
+function creatorRow(c,team){
+  const ok=!!(c.cr&&c.cr.ok), no=!!(c.cr&&c.cr.no), note=(c.cr&&c.cr.note)||"";
+  const state=ok?"yes":no?"no":"", label=ok?"Creator interested":no?"Creator declined":"Creator response";
+  const tip=team?"The creator's answer. Click: interested, declined, clear. The speech bubble adds a note the brand will see.":(ok?"This creator would like to work with you":no?"This creator has declined":"Waiting on the creator's answer");
+  const noteBtn=(!team&&!note)?"":`<button class="nt crn${note?" has":""}" data-id="${c.id}" title="${note?esc(note):"Add a note for the brand: what the creator said"}">${NOTE_ICON}</button>`;
+  return `<span class="drow cr"><button class="tri cr ${state}${team?"":" ro"}" data-id="${c.id}" data-s="${state}" title="${tip}"${team?"":' tabindex="-1"'}><span class="bx"></span><span class="lb">${label}</span></button>${noteBtn}</span>`;
+}
+function fmtCell(c,col,isShow){
+  if(col.key==="status") return statusCell(c,isShow);
+  if(col.key==="confirmed"){
+    if(isShow) return "";
+    if(listEdit()){ const st=c.stage||(c.confirmed?"confirmed":"");
+      // Stage (Tom, 10 Oct 2026), three steps: Approached, the brand's decision (approve or
+      // reject, with a note), Confirmed. The team can set the decision for a brand that told
+      // us another way.
+      return `<span class="stg" onclick="event.stopPropagation()"><label title="We have reached out to this creator"><input type="checkbox" class="conf" data-id="${c.id}" data-st="approached" ${st?"checked":""}>Approached</label>${creatorRow(c,true)}${decisionRow(c,true)}<label title="Locked in for this campaign"><input type="checkbox" class="conf" data-id="${c.id}" data-st="confirmed" ${st==="confirmed"?"checked":""}>Confirmed</label></span>`; }
+    // Brands (Tom, 10 Oct 2026): the same three steps. Approached and Confirmed are DFT's, shown
+    // but not clickable; the middle step is theirs: Approve or Reject, and a note.
+    const st=c.stage||(c.confirmed?"confirmed":"");
+    return `<span class="stg" onclick="event.stopPropagation()"><label class="dft" title="Digital Fox Talent has reached out to this creator"><input type="checkbox" tabindex="-1" onclick="return false" ${st?"checked":""}>Approached</label>${creatorRow(c,false)}${decisionRow(c,false)}<label class="dft" title="Locked in by Digital Fox Talent"><input type="checkbox" tabindex="-1" onclick="return false" ${st==="confirmed"?"checked":""}>Confirmed</label></span>`;
+  }
+  if(col.key==="disc") return `<label class="ckc disc" onclick="event.stopPropagation()"><input type="checkbox" class="dsc" data-id="${c.id}"${isShow?' data-show="1"':""} ${c.disc?"checked":""} title="Discount: tick, then type a lower CPM"></label>`;
+  if((col.key==="rate"||col.key==="total")&&c.wasRate&&(col.key==="rate"||c.kind!=="long")){
+    const was=col.key==="rate"?c.wasRate:c.wasTotal;
+    return `${money(cellVal(c,col))}<span class="was"><s>${money(was)}</s>${c.discPct}% off</span>`;
+  }
+  const v=cellVal(c,col);
   if(col.fmt==="money") return money(v);
+  if(col.fmt==="money2") return money2(v);
   if(col.fmt==="int") return int(v);
+  if(col.key==="minVideos") return v==null?"":(v>1?`<span class="pill bundle" title="${esc(v+" videos. "+(estLong()||isDed(c)?"Estimated views":"View guarantee")+" and rate cover all "+v+(c.vgPer?" (about "+int(c.vgPer)+" views each)":""))}">${v} videos</span>`:"1");
+  if(col.key==="simulcast") return v?`<span class="pill ok" title="Also on Spotify Video and podcast apps, included at this rate">${esc(v)}</span>`:"";
+  if(col.key==="kit") return v?`<a class="exlink" href="${esc(v)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">Audience ↗</a>`:"";
   if(col.key==="adEx") return v?`<a class="exlink" href="${esc(v)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">Examples ↗</a>`:"";
   return esc(v);
 }
-
-function nameCell(c){
-  const has=c.shows.length;
-  const chev=`<span class="chev ${has?"":"spacer-ic"}"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg></span>`;
-  const dn=dispName(c.name);
-  const nm=c.url?`<a href="${esc(c.url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${esc(dn)}</a>`:esc(dn);
-  const tag=has?`<span class="tag">+${c.shows.length}</span>`:"";
-  return `<div class="nmwrap"><span class="grip" title="Drag to reorder">⠿</span>${chev}<span class="nmtext">${nm}${tag}</span></div>`;
+function statusCell(c,isShow){
+  const pill=c.show?`<span class="pill ok">Shown</span>`:`<span class="pill no" title="${esc(c.why)}">Hidden</span>`;
+  const prov=c.brand&&c.brand.provisional?`<span class="pill prov" title="Not frozen yet: priced from today's average until tomorrow's snapshot">Provisional</span>`:"";
+  const why=c.why?`<span class="why" title="${esc(c.why)}">${esc(c.why)}</span>`:"";
+  return `${pill}${prov}${why}`;
 }
+function logoHtml(c){
+  const letter=esc((dispHandle(c).replace(/^@/,"")[0]||"?").toUpperCase());
+  return c.logo?`<img class="av" src="${esc(c.logo)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.outerHTML='<span class=avx>${letter}</span>'">`:`<span class="avx">${letter}</span>`;
+}
+// Show-to-brands switch beside the name (DFT view only): Auto -> Always show -> Hide -> List only.
+const EYE={"Auto":["Auto: brands see this unless it breaks the CPM cap","#8a7d70"],"Always show":["Always shown to brands","#2f7d4f"],"Hide":["Hidden from brands","#b23a2a"],"List only":["List only: can go on a saved list, never shown on the main rate card","#2a6fb0"]};
+function eyeBtn(c,isShow){
+  if(mode!=="team") return "";
+  const o=c.override||"Auto", [t,col]=EYE[o]||EYE.Auto;
+  const slash=o==="Hide"?'<line x1="3" y1="3" x2="21" y2="21"/>':"";
+  if(isDed(c)) return `<span class="eye" title="${t}. Follows the channel on the YouTube Channels tab: change it there." style="color:${col};cursor:default;opacity:.75"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>${slash}</svg></span>`;
+  return `<button class="eye" data-id="${c.id}" data-show="${isShow?1:0}" data-o="${o}" title="${t}. Click to change." style="color:${col}" onclick="event.stopPropagation()"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>${slash}</svg>${o==="Always show"?'<b>+</b>':o==="List only"?'<b>L</b>':""}</button>`;
+}
+function nameCell(c){
+  const has=visShows(c).length;
+  const chev=`<span class="chev ${has?"":"spacer-ic"}"${has?` title="${openSet.has(c.id)?"Hide":"Show"} this channel's ${has} show${has===1?"":"s"}, each with its own price"`:""}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg></span>`;
+  const dn=dispHandle(c), real=dispName(c.name);
+  const ttl=(real&&real!==dn)?` title="${esc(real)}"`:"";
+  const nm=c.url?`<a href="${esc(c.url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${esc(dn)}</a>`:esc(dn);
+  // On a saved list only the team can reorder (the order is saved to the list); brands get no handle.
+  const grip=(isPitch()&&!listEdit())?"":`<span class="grip" title="${listEdit()?"Drag to move this creator. Brands see the list in this order":"Drag to move this row"}">⠿</span>`;
+  return `<div class="nmwrap">${grip}${chev}${logoHtml(c)}<span class="nmtext"${ttl}>${nm}</span>${eyeBtn(c,false)}</div>`;
+}
+// Show or hide one of a channel's shows on this saved list only (Tom, 13 Oct 2026). The main
+// rate card keeps its own setting; brands opening this list see what is set here.
+function listEyeBtn(s){
+  if(!listEdit()) return "";
+  const hid=!!s.listHidden, col=hid?"#b23a2a":"#2f7d4f";
+  const t=hid?"Hidden from brands on this list. Click to show it on this list only":"Shown to brands on this list. Click to hide it on this list only";
+  return `<button class="eye leye" data-id="${s.id}" data-vis="${hid?"show":"hide"}" title="${t}" style="color:${col}" onclick="event.stopPropagation()"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>${hid?'<line x1="3" y1="3" x2="21" y2="21"/>':""}</svg></button>`;
+}
+// A show switched off for a list reaches the team (so it can be switched back on), never a brand view.
+const visShows=c=>(c.shows||[]).filter(s=>!(s.listHidden&&!listEdit()));
 function showNameCell(s){
   const nm=s.url?`<a href="${esc(s.url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${esc(s.name)}</a>`:esc(s.name);
-  return `<div class="nmwrap"><span class="nmtext"><span class="arrow">&#8627;</span>${nm}</span></div>`;
+  return `<div class="nmwrap"><span class="nmtext"><span class="arrow">&#8627;</span>${nm}</span>${eyeBtn(s,true)}${listEyeBtn(s)}</div>`;
 }
 
-function rowsFor(list){
+function rowsFor(list,cols){
   let html="";
   list.forEach(c=>{
     const open=openSet.has(c.id);
-    html+=`<tr class="chan ${open?"open":""}" data-id="${c.id}" draggable="false">`;
-    COLS.forEach(col=>{
-      const cls=(col.cls||"");
-      const title=(col.cls==="wide"&&c[col.key])?` title="${esc(c[col.key])}"`:"";
-      const inner=col.key==="name"?nameCell(c):fmtCell(c,col);
-      html+=`<td class="${cls}"${title}>${inner}</td>`;
+    const cls=["chan",open?"open":"",mode==="team"&&!c.show?"hidden":"",picked.has(c.id)?"picked":""].join(" ");
+    html+=`<tr class="${cls}" data-id="${c.id}">`;
+    cols.forEach(col=>{
+      // Dedicated rows are priced from the YouTube tab, so on the main rate card they are read only.
+      const ed=col.edit&&!(isDed(c)&&!listEdit());
+      let inner, cl=(col.cls||"")+(col.t?" tcol":"")+(ed?" edit":"")+(ed&&listEdit()&&c.custom?" custom":"");
+      if(col.key==="sel") inner=`<input type="checkbox" class="pick" data-id="${c.id}" ${picked.has(c.id)?"checked":""} onclick="event.stopPropagation()" title="Add to a list">`;
+      else if(col.key==="name") inner=nameCell(c);
+      else inner=fmtCell(c,col,false);
+      const title=(col.cls==="wide"&&cellVal(c,col))?` title="${esc(cellVal(c,col))}"`:(col.edit&&!ed?` title="3x this channel's YouTube rate. Change the channel's numbers on the YouTube Channels tab."`:"");
+      if(col.cls==="wide"&&inner) inner=`<div class="clamp">${inner}</div>`;
+      html+=`<td class="${cl}" data-k="${col.key}"${ed?` data-edit="${col.edit}" data-id="${c.id}"${listEdit()?' data-list="1"':""}`:""}${title}>${inner}</td>`;
     });
     html+=`</tr>`;
-    if(open){
-      c.shows.forEach(s=>{
-        html+=`<tr class="show">`;
-        COLS.forEach(col=>{
-          let inner="";
-          if(col.key==="name") inner=showNameCell(s);
-          else if(col.key==="rate") inner=money(s.rate);
-          else if(col.key==="vg") inner=int(s.vg);
-          else if(col.key==="cpm") inner=money(s.cpm);
-          html+=`<td class="${col.cls||""}">${inner}</td>`;
-        });
-        html+=`</tr>`;
+    if(open) visShows(c).forEach(s=>{
+      html+=`<tr class="show ${(mode==="team"&&!s.show)||(listEdit()&&s.listHidden)?"hidden":""}">`;
+      cols.forEach(col=>{
+        let inner="", cl=(col.cls||"")+(col.t?" tcol":"");
+        if(col.key==="name") inner=showNameCell(s);
+        else if(col.key==="rate"||col.key==="vg"||col.key==="cpm"||col.key==="minVideos"||col.key==="disc"||col.t) inner=fmtCell(s,col,true);
+        if(col.edit&&(mode==="team"||listEdit())){ cl+=" edit"+(listEdit()&&s.custom?" custom":""); html+=`<td class="${cl}" data-edit="${col.edit}" data-id="${s.id}" data-show="1"${listEdit()?' data-list="1"':""}>${inner}</td>`; }
+        else html+=`<td class="${cl}">${inner}</td>`;
       });
-    }
+      html+=`</tr>`;
+    });
   });
   return html;
 }
 
-function cmpChannels(a,b){
-  const col=COLS.find(c=>c.key===sortKey)||{};
+function cmp(a,b){
+  if(!sortKey) return 0;
+  const col=columns().find(c=>c.key===sortKey)||{};
   let r;
-  if(sortKey==="name"){ r=dispName(a.name).localeCompare(dispName(b.name)); }
-  else if(col.fmt==="int"||col.fmt==="money"){
-    const av=a[sortKey], bv=b[sortKey];
-    r=(av==null?-Infinity:av)-(bv==null?-Infinity:bv);
-  } else {
-    const an=numv(a[sortKey]), bn=numv(b[sortKey]);
+  if(sortKey==="name") r=dispHandle(a).localeCompare(dispHandle(b));
+  else{
+    const av=cellVal(a,col), bv=cellVal(b,col);
+    const an=typeof av==="number"?av:numv(av), bn=typeof bv==="number"?bv:numv(bv);
     if(an!=null||bn!=null) r=(an==null?-Infinity:an)-(bn==null?-Infinity:bn);
-    else r=String(a[sortKey]||"").localeCompare(String(b[sortKey]||""));
+    else r=String(av||"").localeCompare(String(bv||""));
   }
   return sortDir==="desc"?-r:r;
 }
-
-function effectiveList(all){
-  const mo=manualOrder[activeTab];
-  if(mo&&mo.length){
-    const pos={}; mo.forEach((id,i)=>pos[id]=i);
-    return all.slice().sort((a,b)=>{
-      const pa=pos[a.id]!=null?pos[a.id]:1e9, pb=pos[b.id]!=null?pos[b.id]:1e9;
-      return pa!==pb ? pa-pb : cmpChannels(a,b);
-    });
+function orderedAll(){
+  const all=((PAYLOAD&&PAYLOAD.groups[activeTab])||[]).slice();
+  if(sortKey) return all.sort(cmp);
+  const ord=rowOrder[activeTab];
+  if(ord&&ord.length&&!(BRAND&&BRAND.list&&mode!=="team")){
+    const pos={}; ord.forEach((id,i)=>pos[id]=i);
+    const base={}; all.forEach((c,i)=>base[c.id]=i);
+    all.sort((a,b)=>((pos[a.id]??1e6+base[a.id])-(pos[b.id]??1e6+base[b.id])));
   }
-  return all.slice().sort(cmpChannels);
+  return all;
+}
+const selectable=list=>list.filter(c=>c.override!=="Hide").map(c=>c.id);
+function currentList(){
+  const all=(PAYLOAD&&PAYLOAD.groups[activeTab])||[];
+  const q=query.trim().toLowerCase();
+  let list=orderedAll().filter(c=>!q||[c.name,c.host,c.category,c.handle,c.location,c.state].join(" ").toLowerCase().includes(q));
+  return list;
 }
 
-function render(){
-  const all=effectiveList(DATA[activeTab]||[]);
-  const q=query.trim().toLowerCase();
-  let list=q?all.filter(c=>(c.name+" "+c.host+" "+c.category+" "+c.handle+" "+c.location+" "+c.state).toLowerCase().includes(q)):all;
-  const allC=GROUPS.reduce((a,g)=>a.concat(DATA[g.id]||[]),[]);
-  const total=allC.length;
-  const uniq=new Set(allC.map(c=>c.name)).size;
-  $("#count").textContent=uniq+" creators · "+total+" profiles across "+GROUPS.length+" platforms · "+list.length+" shown";
-  const rb=$("#resetOrder"); if(rb) rb.style.display=(manualOrder[activeTab]&&manualOrder[activeTab].length)?"":"none";
-
-  const colgroup=`<colgroup>${COLS.map(c=>`<col class="${c.key==="name"?"cName":""}" style="width:${c.w}px">`).join("")}</colgroup>`;
-  const thead=`<thead><tr>${COLS.map(c=>{
-    const active=c.key===sortKey;
-    const car=active?`<span class="sortcar">${sortDir==="desc"?"▼":"▲"}</span>`:`<span class="sortcar dim">▼</span>`;
-    return `<th class="${c.cls||""}" data-key="${c.key}" title="Click to sort">${esc(c.head)}${car}</th>`;
-  }).join("")}</tr></thead>`;
-  const tbody=`<tbody>${rowsFor(list)}</tbody>`;
-  const totalW=COLS.reduce((a,c)=>a+c.w,0);
-  $("#scroll").innerHTML= list.length ? `<table style="width:${totalW}px">${colgroup}${thead}${tbody}</table>` :
-    `<div class="state"><div>No creators match your search.</div></div>`;
-
-  $("#scroll").querySelectorAll("tr.chan").forEach(tr=>{
-    tr.addEventListener("click",()=>{
-      const id=tr.dataset.id;
-      if(openSet.has(id)) openSet.delete(id); else openSet.add(id);
-      render();
-    });
-  });
-  $("#scroll").querySelectorAll("th[data-key]").forEach(th=>{
-    th.addEventListener("click",()=>{
-      const k=th.dataset.key;
-      if(k===sortKey) sortDir=(sortDir==="desc"?"asc":"desc"); else { sortKey=k; sortDir="desc"; }
-      if(manualOrder[activeTab]){ delete manualOrder[activeTab]; persistOrder(); }   // sorting overrides a manual drag order
-      render();
-    });
-  });
-  // Click a long-text cell (About / Audience / Ad Types) to expand its full text in place.
-  $("#scroll").querySelectorAll("td.wide").forEach(td=>{
-    if(!td.textContent.trim()) return;              // skip empty cells (e.g. show rows)
-    td.classList.add("clickable");
-    td.title = "Click to expand";
-    td.addEventListener("click", e=>{ e.stopPropagation(); td.classList.toggle("exp"); });
-  });
-
-  // Drag-to-reorder (per viewer; grip handle keeps it separate from row/cell clicks).
-  let dragId=null;
-  const clearDropMarks=()=>$("#scroll").querySelectorAll(".drop-before,.drop-after").forEach(x=>x.classList.remove("drop-before","drop-after"));
-  $("#scroll").querySelectorAll("tr.chan").forEach(tr=>{
-    const grip=tr.querySelector(".grip");
-    if(grip){
-      grip.addEventListener("mousedown", ()=>tr.setAttribute("draggable","true"));
-      grip.addEventListener("click", e=>e.stopPropagation());
+// Saved lists are pitch lists: brands get a totals row under each tab and a package
+// summary in the banner (Tom, 6 Oct 2026). Show sub-rows are alternatives to the channel
+// package, so totals count channel rows only.
+const isPitch=()=>!!(BRAND&&BRAND.list&&mode!=="team");
+// A list set to "Estimated Views" (Tom, 10 Oct 2026) says estimated, not guaranteed, for YouTube.
+const estLong=()=>!!(isPitch()&&BRAND.list.estViews);
+function sumBy(list,k){ return list.reduce((a,c)=>a+(typeof c[k]==="number"?c[k]:0),0); }
+function totalsRow(list,cols){
+  const long=kindOf()==="long";
+  const rate=sumBy(list,"rate"), vg=sumBy(list,"vg"), subs=sumBy(list,"subs"), fee=sumBy(list,"fee"), total=sumBy(list,"total");
+  const vids=long?list.reduce((a,c)=>a+(c.minVideos||1),0):list.length;
+  const cell=k=>{
+    switch(k){
+      case "name": return `Total<span class="sub">${list.length} creator${list.length===1?"":"s"}</span>`;
+      case "subs": return int(subs)+`<span class="sub">subscribers</span>`;
+      case "rate": { const was=list.reduce((a,c)=>a+(c.wasRate||c.rate||0),0); return money(rate)+`<span class="sub">${long?"total rate":"publishing rate"}</span>`+(was>rate?`<span class="sub">saves ${money(was-rate)}</span>`:""); }
+      case "vg": return vg?int(vg)+`<span class="sub">${long?(!estLong()&&activeTab!=="dedicated"?"guaranteed views":"estimated views"):"avg views"}</span>`:"";
+      case "cpm": return long&&vg?money2(Math.round(rate*100000/vg)/100)+`<span class="sub">CPM</span>`:"";
+      case "minVideos": return `${int(vids)}<span class="sub">video${vids===1?"":"s"}</span>`;
+      case "fee": return money(fee)+`<span class="sub">production rate</span>`;
+      case "total": return money(total)+`<span class="sub">total rate</span>`;
+      case "rights": return long?"":`<span class="sub">12 months included</span>`;
+      default: return "";
     }
-    tr.addEventListener("dragstart", e=>{ dragId=tr.dataset.id; tr.classList.add("dragging"); e.dataTransfer.effectAllowed="move"; try{e.dataTransfer.setData("text/plain",dragId);}catch(_){} });
-    tr.addEventListener("dragend", ()=>{ tr.setAttribute("draggable","false"); tr.classList.remove("dragging"); clearDropMarks(); dragId=null; });
-    tr.addEventListener("dragover", e=>{ if(!dragId||tr.dataset.id===dragId) return; e.preventDefault(); const r=tr.getBoundingClientRect(); const after=(e.clientY-r.top)>r.height/2; tr.classList.toggle("drop-after",after); tr.classList.toggle("drop-before",!after); });
-    tr.addEventListener("dragleave", ()=>tr.classList.remove("drop-before","drop-after"));
-    tr.addEventListener("drop", e=>{
-      e.preventDefault();
-      const targetId=tr.dataset.id;
-      if(!dragId||targetId===dragId) return;
-      const r=tr.getBoundingClientRect(); const after=(e.clientY-r.top)>r.height/2;
-      const order=effectiveList(DATA[activeTab]||[]).map(c=>c.id);
-      const from=order.indexOf(dragId); if(from<0) return;
-      order.splice(from,1);
-      let idx=order.indexOf(targetId); if(idx<0) idx=order.length-1;
-      order.splice(after?idx+1:idx, 0, dragId);
-      manualOrder[activeTab]=order; persistOrder(); dragId=null; render();
+  };
+  return `<tfoot><tr>${cols.map(c=>`<td class="${c.cls||""}">${cell(c.key)}</td>`).join("")}</tr></tfoot>`;
+}
+function packageSummary(){
+  const all=GROUPS.reduce((a,g)=>a.concat((BRAND.groups[g.id]||[]).map(c=>Object.assign({kind:g.kind,gid:g.id},c))),[]);
+  const rate=all.reduce((a,c)=>a+(typeof c.total==="number"?c.total:(typeof c.rate==="number"?c.rate:0)),0), vg=sumBy(all.filter(c=>c.kind==="long"&&c.gid!=="dedicated"),"vg"), ded=sumBy(all.filter(c=>c.gid==="dedicated"),"vg"), est=sumBy(all.filter(c=>c.kind!=="long"),"vg");
+  const vids=all.reduce((a,c)=>a+(c.kind==="long"?(c.minVideos||1):1),0);
+  const saved=all.reduce((a,c)=>a+(c.wasTotal?(c.wasTotal-(typeof c.total==="number"?c.total:c.rate||0)):0),0);
+  const conf=all.filter(c=>c.confirmed).length, appr=listEdit()?all.filter(c=>c.stage==="approached").length:0, bok=all.filter(c=>c.fb&&c.fb.ok).length, bno=all.filter(c=>c.fb&&c.fb.no).length, bnotes=listEdit()?all.filter(c=>c.fb&&c.fb.note).length:0, cok=all.filter(c=>c.cr&&c.cr.ok).length, cno=all.filter(c=>c.cr&&c.cr.no).length;
+  return `<span class="pkg"><span>Package total <b>${money(rate)}</b></span>${saved>0?`<span>Discount <b>${money(saved)}</b></span>`:""}${appr?`<span><b>${appr}</b> approached</span>`:""}${cok?`<span><b>${cok}</b> creator${cok===1?"":"s"} interested</span>`:""}${cno?`<span><b>${cno}</b> creator${cno===1?"":"s"} declined</span>`:""}${bok?`<span><b>${bok}</b> ${listEdit()?"approved by brand":"approved"}</span>`:""}${bno?`<span><b>${bno}</b> ${listEdit()?"rejected by brand":"rejected"}</span>`:""}${bnotes?`<span><b>${bnotes}</b> brand note${bnotes===1?"":"s"}</span>`:""}${conf?`<span><b>${conf}</b> of ${all.length} confirmed</span>`:""}<span><b>${all.length}</b> profile${all.length===1?"":"s"}</span><span><b>${vids}</b> video${vids===1?"":"s"}</span>${vg?`<span><b>${int(vg)}</b> ${estLong()?"estimated":"guaranteed"} YouTube views</span>`:""}${ded?`<span><b>${int(ded)}</b> estimated dedicated video views</span>`:""}${est?`<span><b>${int(est)}</b> average short-form views</span>`:""}</span>`;
+}
+
+// Never redraw the table under someone typing (Tom, 12 Oct 2026): a save coming back while a
+// number box was open closed the box and saved the half-typed number (22.5 saved as 22).
+// The redraw waits until the box is closed with Enter, Escape or a click elsewhere.
+let renderLater=false;
+const openEdit=()=>document.querySelector("#scroll [data-edit] input:not([data-done])");
+document.addEventListener("focusout",()=>setTimeout(()=>{ if(renderLater&&!openEdit()) render(); },0));
+// Phones (Tom, 14 Oct 2026): below 760px wide every view (brand, Edit list, DFT view) is a
+// column of cards. Each card carries the same controls as the table, so every tick, note,
+// eye and underlined number works the same way and saves the same way.
+const MOBILE_Q=window.matchMedia("(max-width:760px)");
+const isMobile=()=>MOBILE_Q.matches;
+MOBILE_Q.addEventListener("change",()=>{ if(PAYLOAD) render(); });
+const CARD_MAIN=["subs","vg","cpm","rate","fee","total","minVideos","disc","lavg","lvg","lrate","lcpm"];
+const SHOW_KEYS=new Set(["rate","vg","cpm","minVideos","disc","lavg","lvg","lrate","lcpm","status"]);
+function cardVal(c,col,isShow){
+  const ed=isShow?!!(col.edit&&(mode==="team"||listEdit())):!!(col.edit&&!(isDed(c)&&!listEdit()));
+  const inner=fmtCell(c,col,isShow);
+  const cl="cv"+(col.t?" tcol":"")+(ed?" edit":"")+(ed&&listEdit()&&c.custom?" custom":"");
+  const attrs=ed?` data-edit="${col.edit}" data-id="${c.id}"${isShow?' data-show="1"':""}${listEdit()?' data-list="1"':""}`:"";
+  return {inner, ed, html:`<div class="${cl}" data-k="${col.key}"${attrs}>${inner}</div>`};
+}
+const statHtml=(c,col,isShow)=>{ const v=cardVal(c,col,isShow); if(!String(v.inner).trim()&&!v.ed) return ""; return `<div class="cs"><div class="cl">${esc(col.head)}</div>${v.html}</div>`; };
+function cardsFor(list,cols){
+  const get=k=>cols.find(c=>c.key===k);
+  const stage=get("confirmed"), about=get("about"), status=get("status");
+  const main=CARD_MAIN.map(get).filter(Boolean);
+  const skip=new Set(["name","sel","confirmed","about","status"].concat(CARD_MAIN));
+  const more=cols.filter(c=>!skip.has(c.key));
+  const showCols=cols.filter(c=>SHOW_KEYS.has(c.key));
+  return `<div class="cards">${list.map(c=>{
+    const open=openSet.has(c.id), shows=visShows(c);
+    const cls=["card",mode==="team"&&!c.show?"hidden":"",picked.has(c.id)?"picked":""].join(" ");
+    const pick=mode==="team"?`<input type="checkbox" class="pick" data-id="${c.id}" ${picked.has(c.id)?"checked":""} title="Add to a list">`:"";
+    const dn=dispHandle(c), nm=c.url?`<a href="${esc(c.url)}" target="_blank" rel="noopener">${esc(dn)}</a>`:esc(dn);
+    const sub=[c.category,c.location].filter(Boolean).map(esc).join(" · ");
+    const ab=about?String(cellVal(c,about)||""):"";
+    const mrows=more.map(col=>{ const v=cardVal(c,col,false); if(!String(v.inner).replace(/<[^>]*>/g,"").trim()&&!v.ed) return ""; return `<div class="mr"><dt>${esc(col.head)}</dt><dd>${v.html}</dd></div>`; }).join("");
+    const showsHtml=shows.length?`<button class="cshow-t" data-id="${c.id}">${open?"Hide":"See"} ${shows.length} show${shows.length===1?"":"s"}, each with its own price</button>${open?`<div class="cshows">${shows.map(s=>`<div class="sh${(mode==="team"&&!s.show)||(listEdit()&&s.listHidden)?" hidden":""}">${showNameCell(s)}<div class="cgrid">${showCols.map(col=>statHtml(s,col,true)).join("")}</div></div>`).join("")}</div>`:""}`:"";
+    return `<div class="${cls}" data-id="${c.id}">
+      <div class="ch">${pick}${logoHtml(c)}<div class="cn"><div class="h">${nm}</div>${sub?`<span class="cm">${sub}</span>`:""}</div>${eyeBtn(c,false)}</div>
+      ${status?`<div class="cstatus">${fmtCell(c,status,false)}</div>`:""}
+      ${stage?`<div class="cstage">${fmtCell(c,stage,false)}</div>`:""}
+      <div class="cgrid">${main.map(col=>statHtml(c,col,false)).join("")}</div>
+      ${ab?`<div class="cabout clamp" title="Tap to read more">${esc(ab)}</div>`:""}
+      ${mrows?`<details class="cmore"><summary>More details</summary><dl>${mrows}</dl></details>`:""}
+      ${showsHtml}
+    </div>`;
+  }).join("")}${isPitch()?totalsCard(list):""}</div>`;
+}
+function totalsCard(list){
+  const long=kindOf()==="long";
+  const rate=sumBy(list,"rate"), vg=sumBy(list,"vg"), fee=sumBy(list,"fee"), total=sumBy(list,"total");
+  const vids=long?list.reduce((a,c)=>a+(c.minVideos||1),0):list.length;
+  const was=list.reduce((a,c)=>a+(c.wasRate||c.rate||0),0);
+  const it=(l,v)=>`<div class="cs"><div class="cl">${l}</div><div class="cv">${v}</div></div>`;
+  const body=long
+    ?it("Total rate",money(rate))+(vg?it(!estLong()&&activeTab!=="dedicated"?"Guaranteed views":"Estimated views",int(vg)):"")+(vg&&columns().some(c=>c.key==="cpm")?it("CPM",money2(Math.round(rate*100000/vg)/100)):"")+it("Videos",int(vids))
+    :it("Publishing rate",money(rate))+it("Production rate",money(fee))+it("Total rate",money(total))+(vg?it("Average views",int(vg)):"");
+  return `<div class="card ctot"><div class="ctt">Total · ${list.length} creator${list.length===1?"":"s"}</div><div class="cgrid">${body}${was>rate?it("You save",money(was-rate)):""}</div></div>`;
+}
+function render(){
+  if(openEdit()){ renderLater=true; return; }
+  renderLater=false;
+  const cols=columns(), list=currentList();
+  const all=GROUPS.filter(g=>g.id!=="dedicated").reduce((a,g)=>a.concat((PAYLOAD&&PAYLOAD.groups[g.id])||[]),[]);
+  const shown=mode==="team"?all.filter(c=>c.show).length:all.length;
+  $("#count").textContent=mode==="team"
+    ?`${all.length} profiles · ${shown} shown to brands · ${list.length} in view`
+    :(()=>{ const pl=GROUPS.filter(g=>g.id!=="dedicated"&&(PAYLOAD.groups[g.id]||[]).length).map(g=>g.label); const n=all.length+" profile"+(all.length===1?"":"s"); return pl.length===1?`${n} on ${pl[0]}`:pl.length&&pl.length<=3?`${n} across ${pl.slice(0,-1).join(", ")} and ${pl[pl.length-1]}`:`${n} across ${pl.length} platforms`; })();
+  if(isMobile()){
+    $("#scroll").innerHTML=list.length?cardsFor(list,cols):`<div class="state"><div>${query?"No creators match your search.":"No creators on this tab."}</div></div>`;
+    wire(); renderSelbar(); return;
+  }
+  const colgroup=`<colgroup>${cols.map(c=>`<col style="width:${c.w}px">`).join("")}</colgroup>`;
+  const thead=`<thead><tr>${cols.map(c=>{
+    // Select all (Tom, 12 Oct 2026): ticks every creator in view on this tab (after any
+    // search). Creators set to Hide are skipped, as they can never appear on a list.
+    if(c.key==="sel"){ const ids=selectable(list), n=ids.filter(id=>picked.has(id)).length;
+      return `<th class="sel" title="${n&&n===ids.length?"Untick everyone on this tab":"Select all on this tab"}${query.trim()?" (matching the search)":""}"><input type="checkbox" class="pick" id="pickAll" ${ids.length&&n===ids.length?"checked":""} ${ids.length?"":"disabled"} data-some="${n&&n<ids.length?1:""}"></th>`; }
+    const active=c.key===sortKey;
+    const car=""; // no sort arrows (Tom, 6 Oct 2026); the sorted column is shaded instead
+    const drag=!c.t&&c.key!=="name"?` data-drag="1"`:""; // made draggable on grab, so the resize edge stays free
+    const hgrip=drag?`<span class="hgrip" aria-hidden="true">⠿</span>`:"";
+    return `<th class="${c.cls||""}${c.t?" tcol":""}${drag?" movable":""}${active?" sorted":""}" data-key="${c.key}"${drag} title="${c.tip?esc(c.tip)+" ":""}${c.t?"DFT only":"Click to sort"}${drag?" · drag to move":""} · drag the right edge to resize">${hgrip}${esc(c.head)}${car}<span class="rsz" data-k="${c.key}" title="Drag to resize · double-click to reset"></span></th>`;
+  }).join("")}</tr></thead>`;
+  const totalW=cols.reduce((a,c)=>a+c.w,0);
+  $("#scroll").innerHTML=list.length
+    ?`<table class="${mode==="team"?"hasSel":""}" style="width:${totalW}px">${colgroup}${thead}<tbody>${rowsFor(list,cols)}</tbody>${isPitch()?totalsRow(list,cols):""}</table>`
+    :`<div class="state"><div>${query?"No creators match your search.":"No creators on this tab."}</div></div>`;
+  wire();
+  renderSelbar();
+}
+
+function wire(){
+  const sc=$("#scroll");
+  sc.querySelectorAll("tr.chan").forEach(tr=>tr.addEventListener("click",()=>{const id=tr.dataset.id; openSet.has(id)?openSet.delete(id):openSet.add(id); render();}));
+  sc.querySelectorAll("th[data-key]").forEach(th=>th.addEventListener("click",()=>{
+    if(Date.now()-(wireResize.at||0)<300) return; // the mouseup that ended a resize
+    const k=th.dataset.key; if(k===sortKey) sortDir=sortDir==="desc"?"asc":"desc"; else {sortKey=k; sortDir="desc";} render();
+  }));
+  sc.querySelectorAll("td.wide").forEach(td=>{ if(!td.textContent.trim()) return; td.classList.add("clickable"); td.addEventListener("click",e=>{e.stopPropagation();td.classList.toggle("exp");}); });
+  sc.querySelectorAll(".cshow-t").forEach(b=>b.addEventListener("click",()=>{ const id=b.dataset.id; openSet.has(id)?openSet.delete(id):openSet.add(id); render(); }));
+  sc.querySelectorAll(".cabout").forEach(d=>d.addEventListener("click",()=>d.classList.toggle("exp")));
+  wireRowDrag(sc);
+  wireFeedback(sc);
+  wireResize(sc);
+
+  if(mode==="team"){
+    sc.querySelectorAll("input.pick[data-id]").forEach(cb=>cb.addEventListener("change",()=>{ cb.checked?picked.add(cb.dataset.id):picked.delete(cb.dataset.id); render(); }));
+    const pa=sc.querySelector("#pickAll");
+    if(pa){ pa.indeterminate=!!pa.dataset.some;
+      pa.addEventListener("click",e=>e.stopPropagation());
+      pa.addEventListener("change",()=>{ const ids=selectable(currentList()), all=ids.length&&ids.every(id=>picked.has(id));
+        ids.forEach(id=>all?picked.delete(id):picked.add(id)); render();
+        toast(all?"Unticked everyone on this tab":`Selected ${ids.length} on this tab`); }); }
+    sc.querySelectorAll("button.eye").forEach(b=>b.addEventListener("click",()=>{
+      if(baseLocked()){ toast(lockedMsg(),true); return; }
+      const next={"Auto":"Always show","Always show":"Hide","Hide":"List only","List only":"Auto"}[b.dataset.o]||"Auto";
+      const f=findRow(b.dataset.id), who=(f&&f.row.name)||"This creator";
+      changeMain({op:"edit",id:b.dataset.id,show:b.dataset.show==="1",override:next},`${who}: brands see it → ${next}`);
+    }));
+    sc.querySelectorAll(".edit[data-edit]").forEach(td=>td.addEventListener("click",e=>{e.stopPropagation(); startEdit(td);}));
+  } else if(listEdit()){
+    sc.querySelectorAll("button.nt.ro").forEach(bt=>bt.addEventListener("click",e=>{ e.preventDefault(); e.stopPropagation(); const f=findListRow(bt.dataset.id); if(f) fbPopup(bt,f.row,true); }));
+    sc.querySelectorAll("button.leye").forEach(bt=>bt.addEventListener("click",e=>{ e.preventDefault(); e.stopPropagation();
+      const vis=bt.dataset.vis; patchListRow(bt.dataset.id,x=>{ x.listHidden=vis==="hide"?true:undefined; });
+      listSave({op:"list-show",slug:LIST_SLUG,id:bt.dataset.id,vis},vis==="hide"?"Hidden on this list only":"Shown on this list only").catch(()=>{});
+    }));
+    sc.querySelectorAll("button.tri.cr").forEach(bt=>bt.addEventListener("click",e=>{
+      e.stopPropagation(); const f=findListRow(bt.dataset.id); if(!f) return; const r=f.row;
+      const d={"":"yes",yes:"no",no:""}[bt.dataset.s||""], note=(r.cr&&r.cr.note)||"";
+      patchListRow(r.id,x=>{ x.cr=(d||note)?{ok:d==="yes",no:d==="no",note}:undefined; });
+      listSave({op:"creator-response",slug:LIST_SLUG,id:r.id,decision:d,note},d==="yes"?"Creator interested":d==="no"?"Creator declined. Add a note to tell the brand why":"Creator response cleared").catch(()=>{});
+    }));
+    sc.querySelectorAll("button.crn").forEach(bt=>bt.addEventListener("click",e=>{ e.preventDefault(); e.stopPropagation(); const f=findListRow(bt.dataset.id); if(f) crPopup(bt,f.row,true); }));
+    sc.querySelectorAll("button.tri:not(.cr)").forEach(bt=>bt.addEventListener("click",async e=>{
+      e.stopPropagation(); const f=findListRow(bt.dataset.id); if(!f) return; const r=f.row;
+      const d={"":"yes",yes:"no",no:""}[bt.dataset.s||""], note=(r.fb&&r.fb.note)||"";
+      patchListRow(r.id,x=>{ x.fb=(d||note)?{ok:d==="yes",no:d==="no",note}:undefined; });
+      listSave({op:"brand-feedback",slug:LIST_SLUG,id:r.id,decision:d,note},d==="yes"?"Marked as approved by the brand":d==="no"?"Marked as rejected by the brand":"Brand decision cleared").catch(()=>{});
+    }));
+    sc.querySelectorAll(".edit[data-edit]").forEach(td=>td.addEventListener("click",e=>{e.stopPropagation(); startEdit(td);}));
+    sc.querySelectorAll("input.conf").forEach(cb=>cb.addEventListener("change",async()=>{
+      // Approached comes first: ticking Confirmed ticks it too, unticking Approached clears both.
+      const stage=cb.dataset.st==="confirmed"?(cb.checked?"confirmed":"approached"):(cb.checked?"approached":"");
+      patchListRow(cb.dataset.id,x=>{ x.stage=stage; x.confirmed=stage==="confirmed"; });
+      listSave({op:"list-confirm",slug:LIST_SLUG,id:cb.dataset.id,stage},{confirmed:"Confirmed",approached:"Approached","":"Stage cleared"}[stage]).catch(()=>{});
+    }));
+    sc.querySelectorAll("input.dsc").forEach(cb=>cb.addEventListener("change",async()=>{
+      const f=findListRow(cb.dataset.id); if(!f){ render(); return; } const r=f.row;
+      const body={op:"list-price",slug:LIST_SLUG,id:cb.dataset.id,disc:cb.checked,curCpm:r.askCpm||r.cpm,curVg:r.vgPer!=null?r.vgPer:r.vg};
+      patchListRow(cb.dataset.id,x=>{ x.disc=cb.checked||undefined; });
+      listSave(body,cb.checked?"Discount on: now type the lower CPM":"Discount off: CPM put back").catch(()=>{});
+    }));
+  }
+  // Column drag (the orange columns; the blue DFT columns stay first).
+  let dragKey=null;
+  sc.querySelectorAll("th[data-drag]").forEach(th=>{
+    th.addEventListener("mousedown",e=>{ if(!e.target.closest(".rsz")) th.setAttribute("draggable","true"); });
+    th.addEventListener("mouseup",()=>th.removeAttribute("draggable"));
+    th.addEventListener("dragstart",e=>{dragKey=th.dataset.key; th.classList.add("dragging"); try{e.dataTransfer.setData("text/plain",dragKey);}catch(_){}});
+    th.addEventListener("dragend",()=>{th.removeAttribute("draggable"); th.classList.remove("dragging"); sc.querySelectorAll(".drop-l,.drop-r").forEach(x=>x.classList.remove("drop-l","drop-r"));});
+    th.addEventListener("dragover",e=>{ if(!dragKey||th.dataset.key===dragKey) return; e.preventDefault(); const r=th.getBoundingClientRect(); const right=e.clientX-r.left>r.width/2; th.classList.toggle("drop-r",right); th.classList.toggle("drop-l",!right); });
+    th.addEventListener("dragleave",()=>th.classList.remove("drop-l","drop-r"));
+    th.addEventListener("drop",e=>{
+      e.preventDefault(); const target=th.dataset.key; if(!dragKey||target===dragKey) return;
+      const right=e.clientX-th.getBoundingClientRect().left>th.getBoundingClientRect().width/2;
+      const keys=(colOrder&&colOrder.length?colOrder:BRAND_COLS.map(c=>c.key)).map(k=>k==="videos"?"adLength":k);
+      BRAND_COLS.forEach((c,i)=>{ if(keys.includes(c.key)) return; const a=AFTER[c.key]&&keys.includes(AFTER[c.key])?AFTER[c.key]:null; const prev=a?{key:a}:BRAND_COLS.slice(0,i).reverse().find(p=>keys.includes(p.key)); keys.splice(prev?keys.indexOf(prev.key)+1:0,0,c.key); });
+      keys.splice(keys.indexOf(dragKey),1);
+      keys.splice(keys.indexOf(target)+(right?1:0),0,dragKey);
+      colOrder=keys; layoutChanged(); dragKey=null; render();
     });
   });
 }
 
-function renderTabs(){
-  $("#tabs").innerHTML=GROUPS.map(g=>{
-    const n=(DATA[g.id]||[]).length;
-    return `<button class="tab ${g.id===activeTab?"active":""}" data-g="${g.id}">${esc(g.label)}<span class="n">${n}</span></button>`;
-  }).join("");
-  $("#tabs").querySelectorAll(".tab").forEach(b=>b.onclick=()=>{activeTab=b.dataset.g;renderTabs();render();$("#scroll").scrollTop=0;});
+// Excel-style column resize: drag a header's right edge; double-click it to reset.
+function wireResize(sc){
+  const table=sc.querySelector("table"); if(!table) return;
+  const colEls=[...table.querySelectorAll("colgroup col")];
+  const ths=[...table.querySelectorAll("thead th")];
+  sc.querySelectorAll(".rsz").forEach(h=>{
+    h.addEventListener("click",e=>e.stopPropagation());
+    h.addEventListener("dblclick",e=>{ e.stopPropagation(); delete colWidths[h.dataset.k]; layoutChanged(); render(); });
+    h.addEventListener("mousedown",e=>{
+      e.preventDefault(); e.stopPropagation();
+      const th=h.closest("th"), i=ths.indexOf(th), col=colEls[i]; if(!col) return;
+      th.removeAttribute("draggable");
+      const startX=e.clientX, startW=th.getBoundingClientRect().width, startT=table.getBoundingClientRect().width;
+      let w=startW; h.classList.add("on"); document.body.classList.add("resizing");
+      const move=ev=>{ w=Math.max(48,Math.min(1600,Math.round(startW+ev.clientX-startX))); col.style.width=w+"px"; table.style.width=(startT+w-startW)+"px"; };
+      const up=()=>{
+        document.removeEventListener("mousemove",move); document.removeEventListener("mouseup",up);
+        h.classList.remove("on"); document.body.classList.remove("resizing"); 
+        wireResize.at=Date.now();
+        if(Math.abs(w-startW)>=2){ colWidths[h.dataset.k]=w; layoutChanged(); }
+      };
+      document.addEventListener("mousemove",move); document.addEventListener("mouseup",up);
+    });
+  });
 }
-
-async function load(){
-  try{
-    const r = await fetch("/api/roster", { headers:{ "accept":"application/json" } });
-    if(!r.ok) throw new Error("HTTP "+r.status);
-    const groups = await r.json();
-    if(!Array.isArray(groups)) throw new Error("bad payload");
-    DATA = parse(groups);
-    renderTabs(); render();
-  }catch(e){
-    document.querySelector("#scroll").innerHTML = "<div class=\"state\"><div>Could not load the roster right now.</div></div>";
-    document.querySelector("#count").textContent = "Error";
+function layoutChanged(){
+  persistMine();
+  if(mode==="team"){ layoutDirty=true; $("#saveCols").style.display=""; }
+  $("#resetLayout").style.display="";
+}
+// Row drag: grab the ⠿ handle. Dropping clears any header sort and keeps this order.
+function wireRowDrag(sc){
+  let dragId=null;
+  const clear=()=>sc.querySelectorAll(".drop-before,.drop-after").forEach(x=>x.classList.remove("drop-before","drop-after"));
+  sc.querySelectorAll("tr.chan").forEach(tr=>{
+    const grip=tr.querySelector(".grip");
+    if(grip){ grip.addEventListener("mousedown",()=>tr.setAttribute("draggable","true")); grip.addEventListener("click",e=>e.stopPropagation()); }
+    tr.addEventListener("dragstart",e=>{ if(tr.getAttribute("draggable")!=="true") return; dragId=tr.dataset.id; tr.classList.add("dragging"); try{e.dataTransfer.setData("text/plain",dragId);}catch(_){} });
+    tr.addEventListener("dragend",()=>{ tr.setAttribute("draggable","false"); tr.classList.remove("dragging"); clear(); dragId=null; });
+    tr.addEventListener("dragover",e=>{ if(!dragId||tr.dataset.id===dragId) return; e.preventDefault(); const r=tr.getBoundingClientRect(); const after=e.clientY-r.top>r.height/2; tr.classList.toggle("drop-after",after); tr.classList.toggle("drop-before",!after); });
+    tr.addEventListener("dragleave",()=>tr.classList.remove("drop-before","drop-after"));
+    tr.addEventListener("drop",e=>{
+      e.preventDefault(); const target=tr.dataset.id; if(!dragId||target===dragId) return;
+      const r=tr.getBoundingClientRect(), after=e.clientY-r.top>r.height/2;
+      const order=orderedAll().map(c=>c.id);
+      order.splice(order.indexOf(dragId),1);
+      order.splice(order.indexOf(target)+(after?1:0),0,dragId);
+      dragId=null;
+      if(isPitch()){ if(listEdit()) saveListOrder(order); return; }
+      rowOrder[activeTab]=order; sortKey=null; layoutChanged(); render();
+    });
+  });
+}
+// Reordering a saved list (Tom, 10 Oct 2026): the list's own creator order is saved, so the
+// brand link shows it too. Only this tab's creators move; other tabs keep their places.
+async function saveListOrder(order){
+  const l=((TEAM&&TEAM.lists)||[]).find(x=>x.slug===LIST_SLUG);
+  if(!l){ toast("Sign in again to reorder this list",true); return; }
+  const prev=(BRAND.groups[activeTab]||[]).slice(), pos={}; order.forEach((id,i)=>pos[id]=i);
+  BRAND.groups[activeTab]=prev.slice().sort((a,b)=>pos[a.id]-pos[b.id]); sortKey=null; render();
+  // Only this tab's new order is sent; the server applies it to the list as it is now, so
+  // an older open tab can never put back creators that were removed (Tom, 11 Oct 2026).
+  listSave({op:"list-order",slug:LIST_SLUG,ids:order},"Order saved. Brands see the list in this order").catch(()=>{});
+}
+// Brand feedback (Tom, 10 Oct 2026). Approve toggles; Note opens a small box.
+function wireFeedback(sc){
+  if(!isPitch()||listEdit()) return;
+  if(TEAM){ // previewing as the brand: show the controls, save nothing
+    sc.querySelectorAll("button.crn").forEach(bt=>bt.addEventListener("click",e=>{ e.stopPropagation(); const f=findListRow(bt.dataset.id); if(f) crPopup(bt,f.row,false); }));
+    sc.querySelectorAll(".drow:not(.cr) button").forEach(bt=>bt.addEventListener("click",e=>{ e.stopPropagation(); toast("Preview only: the brand ticks here to approve or reject, and adds a note. Nothing was saved."); }));
+    return;
   }
+  sc.querySelectorAll("button.crn").forEach(bt=>bt.addEventListener("click",e=>{ e.stopPropagation(); const f=findListRow(bt.dataset.id); if(f) crPopup(bt,f.row,false); }));
+  sc.querySelectorAll("button.tri:not(.cr)").forEach(bt=>bt.addEventListener("click",async e=>{
+    e.stopPropagation(); const f=findListRow(bt.dataset.id); if(!f) return; const r=f.row;
+    const d={"":"yes",yes:"no",no:""}[bt.dataset.s||""], note=(r.fb&&r.fb.note)||"";
+    patchListRow(r.id,x=>{ x.fb=(d||note)?{ok:d==="yes",no:d==="no",note}:undefined; });
+    listSave({op:"brand-feedback",slug:LIST_SLUG,id:r.id,decision:d,note},d==="yes"?"Approved. Tick again to reject":d==="no"?"Rejected. Add a note to tell us why":"Cleared").catch(()=>{});
+  }));
+  sc.querySelectorAll(".drow:not(.cr) button.nt").forEach(bt=>bt.addEventListener("click",e=>{ e.stopPropagation(); const f=findListRow(bt.dataset.id); if(f) fbPopup(bt,f.row,false); }));
 }
-document.querySelector("#search").addEventListener("input",function(e){query=e.target.value;render();});
-document.querySelector("#resetOrder").addEventListener("click",function(){ delete manualOrder[activeTab]; persistOrder(); render(); });
+function fbPopup(anchor,r,readOnly){
+  let p=$("#fbpop"); if(!p){ p=document.createElement("div"); p.id="fbpop"; document.body.appendChild(p); document.addEventListener("mousedown",ev=>{ const q=$("#fbpop"); if(q&&q.classList.contains("on")&&!q.contains(ev.target)) q.classList.remove("on"); }); }
+  const note=(r.fb&&r.fb.note)||"", who=esc(dispHandle(r));
+  p.innerHTML=readOnly
+    ?`<b>Brand note on ${who}</b><div class="ro">${esc(note)}</div><div class="acts"><button class="btn" data-a="x">Close</button></div>`
+    :`<b>Note on ${who}</b><textarea maxlength="500" placeholder="Why this creator is not right, or anything you want us to know: questions, timing, a different number of videos...">${esc(note)}</textarea><div class="acts">${note?'<button class="btn" data-a="del">Remove</button>':""}<button class="btn" data-a="x">Cancel</button><button class="btn primary" data-a="save">Save note</button></div>`;
+  const rc=anchor.getBoundingClientRect(); p.style.left=Math.max(8,Math.min(window.innerWidth-296,rc.left))+"px"; p.style.top=Math.min(window.innerHeight-220,rc.bottom+6)+"px"; p.classList.add("on");
+  const ta=p.querySelector("textarea"); if(ta){ ta.focus(); ta.setSelectionRange(ta.value.length,ta.value.length); }
+  p.querySelectorAll("button").forEach(bt=>bt.onclick=async()=>{
+    const a=bt.dataset.a; if(a==="x"){ p.classList.remove("on"); return; }
+    const text=a==="del"?"":(ta?ta.value:"");
+    const d=r.fb&&r.fb.ok?"yes":r.fb&&r.fb.no?"no":"";
+    p.classList.remove("on");
+    patchListRow(r.id,x=>{ x.fb=(d||text)?{ok:d==="yes",no:d==="no",note:text}:undefined; });
+    listSave({op:"brand-feedback",slug:LIST_SLUG,id:r.id,decision:d,note:text},text?"Note saved. Our team can see it":"Note removed").catch(()=>{});
+  });
+}
+// The creator's note (Margot, 14 Oct 2026): the team writes it, the brand reads it.
+function crPopup(anchor,r,team){
+  fbPopup(anchor,{fb:{note:""}},true); const p=$("#fbpop"); // reuse the box and its outside-click close
+  const note=(r.cr&&r.cr.note)||"", who=esc(dispHandle(r));
+  p.innerHTML=team
+    ?`<b>Note for the brand from ${who}</b><textarea maxlength="500" placeholder="What the creator said, e.g. they decline because..., or they would love to work with you and already have an idea...">${esc(note)}</textarea><div class="acts">${note?'<button class="btn" data-a="del">Remove</button>':""}<button class="btn" data-a="x">Cancel</button><button class="btn primary" data-a="save">Save note</button></div>`
+    :`<b>From ${who}</b><div class="ro">${esc(note)}</div><div class="acts"><button class="btn" data-a="x">Close</button></div>`;
+  const ta=p.querySelector("textarea"); if(ta){ ta.focus(); ta.setSelectionRange(ta.value.length,ta.value.length); }
+  p.querySelectorAll("button").forEach(bt=>bt.onclick=()=>{
+    const a=bt.dataset.a; p.classList.remove("on"); if(a==="x") return;
+    const text=a==="del"?"":(ta?ta.value.trim():""), d=r.cr&&r.cr.ok?"yes":r.cr&&r.cr.no?"no":"";
+    patchListRow(r.id,x=>{ x.cr=(d||text)?{ok:d==="yes",no:d==="no",note:text}:undefined; });
+    listSave({op:"creator-response",slug:LIST_SLUG,id:r.id,decision:d,note:text},text?"Note saved. The brand sees it on this list":"Note removed").catch(()=>{});
+  });
+}
+function findRow(id){
+  for(const g of GROUPS) for(const c of (TEAM.groups[g.id]||[])){ if(c.id===id) return {row:c,kind:g.kind}; for(const s of (c.shows||[])) if(s.id===id) return {row:s,kind:"long",parent:c}; }
+  return null;
+}
+function findListRow(id){
+  for(const g of GROUPS) for(const c of ((BRAND&&BRAND.groups[g.id])||[])){ if(c.id===id) return {row:c,kind:g.kind}; for(const s of (c.shows||[])) if(s.id===id) return {row:s,kind:"long"}; }
+  return null;
+}
+// Editing a price on a saved list's page: kept on that list only.
+function startListEdit(td){
+  const f=findListRow(td.dataset.id); if(!f) return;
+  const field=td.dataset.edit, r=f.row, isVid=field==="videos";
+  const cur=isVid?(r.minVideos||1):field==="vg"?(r.vgPer!=null?r.vgPer:r.vg):(field==="cpm"&&r.videosSet&&r.askCpm?r.askCpm:r[field]);
+  const hint=isVid?"Number of videos, for this list only. Clear it to go back to the automatic count."
+    :`${field==="vg"?(f.kind==="long"?"Views per video":"Estimated views per post")+", for this list only":"For this list only"}. Clear it to go back to the roster price.`;
+  td.innerHTML=`<input type="number" min="${isVid?1:0}"${isVid?' max="50"':""} step="${field==="cpm"?"0.01":"1"}" value="${cur==null?"":cur}" title="${hint}">`;
+  const inp=td.querySelector("input"); inp.focus(); inp.select();
+  let done=false;
+  const finish=async commit=>{ if(done) return; done=true; inp.dataset.done="1";
+    const raw=inp.value.trim(), v=numv(raw);
+    if(!commit||(raw!==""&&(v==null||v===cur))||(raw===""&&!(isVid?r.videosSet:r.custom))){ render(); return; }
+    if(isVid&&raw!==""&&!(v>=1&&v<=50&&Math.round(v)===v)){ toast("Videos must be a whole number from 1 to 50",true); render(); return; }
+    td.classList.add("saving");
+    const body={op:"list-price",slug:LIST_SLUG,id:td.dataset.id};
+    if(raw===""){ body.clear=true; if(isVid) body.field="videos"; }
+    else if(isVid) body.videos=v;
+    else { body[field]=v; body.curVg=r.vgPer!=null?r.vgPer:r.vg; body.curCpm=r.askCpm||r.cpm; if(f.kind!=="long") body.curFee=r.fee!=null?r.fee:(r.vg>=250000?7500:r.vg>=100000?5000:3000); }
+    // The typed number shows at once; the totals follow when the save comes back.
+    td.textContent=raw===""?"…":field==="cpm"?money2(v):int(v);
+    const note=raw===""||isVid?"":listMinNote(f,r,field,v);
+    // YouTube rows: the new rate and any discount show straight away too (Tom, 12 Oct 2026),
+    // worked out the same way the server does: views x CPM, crossed out against the CPM the
+    // discount started from. The save's answer then confirms it.
+    if(f.kind==="long"&&raw!==""&&!isVid&&!note&&(field==="cpm"||field==="vg")&&r.vg>0){
+      const n=r.minVideos||1, per=field==="vg"?v:(r.vgPer!=null?r.vgPer:r.vg/n), cpm=field==="cpm"?v:(r.askCpm||r.cpm);
+      // On a list there is no $1,500 minimum once the list sets its own CPM (Tom, 12 Oct 2026).
+      const rate=Math.round(per*n*cpm/1000);
+      const from=r.disc?(r.wasRate?r.wasRate*1000/r.vg:(r.askCpm||r.cpm)):null;
+      const was=from?Math.round(per*n*from/1000):0;
+      patchListRow(td.dataset.id,x=>{ x.vg=per*n; x.vgPer=per; x.cpm=cpm; if(x.askCpm!=null) x.askCpm=cpm; x.rate=rate; x.total=rate; x.custom=true;
+        if(was>rate){ x.wasRate=was; x.wasTotal=was; x.discPct=Math.round((1-rate/was)*100); } else { delete x.wasRate; delete x.wasTotal; delete x.discPct; } });
+    }
+    listSave(body,body.clear?(isVid?"Back to the automatic number of videos":"Back to the roster price for this list"):note?"Saved for this list only. "+note:(isVid?"Videos saved for this list only":"Saved for this list only")).catch(()=>{});
+  };
+  inp.addEventListener("keydown",e=>{ if(e.key==="Enter") finish(true); if(e.key==="Escape") finish(false); });
+  inp.addEventListener("blur",()=>finish(true));
+  inp.addEventListener("click",e=>e.stopPropagation());
+}
+// Main rate card safeguards (Tom, 9 Oct 2026): every change to the main rate card is
+// confirmed in a small bar first and can be undone straight after. The API also refuses an
+// edit that does not say it is for the main rate card, so pages opened before this rule
+// cannot change it.
+let cbarDone=null;
+function confirmBar(html,yes,onYes,onNo){
+  // Close any bar still showing first (Tom, 12 Oct 2026): closing it after opening the new one
+  // hid the new bar too, so a second edit made within 10 seconds of the last was never saved.
+  if(cbarDone) cbarDone(false);
+  const bar=$("#cbar"); $("#cbarText").innerHTML=html; $("#cbarYes").textContent=yes; $("#cbarNo").style.display=onNo===null?"none":"";
+  bar.classList.add("on");
+  const close=ok=>{ if(cbarDone!==close) return; cbarDone=null; bar.classList.remove("on"); document.removeEventListener("keydown",key,true); (ok?onYes:(onNo||(()=>{})))(); };
+  const key=e=>{ if(e.key==="Escape"){ e.preventDefault(); close(false); } if(e.key==="Enter"&&!e.target.closest("input")){ e.preventDefault(); close(true); } };
+  cbarDone=close; $("#cbarYes").onclick=()=>close(true); $("#cbarNo").onclick=()=>close(false);
+  setTimeout(()=>document.addEventListener("keydown",key,true),0);
+  return close;
+}
+const fmtNum=(field,v)=>v==null||v===""?"automatic":field==="cpm"?money2(v):field==="videos"?String(v):int(v);
+const FIELD_NAME={videos:"videos",vg:"view guarantee",cpm:"CPM"};
+// YouTube rows under the $1,500 minimum (Tom, 6 Oct 2026) are sold as a bundle at the same
+// CPM, so a typed view guarantee can come back doubled. Say so before it is saved (Margot,
+// 12 Oct 2026: the page "kept changing it to an amount I didn't want").
+function minNote(f,field,v){
+  if(f.kind!=="long"||field==="videos"||!f.row.brand) return "";
+  const br=f.row.brand, vg=field==="vg"?v:(br.vgPer!=null?br.vgPer:br.vg), cpm=field==="cpm"?v:(br.askCpm||br.cpm||25);
+  const per=vg*cpm/1000; if(!(per>0)||per>=1499.5) return "";
+  if(f.row.videosSet) return per*f.row.videosSet>=1499.5?"":`Under the $1,500 minimum for ${f.row.videosSet} videos, so the rate is lifted to $1,500.`;
+  const n=Math.ceil(1500/per-1e-9);
+  if(n>10) return `Under the $1,500 minimum: it would take ${n} videos to get there, so brands will not see this row.`;
+  return `Under the $1,500 minimum at ${money2(cpm)} CPM, so brands will see a ${n}-video bundle: ${int(vg*n)} views for ${money(per*n)}.`;
+}
+// On a saved list a lower CPM or a discount simply lowers the price (no $1,500 minimum), but a
+// view guarantee typed below what $1,500 buys at $25 still becomes a bundle, sized at $25.
+function listMinNote(f,r,field,v){
+  if(f.kind!=="long"||field!=="vg"||r.videosSet) return "";
+  const per=v*25/1000; if(!(per>0)||per>=1499.5) return "";
+  const n=Math.ceil(1500/per-1e-9); if(n>10) return "";
+  const cpm=r.askCpm||r.cpm||25;
+  return `Under $1,500 at $25 CPM, so this is a ${n}-video bundle: ${int(v*n)} views for ${money(v*n*cpm/1000)}.`;
+}
+function changeMain(body,label,note){
+  confirmBar(`<b>${esc(label)}</b>${note?`<span class="cs cwarn">${esc(note)}</span>`:""}<span class="cs">Main rate card. Brands and every list without its own number will see this.</span>`,"Update",
+    ()=>save(Object.assign({scope:"roster"},body)), ()=>render());
+}
+function startEdit(td){
+  if(td.querySelector("input")) return;
+  if(td.dataset.list){ startListEdit(td); return; }
+  const f=findRow(td.dataset.id); if(!f) return;
+  // Views are edited per video (a bundle's guarantee is that x the number of videos).
+  const field=td.dataset.edit, isVid=field==="videos";
+  const cur=!f.row.brand?"":isVid?(f.row.minVideos||1):field==="vg"?(f.row.vgPer!=null?f.row.vgPer:f.row.brand.vg):(f.row.cpm!=null?f.row.cpm:f.row.brand.cpm);
+  td.innerHTML=`<input type="number" min="${isVid?1:0}"${isVid?' max="50"':""} step="${field==="cpm"?"0.01":"1"}" value="${cur==null?"":cur}"${isVid?' title="Number of videos brands are quoted. Clear it to go back to the automatic count."':field==="vg"&&f.row.minVideos>1?` title="Views per video. The bundle guarantee is this x ${f.row.minVideos}."`:""}>`;
+  const inp=td.querySelector("input"); inp.focus(); inp.select();
+  let done=false;
+  const finish=commit=>{ if(done) return; done=true; inp.dataset.done="1";
+    const raw=inp.value.trim(), v=numv(raw);
+    const who=f.row.name||"This row", base={op:"edit",id:td.dataset.id,show:td.dataset.show==="1"};
+    if(isVid&&raw===""){ if(!commit||!f.row.videosSet){ render(); return; } td.classList.add("saving"); changeMain(Object.assign(base,{videos:null}),`${who}: videos ${cur} → automatic`); return; }
+    if(!commit||v==null||v===cur){ render(); return; }
+    if(isVid&&!(v>=1&&v<=50&&Math.round(v)===v)){ toast("Videos must be a whole number from 1 to 50",true); render(); return; }
+    td.classList.add("saving"); td.textContent=fmtNum(field,v); // shows at once; Cancel puts it back
+    changeMain(Object.assign(base,{[field]:v}),`${who}: ${FIELD_NAME[field]} ${fmtNum(field,cur)} → ${fmtNum(field,v)}`,minNote(f,field,v));
+  };
+  inp.addEventListener("keydown",e=>{ if(e.key==="Enter") finish(true); if(e.key==="Escape") finish(false); });
+  inp.addEventListener("blur",()=>finish(true));
+  inp.addEventListener("click",e=>e.stopPropagation());
+}
 
-// CSV export — current tab's channel rows only (shows/sub-items are intentionally excluded to keep it flat).
-function csvEscape(v){ v=(v==null?"":String(v)); return /[",\n\r]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; }
-function currentChannels(){
-  const all=effectiveList(DATA[activeTab]||[]);
-  const q=query.trim().toLowerCase();
-  return q?all.filter(c=>(c.name+" "+c.host+" "+c.category+" "+c.handle+" "+c.location+" "+c.state).toLowerCase().includes(q)):all;
+// Saved-list changes (Tom, 11 Oct 2026): the page changes straight away and the save runs
+// behind it. Saves for a list go one at a time, in the order they were made, so quick
+// clicks can never overtake each other. If a save fails, the list is put back to what
+// monday holds and the reason is shown.
+let listQ=Promise.resolve(), listPending=0;
+function listSave(body,okMsg){
+  listPending++; document.body.classList.add("saving-list");
+  const run=listQ.then(async()=>{
+    try{ const j=await post(body); listPending--; if(!listPending) applyBrand(j); if(okMsg) toast(okMsg); syncTeamList(j); return j; }
+    catch(e){ listPending--; toast("Not saved, so it has been put back: "+e.message,true); try{ await loadBrand(true); }catch(_){ render(); } throw e; }
+    finally{ if(!listPending) document.body.classList.remove("saving-list"); }
+  });
+  listQ=run.catch(()=>{});
+  return run;
 }
-function exportCSV(){
-  const header=COLS.map(c=>c.head==="Creator / Shows"?"Creator":c.head);
-  const rows=currentChannels().map(c=>COLS.map(col=>{
-    if(col.key==="name") return dispName(c.name);
-    const v=c[col.key];
+// Keeps the saved-lists panel and "Add / remove creators" in step with a change made here.
+function syncTeamList(j){
+  const l=TEAM&&TEAM.lists&&j&&j.list&&TEAM.lists.find(x=>x.slug===j.list.slug); if(!l) return;
+  if(Array.isArray(j.list.ids)) l.ids=j.list.ids.slice();
+}
+// Re-shows the list with one row changed locally (the save is already on its way).
+function patchListRow(id,fn){ const f=findListRow(id); if(!f) return; fn(f.row); renderBanner(); render(); }
+async function post(body){
+  const r=await fetch("/api/roster",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(body),credentials:"same-origin"});
+  const j=await r.json().catch(()=>({}));
+  if(!r.ok) throw new Error(j.error||("HTTP "+r.status));
+  return j;
+}
+// The answer carries the updated roster (Tom, 11 Oct 2026), so the page no longer reloads it.
+function applyTeam(t){
+  if(!t) return false;
+  TEAM=t; applyLayout(TEAM); if(mode==="team") PAYLOAD=TEAM; renderBanner(); render();
+  loadBrand(true).catch(()=>{}); // brand preview catches up in the background
+  return true;
+}
+async function save(body){
+  try{
+    const j=await post(body);
+    if(!applyTeam(j&&j.team)) await loadTeam(true);
+    if(j&&j.undo){
+      const close=confirmBar(`<b>Main rate card updated.</b><span class="cs">${body.override?"Visibility: "+esc(body.override):"Holds until the quarter resets."}</span>`,"Undo",async()=>{
+        try{ const u=await post({op:"undo-edit",id:j.undo.id,show:j.undo.show,values:j.undo.values}); if(!applyTeam(u&&u.team)) await loadTeam(true); toast("Change undone"); }
+        catch(e){ toast(e.message,true); }
+      },null);
+      setTimeout(()=>{ if(cbarDone===close){ cbarDone=null; $("#cbar").classList.remove("on"); } },10000);
+    } else toast("Saved");
+  }catch(e){ toast(e.message,true); render(); }
+}
+
+// ---------- lists ----------
+function renderSelbar(){
+  const on=mode==="team"&&picked.size>0;
+  $("#selbar").classList.toggle("on",on);
+  if(!on) return;
+  $("#selCount").textContent=picked.size+" selected"+(editingList?" · editing “"+editingList.title+"”":"");
+  $("#saveList").textContent=editingList?"Update list":"Save list";
+  $("#saveAsNew").style.display=editingList?"":"none";
+  queueTotals();
+}
+// Live package total while choosing creators (Tom, 12 Oct 2026): what the list would cost
+// with the creators ticked right now, at the prices brands would see, and how that compares
+// with the saved list. Worked out by the server so list prices and discounts are included.
+let totTimer=null, totSeq=0, totKey="";
+function queueTotals(){
+  const ids=[]; GROUPS.forEach(g=>((TEAM&&TEAM.groups[g.id])||[]).forEach(c=>{ if(picked.has(c.id)) ids.push(c.id); }));
+  const key=(editingList?editingList.slug:"")+"|"+ids.join(",");
+  if(key===totKey) return; totKey=key;
+  $("#selTotals").classList.add("busy");
+  clearTimeout(totTimer);
+  totTimer=setTimeout(async()=>{
+    const seq=++totSeq;
+    try{
+      const j=await post({op:"list-preview",slug:editingList?editingList.slug:null,ids});
+      if(seq!==totSeq) return;
+      const n=j.now, sv=j.saved, d=sv?n.total-sv.total:0;
+      const views=[n.ytViews?`<span><b>${int(n.ytViews)}</b> ${j.estViews?"estimated":"guaranteed"} YouTube views</span>`:"",n.dedViews?`<span><b>${int(n.dedViews)}</b> estimated dedicated video views</span>`:"",n.shortViews?`<span><b>${int(n.shortViews)}</b> average short-form views</span>`:""].join("");
+      $("#selTotals").innerHTML=`<span>Package total <b>${money(n.total)}</b></span>`
+        +(sv&&d?`<span class="${d>0?"up":"dn"}" title="Compared with the saved list (${money(sv.total)})">${d>0?"+":"−"}${money(Math.abs(d))} vs saved</span>`:sv?`<span title="Same as the saved list">same as saved</span>`:"")
+        +(n.discount>0?`<span>Discount <b>${money(n.discount)}</b></span>`:"")
+        +`<span><b>${n.videos}</b> video${n.videos===1?"":"s"}</span>${views}`
+        +(j.missing>0?`<span title="Set to Hide, or no figures yet, so brands would not see them on the list">${j.missing} not shown to brands</span>`:"");
+    }catch(e){ if(seq===totSeq) $("#selTotals").textContent=""; }
+    finally{ if(seq===totSeq) $("#selTotals").classList.remove("busy"); }
+  },350);
+}
+async function saveList(asNew){
+  const title=$("#listName").value.trim()||(editingList&&editingList.title)||"";
+  if(!title){ toast("Give the list a name first",true); $("#listName").focus(); return; }
+  // Keep the on-screen order: tab by tab, as currently sorted.
+  const ids=[]; GROUPS.forEach(g=>(TEAM.groups[g.id]||[]).forEach(c=>{ if(picked.has(c.id)) ids.push(c.id); }));
+  try{
+    const j=await post({op:"save-list",title,ids,slug:asNew?null:(editingList&&editingList.slug)});
+    try{ await navigator.clipboard.writeText(j.url); }catch(_){}
+    $("#selMsg").innerHTML=`Saved. Link copied: <a href="${esc(j.url)}" target="_blank" style="text-decoration:underline">${esc(j.url.replace(/^https:\/\//,""))}</a>`;
+    editingList={slug:j.slug,title};
+    totKey=""; // the saved list changed, so "vs saved" starts again from it
+    await loadTeam(true);
+  }catch(e){ toast(e.message,true); }
+}
+// "Add / remove creators": load a list's creators as ticks on the main roster.
+function chooseCreatorsFor(l){
+  picked.clear(); l.ids.forEach(id=>picked.add(String(id))); editingList={slug:l.slug,title:l.title};
+  $("#listName").value=l.title; setMode("team"); toast("Loaded “"+l.title+"”. Tick or untick creators, then Update list");
+}
+function renderPanel(){
+  const lists=(TEAM&&TEAM.lists)||[];
+  $("#panel").innerHTML=`<h3>Saved lists</h3>`+(lists.length?lists.map(l=>`<div class="li">
+    <div class="tt">${esc(l.title)}</div>
+    <div class="mm">${l.ids.length} creators · ${esc(l.by||"")}${l.updated?" · updated "+esc(l.updated):""}${l.locked?" · prices locked "+esc(fmtDate(l.locked)):""}</div>
+    <div class="acts">
+      <a class="btn primary" href="/r/${esc(l.slug)}" title="Change this list's videos, views and prices. Nothing else changes.">Open list</a>
+      <button class="btn team" data-a="edit" data-s="${esc(l.slug)}" title="Tick or untick who is on this list">Add / remove creators</button>
+      <button class="btn" data-a="copy" data-s="${esc(l.slug)}">Copy brand link</button>
+      <button class="btn" data-a="del" data-s="${esc(l.slug)}" style="color:var(--hide)">Delete</button>
+    </div></div>`).join("")+`<div class="hint"><b>Open list</b> to change a list's videos and prices (only that list changes).<br><b>Add / remove creators</b> to choose who is on it.</div>`:`<div class="empty">No saved lists yet. Tick creators in the DFT view, name the list and save it.</div>`);
+  $("#panel").querySelectorAll("button[data-a]").forEach(b=>b.addEventListener("click",async()=>{
+    const l=lists.find(x=>x.slug===b.dataset.s); if(!l) return;
+    const url=location.origin+"/r/"+l.slug;
+    if(b.dataset.a==="copy"){ try{await navigator.clipboard.writeText(url); toast("Link copied");}catch(_){ prompt("Copy this link",url); } }
+    if(b.dataset.a==="edit"){ $("#panel").classList.remove("on"); chooseCreatorsFor(l); }
+    if(b.dataset.a==="del"){ if(!confirm("Delete “"+l.title+"”? Its link will stop working. (It is archived on monday and can be restored there.)")) return; try{ await post({op:"delete-list",slug:l.slug}); toast("List deleted"); await loadTeam(true); renderPanel(); }catch(e){ toast(e.message,true); } }
+  }));
+}
+
+// ---------- modes / loading ----------
+// On a saved list's page the team gets three views (Tom, 10 Oct 2026): DFT view (the main
+// rate card, locked), Edit list (this list's numbers, stages and order) and Brand preview,
+// which is always exactly what the brand sees.
+function setMode(m){
+  const onList=!!(LIST_SLUG&&TEAM&&BRAND&&BRAND.list);
+  if(m==="edit"){ mode="brand"; asBrand=false; } else if(m==="brand"){ mode="brand"; asBrand=onList; } else { mode="team"; asBrand=false; }
+  PAYLOAD=mode==="team"?TEAM:BRAND;
+  $("#vEdit").style.display=onList?"":"none";
+  $("#vTeam").classList.toggle("on",mode==="team");
+  $("#vEdit").classList.toggle("on",mode!=="team"&&onList&&!asBrand);
+  $("#vBrand").classList.toggle("on",mode!=="team"&&(asBrand||!onList));
+  renderBanner(); renderTabs(); render();
+}
+// Campaign lock: a list follows the quarter unless it is locked for a campaign.
+function lockButton(){
+  const lk=BRAND&&BRAND.list&&BRAND.list.lock;
+  return lk
+    ?` <button class="btn" id="lockBtn" data-lock="0" title="Go back to updating with each quarter">Locked for this campaign on ${esc(fmtDate(lk.on))} · Unlock</button>`
+    :` <button class="btn" id="lockBtn" data-lock="1" title="Keep these prices past the quarter reset, for this campaign">Lock prices for this campaign</button>`;
+}
+function viewsButton(){
+  const est=!!(BRAND&&BRAND.list&&BRAND.list.estViews);
+  return ` <button class="btn" id="viewsBtn" data-est="${est?0:1}" title="What brands see as the YouTube views heading on this list">${est?"Showing Estimated Views · use View Guarantee":"Showing View Guarantee · use Estimated Views"}</button>`;
+}
+// Accept changes (Tom, 13 Oct 2026): once the brand has answered, take every creator they did
+// not approve (a cross, or no answer) off the list in one go. Approved creators stay. Two
+// clicks, so it never happens by accident, and it never empties a list.
+function acceptButton(){
+  return ` <button class="btn" id="acceptBtn" title="Take every creator the brand has not approved (a cross or no answer) off this list. Approved creators stay.">Accept changes</button>`;
+}
+function notApprovedIds(){
+  const out=[]; GROUPS.forEach(g=>((BRAND&&BRAND.groups[g.id])||[]).forEach(c=>{ if(!(c.fb&&c.fb.ok)) out.push(String(c.id)); }));
+  return out;
+}
+async function acceptChanges(btn){
+  const drop=notApprovedIds(), total=GROUPS.reduce((n,g)=>n+((BRAND&&BRAND.groups[g.id])||[]).length,0);
+  if(!drop.length){ toast("Every creator on this list is approved, so there is nothing to remove"); return; }
+  if(drop.length>=total){ toast("Nobody on this list is approved yet, so nothing was removed",true); return; }
+  if(!btn.classList.contains("confirm")){
+    btn.classList.add("confirm"); btn.style.color="var(--hide)";
+    btn.textContent=`Remove ${drop.length} not approved? Click again`;
+    setTimeout(()=>{ if(btn.isConnected){ btn.classList.remove("confirm"); btn.style.color=""; btn.textContent="Accept changes"; } },5000);
+    return;
+  }
+  try{
+    await listSave({op:"list-remove",slug:LIST_SLUG,ids:drop},`${drop.length} not approved ${drop.length===1?"creator":"creators"} taken off this list`);
+    const l=((TEAM&&TEAM.lists)||[]).find(x=>x.slug===LIST_SLUG);
+    if(l){ const d=new Set(drop); l.ids=l.ids.map(String).filter(id=>!d.has(id)); }
+  }catch(e){}
+}
+const fmtDate=d=>{ const t=new Date(String(d)+"T12:00:00Z"); return isNaN(t)?String(d||""):t.toLocaleDateString("en-US",{day:"numeric",month:"short",year:"numeric"}); };
+async function toggleLock(on){
+  try{ const j=await post({op:"list-lock",slug:LIST_SLUG,lock:on}); applyBrand(j); toast(on?"Prices locked for this campaign":"Unlocked: this list follows the quarterly prices again"); loadTeam(true).catch(()=>{}); }
+  catch(e){ toast(e.message,true); }
+}
+function renderBanner(){
+  const b=$("#banner");
+  if(TEAM&&mode==="team"&&LIST_SLUG&&BRAND&&BRAND.list){
+    b.className="banner warn"; b.style.display="";
+    b.innerHTML=`This is the <b>main rate card</b>, not “${esc(BRAND.list.title)}”. Its numbers are locked here. <button class="bbtn" id="backToList">Back to “${esc(BRAND.list.title)}”</button> <a class="bbtn" href="/">Change the main rate card</a><span class="spacer"></span><a href="/auth/signout" style="text-decoration:underline">Sign out</a>`;
+    $("#backToList").onclick=()=>setMode("edit");
+  } else if(TEAM&&mode==="team"&&editingList){
+    b.className="banner warn"; b.style.display="";
+    b.innerHTML=`<span>Choosing creators for <b>“${esc(editingList.title)}”</b>: tick or untick, then press <b>Update list</b>. Prices are locked while you do this.</span> <a class="bbtn" href="/r/${esc(editingList.slug)}">Change “${esc(editingList.title)}”'s numbers</a> <button class="bbtn" id="doneList">Done</button><span class="spacer"></span><a href="/auth/signout" style="text-decoration:underline">Sign out</a>`;
+    $("#doneList").onclick=()=>{ picked.clear(); editingList=null; $("#listName").value=""; $("#selMsg").textContent=""; renderBanner(); render(); };
+  } else if(TEAM&&asBrand&&BRAND&&BRAND.list&&mode!=="team"){
+    b.className="banner list"; b.style.display="";
+    b.innerHTML=`<b>Brand preview:</b>&nbsp;exactly what the brand sees. Their buttons do not save here.<span class="hint">Tick a creator to approve, tick again to reject. The speech bubble adds a note.</span>${packageSummary()}`;
+  } else if(TEAM){
+    b.className="banner"; b.style.display="";
+    b.innerHTML=`Signed in as <b>${esc(TEAM.email)}</b> · ${mode==="team"
+      ?"<span class=\"longhint\">Blue columns are DFT-only. Click an underlined number to change what brands see, or the eye to show or hide a creator. Drag the ⠿ handles to move rows and columns, or a column's edge to resize it.</span><span class=\"shorthint\">Tap an underlined number to change what brands see, or the eye to show or hide a creator.</span>"
+      :(listEdit()?`<b>“${esc(BRAND.list.title)}” numbers:</b><span class="longhint"> click an underlined number to change videos, views or prices for this list only. The main rate card and other lists stay as they are.</span><span class="shorthint"> tap an underlined number to change it for this list only.</span> <a class="bbtn" href="/?edit=${encodeURIComponent(LIST_SLUG)}">Add / remove creators</a>`+lockButton()+viewsButton()+acceptButton():"Brand preview: exactly what brands see.")}${listEdit()?packageSummary():'<span class="spacer"></span>'}<a href="/auth/signout" style="text-decoration:underline;margin-left:${listEdit()?"14px":"0"}">Sign out</a>`;
+    const lb=$("#lockBtn"); if(lb) lb.onclick=()=>toggleLock(lb.dataset.lock==="1");
+    const ab=$("#acceptBtn"); if(ab) ab.onclick=()=>acceptChanges(ab);
+    const vb=$("#viewsBtn"); if(vb) vb.onclick=async()=>{ const est=vb.dataset.est==="1"; try{ applyBrand(await post({op:"list-label",slug:LIST_SLUG,est})); toast(est?"Brands now see Estimated Views":"Brands now see View Guarantee"); }catch(e){ toast(e.message,true); } };
+  } else if(BRAND&&BRAND.list){
+    b.className="banner list"; b.style.display="";
+    b.innerHTML=`Prepared for you by Digital Fox Talent: <b>${esc(BRAND.list.title)}</b><span class="hint">Tick a creator to approve, tick again to reject. The speech bubble adds a note.</span>${packageSummary()}`;
+  } else b.style.display="none";
+}
+function renderTabs(){
+  const onList=!!(BRAND&&BRAND.list&&mode!=="team");
+  const vis=GROUPS.filter(g=>(PAYLOAD.groups[g.id]||[]).length||!(BRAND&&BRAND.list));
+  if(!vis.find(g=>g.id===activeTab)&&vis.length) activeTab=vis[0].id;
+  // Saved lists (Tom, 6 Oct 2026): platforms with no creators on the list have no tab, and
+  // a list on one platform has no tab bar at all. Signed in, each tab of a list with
+  // several platforms has an x that takes that platform's creators off the list.
+  $("#tabs").style.display=""; // always show the platform tab, even on a one-platform list, so brands know where the posts go (George, 13 Oct 2026)
+  const canRemove=listEdit()&&vis.length>1;
+  $("#tabs").innerHTML=vis.map(g=>`<button class="tab ${g.id===activeTab?"active":""}" data-g="${g.id}"${g.tip?` title="${esc(g.tip)}"`:""}>${esc(g.label)}<span class="n">${(PAYLOAD.groups[g.id]||[]).length}</span>${canRemove?`<span class="x" data-g="${g.id}" title="Take ${esc(g.label)} off this list">&times;</span>`:""}</button>`).join("");
+  $("#tabs").querySelectorAll(".tab").forEach(b=>b.onclick=()=>{activeTab=b.dataset.g; sortKey=null; renderTabs(); render(); $("#scroll").scrollTop=0; if(isMobile()) window.scrollTo(0,0);});
+  $("#tabs").querySelectorAll(".x").forEach(x=>x.onclick=e=>{
+    e.stopPropagation();
+    if(!x.classList.contains("confirm")){ x.classList.add("confirm"); x.textContent="Remove?"; setTimeout(()=>{ if(x.isConnected){ x.classList.remove("confirm"); x.innerHTML="&times;"; } },4000); return; }
+    removeTabFromList(x.dataset.g);
+  });
+}
+async function removeTabFromList(gid){
+  const l=((TEAM&&TEAM.lists)||[]).find(x=>x.slug===LIST_SLUG); if(!l) return;
+  const drop=new Set((BRAND.groups[gid]||[]).map(c=>String(c.id)));
+  const ids=l.ids.map(String).filter(id=>!drop.has(id));
+  if(!ids.length) return;
+  const label=(GROUPS.find(g=>g.id===gid)||{}).label||"That tab";
+  try{
+    await listSave({op:"list-remove",slug:LIST_SLUG,ids:[...drop]});
+    l.ids=ids;
+    toast(label+" taken off this list. Add creators back from the DFT view.");
+  }catch(e){}
+}
+function applyBrand(p){
+  BRAND=p; if(!TEAM) applyLayout(p);
+  $("#subtitle").textContent=p.list&&p.list.lock
+    ?`Prices fixed for this campaign (set ${fmtDate(p.list.lock.on)}) · a selection from our roster`
+    :`Rates valid for ${p.quarter} · ${p.list?"a selection from our roster":"updated once a quarter"} · click the arrow beside a channel to see its specific shows`;
+  if(p.list) $("#title").textContent=p.list.title;
+  if(mode!=="team"){ PAYLOAD=BRAND; renderBanner(); renderTabs(); render(); }
+}
+async function loadBrand(bust){
+  // bust: signed-in team members on a list page fetch past the edge cache, so they get
+  // the copy that marks list-only prices.
+  // Signed in, the main roster is fetched past the edge copy too, so Brand preview always
+  // shows the latest numbers (Tom, 12 Oct 2026).
+  const url=LIST_SLUG?"/api/roster?list="+encodeURIComponent(LIST_SLUG)+(bust?"&t="+Date.now():""):"/api/roster"+(bust?"?t="+Date.now():"");
+  const r=await fetch(url,{headers:{accept:"application/json"}});
+  const j=await r.json().catch(()=>({}));
+  if(!r.ok) throw new Error(j.error||"Could not load the roster right now.");
+  if(bust) loadBrand.busted=true; else if(loadBrand.busted) return; // keep the team copy
+  applyBrand(j);
+}
+async function loadTeam(fresh){
+  const r=await fetch("/api/roster?view=team"+(fresh?"&fresh=1":""),{headers:{accept:"application/json"},credentials:"same-origin",cache:"no-store"});
+  if(r.status===401) return false;
+  if(!r.ok) throw new Error("team view unavailable");
+  const first=!TEAM;
+  TEAM=await r.json();
+  applyLayout(TEAM);
+  $("#teamTools").style.display="inline-flex"; $("#signin").style.display="none";
+  if(first&&!LIST_SLUG) mode="team";
+  if(fresh||(first&&LIST_SLUG)){ try{ await loadBrand(true); }catch(_){} }
+  else if(first) loadBrand(true).catch(()=>{}); // main page: swap the brand copy for the latest, in the background
+  setMode(mode==="brand"&&LIST_SLUG?"edit":mode);
+  return true;
+}
+async function load(){
+  const team=loadTeam(false).catch(()=>false);
+  try{ await loadBrand(); }
+  catch(e){ if(!(await team)){ $("#scroll").innerHTML=`<div class="state"><div>${esc(e.message)}</div></div>`; $("#count").textContent=""; } }
+  const signedIn=await team;
+  if(!signedIn&&!LIST_SLUG) $("#signin").style.display="";
+  const editSlug=new URLSearchParams(location.search).get("edit");
+  if(signedIn&&editSlug&&!LIST_SLUG){ const l=((TEAM&&TEAM.lists)||[]).find(x=>x.slug===editSlug); if(l) chooseCreatorsFor(l); history.replaceState(null,"","/"); }
+  if(/signin=failed/.test(location.search)) toast("Sign-in did not complete. Please try again.",true);
+}
+
+// ---------- toolbar ----------
+$("#search").addEventListener("input",e=>{query=e.target.value; render();});
+$("#vTeam").addEventListener("click",()=>setMode("team"));
+$("#vBrand").addEventListener("click",()=>setMode("brand"));
+$("#vEdit").addEventListener("click",()=>setMode("edit"));
+$("#listsBtn").addEventListener("click",e=>{e.stopPropagation(); renderPanel(); $("#panel").classList.toggle("on");});
+document.addEventListener("click",e=>{ if(!e.target.closest("#panel")&&!e.target.closest("#listsBtn")) $("#panel").classList.remove("on"); });
+$("#saveList").addEventListener("click",()=>saveList(false));
+$("#saveAsNew").addEventListener("click",()=>saveList(true));
+$("#clearSel").addEventListener("click",()=>{picked.clear(); editingList=null; $("#listName").value=""; $("#selMsg").textContent=""; renderBanner(); render();});
+$("#resetLayout").addEventListener("click",()=>{
+  try{ localStorage.removeItem(LAYOUT_KEY); }catch(e){}
+  myLayout=null; layoutDirty=false; sortKey=null; $("#saveCols").style.display="none"; $("#resetLayout").style.display="none";
+  applyLayout((mode==="team"?TEAM:BRAND)||{}); render();
+});
+$("#saveCols").addEventListener("click",async()=>{
+  try{ await post({op:"columns",columns:colOrder||BRAND_COLS.map(c=>c.key),rows:rowOrder,widths:colWidths}); layoutDirty=false; $("#saveCols").style.display="none"; toast("Layout saved for everyone"); }
+  catch(e){ toast(e.message,true); }
+});
+
+function csvEscape(v){ v=(v==null?"":String(v)); return /[",\n\r]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; }
+$("#exportCsv").addEventListener("click",()=>{
+  const cols=columns().filter(c=>c.key!=="sel"&&c.key!=="status");
+  const header=cols.map(c=>c.key==="name"?"Creator (@handle)":c.head.replace(" ✎",""));
+  const rows=currentList().map(c=>cols.map(col=>{
+    if(col.key==="name") return dispHandle(c);
+    const v=cellVal(c,col);
     if(col.fmt==="money"||col.fmt==="int") return v==null?"":Math.round(v);
     return v==null?"":v;
   }));
   const csv=[header,...rows].map(r=>r.map(csvEscape).join(",")).join("\r\n");
   const blob=new Blob(["﻿"+csv],{type:"text/csv;charset=utf-8;"});
-  const url=URL.createObjectURL(blob);
-  const label=((GROUPS.find(g=>g.id===activeTab)||{}).label||"roster").toLowerCase().replace(/[^a-z0-9]+/g,"-");
-  const a=document.createElement("a"); a.href=url; a.download="dft-roster-"+label+".csv";
-  document.body.appendChild(a); a.click(); document.body.removeChild(a);
-  setTimeout(()=>URL.revokeObjectURL(url),1000);
-}
-document.querySelector("#exportCsv").addEventListener("click",exportCSV);
-load();
+  const a=document.createElement("a"); a.href=URL.createObjectURL(blob);
+  a.download="dft-roster-"+((GROUPS.find(g=>g.id===activeTab)||{}).label||"roster").toLowerCase().replace(/[^a-z0-9]+/g,"-")+(mode==="team"?"-dft":"")+".csv";
+  document.body.appendChild(a); a.click(); a.remove();
+});
 
+load();
 </script>

@@ -9,6 +9,14 @@
       "schedule": "0 9 * * *"
     },
     {
+      "path": "/api/social-sync",
+      "schedule": "30 9 * * *"
+    },
+    {
+      "path": "/api/ts-sync",
+      "schedule": "17 * * * *"
+    },
+    {
       "path": "/api/brand-scraper",
       "schedule": "0 8 * * 1"
     },
@@ -35,6 +43,54 @@
     {
       "path": "/api/subplot?path=__health",
       "schedule": "0 11 * * *"
+    },
+    {
+      "path": "/api/roster-warm",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/link-finder",
+      "schedule": "20 7 * * *"
+    },
+    {
+      "path": "/api/link-finder?pass=unmatched",
+      "schedule": "40 7 * * *"
+    },
+    {
+      "path": "/api/link-finder?pass=social",
+      "schedule": "5 8 * * *"
+    },
+    {
+      "path": "/api/link-finder?pass=audit",
+      "schedule": "30 8 * * 1"
+    },
+    {
+      "path": "/api/link-finder?pass=alarm",
+      "schedule": "5 15 * * 1-5"
+    },
+    {
+      "path": "/api/link-finder?pass=watch",
+      "schedule": "15 10 * * *"
+    },
+    {
+      "path": "/api/kit-sync",
+      "schedule": "15 12 * * *"
+    },
+    {
+      "path": "/api/podcast-sync",
+      "schedule": "10 13 * * *"
+    },
+    {
+      "path": "/api/breaks-scan?part=0",
+      "schedule": "0 22 * * *"
+    },
+    {
+      "path": "/api/breaks-scan?part=1",
+      "schedule": "6 22 * * *"
+    },
+    {
+      "path": "/api/breaks-scan?part=2",
+      "schedule": "12 22 * * *"
     }
   ],
   "rewrites": [
@@ -131,6 +187,26 @@
       "destination": "/api/subplot?path=:path*&base=subplot"
     },
     {
+      "source": "/campaigns",
+      "has": [
+        {
+          "type": "host",
+          "value": "roster-viewguarantee.digitalfoxtalent.com"
+        }
+      ],
+      "destination": "/api/reports?r=campaigns"
+    },
+    {
+      "source": "/:path((?!api/|_vercel/).*)",
+      "has": [
+        {
+          "type": "host",
+          "value": "reports.digitalfoxtalent.com"
+        }
+      ],
+      "destination": "/api/reports?r=:path"
+    },
+    {
       "source": "/",
       "destination": "/roster.html",
       "has": [
@@ -149,6 +225,36 @@
           "value": "roster-viewguarantee.digitalfoxtalent.com"
         }
       ]
+    },
+    {
+      "source": "/auth/handoff",
+      "has": [
+        {
+          "type": "host",
+          "value": "roster-viewguarantee.digitalfoxtalent.com"
+        }
+      ],
+      "destination": "/api/roster?op=handoff"
+    },
+    {
+      "source": "/auth/signout",
+      "has": [
+        {
+          "type": "host",
+          "value": "roster-viewguarantee.digitalfoxtalent.com"
+        }
+      ],
+      "destination": "/api/roster?op=signout"
+    },
+    {
+      "source": "/r/:slug",
+      "has": [
+        {
+          "type": "host",
+          "value": "roster-viewguarantee.digitalfoxtalent.com"
+        }
+      ],
+      "destination": "/roster.html"
     },
     {
       "source": "/api/apply",
@@ -170,6 +276,17 @@
       ],
       "destination": "https://subplot.tv/:path*",
       "permanent": true
+    },
+    {
+      "source": "/signin",
+      "has": [
+        {
+          "type": "host",
+          "value": "roster-viewguarantee.digitalfoxtalent.com"
+        }
+      ],
+      "destination": "https://reports.digitalfoxtalent.com/roster-signin",
+      "permanent": false
     }
   ]
 }

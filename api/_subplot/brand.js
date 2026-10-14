@@ -6,12 +6,14 @@
 //   wordie   open. Any YouTuber can apply, proves the channel by OAuth, then passes
 //            automatic checks and a human yes before anything of theirs publishes.
 //
-// The brand is resolved from the request host. A Node serverless instance handles one
-// request at a time, so a module-level "active" brand is safe here; nothing below may hold
-// on to it across an await boundary that could span requests.
+// The brand is resolved from the request host and held per request (see setBrand below), so
+// it stays correct across awaits even when one instance serves several requests at once.
 //
 // RULE: nothing outside this file may hardcode a brand name, a member word, an address or a
 // domain. Use the helpers below. Everything here is per-brand or it is a bug.
+
+import { AsyncLocalStorage } from "node:async_hooks";
+import { monogramSvg, accentToday } from "./wordmark.js";
 
 const SUBPLOT_GOOGLE = "family=Montserrat:wght@600;700;800&family=DM+Mono:wght@400;500&family=Mulish:wght@400;600;700";
 
@@ -20,17 +22,21 @@ export const BRANDS = {
     key: "subplot",
     name: "SUBPLOT",
     domain: "subplot.tv",
+    // Google Search Console ownership token. Public by design - it proves control of the
+    // domain, it is not a credential. Removing it un-verifies the property, so leave it.
+    gsc: "iFwvPvA6WRGimh2Qj8MNDpeAKJ2y4z4FSr3okN9LiJ8",
     tagline: "The story under the story. Breakdowns, theories, reactions, opinions, reviews and lore from the people who actually watch it.",
     memberWord: "SubPlotter",
     signup: "curated",              // approved list in CREATORS, edited by us
     googleAuth: false,              // no Google sign-in, so no Google-data disclosure
     legalUpdated: "3 September 2026",
+    privacyUpdated: "3 October 2026",    // AdSense-required Google cookie and opt-out lines
     audience: "about film, TV, games, comics or anime",
     taking: "We&rsquo;re taking film, TV, games, comics, anime and everything adjacent. Long-form, reactions, breakdowns, lore, interviews.",
     cast: true,                     // the seven characters in cast.js
     accent: null,                   // null = the default palette in css.js
     type: null,                     // null = the default type in css.js
-    favicon: null,                  // null = the cast favicon in cast.js
+    favicon: () => monogramSvg(accentToday()[2]),   // white screen O on a tile in the day's colour (ultramarine on the house day)
     layout: "editorial",            // lead story, wire list, rail
     wordmark: null,                 // null = the plain wordmark in css.js
     assets: "subplot",              // which pair in images.js
@@ -60,6 +66,11 @@ export const BRANDS = {
       anime: "Anime",
       screen: "Screen",
     },
+    // Monthly publishing fee, in USD, off the creator's share (Creator Agreement v3), on both
+    // brands. Tom's ruling, 28 Sep 2026: it covers the production cost of each article, which YouTube does
+    // not carry for a video. Payouts read the fee off the rate card, not from here; this
+    // only drives what the terms say.
+    publishingFee: 50,
   },
   wordie: {
     key: "wordie",
@@ -70,6 +81,7 @@ export const BRANDS = {
     signup: "open",                 // OAuth proves the channel, checks and a human gate it
     googleAuth: true,               // Google sign-in proves channel ownership at signup
     legalUpdated: "4 September 2026",
+    privacyUpdated: "14 October 2026",   // AdSense cookie and opt-out lines, ported from SUBPLOT
     audience: "on any subject",     // open platform: not an entertainment site
     taking: "We&rsquo;re taking channels on any subject - tech, travel, finance, fitness, food, history, gaming, film, whatever you make. If there are words in it, it works.",
     cast: false,                    // typographic, no characters - Tom's call, 4 Sep 2026
@@ -128,6 +140,7 @@ export const BRANDS = {
     // No share card yet. Rather than serve SUBPLOT's - cast, clapperboard and all -
     // Wordie advertises no og:image and 404s /og.png until it has its own.
     assets: null,
+    publishingFee: 50,              // same $50 monthly publishing fee as SUBPLOT (Tom, 28 Sep 2026)
   },
 };
 
@@ -163,38 +176,47 @@ export function brandFor(host = "") {
   return null;
 }
 
-let active = BRANDS.subplot;
-export const setBrand = b => { active = b || BRANDS.subplot; };
-export const brand = () => active;
+// The active brand is held per request, not per module. Wordie and SUBPLOT share one function,
+// and a lambda that serves two requests at once (Vercel fluid compute) would otherwise let one
+// request's setBrand repoint the other mid-await, e.g. half of SUBPLOT's feed reads hitting
+// Wordie's store. enterWith binds the brand to the calling request's async context only.
+// `fallback` covers code that runs outside any request (tests, scripts).
+const als = new AsyncLocalStorage();
+let fallback = BRANDS.subplot;
+const A = () => als.getStore() || fallback;
+export const setBrand = b => { const v = b || BRANDS.subplot; fallback = v; als.enterWith(v); };
+export const brand = () => A();
 
 // The helpers every template should reach for instead of writing a literal.
-export const member = () => active.memberWord;                 // "SubPlotter" / "Wordie"
-export const joinCta = () => `Become a ${active.memberWord}`;
-export const mail = box => `${box}@${active.domain}`;          // hello@ / corrections@
-export const siteUrl = () => `https://${active.domain}`;
-export const hasCast = () => active.cast !== false;
-export const audience = () => active.audience;
-export const taking = () => active.taking;
-export const faviconSvg = () => active.favicon;              // null = fall back to the cast favicon
-export const assetKey = () => active.assets;                 // null = this brand has no card yet
-export const hasShareCard = () => !!active.assets;
-export const layout = () => active.layout || "editorial";
-export const wordmark = () => active.wordmark;              // null = plain single-colour
-export const sections = () => active.sections;              // the site's categories, per brand
-export const feedStore = () => active.feedStore;            // which Apify store this brand reads
-export const approvedHandles = () => active.approvedHandles; // null = use the env-var gate instead
-export const topics = () => active.topics;                  // how this brand files an article
-export const searchHint = () => active.searchHint;
-export const usesGoogleAuth = () => active.googleAuth === true;
-export const legalUpdated = () => active.legalUpdated;
+export const member = () => A().memberWord;                 // "SubPlotter" / "Wordie"
+export const joinCta = () => `Become a ${A().memberWord}`;
+export const mail = box => `${box}@${A().domain}`;          // hello@ / corrections@
+export const siteUrl = () => `https://${A().domain}`;
+export const hasCast = () => A().cast !== false;
+export const audience = () => A().audience;
+export const taking = () => A().taking;
+export const pubFee = () => Number(A().publishingFee || 0);   // monthly publishing fee, USD; 0 = none
+export const faviconSvg = () => typeof A().favicon === "function" ? A().favicon() : A().favicon;  // null = fall back to the cast favicon
+export const assetKey = () => A().assets;                 // null = this brand has no card yet
+export const hasShareCard = () => !!A().assets;
+export const layout = () => A().layout || "editorial";
+export const wordmark = () => A().wordmark;              // null = plain single-colour
+export const sections = () => A().sections;              // the site's categories, per brand
+export const feedStore = () => A().feedStore;            // which Apify store this brand reads
+export const approvedHandles = () => A().approvedHandles; // null = use the env-var gate instead
+export const topics = () => A().topics;                  // how this brand files an article
+export const searchHint = () => A().searchHint;
+export const usesGoogleAuth = () => A().googleAuth === true;
+export const legalUpdated = () => A().legalUpdated;
+export const privacyUpdated = () => A().privacyUpdated || A().legalUpdated;
 
 // Google Fonts URL for whichever type the brand uses.
 export const fontHref = () =>
-  "https://fonts.googleapis.com/css2?" + (active.type?.google || SUBPLOT_GOOGLE) + "&display=swap";
+  "https://fonts.googleapis.com/css2?" + (A().type?.google || SUBPLOT_GOOGLE) + "&display=swap";
 
 // Palette, type and chrome overrides, emitted into the page head for any brand that is not
 // the default. Keep this the ONLY place a brand's look is expressed as CSS.
-export function brandCss(b = active) {
+export function brandCss(b = A()) {
   const out = [];
   const a = b.accent;
   if (a) out.push(`--ink:${a.ink};--blue:${a.tint};--blue-ink:${a.tintInk};--blue-wash:${a.wash};--orange:${a.warm};--tint:var(--blue)`);

@@ -3,8 +3,12 @@
 // Cached per lambda instance for TTL_MS; the CDN caches rendered pages on top.
 
 import { feedStore, sections, topics, approvedHandles, brand } from "./brand.js";
+import { formatOf } from "./formats.js";
 
 const STORE = () => "https://api.apify.com/v2/key-value-stores/" + feedStore();
+// SUBPLOT-only editorial switches below (review set, wrestling block) are gated on this, so
+// porting SUBPLOT's fixes to Wordie cannot quietly empty or reshape Wordie's site.
+const isSubplot = () => brand().key === "subplot";
 const TTL_MS = 5 * 60 * 1000;
 
 // Creators who have agreed to SUBPLOT, from the Article Rights board (monday 18427697857,
@@ -25,7 +29,7 @@ export const CREATORS = [
   { slug: "thekristianharloff", name: "Kristian Harloff",                           handles: ["@thekristianharloff"] },         // Kristian Harloff
   { slug: "chaosgaming", name: "Chaos",                                             handles: ["@chaosgaming"] },                // Chaos
   { slug: "chaostrektv", name: "ChaosTrek",                                         handles: ["@chaostrektv"] },                // ChaosTrek
-  { slug: "wesnemo", name: "WesNemo",                                               handles: ["@wesnemo"] },                    // WesNemo
+  { slug: "wesnemo", name: "WesNemo",                                               handles: ["@wesnemo", "@wesnemotv"] },                    // WesNemo
   { slug: "film_paradise", name: "Film Paradise",                                   handles: ["@film_paradise"] },              // Film Paradise
   { slug: "lorereloaded", name: "Lore Reloaded",                                    handles: ["@lorereloaded"] },               // Lore Reloaded
   { slug: "arealknowitall", name: "Mr. Know-It-All",                                handles: ["@arealknowitall"] },             // Mr. Know-It-All (no articles yet; appears when his feed fills)
@@ -33,6 +37,35 @@ export const CREATORS = [
   { slug: "everythingalways", name: "Everything Always",                            handles: ["@everythingalways"] },           // Everything Always
   { slug: "gique_", name: "GIQUE",                                                  handles: ["@gique_"] },                     // GIQUE (DFT-owned; dormant channel, evergreen back catalogue)
   { slug: "downtoearthkh", name: "Down to Earth with Kristian Harloff",             handles: ["@downtoearthkh"] },              // Down to Earth with Kristian Harloff (MSN-banned, but that is platform-side and does not apply here)
+
+  // Added 7 Sep 2026. All six were already "Approved" on the Article Rights board 18427697857
+  // but missing here, so their creator pages and articles were 404ing on a site they had
+  // agreed to. Every handle below was opened on YouTube and checked against the channel it
+  // actually resolves to - name and subscriber count in the comment - because a well-formed
+  // handle can still be the wrong channel (see the roster's @kristianharloff and Film Paradise
+  // lookalike, both fixed 4 Sep).
+  { slug: "geekdom101", name: "Geekdom101",                                        handles: ["@geekdom101"] },                 // Geekdom101, 784K
+  // REMOVED 25 Sep 2026 (Tom): World of Geekdom cut from article production, articles stay on MSN but not on SUBPLOT. Record kept for the slug.
+  // { slug: "worldofgeekdom", name: "World of Geekdom",                              handles: ["@worldofgeekdom"] },             // World of Geekdom, 80.6K
+  { slug: "geekdom101plus", name: "Geekdom101 Plus",                               handles: ["@geekdom101plus"] },             // Geekdom101 Plus, 3.41K
+  { slug: "danco", name: "DanCo",                                                  handles: ["@danco"] },                      // DanCo, 583K
+  // Better Gaming's HANDLE IS @yu-gg, not @bettergaming - the brand name and the handle differ.
+  // The slug follows the handle, as every other slug here does, so the URL is /a/yu-gg/.
+  { slug: "yu-gg", name: "Better Gaming",                                          handles: ["@yu-gg"] },                      // Better Gaming, 40.8K
+  // A SECOND, SEPARATE Chaos channel - not @chaosgaming and not @chaostrektv. YouTube shows it
+  // as "ChaosGaming" too, which is why it is easy to mistake for the first one. Same payee.
+  { slug: "morechaosgaming", name: "ChaosGaming (second channel)",                 handles: ["@morechaosgaming"] },            // ChaosGaming, 26.7K
+  { slug: "beyondthetrailer", name: "Beyond The Trailer",                        handles: ["@beyondthetrailer"] },             // Beyond The Trailer (Grace Randolph), approved 8 Sep 2026
+  // Approved on the Article Rights board 23 Sep 2026 (row 12870062853, Tom's confirmation).
+  // Handle checked against the videos themselves, not the store: all 91 long-form records in
+  // the heavyspoilers feeds resolve to youtube.com/@heavyspoilers and every one is public.
+  // SUBPLOT rate card row created the same day; payee HeavySpoilers LTD.
+  { slug: "heavyspoilers", name: "Heavy Spoilers",                               handles: ["@heavyspoilers"] },                // Heavy Spoilers (Paul), approved 23 Sep 2026
+  // Approved on the Article Rights board 1 Oct 2026 (row 13189658145). Trey Cooper agreed to
+  // MSN, Spotify Video and Subplot in Google Chat on 21 Sep 2026; Tom approved it 1 Oct.
+  // Handle checked on YouTube: @CommentatorsCurseFGC, channel UCWrdZpY_HEdTnmIpjOm3voQ.
+  // SUBPLOT rate card row 13189706168 created the same day.
+  { slug: "commentatorscursefgc", name: "Commentator's Curse FGC",               handles: ["@commentatorscursefgc"] },         // Commentator's Curse FGC (Trey Cooper), approved 1 Oct 2026
 ];
 
 export const APPROVED_HANDLES = CREATORS.flatMap(c => c.handles);
@@ -111,17 +144,27 @@ async function ytJson(path, key, ids) {
   return r.json();
 }
 
-// Resolves one channel per brand and rewrites each article's handle to the real one.
-// Returns brand -> { handle, av, title }.
+// Resolves one channel per FEED and rewrites each article's handle to the real one.
+// Returns feed key -> { handle, av, title }, where the feed key is the store's creator handle
+// when it has one and the display name otherwise (see feedKey).
+//
+// WHY THE FEED AND NOT THE BRAND, 16 Sep 2026: four different channels publish under the one
+// display name "Chaos" (@chaosgaming, @chaostrektv, @morechaosgaming and @chaoscinemayt). Keyed
+// on the display name, one sample video decided the channel for all 64 of their articles, the
+// other three channels' pieces were rewritten to that handle, and the approved-only filter
+// then dropped the lot: 37 live articles missing from three creators with nothing logged.
+// The store's handle is still not trusted for identity (the video's channel is), it is only
+// the grouping key, so two feeds are never resolved from one another's videos.
+const feedKey = a => (String(a.c || "").startsWith("@") ? a.c : a.b).toLowerCase();
 async function resolveChannels(arts) {
   const out = {};
   const now = Date.now();
-  const sample = new Map();                      // brand -> a video to resolve it from
+  const sample = new Map();                      // feed key -> a video to resolve it from
   for (const a of arts) {
-    const b = a.b.toLowerCase();
+    const b = feedKey(a);
     const hit = chCache.get(b);
-    if (hit && now - hit.at < CH_TTL) { out[a.b] = hit; continue; }
-    if (!sample.has(b) && a.v) sample.set(b, { brand: a.b, v: a.v });
+    if (hit && now - hit.at < CH_TTL) { out[b] = hit; continue; }
+    if (!sample.has(b) && a.v) sample.set(b, { brand: b, v: a.v });
   }
   const key = process.env.YOUTUBE_API_KEY;
   if (key && sample.size) {
@@ -145,12 +188,14 @@ async function resolveChannels(arts) {
         const c = info.get(chByVideo.get(w.v));
         if (!c || !c.handle) continue;
         const rec = { at: Date.now(), handle: c.handle, av: c.av, title: c.title };
-        chCache.set(w.brand.toLowerCase(), rec);
+        chCache.set(w.brand, rec);
         out[w.brand] = rec;
       }
     } catch { /* fall back to whatever the store gave us */ }
   }
-  for (const a of arts) { const c = out[a.b]; if (c) a.c = c.handle; }
+  // Rewrite from the feed's own resolution. The key is taken BEFORE the rewrite, so an
+  // article whose handle the store got wrong still finds the record made for its feed.
+  for (const a of arts) { const c = out[feedKey(a)]; if (c) { a.fk = feedKey(a); a.c = c.handle; } }
   return out;
 }
 
@@ -173,6 +218,33 @@ async function addViews(arts) {
         a.ageDays = Math.max(1, (Date.now() - new Date(a.u || a.p)) / 864e5);
       }
     } catch { /* leave views undefined */ }
+  }
+}
+
+// SHORTS, added 9 Sep 2026. A Short becomes a Snippet: a 20-second read with no cover image,
+// shown in its own section rather than in the wire. The feed only marks some of them by link,
+// so every article that could be one (under the long-form floor, or already flagged) has its
+// duration checked once. Three minutes is YouTube's own ceiling for a Short. Without an API
+// key only the link-flagged ones count, which is safe: an unflagged Short simply stays below
+// the floor as it does today.
+const SHORT_MAX_S = 180;
+const isoSeconds = d => { const m = String(d || "").match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/); return m ? (+m[1] || 0) * 3600 + (+m[2] || 0) * 60 + (+m[3] || 0) : 0; };
+async function addDurations(arts, floor) {
+  const key = process.env.YOUTUBE_API_KEY;
+  if (!key) return;
+  const maybe = arts.filter(a => a.short || a.w < floor);
+  for (let i = 0; i < maybe.length; i += 50) {
+    const batch = maybe.slice(i, i + 50);
+    try {
+      const r = await fetch(`https://www.googleapis.com/youtube/v3/videos?part=contentDetails&id=${batch.map(a => a.v).join(",")}&key=${key}`);
+      if (!r.ok) continue;
+      const j = await r.json();
+      for (const it of j.items || []) {
+        const a = batch.find(x => x.v === it.id); if (!a) continue;
+        a.dur = isoSeconds(it.contentDetails?.duration);
+        if (a.dur > 0 && a.dur <= SHORT_MAX_S) a.short = true;
+      }
+    } catch { /* leave the batch alone */ }
   }
 }
 
@@ -220,10 +292,41 @@ async function fetchJson(url) {
   return r.json();
 }
 
+// FEED READS THAT FAIL, 11 Oct 2026 (Tom approved). Seen live that day: for several minutes the
+// site showed 27 of its 43 articles and every piece from five creators returned 404, then all 43
+// came back. The store still held every article. Likely cause: one read per feed, all ~70 fired at
+// once, and a feed whose read failed was silently dropped until the next cache turn. Now each
+// read is retried (three tries, short backoff), reads run a few at a time instead of all at once,
+// and if a feed still cannot be read this instance keeps serving the last copy it read
+// successfully. A feed only disappears from the site when the store stops listing it.
+const lastGood = new Map();                      // store id + key -> last array read successfully
+// Keyed by STORE() as well as the record key: one warm lambda serves both brands, and a shared
+// key would let one brand's last good copy stand in for the other's.
+async function readFeed(k) {
+  let err;
+  for (let t = 0; t < 3; t++) {
+    try {
+      const v = await fetchJson(STORE() + "/records/" + k);
+      if (!Array.isArray(v)) throw new Error(`not an array for ${k}`);
+      lastGood.set(STORE() + k, v);
+      return v;
+    } catch (e) { err = e; await new Promise(r => setTimeout(r, 300 * (t + 1))); }
+  }
+  if (lastGood.has(STORE() + k)) { console.warn(`SUBPLOT: feed read failed, serving last good copy: ${k}`); return lastGood.get(STORE() + k); }
+  console.error(`SUBPLOT: feed read failed with no earlier copy, feed missing this turn: ${k}`, String(err));
+  throw err;
+}
+async function readAll(keys, width = 8) {
+  const out = new Array(keys.length); let next = 0;
+  const worker = async () => { while (next < keys.length) { const i = next++; try { out[i] = { status: "fulfilled", value: await readFeed(keys[i]) }; } catch (e) { out[i] = { status: "rejected", reason: e }; } } };
+  await Promise.all(Array.from({ length: Math.min(width, keys.length) }, worker));
+  return out;
+}
+
 async function load() {
   const keys = (await fetchJson(STORE() + "/keys?limit=1000")).data.items
     .map(i => i.key).filter(k => k.endsWith("__items"));
-  const results = await Promise.allSettled(keys.map(k => fetchJson(STORE() + "/records/" + k)));
+  const results = await readAll(keys);
   const seen = new Set(); const arts = [];
   results.forEach((res, i) => {
     if (res.status !== "fulfilled" || !Array.isArray(res.value)) return;
@@ -244,6 +347,10 @@ async function load() {
         k: categorise(a.tags, a.headline),
         thumb: `https://i.ytimg.com/vi/${v}/hq720.jpg`,
         thumbSmall: `https://i.ytimg.com/vi/${v}/mqdefault.jpg`,
+        // A Short is a Snippet (see below). The feed link says so for some; the video's
+        // duration settles the rest in addDurations().
+        short: /youtube\.com\/shorts\//i.test(String(a.link || "")),
+        format: a.format || "",
       });
     }
   });
@@ -263,15 +370,109 @@ async function load() {
   const gate = approvedNow();
   if (gate) { const kept = arts.filter(a => gate.includes(a.c)); arts.length = 0; arts.push(...kept); }
 
+  // DISPLAY NAMES, 4 Oct 2026 (Tom). The feed's displayName is wrong on some records: one
+  // Breakdowns & Blockbusters article carries "Breakdownsandblockbusters", and the ChaosTrek feed
+  // shares "Chaos" with Chaos Gaming. Those two creators take their name from CREATORS instead.
+  // Everyone else keeps the feed's name, which is right for them. Runs after resolveChannels, so
+  // feed grouping (feedKey) is untouched.
+  const NAME_FROM_CREATORS = new Set(["breakdownsandblockbusters", "chaostrektv"]);
+  for (const a of arts) {
+    const s = slugFor(a.c);
+    if (!NAME_FROM_CREATORS.has(s)) continue;
+    const rec = CREATORS.find(r => r.slug === s);
+    if (rec && rec.name) a.b = rec.name;
+  }
+
+  // WORD COUNTS AND THE THIN-PAGE FLOOR, both added 8 Sep 2026.
+  // Some store records carry no word_count. Those rendered as "0 words - 1 min read" and were
+  // quietly disqualified from the lead, the secondary slots and the evergreen rail, all of which
+  // test a.w. Count the body ourselves when the number is missing, so an article is judged on
+  // its length rather than on whether the publisher happened to record one.
+  const countWords = html => (String(html || "").replace(/<[^>]*>/g, " ").match(/\S+/g) || []).length;
+
+  // The publisher's own "About this article" block used to be stripped here, which meant Subplot
+  // wrote its own disclosure instead. Since 19 Sep 2026 (Tom) the shared block is kept, so the
+  // wording cannot drift between Subplot and the syndicated copy, and render.js no longer emits a
+  // second one. It is still removed for MEASUREMENT only, so the disclosure cannot inflate a word
+  // count or read time or lift a thin article over MIN_WORDS. The trailing "Watch the original
+  // video" link is dropped because the page already carries its own player section below it.
+  const DISCLOSURE_RE = /(?:<hr\s*\/?>)?\s*<p class="ai-disclosure">[\s\S]*?<\/p>/gi;
+  for (const a of arts) a.body = a.body.replace(/\s*<a\b[^>]*>Watch the original video\.<\/a>/gi, "");
+  // Since 7 Oct 2026 the publisher puts that link in its own paragraph above the note; drop the
+  // paragraph it leaves empty so no bare orange-ruled line shows under the article.
+  for (const a of arts) a.body = a.body.replace(/\s*<p class="ai-disclosure">\s*(?:<em>\s*<\/em>)?\s*<\/p>/gi, "");
+  for (const a of arts) if (!a.w) { a.w = countWords(a.body.replace(DISCLOSURE_RE, "")); a.rt = Math.max(1, Math.round(a.w / 220)); }
+
+  // The floor. A site is judged on its weakest pages, and a 140-word explainer reads as scaled
+  // AI content however honest the disclosure under it is. Articles below MIN_WORDS are simply
+  // not rendered: nothing is deleted, nothing is unpublished in the store, and nothing is
+  // withdrawn from MSN. Lower the number and they are back on the next five minute cache turn.
+  // SUBPLOT_MIN_WORDS overrides it and 0 turns it off. At 400 this holds back 150 of 539
+  // articles and no creator loses all of theirs. Thin pieces are meant to come back by being
+  // rewritten longer, not by dropping the floor.
+  const MIN_WORDS = Number(process.env.SUBPLOT_MIN_WORDS ?? 400);
+  await addDurations(arts, MIN_WORDS);
+  // Snippets are exempt from the long-form floor by definition, but not from having words:
+  // a Short that produced fewer than 25 is a failed generation, not a take.
+  const MIN_SNIPPET_WORDS = 25;
+  if (MIN_WORDS > 0) { const kept = arts.filter(a => a.short ? a.w >= MIN_SNIPPET_WORDS : a.w >= MIN_WORDS); arts.length = 0; arts.push(...kept); }
+  // TOPICS SUBPLOT DOES NOT CARRY, 9 Sep 2026. Wrestling arrives through World of Geekdom's
+  // feed and sits wrong beside the rest of the site (Tom). The articles stay in the store and
+  // on MSN; they are simply not rendered here. A topic block, not a creator block, so the same
+  // creator's Marvel and X-Men pieces are untouched. Matched on headline and tags only.
+  const BLOCKED_TOPICS = /\b(?:wwe|aew|wrestling|wrestlers?|wrestlemania|summerslam|smackdown|royal rumble|kenny omega|will ospreay|cody rhodes|cm punk|brock lesnar|roman reigns|eric bischoff|hulk hogan|seth rollins|tony khan|aew dynamite|all in 2026)\b/i;
+  // SUBPLOT only: Wordie is an any-subject platform with a Sport section, so wrestling belongs there.
+  if (isSubplot()) { const kept = arts.filter(a => !BLOCKED_TOPICS.test(a.h + " " + a.t.join(" "))); arts.length = 0; arts.push(...kept); }
+  for (const a of arts) a.f = formatOf(a);
+  // Snippets live in their own list. They never enter the wire, the threads, the lead or the
+  // evergreen shelf: those are built from `arts` below, which from here on is long-form only.
+  // SNIPPETS OFF FOR THE ADSENSE RE-REVIEW, 3 Oct 2026 (Tom). AdSense rejected the site for
+  // policy violations; Snippet pages are 120-190 words carrying four ad units, the clearest
+  // low-value signal on the site. With SNIPPETS_LIVE false the list is empty, so the front-page
+  // column, the /snippets page, the nav link and the sitemap entries all drop out and Snippet
+  // URLs 404. Nothing is deleted from the store or MSN. To restore, set this back to true.
+  const snippets = SNIPPETS_LIVE ? arts.filter(a => a.short) : [];
+  { const kept = arts.filter(a => !a.short); arts.length = 0; arts.push(...kept); }
+
+  // REVIEW SET FOR THE ADSENSE RE-REVIEW, 3 Oct 2026 (Tom: "Let's do 30"). While REVIEW_SET_ON is
+  // true the site shows ONLY these 30 long-form articles; every other article is held back
+  // exactly like the word floor holds pieces back - nothing is deleted from the store, MSN is
+  // untouched, and their URLs simply 404 until this is switched off. Picked from all 734 live
+  // articles: 1,300+ words, video from March 2026 on, no time-relative wording, editor Checked
+  // OK and approved by Tom on the Review Queue (not auto-approved), no repeat-coverage flag,
+  // video embedded and AI note present. 11 creators. To restore the full site, set false.
+  if (REVIEW_SET_ON && isSubplot()) { const keep = new Set(REVIEW_SET); const kept = arts.filter(a => keep.has(a.id)); arts.length = 0; arts.push(...kept); }
+
+  // CORRECTIONS, 8 Sep 2026. Errors found by auditing every live article, fixed at render rather
+  // than in the store, so the source record is untouched, the change is reversible, and the copy
+  // MSN holds does not move. Keyed on article id, applied to headline, standfirst and body.
+  // ONLY checked proper nouns and plain factual slips belong here, never the creator's argument,
+  // opinion or framing: those go back to the creator. Every entry was read in context first.
+  const CORRECTIONS = {};
+  CORRECTIONS.DKyHeSmlWA8 = [[/Viseris/g, "Viserys"], [/Alison Targaryen/g, "Alysanne Targaryen"]];
+  CORRECTIONS.xGwVPYCrgME = [[/Hugh Howie/g, "Hugh Howey"]];
+  CORRECTIONS["4iBZK-tITss"] = [[/Mark Alaimo/g, "Marc Alaimo"]];
+  CORRECTIONS.sos_1veW_Xw = [[/Gustaf Cannon/g, "Gustav Cannon"]];
+  CORRECTIONS.MxbwK2txcE4 = [[/April Fu\b/g, "April Fools"]];
+  CORRECTIONS["3SMf4bx1Rgc"] = [[/Granola(?!h)/g, "Granolah"]];
+  CORRECTIONS["3deOpyoExa4"] = [[/one-and-one/g, "one and done"]];
+  CORRECTIONS.zyN527oP580 = [[/the core/g, "the Corps"]];
+  // Star Trek: First Contact was written by Brannon Braga and Ronald D. Moore (3 Oct 2026).
+  CORRECTIONS.JOFMVYJFVR4 = [[/Brannon Braga and his co-writer/g, "Brannon Braga and Ronald D. Moore"]];
+  for (const a of arts) for (const [re, to] of CORRECTIONS[a.id] || []) { a.h = a.h.replace(re, to); a.s = a.s.replace(re, to); a.body = a.body.replace(re, to); }
+
   // creators
   const byC = new Map();
   for (const a of arts) {
-    const e = byC.get(a.c) || { handle: a.c, name: a.b, n: 0, latest: a.p };
+    const e = byC.get(a.c) || { handle: a.c, name: a.b, fk: a.fk, n: 0, latest: a.p };
     e.n++; byC.set(a.c, e);
   }
   const panel = [...byC.values()].sort((x, y) => y.n - x.n);
   const av = {};
-  for (const p of panel) { const c = channels[p.name]; p.av = (c && c.av) || ""; if (p.av) av[p.handle] = p.av; }
+  for (const p of panel) { const c = channels[p.fk] || channels[p.name.toLowerCase()]; p.av = (c && c.av) || ""; if (p.av) av[p.handle] = p.av; }
+  // Avatars for creators who appear ONLY in Snippets. The panel above is built from long-form
+  // articles, so a Shorts-only creator would otherwise fall back to initials on their own byline.
+  for (const a of snippets) { if (av[a.c]) continue; const c = channels[a.fk] || channels[a.b.toLowerCase()]; if (c && c.av) av[a.c] = c.av; }
 
   // threads: one subject, several creators — ranked by what's moving now, not by lifetime size
   const RECENT = 21 * 864e5;
@@ -329,7 +530,7 @@ async function load() {
     .slice(0, 5)
     .map(a => a.id);
 
-  return { arts, panel, threads: chosen, subjects, avatars: av, evergreen, removed, loadedAt: new Date().toISOString() };
+  return { arts, snippets, panel, threads: chosen, subjects, avatars: av, evergreen, removed, loadedAt: new Date().toISOString() };
 }
 
 export async function getData() {
@@ -343,3 +544,24 @@ export async function getData() {
     .catch(err => { cache.pending = null; if (cache.data) return cache.data; throw err; });
   return cache.pending;
 }
+
+// See the REVIEW SET note in loadData. true = only these article ids render (43 as at 3 Oct 2026).
+export const REVIEW_SET_ON = true;
+export const REVIEW_SET = [
+  "JOFMVYJFVR4", "dVDVnbpeco4", "jkJfhdqfSrE", "QKEOyUJ5oJQ", "ECdZTmkiN5U", "tmdRhQm4Ask",
+  "N69s8oDSD-E", "ZHMmndWNelQ", "hVHYb8lZKhk", "RcyW0YLDxYU", "1yeVdXjnPMM", "dVpDUQoeM_Q",
+  "gkkljDxvtgE", "KJsvGbE3E1o", "QHXt9HKjQM4", "1IMNyHGtPNY", "-bX68Czfv_Y", "gtyOJoXBlAY",
+  "90Wco6PuQC4", "byyS9TCgbB8", "fPLUODZ_1sI", "m2LbWXdEHBk", "bbHmfxZlzVo", "rdjLDT557yM",
+  "nL1QUuc2kdA", "kyAq4hV3DOU", "ed8YLzWYQTY", "Xd8ArT-MeMM", "JOdLqPumrL0", "2N30ikVRPjQ",
+  // Added 3 Oct 2026 (Tom: go to 50 if they pass; 13 more passed the same checks).
+  "gy673tq6CR4", "0Iz3a1Jd1Ok", "N_iOHF2a2K8", "_VdSv4t-S-Q", "c9hqOnFYpBQ", "rztW3ozx-_k",
+  "nsrUPTJ-XEg", "tPuQhyOkyuU", "8tiGf8QMOwU", "_ahRLcUA7z0", "X5psFyTuA1s", "w2EwJGZNOMY",
+  "REqdcJvHgUA",
+];
+
+// See the SNIPPETS OFF note in loadData. false = Snippets hidden site-wide.
+export const SNIPPETS_LIVE = false;
+
+// An article by id, long-form or Snippet. Routes and sitemaps use this rather than reaching
+// into data.arts, so a Snippet's URL resolves like any other article's.
+export const findArt = (data, id) => data.arts.find(a => a.id === id) || (data.snippets || []).find(a => a.id === id) || null;

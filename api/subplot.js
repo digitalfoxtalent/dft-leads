@@ -1,17 +1,19 @@
 // SUBPLOT — server-rendered site. Routed here by vercel.json for the SUBPLOT
 // host (and, for preview, the /subplot path on the roster host).
-// Private preview: every response is noindex/nofollow and robots.txt disallows all.
+// Private preview: every response is noindex, and robots.txt lets Google crawl but nobody else.
 // Optional gate: set SUBPLOT_PASS in Vercel env to require a password (user "subplot").
-import { getData, cats } from "./_subplot/data.js";
-import { brandFor, setBrand, BRANDS } from "./_subplot/brand.js";
+import { getData, cats, findArt, SNIPPETS_LIVE } from "./_subplot/data.js";
+import { brandFor, setBrand, BRANDS, siteUrl, brand } from "./_subplot/brand.js";
 import { runHealth } from "./_subplot/health.js";
+import { smartnewsFeed, SN_LOGO, SN_LOGO_DARK } from "./_subplot/smartnews.js";
 import { setDesign } from "./_subplot/design.js";
 import { listMonths, readMonth } from "./_subplot/archive.js";
-import { homePage, articlePage, creatorPage, joinPage, aboutPage, threadPage, rssFeed, notFound, legalPage, artPath, revenuePage } from "./_subplot/render.js";
+import { homePage, articlePage, snippetsPage, creatorPage, joinPage, aboutPage, threadPage, rssFeed, notFound, legalPage, artPath, revenuePage, sitemap } from "./_subplot/render.js";
 import { CAST } from "./_subplot/cast.js";
 import { faviconSvg, assetKey } from "./_subplot/brand.js";
 import { adsTxt } from "./_subplot/ads.js";
 import { OG_PNG, APPLE_PNG } from "./_subplot/images.js";
+import { isCron } from "./_reports/cron.js";
 // Share-card assets per brand. A brand with no entry here serves no og.png and no touch icon
 // - better than serving another brand's. Wordie joins this map when it has artwork of its own.
 const OG = { subplot: OG_PNG };
@@ -20,6 +22,19 @@ const TOUCH = { subplot: APPLE_PNG };
 // Valid /s/<section> routes come from whichever brand is answering, not a fixed list.
 const isSection = k => Object.prototype.hasOwnProperty.call(cats(), k);
 
+// Canonical tag (Tom, 10 Oct 2026): every page names its own subplot.tv address as the original, so
+// once the site is indexable Google treats SUBPLOT's copy as the original rather than the copies of
+// the same articles on MSN. Always the public domain, never the /subplot preview path, and without
+// preview-only query strings (?d=). Paged front and section pages keep their page number, as Google
+// asks for paginated series. Harmless while the site is noindex.
+export function withCanonical(html, path, pg = 1) {
+  if (typeof html !== "string" || /<link[^>]+rel="canonical"/i.test(html) || !html.includes("</head>")) return html;
+  const paged = (path === "/" || path.startsWith("/s/")) && pg > 1 ? "?p=" + pg : "";
+  const href = siteUrl() + (path === "/" ? "/" : path) + paged;
+  const safe = href.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+  return html.replace("</head>", `<link rel="canonical" href="${safe}">\n</head>`);
+}
+
 function unauthorised(res) {
   res.setHeader("WWW-Authenticate", 'Basic realm="SUBPLOT preview"');
   res.setHeader("Cache-Control", "no-store");
@@ -27,7 +42,11 @@ function unauthorised(res) {
 }
 
 export default async function handler(req, res) {
-  res.setHeader("X-Robots-Tag", "noindex, nofollow, noarchive, nosnippet");
+  // NOINDEX keeps SUBPLOT out of search results and is the only part that matters for that.
+  // NOFOLLOW was dropped 6 Sep 2026: it tells a crawler not to follow links out of the page,
+  // which would leave an AdSense reviewer looking at the home page and nothing else. Under
+  // noindex nothing gets indexed however far it crawls, so following links costs nothing.
+  res.setHeader("X-Robots-Tag", "noindex, noarchive, nosnippet");
 
   // Which publication is this? Resolved from the host before anything renders. brandFor
   // returns null for a host this project does not publish on, and that is NOT the same as
@@ -49,15 +68,27 @@ export default async function handler(req, res) {
   const path = "/" + String(req.query.path || "").replace(/^\/+|\/+$/g, "");
   const base = req.query.base === "subplot" ? "/subplot" : "";
 
+  // OPEN TO SEARCH, 11 Oct 2026 (Tom's go-ahead, with the AdSense review set only). SUBPLOT on its
+  // own domain drops the noindex header set above; everything else keeps it: Wordie (not part of
+  // this go-ahead), the /subplot preview path on the roster host (a duplicate of the real site),
+  // and the password-protected /revenue page. robots.txt is deliberately unchanged. The 400-word
+  // floor and REVIEW_SET_ON in data.js still decide which articles exist, so the held-back
+  // backlog stays 404 and out of the sitemap until AdSense approves. To close the site again,
+  // delete this block (and restore the meta tag condition in render.js shell()).
+  if (brand().key === "subplot" && !base && path !== "/revenue") res.removeHeader("X-Robots-Tag");
+
   // Design preview. ?d=2 switches on the new look, ?d=1 switches it off, and the choice is
   // remembered in a cookie so links keep it while you click around. Nobody who has not asked
   // for it ever sees it, and the page is identical to production without the flag.
+  // Since 9 Sep 2026 design 3 is what everyone sees. ?d=1 or ?d=2 shows the older looks and
+  // remembers the choice in a cookie; ?d=3 clears it.
   const dq = String(req.query.d || "");
-  if (dq === "1" || dq === "2") {
-    res.setHeader("Set-Cookie", `subplot_design=${dq}; Path=/; Max-Age=${dq === "2" ? 604800 : 0}; SameSite=Lax`);
+  if (dq === "1" || dq === "2" || dq === "3") {
+    res.setHeader("Set-Cookie", `subplot_design=${dq}; Path=/; Max-Age=${dq === "3" ? 0 : 604800}; SameSite=Lax`);
   }
-  const cookieDesign = /(?:^|;\s*)subplot_design=2\b/.test(req.headers.cookie || "") ? 2 : 1;
-  const activeDesign = dq === "2" ? 2 : dq === "1" ? 1 : cookieDesign;
+  const cm = (req.headers.cookie || "").match(/(?:^|;\s*)subplot_design=([12])\b/);
+  const cookieDesign = cm ? Number(cm[1]) : 3;
+  const activeDesign = dq === "1" || dq === "2" ? Number(dq) : dq === "3" ? 3 : cookieDesign;
   setDesign(activeDesign);
 
   // Daily health check, run by cron as /api/subplot?path=__health. Not a page: it is refused
@@ -65,9 +96,10 @@ export default async function handler(req, res) {
   // from the public site path because the host rewrite strips nothing else onto this route.
   if (path === "/__health") {
     const secret = process.env.CRON_SECRET;
-    const fromCron = req.headers["x-vercel-cron"] || (secret && req.headers.authorization === "Bearer " + secret);
-    // Fails closed: with no CRON_SECRET set there is no way to authorise, so the route does
-    // not exist. (An earlier version compared undefined to undefined and let anyone through.)
+    const fromCron = isCron(req);
+    // The scheduler is recognised by _reports/cron.js (its vercel-cron user agent). A manual call needs
+    // ?key=CRON_SECRET, and fails closed when no CRON_SECRET is set. (An earlier version compared
+    // undefined to undefined and let anyone through.)
     if (!fromCron && !(secret && req.query.key === secret)) return res.status(404).send("Not found");
     res.setHeader("Cache-Control", "no-store");
     return runHealth(req, res);
@@ -107,8 +139,9 @@ export default async function handler(req, res) {
     }
   }
 
-  if (path === "/favicon.svg") { res.setHeader("Content-Type", "image/svg+xml"); res.setHeader("Cache-Control", "public, max-age=86400"); return res.status(200).send(faviconSvg() || CAST.favicon); }
+  if (path === "/favicon.svg") { res.setHeader("Content-Type", "image/svg+xml"); res.setHeader("Cache-Control", "public, max-age=3600"); return res.status(200).send(faviconSvg() || CAST.favicon); }
   if (path === "/apple-touch-icon.png") { res.setHeader("Content-Type", "image/png"); res.setHeader("Cache-Control", "public, max-age=86400"); const b = TOUCH[assetKey()]; if (!b) return res.status(404).end(); return res.status(200).send(Buffer.from(b, "base64")); }
+  if (brand().key === "subplot" && (path === "/smartnews-logo.png" || path === "/smartnews-logo-dark.png")) { res.setHeader("Content-Type", "image/png"); res.setHeader("Cache-Control", "public, max-age=86400"); return res.status(200).send(Buffer.from(path.includes("dark") ? SN_LOGO_DARK : SN_LOGO, "base64")); }
   if (path === "/og.png") { res.setHeader("Content-Type", "image/png"); res.setHeader("Cache-Control", "public, max-age=86400"); const b = OG[assetKey()]; if (!b) return res.status(404).end(); return res.status(200).send(Buffer.from(b, "base64")); }
   if (path === "/ads.txt") {
     res.setHeader("Content-Type", "text/plain");
@@ -120,16 +153,46 @@ export default async function handler(req, res) {
   if (path === "/robots.txt") {
     res.setHeader("Content-Type", "text/plain");
     res.setHeader("Cache-Control", "public, max-age=3600");
-    // Private preview: block indexing crawlers, but let Google's AD crawlers through.
-    // Mediapartners-Google reads pages so ads can be matched; AdsBot-Google and Google-Adstxt
-    // fetch /ads.txt, and blocking them makes AdSense report ads.txt as "Not found" - which
-    // caps what buyers will pay for the inventory. /ads.txt is allowed to everyone: it is a
-    // public declaration by design and carries nothing private.
+    // CRAWLABLE BY GOOGLE, STILL NOT INDEXED. These are different things and the distinction
+    // is the whole point of this block.
+    //
+    // Every page also sends X-Robots-Tag "noindex, noarchive, nosnippet" (see above),
+    // and that is what keeps SUBPLOT out of search results. robots.txt only decides who may
+    // FETCH a page. Until 6 Sep 2026 this file said "User-agent: * / Disallow: /" with
+    // exceptions only for the ad crawlers, so Googlebot itself could not read a single page -
+    // and an AdSense site review that cannot read the site cannot pass it. The review sat at
+    // "Getting ready" for three days with the site's "last updated" stamp frozen, which is
+    // what prompted the change.
+    //
+    // So: Google's crawlers may fetch everything, and the noindex header still keeps every
+    // page out of Search. Everyone else stays blocked, because opening the review is the
+    // only thing this is meant to achieve - it is not a launch.
+    //
+    // WHEN THE SITE ACTUALLY LAUNCHES the change is to DROP the noindex header, not to touch
+    // this file. If you find yourself adding indexers here while the header still says
+    // noindex, you are solving the wrong half.
+    //
+    // /ads.txt stays open to everyone: it is a public declaration by design and carries
+    // nothing private. Blocking Google-Adstxt is what made AdSense report it as "Not found",
+    // which caps what buyers pay for the inventory.
+    const googleAgents = [
+      "Googlebot",              // the site reviewer and general crawler
+      "Googlebot-Image",        // thumbnails
+      "Google-InspectionTool",  // Search Console / review tooling
+      "Mediapartners-Google",   // reads pages so ads can be matched
+      "AdsBot-Google",          // ad landing-page quality
+      "AdsBot-Google-Mobile",
+      "Google-Adstxt",          // fetches /ads.txt
+    ];
+    // BING, 12 Oct 2026 (Tom: "Turn both of these on"). Bingbot is let in on subplot.tv itself so
+    // the site can be submitted in Bing Webmaster Tools. Not on Wordie or the /subplot preview path.
+    const bingAgents = brand().key === "subplot" && !base ? ["Bingbot"] : [];
     return res.status(200).send([
-      "User-agent: Mediapartners-Google", "Allow: /", "",
-      "User-agent: AdsBot-Google", "Allow: /", "",
-      "User-agent: Google-Adstxt", "Allow: /", "",
+      ...[...googleAgents, ...bingAgents].flatMap(a => ["User-agent: " + a, "Allow: /", ""]),
       "User-agent: *", "Allow: /ads.txt", "Disallow: /", "",
+      // Absolute by spec, and it names the sitemap even to crawlers that never see
+      // Search Console. This is the line that says "the site is here".
+      "Sitemap: " + siteUrl() + base + "/sitemap.xml", "",
     ].join("\n"));
   }
 
@@ -140,9 +203,16 @@ export default async function handler(req, res) {
     return res.status(502).send("The article feed isn't reachable right now: " + e.message);
   }
 
+  if (path === "/sitemap.xml") {
+    res.setHeader("Content-Type", "application/xml; charset=utf-8");
+    res.setHeader("Cache-Control", "public, s-maxage=3600");
+    return res.status(200).send(sitemap(data, base));
+  }
+  // SmartNews (7 Oct 2026): SmartFormat 2.2 feed plus its two 700 x 100 logos. See smartnews.js.
+  if (path === "/smartnews.xml" && brand().key === "subplot") { res.setHeader("Content-Type", "application/rss+xml; charset=utf-8"); res.setHeader("Cache-Control", "public, s-maxage=600"); return res.status(200).send(smartnewsFeed(data, base)); }
   if (path === "/feed.xml") { res.setHeader("Content-Type", "application/rss+xml; charset=utf-8"); res.setHeader("Cache-Control", "public, s-maxage=600"); return res.status(200).send(rssFeed(data, base)); }
   res.setHeader("Content-Type", "text/html; charset=utf-8");
-  res.setHeader("Cache-Control", pass || activeDesign === 2 ? "private, no-store" : "public, s-maxage=300, stale-while-revalidate=3600");
+  res.setHeader("Cache-Control", pass || activeDesign !== 3 ? "private, no-store" : "public, s-maxage=300, stale-while-revalidate=3600");
 
   let html = null; let status = 200;
   const pg = Math.max(1, parseInt(req.query.p, 10) || 1);
@@ -153,7 +223,7 @@ export default async function handler(req, res) {
     // /a/<handle>/<videoId> is canonical; the old /a/<videoId> form 301s to it, as does a
     // stale handle, so an article's earnings only ever accrue under one URL channel.
     const seg = path.slice(3).split("/");
-    const a = data.arts.find(x => x.id === seg[seg.length - 1]);
+    const a = findArt(data, seg[seg.length - 1]);
     if (!a) html = null;
     else {
       const want = base + artPath(a);
@@ -161,11 +231,13 @@ export default async function handler(req, res) {
       else { res.setHeader("Location", want); return res.status(301).end(); }
     }
   }
+  else if (path === "/snippets") html = SNIPPETS_LIVE ? snippetsPage(data, base) : null;
   else if (path.startsWith("/c/")) html = creatorPage(decodeURIComponent(path.slice(3)), data, base);
   else if (path.startsWith("/t/")) html = threadPage(path.slice(3), data, base);
   else if (path === "/join") html = joinPage(data, base);
   else if (path === "/about") html = aboutPage(data, base);
   else if (["/contact", "/privacy", "/terms", "/creators"].includes(path)) html = legalPage(path.slice(1), data, base);
   if (!html) { html = notFound(base); status = 404; res.setHeader("Cache-Control", "no-store"); }
+  else html = withCanonical(html, path, pg);
   return res.status(status).send(html);
 }

@@ -36,7 +36,7 @@ export default async function handler(req, res) {
     [COL.size]: String(b.size || "").slice(0, 40),
     // Where the application came from, so the rail promo variants can be compared on the
     // number that actually matters: applications, not clicks.
-    [COL.terms]: "60/40 to the creator · non-exclusive · no fees · payout from $50 · licence granted on application (v2, Sep 2026) · source: "
+    [COL.terms]: "60/40 to the creator · $50 monthly publishing fee off the creator share, floored at zero · non-exclusive · payout from $50 · licence granted on application (v3, 28 Sep 2026) · source: "
       + (String(b.source || "direct").replace(/[^\w-]/g, "").slice(0, 40) || "direct"),
     [COL.submitted]: { date: new Date().toISOString().slice(0, 10) },
     [COL.status]: { label: "New" },

@@ -90,6 +90,7 @@ export function parseVideoIds(text) {
       if (m) { found = m[1]; break; }
     }
     if (found) { if (!ids.includes(found)) ids.push(found); }
+    else if (/(tiktok\.com|instagram\.com)\//i.test(entry)) continue; // TikTok / Instagram posts are counted by the social sync (TIKTOK VIEWS, INSTAGRAM VIEWS), not here
     else unparsed++;
   }
   return { ids, unparsed };
@@ -113,6 +114,7 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: "Missing env vars (YOUTUBE_API_KEY / MONDAY_API_KEY)" });
   }
   const dryRun = String((req.query && req.query.dryRun) || "") === "1";
+  const t0 = Date.now();
 
   try {
     // 1. Page the board.
@@ -201,24 +203,33 @@ export default async function handler(req, res) {
       return res.json({ ...summary, updated: 0, changes: toWrite, unresolved, regressions, malformed });
     }
 
-    // 5. Write.
+    // 5. Write. monday takes about 0.7 s per row whether rows go one per request or batched, so
+    // one row after another hit the 300 s limit once ~450 rows changed in a day and the rows near
+    // the end of the board were never updated (27 Sep 2026). Now 10 rows per request, 5 requests
+    // at a time.
     let updated = 0; const failures = [];
-    for (const w of toWrite) {
-      const vals = { [COL_VIEWS]: w.views, [COL_LATEST]: w.views };
-      if (w.cpm !== null) vals[COL_CPM] = w.cpm;
+    const one = w => { const vals = { [COL_VIEWS]: w.views, [COL_LATEST]: w.views }; if (w.cpm !== null) vals[COL_CPM] = w.cpm; return vals; };
+    const writeBatch = async batch => {
+      const body = batch.map((w, k) => "m" + k + ":change_multiple_column_values(board_id:" + BOARD + ",item_id:" + w.itemId + ",column_values:" + JSON.stringify(JSON.stringify(one(w))) + "){id}").join(" ");
       try {
-        const d = await mondayQuery(MONDAY_API_KEY,
-          "mutation{change_multiple_column_values(board_id:" + BOARD + ",item_id:" + w.itemId +
-          ",column_values:" + JSON.stringify(JSON.stringify(vals)) + "){id}}");
-        if (d && d.data && d.data.change_multiple_column_values) updated++;
-        else failures.push({ itemId: w.itemId, name: w.name, error: "no confirmation returned" });
+        const d = await mondayQuery(MONDAY_API_KEY, "mutation{" + body + "}");
+        batch.forEach((w, k) => { if (d && d.data && d.data["m" + k]) updated++; else failures.push({ itemId: w.itemId, name: w.name, error: "no confirmation returned" }); });
       } catch (e) {
-        failures.push({ itemId: w.itemId, name: w.name, error: String((e && e.message) || e) });
+        // One bad row fails the whole request: retry that batch row by row so the others still land.
+        for (const w of batch) {
+          try {
+            const d = await mondayQuery(MONDAY_API_KEY, "mutation{change_multiple_column_values(board_id:" + BOARD + ",item_id:" + w.itemId + ",column_values:" + JSON.stringify(JSON.stringify(one(w))) + "){id}}");
+            if (d && d.data && d.data.change_multiple_column_values) updated++;
+            else failures.push({ itemId: w.itemId, name: w.name, error: "no confirmation returned" });
+          } catch (e2) { failures.push({ itemId: w.itemId, name: w.name, error: String((e2 && e2.message) || e2) }); }
+        }
       }
-      await new Promise(r => setTimeout(r, 100));
-    }
+    };
+    const batches = []; for (let i = 0; i < toWrite.length; i += 10) batches.push(toWrite.slice(i, i + 10));
+    let next = 0;
+    await Promise.all(Array.from({ length: 5 }, async () => { while (next < batches.length) await writeBatch(batches[next++]); }));
 
-    return res.json({ ...summary, updated, failures, changes: toWrite, unresolved, regressions, malformed });
+    return res.json({ ...summary, updated, failures, ms: Date.now() - t0, changes: toWrite, unresolved, regressions, malformed });
   } catch (e) {
     return res.status(500).json({ error: String((e && e.message) || e) });
   }
