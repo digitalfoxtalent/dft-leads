@@ -1443,9 +1443,32 @@ async function pitchFromEmail(b) {
     const onlyAsk = /\b(only|just) (these|those|the ones|them)\b/i.test(f.note || "");
     const shortOnly = out.stage === "shortlist" && !expandAsk && (onlyAsk || out.closing === true), expanded = out.stage === "shortlist" && !shortOnly;
     if (shortOnly) { const keep = ids.filter(id => nameOf(id) || namedIds.has(id)); if (keep.length) ids.splice(0, ids.length, ...keep); }
+    // Same campaign, same list (Tom, 14 Oct 2026, Dawn Gods): a later enquiry for a product DFT has
+    // already pitched gets the list made for it, with any changes the team made since, unless the
+    // email asks for something that list does not have: a creator it names who is not on it, a
+    // format it has no tab for, a creator the note leaves out, a market limit, an AI brief, or a
+    // note asking to widen it or start a new list.
+    const ckey = s => String(s || "").replace(/\s*\(.*$/, "").toLowerCase().replace(/\b(the|of|a|an|and)\b/g, " ").replace(/[^a-z0-9]/g, "");
+    const pKeys = [ckey(out.product), ckey(out.brand), ckey(out.title)].filter(k => k.length >= 5);
+    const mailKey = ckey(f.subject + " " + latest).slice(0, 4000);
+    const lastDay = l => ((String(l.by || "") + " " + String(l.updated || "")).match(/\d{4}-\d\d-\d\d/g) || [""]).sort().pop();
+    const recent = l => { const d = (String(l.by || "") + " " + String(l.updated || "")).match(/\d{4}-\d\d-\d\d/g) || []; return d.some(x => Date.now() - Date.parse(x) < 120 * 864e5); };
+    const prevL = data.lists.filter(l => l.slug && l.slug !== AI_LIST && /\(pitch\)/.test(String(l.by || "")) && recent(l)).map(l => ({ l, k: ckey(l.name) })).filter(x => x.k.length >= 5 && (pKeys.some(k => k === x.k || (k.length >= 7 && (k.startsWith(x.k) || x.k.startsWith(k)))) || (x.k.length >= 7 && mailKey.includes(x.k))))
+      .sort((a, b) => lastDay(b.l).localeCompare(lastDay(a.l)))[0];
+    let reuse = null;
+    if (prevL && !shortOnly && !expandAsk && !market && !aiCamp && !/new list|fresh list|start (again|over)|from scratch|different list/i.test(f.note || "")) {
+      const pl = (await freshList(prevL.l.slug).catch(() => ({}))).list;
+      const pIds = ((pl && !pl.bad && pl.body && pl.body.ids) || []).map(String).filter(id => cat.byId[id]);
+      const pG = new Set(pIds.map(id => cat.byId[id].gid));
+      const fmtOk = !(Array.isArray(out.formats) && out.formats.length) || [...askedG].every(g => pG.has(g));
+      const namesOk = namedNames.every(nm => pIds.some(id => nameOf(id) === nm));
+      const outOk = !pIds.some(id => leftOut(base(cat.byId[id].name)));
+      if (pIds.length && fmtOk && namesOk && outOk) reuse = { slug: pl.slug, title: pl.name, ids: pIds };
+    }
+    if (reuse) ids.splice(0, ids.length, ...reuse.ids);
     // Second pass (Tom, 14 Oct 2026): the list is checked the way Tom would before it is saved. Creators the brand's newest message names always stay.
     let reviewed = "";
-    if (!shortOnly && ids.length > 1) {
+    if (!reuse && !shortOnly && ids.length > 1) {
       const lineOf = {}; fitLines.forEach(l => { lineOf[l.split(" | ")[0]] = l; });
       const rv = await askClaude(reviewPrompt(f, ids.map(id => lineOf[id] || id), pointers, researchTxt)).catch(() => null);
       const ck = id => norm(base((cat.byId[id] || {}).name || ""));
@@ -1457,9 +1480,9 @@ async function pitchFromEmail(b) {
       if (kept.length) { reviewed = ((rv && rv.remove) || []).map(r => (cat.byId[String(r && r.id)] || {}).name + ": " + String((r && r.reason) || "")).join("; "); ids.splice(0, ids.length, ...kept); }
     }
     if (!ids.length) throw new Error("No creators were picked");
-    ids.sort((x, y) => order.indexOf(cat.byId[x].gid) - order.indexOf(cat.byId[y].gid));
-    const title = noDash(out.title || f.subject || "Pitch").slice(0, 70);
-    const saved = await saveList({ title, ids }, fromEmail + " (pitch)");
+    if (!reuse) ids.sort((x, y) => order.indexOf(cat.byId[x].gid) - order.indexOf(cat.byId[y].gid));
+    const title = reuse ? reuse.title : noDash(out.title || f.subject || "Pitch").slice(0, 70);
+    const saved = reuse ? { ok: true, slug: reuse.slug, url: "https://" + HOST + "/r/" + reuse.slug } : await saveList({ title, ids }, fromEmail + " (pitch)");
     const first = noDash(out.contact_first_name || String(f.contactName).split(/\s+/)[0] || "there");
     const product = noDash(out.product || out.brand || f.subject || "your campaign").replace(/[.\s]+$/, "");
     const mix = noDash(out.mix || "").replace(/[.\s]+$/, "").replace(/\s*\/\s*/g, " and ");
@@ -1509,9 +1532,9 @@ async function pitchFromEmail(b) {
     const quoteHtml = '<br><div class="gmail_quote"><div dir="ltr" class="gmail_attr">' + escH(attr) + '<br></div><blockquote class="gmail_quote" style="margin:0px 0px 0px 0.8ex;border-left:1px solid rgb(204,204,204);padding-left:1ex">' + origHtml + "</blockquote></div>";
     const quoteText = "\n\n" + attr + "\n\n" + origText.split("\n").map(l => "> " + l).join("\n");
     const subject = /^re:/i.test(f.subject) ? f.subject : "Re: " + f.subject;
-    await pitchMark(b.item, "Ready: " + ids.length + " placements (" + out.model + ")", saved.url);
+    await pitchMark(b.item, (reuse ? "Ready: same list as before, " : "Ready: ") + ids.length + " placements (" + out.model + ")", saved.url);
     const cc = [...new Set((f.others || []).filter(x => x !== f.contactEmail && (!/@digitalfoxtalent\.com$/.test(x) || /^(alex|margot|george)@/.test(x))).concat(["tom@digitalfoxtalent.com", "alex@digitalfoxtalent.com", "margot@digitalfoxtalent.com"]) /* Tom, 14 Oct 2026: Tom, Alex and Margot on every pitch draft */)].filter(x => x !== fromEmail).join(", "); // reply-all minus DFT group inboxes; Tom and Alex always see what goes out (13 Oct 2026)
-    const resultObj = { ok: true, listUrl: saved.url, title, placements: ids.length, to: f.contactEmail, cc, subject, search: "from:" + f.contactEmail + " subject:\"" + f.subject.replace(/"/g, "") + "\" newer_than:90d", html: html + quoteHtml, text: text + quoteText, model: out.model, picks: out.picks, research, stage: out.stage || "new", closing: out.closing === true, questions: out.questions || [], reviewed };
+    const resultObj = { ok: true, listUrl: saved.url, title, placements: ids.length, to: f.contactEmail, cc, subject, search: "from:" + f.contactEmail + " subject:\"" + f.subject.replace(/"/g, "") + "\" newer_than:90d", html: html + quoteHtml, text: text + quoteText, model: out.model, picks: out.picks, research, stage: out.stage || "new", closing: out.closing === true, questions: out.questions || [], reviewed, reused: reuse ? reuse.slug : "" };
     // Teammates get the draft in their own Gmail (Tom, 14 Oct 2026); Tom's drafts still come from Make.
     resultObj.draftMade = await teamDraft(fromEmail, resultObj).catch(e => "failed: " + String((e && e.message) || e).slice(0, 200));
     return resultObj;
