@@ -250,10 +250,103 @@
   .state{ display:grid; place-items:center; height:100%; color:var(--muted); text-align:center; padding:24px; }
   .spinner{ width:24px; height:24px; border:3px solid #f0dcc2; border-top-color:var(--orange); border-radius:50%; animation:spin .8s linear infinite; margin:0 auto 12px; }
   @keyframes spin{ to{ transform:rotate(360deg); } }
+
+  /* Phones (Tom, 14 Oct 2026): one card per creator instead of the wide table, the page
+     scrolls as a whole, and the platform tabs stay pinned to the bottom of the screen. */
+  .shorthint{ display:none; }
+  .cards{ display:flex; flex-direction:column; gap:14px; padding:16px 16px 24px; }
+  .card{ background:#fff; border:1px solid #eadfce; border-radius:14px; padding:18px 16px; box-shadow:0 1px 2px rgba(0,0,0,.04); }
+  .card.hidden{ background:#f7f4f0; }
+  .card.hidden .ch, .card.hidden .cgrid{ opacity:.7; }
+  .card.picked{ border-color:var(--orange); box-shadow:0 0 0 2px rgba(255,136,0,.22); }
+  .ch{ display:flex; align-items:center; gap:12px; }
+  .ch input.pick{ width:20px; height:20px; flex:0 0 auto; }
+  .ch .av, .ch .avx{ width:42px; height:42px; }
+  .cn{ min-width:0; flex:1; }
+  .cn .h{ font-weight:700; font-size:15.5px; line-height:1.3; overflow-wrap:anywhere; }
+  .cn .cm{ display:block; font-size:12px; color:var(--muted); font-weight:500; margin-top:2px; }
+  .ch button.eye{ padding:6px 8px; }
+  .cstatus{ margin-top:12px; font-size:12px; line-height:1.45; }
+  .cstatus .why{ display:inline; max-width:none; white-space:normal; }
+  .cstage{ margin-top:16px; padding:14px; background:#fbf6ef; border-radius:12px; }
+  .card .stg{ display:grid; grid-template-columns:1fr 1fr; gap:12px 14px; width:auto; margin:0; font-size:12.5px; }
+  .card .stg label, .card .tri{ font-size:12.5px; white-space:normal; }
+  .card .stg input[type=checkbox], .card .tri .bx{ width:20px; height:20px; }
+  .card .nt{ padding:4px 6px; }
+  .cgrid{ display:grid; grid-template-columns:1fr 1fr; gap:14px 16px; margin-top:16px; }
+  .cs .cl{ font-size:11.5px; font-weight:600; color:var(--muted); margin-bottom:3px; }
+  .cs .cv{ font-size:15px; font-weight:700; overflow-wrap:anywhere; }
+  .card .edit{ color:var(--team); text-decoration:underline dotted #9db6cf; text-underline-offset:3px; cursor:text; min-height:24px; }
+  .card .edit input{ width:100%; font:inherit; font-size:16px; border:1px solid var(--team); border-radius:8px; padding:7px 9px; }
+  .card .saving{ opacity:.5; }
+  .card .was{ font-size:11px; }
+  .card .disc input{ width:22px; height:22px; }
+  .cabout{ margin-top:16px; font-size:13px; line-height:1.55; color:#3d3631; cursor:pointer; }
+  .cabout.exp{ -webkit-line-clamp:unset; display:block; }
+  .cmore{ margin-top:14px; border-top:1px solid #f1e8dc; padding-top:12px; }
+  .cmore summary{ font-size:12.5px; font-weight:700; color:#a85f00; cursor:pointer; list-style:none; padding:4px 0; }
+  .cmore summary::-webkit-details-marker{ display:none; }
+  .cmore summary::after{ content:" +"; }
+  .cmore[open] summary::after{ content:" \2212"; }
+  .cmore dl{ margin:10px 0 0; display:grid; gap:10px; }
+  .cmore .mr{ display:grid; grid-template-columns:44% 1fr; gap:12px; font-size:12.5px; line-height:1.45; }
+  .cmore dt{ color:var(--muted); font-weight:600; }
+  .cmore dd{ margin:0; font-weight:600; overflow-wrap:anywhere; }
+  .cshow-t{ margin-top:16px; width:100%; border:1px solid #f0d3ac; background:#fff7ee; color:#a85f00; font-family:var(--font); font-weight:700; font-size:12.5px; border-radius:10px; padding:11px; cursor:pointer; }
+  .cshows{ margin-top:12px; display:flex; flex-direction:column; gap:10px; }
+  .sh{ border:1px solid #f1e8dc; border-radius:10px; padding:12px 14px; }
+  .sh.hidden{ background:#faf8f5; color:#a39b92; }
+  .sh .nmwrap{ font-weight:600; font-size:13px; }
+  .sh .nmtext{ -webkit-line-clamp:3; }
+  .sh .cgrid{ margin-top:10px; gap:10px 14px; }
+  .sh .cs .cv{ font-size:13.5px; }
+  .ctot{ background:#1a1a1a; color:#fff; border-color:#1a1a1a; }
+  .ctot .ctt{ font-weight:700; font-size:14.5px; }
+  .ctot .cs .cl{ color:#ffb800; }
+  @media (max-width:760px){
+    .app{ height:auto; min-height:100vh; min-height:100dvh; }
+    .toolbar{ padding:16px 16px 14px; gap:10px; }
+    .brand{ flex:1 1 100%; }
+    .brand .t{ font-size:16px; line-height:1.3; }
+    .spacer{ display:none; }
+    .count{ flex:1 1 100%; font-size:12px; }
+    #teamTools{ flex:1 1 100%; flex-wrap:nowrap !important; overflow-x:auto; -webkit-overflow-scrolling:touch; padding-bottom:2px; }
+    #exportCsv, #resetLayout, #saveCols{ display:none !important; }
+    .search{ flex:1 1 100%; display:block; }
+    #teamTools > *{ flex:0 0 auto; }
+    .seg button{ white-space:nowrap; }
+    .banner{ display:block; }
+    .banner .hint{ display:block; margin:8px 0 0; }
+    .banner .bbtn, .banner .btn{ display:inline-block; margin:10px 6px 0 0; }
+    .banner .pkg{ margin-top:14px; }
+    .banner > a[href="/auth/signout"]{ display:block; width:max-content; margin:12px 0 0 !important; }
+    #teamTools, .tabbar{ scrollbar-width:none; }
+    #teamTools::-webkit-scrollbar, .tabbar::-webkit-scrollbar{ display:none; }
+    .card .tri{ text-align:left; }
+    .search input{ width:100%; font-size:16px; padding:10px 12px 10px 34px; }
+    .btn, .seg button{ font-size:12.5px; padding:9px 12px; }
+    .banner{ padding:14px 16px 16px; font-size:12.5px; line-height:1.5; }
+    .banner .longhint{ display:none; }
+    .banner .shorthint{ display:inline; }
+    .banner .bbtn, .banner .btn{ padding:8px 11px; }
+    .banner .pkg{ margin-left:0; display:grid; grid-template-columns:1fr 1fr; gap:8px 16px; }
+    .scroll{ flex:none; overflow:visible; background:var(--bg); }
+    .state{ min-height:50vh; }
+    .tabbar{ position:sticky; bottom:0; z-index:15; padding:0 8px env(safe-area-inset-bottom); min-height:50px; box-shadow:0 -4px 14px rgba(0,0,0,.06); }
+    .tab{ padding:0 14px; font-size:13px; }
+    .tab .x{ padding:6px 8px; }
+    .selbar{ position:sticky; bottom:50px; z-index:15; }
+    .selbar input{ width:100%; font-size:16px; }
+    .panel{ left:12px; right:12px; top:12px; width:auto; max-height:85vh; }
+    #fbpop{ width:auto; left:12px !important; right:12px; }
+    #fbpop textarea{ font-size:16px; }
+    .cbar{ bottom:66px; flex-wrap:wrap; }
+    .toast{ bottom:74px; max-width:calc(100vw - 32px); text-align:center; }
+  }
   @media (max-width:640px){
     .toolbar{ padding:10px 16px; }
     .brand .s{ display:none; }
-    .search input{ width:160px; }
+    .search input{ width:100%; }
   }
 </style>
 
@@ -701,8 +794,62 @@ function packageSummary(){
 // number box was open closed the box and saved the half-typed number (22.5 saved as 22).
 // The redraw waits until the box is closed with Enter, Escape or a click elsewhere.
 let renderLater=false;
-const openEdit=()=>document.querySelector("#scroll td[data-edit] input:not([data-done])");
+const openEdit=()=>document.querySelector("#scroll [data-edit] input:not([data-done])");
 document.addEventListener("focusout",()=>setTimeout(()=>{ if(renderLater&&!openEdit()) render(); },0));
+// Phones (Tom, 14 Oct 2026): below 760px wide every view (brand, Edit list, DFT view) is a
+// column of cards. Each card carries the same controls as the table, so every tick, note,
+// eye and underlined number works the same way and saves the same way.
+const MOBILE_Q=window.matchMedia("(max-width:760px)");
+const isMobile=()=>MOBILE_Q.matches;
+MOBILE_Q.addEventListener("change",()=>{ if(PAYLOAD) render(); });
+const CARD_MAIN=["subs","vg","cpm","rate","fee","total","minVideos","disc","lavg","lvg","lrate","lcpm"];
+const SHOW_KEYS=new Set(["rate","vg","cpm","minVideos","disc","lavg","lvg","lrate","lcpm","status"]);
+function cardVal(c,col,isShow){
+  const ed=isShow?!!(col.edit&&(mode==="team"||listEdit())):!!(col.edit&&!(isDed(c)&&!listEdit()));
+  const inner=fmtCell(c,col,isShow);
+  const cl="cv"+(col.t?" tcol":"")+(ed?" edit":"")+(ed&&listEdit()&&c.custom?" custom":"");
+  const attrs=ed?` data-edit="${col.edit}" data-id="${c.id}"${isShow?' data-show="1"':""}${listEdit()?' data-list="1"':""}`:"";
+  return {inner, ed, html:`<div class="${cl}" data-k="${col.key}"${attrs}>${inner}</div>`};
+}
+const statHtml=(c,col,isShow)=>{ const v=cardVal(c,col,isShow); if(!String(v.inner).trim()&&!v.ed) return ""; return `<div class="cs"><div class="cl">${esc(col.head)}</div>${v.html}</div>`; };
+function cardsFor(list,cols){
+  const get=k=>cols.find(c=>c.key===k);
+  const stage=get("confirmed"), about=get("about"), status=get("status");
+  const main=CARD_MAIN.map(get).filter(Boolean);
+  const skip=new Set(["name","sel","confirmed","about","status"].concat(CARD_MAIN));
+  const more=cols.filter(c=>!skip.has(c.key));
+  const showCols=cols.filter(c=>SHOW_KEYS.has(c.key));
+  return `<div class="cards">${list.map(c=>{
+    const open=openSet.has(c.id), shows=visShows(c);
+    const cls=["card",mode==="team"&&!c.show?"hidden":"",picked.has(c.id)?"picked":""].join(" ");
+    const pick=mode==="team"?`<input type="checkbox" class="pick" data-id="${c.id}" ${picked.has(c.id)?"checked":""} title="Add to a list">`:"";
+    const dn=dispHandle(c), nm=c.url?`<a href="${esc(c.url)}" target="_blank" rel="noopener">${esc(dn)}</a>`:esc(dn);
+    const sub=[c.category,c.location].filter(Boolean).map(esc).join(" · ");
+    const ab=about?String(cellVal(c,about)||""):"";
+    const mrows=more.map(col=>{ const v=cardVal(c,col,false); if(!String(v.inner).replace(/<[^>]*>/g,"").trim()&&!v.ed) return ""; return `<div class="mr"><dt>${esc(col.head)}</dt><dd>${v.html}</dd></div>`; }).join("");
+    const showsHtml=shows.length?`<button class="cshow-t" data-id="${c.id}">${open?"Hide":"See"} ${shows.length} show${shows.length===1?"":"s"}, each with its own price</button>${open?`<div class="cshows">${shows.map(s=>`<div class="sh${(mode==="team"&&!s.show)||(listEdit()&&s.listHidden)?" hidden":""}">${showNameCell(s)}<div class="cgrid">${showCols.map(col=>statHtml(s,col,true)).join("")}</div></div>`).join("")}</div>`:""}`:"";
+    return `<div class="${cls}" data-id="${c.id}">
+      <div class="ch">${pick}${logoHtml(c)}<div class="cn"><div class="h">${nm}</div>${sub?`<span class="cm">${sub}</span>`:""}</div>${eyeBtn(c,false)}</div>
+      ${status?`<div class="cstatus">${fmtCell(c,status,false)}</div>`:""}
+      ${stage?`<div class="cstage">${fmtCell(c,stage,false)}</div>`:""}
+      <div class="cgrid">${main.map(col=>statHtml(c,col,false)).join("")}</div>
+      ${ab?`<div class="cabout clamp" title="Tap to read more">${esc(ab)}</div>`:""}
+      ${mrows?`<details class="cmore"><summary>More details</summary><dl>${mrows}</dl></details>`:""}
+      ${showsHtml}
+    </div>`;
+  }).join("")}${isPitch()?totalsCard(list):""}</div>`;
+}
+function totalsCard(list){
+  const long=kindOf()==="long";
+  const rate=sumBy(list,"rate"), vg=sumBy(list,"vg"), fee=sumBy(list,"fee"), total=sumBy(list,"total");
+  const vids=long?list.reduce((a,c)=>a+(c.minVideos||1),0):list.length;
+  const was=list.reduce((a,c)=>a+(c.wasRate||c.rate||0),0);
+  const it=(l,v)=>`<div class="cs"><div class="cl">${l}</div><div class="cv">${v}</div></div>`;
+  const body=long
+    ?it("Total rate",money(rate))+(vg?it(!estLong()&&activeTab!=="dedicated"?"Guaranteed views":"Estimated views",int(vg)):"")+(vg?it("CPM",money2(Math.round(rate*100000/vg)/100)):"")+it("Videos",int(vids))
+    :it("Publishing rate",money(rate))+it("Production rate",money(fee))+it("Total rate",money(total))+(vg?it("Average views",int(vg)):"");
+  return `<div class="card ctot"><div class="ctt">Total · ${list.length} creator${list.length===1?"":"s"}</div><div class="cgrid">${body}${was>rate?it("You save",money(was-rate)):""}</div></div>`;
+}
 function render(){
   if(openEdit()){ renderLater=true; return; }
   renderLater=false;
@@ -712,6 +859,10 @@ function render(){
   $("#count").textContent=mode==="team"
     ?`${all.length} profiles · ${shown} shown to brands · ${list.length} in view`
     :(()=>{ const pl=GROUPS.filter(g=>g.id!=="dedicated"&&(PAYLOAD.groups[g.id]||[]).length).map(g=>g.label); const n=all.length+" profile"+(all.length===1?"":"s"); return pl.length===1?`${n} on ${pl[0]}`:pl.length&&pl.length<=3?`${n} across ${pl.slice(0,-1).join(", ")} and ${pl[pl.length-1]}`:`${n} across ${pl.length} platforms`; })();
+  if(isMobile()){
+    $("#scroll").innerHTML=list.length?cardsFor(list,cols):`<div class="state"><div>${query?"No creators match your search.":"No creators on this tab."}</div></div>`;
+    wire(); renderSelbar(); return;
+  }
   const colgroup=`<colgroup>${cols.map(c=>`<col style="width:${c.w}px">`).join("")}</colgroup>`;
   const thead=`<thead><tr>${cols.map(c=>{
     // Select all (Tom, 12 Oct 2026): ticks every creator in view on this tab (after any
@@ -740,6 +891,8 @@ function wire(){
     const k=th.dataset.key; if(k===sortKey) sortDir=sortDir==="desc"?"asc":"desc"; else {sortKey=k; sortDir="desc";} render();
   }));
   sc.querySelectorAll("td.wide").forEach(td=>{ if(!td.textContent.trim()) return; td.classList.add("clickable"); td.addEventListener("click",e=>{e.stopPropagation();td.classList.toggle("exp");}); });
+  sc.querySelectorAll(".cshow-t").forEach(b=>b.addEventListener("click",()=>{ const id=b.dataset.id; openSet.has(id)?openSet.delete(id):openSet.add(id); render(); }));
+  sc.querySelectorAll(".cabout").forEach(d=>d.addEventListener("click",()=>d.classList.toggle("exp")));
   wireRowDrag(sc);
   wireFeedback(sc);
   wireResize(sc);
@@ -758,7 +911,7 @@ function wire(){
       const f=findRow(b.dataset.id), who=(f&&f.row.name)||"This creator";
       changeMain({op:"edit",id:b.dataset.id,show:b.dataset.show==="1",override:next},`${who}: brands see it → ${next}`);
     }));
-    sc.querySelectorAll("td.edit").forEach(td=>td.addEventListener("click",e=>{e.stopPropagation(); startEdit(td);}));
+    sc.querySelectorAll(".edit[data-edit]").forEach(td=>td.addEventListener("click",e=>{e.stopPropagation(); startEdit(td);}));
   } else if(listEdit()){
     sc.querySelectorAll("button.nt.ro").forEach(bt=>bt.addEventListener("click",e=>{ e.preventDefault(); e.stopPropagation(); const f=findListRow(bt.dataset.id); if(f) fbPopup(bt,f.row,true); }));
     sc.querySelectorAll("button.leye").forEach(bt=>bt.addEventListener("click",e=>{ e.preventDefault(); e.stopPropagation();
@@ -778,7 +931,7 @@ function wire(){
       patchListRow(r.id,x=>{ x.fb=(d||note)?{ok:d==="yes",no:d==="no",note}:undefined; });
       listSave({op:"brand-feedback",slug:LIST_SLUG,id:r.id,decision:d,note},d==="yes"?"Marked as approved by the brand":d==="no"?"Marked as rejected by the brand":"Brand decision cleared").catch(()=>{});
     }));
-    sc.querySelectorAll("td.edit").forEach(td=>td.addEventListener("click",e=>{e.stopPropagation(); startEdit(td);}));
+    sc.querySelectorAll(".edit[data-edit]").forEach(td=>td.addEventListener("click",e=>{e.stopPropagation(); startEdit(td);}));
     sc.querySelectorAll("input.conf").forEach(cb=>cb.addEventListener("change",async()=>{
       // Approached comes first: ticking Confirmed ticks it too, unticking Approached clears both.
       const stage=cb.dataset.st==="confirmed"?(cb.checked?"confirmed":"approached"):(cb.checked?"approached":"");
@@ -1238,8 +1391,8 @@ function renderBanner(){
   } else if(TEAM){
     b.className="banner"; b.style.display="";
     b.innerHTML=`Signed in as <b>${esc(TEAM.email)}</b> · ${mode==="team"
-      ?"Blue columns are DFT-only. Click an underlined number to change what brands see, or the eye to show or hide a creator. Drag the ⠿ handles to move rows and columns, or a column's edge to resize it."
-      :(listEdit()?`<b>“${esc(BRAND.list.title)}” numbers:</b> click an underlined number to change videos, views or prices for this list only. The main rate card and other lists stay as they are. <a class="bbtn" href="/?edit=${encodeURIComponent(LIST_SLUG)}">Add / remove creators</a>`+lockButton()+viewsButton()+acceptButton():"Brand preview: exactly what brands see.")}${listEdit()?packageSummary():'<span class="spacer"></span>'}<a href="/auth/signout" style="text-decoration:underline;margin-left:${listEdit()?"14px":"0"}">Sign out</a>`;
+      ?"<span class=\"longhint\">Blue columns are DFT-only. Click an underlined number to change what brands see, or the eye to show or hide a creator. Drag the ⠿ handles to move rows and columns, or a column's edge to resize it.</span><span class=\"shorthint\">Tap an underlined number to change what brands see, or the eye to show or hide a creator.</span>"
+      :(listEdit()?`<b>“${esc(BRAND.list.title)}” numbers:</b><span class="longhint"> click an underlined number to change videos, views or prices for this list only. The main rate card and other lists stay as they are.</span><span class="shorthint"> tap an underlined number to change it for this list only.</span> <a class="bbtn" href="/?edit=${encodeURIComponent(LIST_SLUG)}">Add / remove creators</a>`+lockButton()+viewsButton()+acceptButton():"Brand preview: exactly what brands see.")}${listEdit()?packageSummary():'<span class="spacer"></span>'}<a href="/auth/signout" style="text-decoration:underline;margin-left:${listEdit()?"14px":"0"}">Sign out</a>`;
     const lb=$("#lockBtn"); if(lb) lb.onclick=()=>toggleLock(lb.dataset.lock==="1");
     const ab=$("#acceptBtn"); if(ab) ab.onclick=()=>acceptChanges(ab);
     const vb=$("#viewsBtn"); if(vb) vb.onclick=async()=>{ const est=vb.dataset.est==="1"; try{ applyBrand(await post({op:"list-label",slug:LIST_SLUG,est})); toast(est?"Brands now see Estimated Views":"Brands now see View Guarantee"); }catch(e){ toast(e.message,true); } };
@@ -1258,7 +1411,7 @@ function renderTabs(){
   $("#tabs").style.display=""; // always show the platform tab, even on a one-platform list, so brands know where the posts go (George, 13 Oct 2026)
   const canRemove=listEdit()&&vis.length>1;
   $("#tabs").innerHTML=vis.map(g=>`<button class="tab ${g.id===activeTab?"active":""}" data-g="${g.id}"${g.tip?` title="${esc(g.tip)}"`:""}>${esc(g.label)}<span class="n">${(PAYLOAD.groups[g.id]||[]).length}</span>${canRemove?`<span class="x" data-g="${g.id}" title="Take ${esc(g.label)} off this list">&times;</span>`:""}</button>`).join("");
-  $("#tabs").querySelectorAll(".tab").forEach(b=>b.onclick=()=>{activeTab=b.dataset.g; sortKey=null; renderTabs(); render(); $("#scroll").scrollTop=0;});
+  $("#tabs").querySelectorAll(".tab").forEach(b=>b.onclick=()=>{activeTab=b.dataset.g; sortKey=null; renderTabs(); render(); $("#scroll").scrollTop=0; if(isMobile()) window.scrollTo(0,0);});
   $("#tabs").querySelectorAll(".x").forEach(x=>x.onclick=e=>{
     e.stopPropagation();
     if(!x.classList.contains("confirm")){ x.classList.add("confirm"); x.textContent="Remove?"; setTimeout(()=>{ if(x.isConnected){ x.classList.remove("confirm"); x.innerHTML="&times;"; } },4000); return; }
