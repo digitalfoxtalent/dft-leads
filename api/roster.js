@@ -1534,16 +1534,21 @@ async function pitchFromEmail(b) {
     if (aiDeclined.length) ans.push("Sadly, " + joinN(aiDeclined) + " won't take on AI projects, but these creators would.");
     if (out.stage !== "shortlist" && solo.length > 1 && listNames.length && (/\?/.test(f.body) || withRates !== ".")) ans.push(pick([joinN(listNames) + (listNames.length > 1 ? " are" : " is") + " on the list" + withRates, "You'll find " + joinN(listNames) + " on there" + withRates]));
     if (/availab|posting date|\bdates\b|schedule|timeline|timing|turnaround/i.test(f.body) && !qs.some(q => /availab|posting|\bdates?\b|timeline|timing/i.test(String(q.q)))) ans.push(pick(["We confirm availability and posting dates with each creator as soon as you approve, and can move quickly.", "Once you've picked, we'll confirm availability and posting dates with each creator straight away."]));
-    // The brand's questions: answered only from the Standing facts item; anything else is left for Tom, clearly marked (14 Oct 2026).
-    qs.forEach(q => { const a = noDash(String(q.answer || "").trim()); if (a) ans.push(a); });
-    const todo = qs.filter(q => !String(q.answer || "").trim()).map(q => noDash(String(q.q).trim().replace(/[.?\s]+$/, "")));
-    if (todo.length) ans.push("[TOM TO ANSWER: " + todo.join("; ") + "]");
+    // The brand's questions: answered only from the Standing facts item.
+    // NEVER put a note for DFT inside the draft (Tom, 14 Oct 2026: two drafts went to brands with
+    // "[TOM TO ANSWER: ...]" in them). The draft must always be safe to send exactly as it is: an
+    // unanswered question gets a plain holding line for the brand, and the questions themselves go
+    // to the sender in a separate internal email (Make route "Before you send") and onto the monday row.
+    qs.forEach(q => { const a = noDash(String(q.answer || "").replace(/\[[^\]]*\]/g, "").trim()); if (a) ans.push(a); });
+    const todo = qs.filter(q => !noDash(String(q.answer || "").replace(/\[[^\]]*\]/g, "").trim())).map(q => noDash(String(q.q).trim().replace(/[.?\s]+$/, "")));
+    if (todo.length) ans.push(pick(["I'll come back to you on your other questions shortly.", "I'll come back to you on the rest of your questions shortly.", "On your other questions, I'll come back to you shortly."]));
     const answer = ans.join(" ");
     const ask = pick(["Could you confirm who you would like to book?", "Could you confirm who you would like to book please?", "Who would you like to book?", "Could you confirm who you'd like to book for this?"]);
     const options = /option\s*\d|both options|\boptions\b/i.test(f.body);
     const how = solo.length === 1 ? "" : " " + howTo;
     const ask2 = solo.length === 1 ? pick(["Could you confirm if you'd like to go ahead?", "Let me know if you'd like to go ahead and we'll get it booked in.", "Could you confirm if you'd like to book " + soloFirst + "?"]) : ask; // one placement: never "which option" (Tom, 13 Oct 2026)
-    const paras = [thanks, lead + how, "[[LIST_LINK]]"].concat(answer ? [answer] : [], [ask2]);
+    // Last line of defence: nothing in square brackets ever reaches a brand (placeholders, notes to DFT).
+    const paras = [thanks, lead + how, "[[LIST_LINK]]"].concat(answer ? [answer] : [], [ask2]).map(p => p === "[[LIST_LINK]]" ? p : p.replace(/\s*\[[^\]]*\]/g, "").trim()).filter(Boolean);
     if (!paras.some(p => p.indexOf("[[LIST_LINK]]") >= 0)) paras.splice(Math.min(2, paras.length), 0, "[[LIST_LINK]]");
     const bullets = [];
     const sig = ["Warm regards", fwdName, "Digital Fox Talent", "\u{1F98A}"];
@@ -1560,7 +1565,7 @@ async function pitchFromEmail(b) {
     const quoteHtml = '<br><div class="gmail_quote"><div dir="ltr" class="gmail_attr">' + escH(attr) + '<br></div><blockquote class="gmail_quote" style="margin:0px 0px 0px 0.8ex;border-left:1px solid rgb(204,204,204);padding-left:1ex">' + origHtml + "</blockquote></div>";
     const quoteText = "\n\n" + attr + "\n\n" + origText.split("\n").map(l => "> " + l).join("\n");
     const subject = /^re:/i.test(f.subject) ? f.subject : "Re: " + f.subject;
-    await pitchMark(b.item, (reuse ? "Ready: same list as before, " : "Ready: ") + ids.length + " placements (" + out.model + ")", saved.url);
+    await pitchMark(b.item, (reuse ? "Ready: same list as before, " : "Ready: ") + ids.length + " placements (" + out.model + ")" + (todo.length ? ". Brand also asked (not answered in the draft): " + todo.join("; ") : ""), saved.url);
     // Who gets copied (Tom, 14 Oct 2026, after a creator's personal email was copied on Margot's Base44 draft):
     // never a creator. Besides Tom, Alex and Margot, the only addresses kept from the forwarded email are
     // colleagues of the brand contact at the same company domain. A free mail domain (gmail, icloud...) is
@@ -1571,6 +1576,9 @@ async function pitchFromEmail(b) {
     const brandSide = x => !!cDom && !FREE_MAIL.test(cDom) && domOf(x) === cDom;
     const cc = [...new Set((f.others || []).filter(x => x !== f.contactEmail && (brandSide(x) || /^(alex|margot|george)@digitalfoxtalent\.com$/i.test(x))).concat(["tom@digitalfoxtalent.com", "alex@digitalfoxtalent.com", "margot@digitalfoxtalent.com"]))].filter(x => x !== fromEmail).join(", ");
     const resultObj = { ok: true, listUrl: saved.url, title, placements: ids.length, to: f.contactEmail, cc, subject, search: "from:" + f.contactEmail + " subject:\"" + f.subject.replace(/"/g, "") + "\" newer_than:90d", html: html + quoteHtml, text: text + quoteText, model: out.model, picks: out.picks, research, stage: out.stage || "new", closing: out.closing === true, questions: out.questions || [], reviewed, reused: reuse ? reuse.slug : "" };
+    // For the sender only, never the brand: the questions the draft holds over (Make route "Before you send").
+    resultObj.unanswered = todo;
+    resultObj.unansweredHtml = todo.length ? "<p>Your pitch draft to " + escH(f.contactEmail) + " is ready (subject: " + escH(subject) + ").</p><p>The brand also asked these, which the standing facts do not cover. The draft tells them you will come back to them shortly, so it is safe to send as it is. Reply on these yourself, or add your answers to the draft before you send:</p><ul>" + todo.map(q => "<li>" + escH(q) + "</li>").join("") + "</ul><p>To have the system answer a question like this next time, add the answer to the Standing facts item on the Roster - Pitch Requests board.</p>" : "";
     // Teammates get the draft in their own Gmail (Tom, 14 Oct 2026); Tom's drafts still come from Make.
     resultObj.draftMade = await teamDraft(fromEmail, resultObj).catch(e => "failed: " + String((e && e.message) || e).slice(0, 200));
     return resultObj;
