@@ -1256,6 +1256,7 @@ function pitchPrompt(f, lines, fwdName, aiNames, namedNames, pointers, facts) {
     "THE THREAD",
     "- The forwarded email may carry earlier messages quoted below the newest one. Read them all. Replies from DFT (signed Tom James or Digital Fox Talent, even when sent from a creator's DFT inbox, e.g. 'Emmaiden wrote') are DFT's own words and stand: if DFT already said a creator is not a fit, leave that creator out unless the brand's NEWEST message asks for them by name.",
     "- Set stage to 'new' if DFT should propose creators, or 'shortlist' if the brand has already chosen specific creators from DFT's roster. On a shortlist, pick ONLY the creators the brand chose (each in every format the brand asks about that they have) and mark them named: true.",
+    "- If the note from " + fwdName + " asks to expand or add more creators, still set stage 'shortlist' and mark the brand's chosen creators named: true, then also pick every other strong fit as you would for a new enquiry.",
     "- A creator's DFT inbox in the To line only counts as naming that creator on a first enquiry with no earlier thread.",
     "",
     "DFT FIT NOTES (on some catalogue lines) are Tom's own judgement about that creator. Follow them strictly: never pick a creator whose note rules them out for this kind of brand or product, unless the brand's newest message asks for them by name.",
@@ -1373,10 +1374,13 @@ async function pitchFromEmail(b) {
     const aiDeclined = []; // named creators who do not take AI work (unless the enquiry says DFT already confirmed them)
     namedNames.forEach(nm => { if (leftOut(nm)) return; if (market && !namedPl.filter(id => nameOf(id) === nm).some(inMarket)) return; const mine = namedPl.filter(id => nameOf(id) === nm); if (aiCamp && !mine.some(aiOk) && !/confirm/i.test(f.body)) { aiDeclined.push(nm); mine.forEach(id => { const k = ids.indexOf(id); if (k >= 0) ids.splice(k, 1); }); return; } const inG = mine.filter(id => groupsUsed.has(cat.byId[id].gid)); (inG.length ? inG : mine).forEach(id => { if (!ids.includes(id)) ids.push(id); }); });
     // A brand that has already chosen creators gets exactly those back (Tom, 14 Oct 2026, NETA AI).
-    if (out.stage === "shortlist") { const keep = ids.filter(id => nameOf(id) || namedIds.has(id)); if (keep.length) ids.splice(0, ids.length, ...keep); }
+    // ...unless the forwarder's note asks to widen it (Tom, 14 Oct 2026, NETA AI: "expand the roster on this one").
+    const expandAsk = /expand|widen|broaden|broader|more creators|add (some )?more|whole roster|others? too|a lot more/i.test(f.note || "");
+    const shortOnly = out.stage === "shortlist" && !expandAsk, expanded = out.stage === "shortlist" && expandAsk;
+    if (shortOnly) { const keep = ids.filter(id => nameOf(id) || namedIds.has(id)); if (keep.length) ids.splice(0, ids.length, ...keep); }
     // Second pass (Tom, 14 Oct 2026): the list is checked the way Tom would before it is saved. Creators the brand's newest message names always stay.
     let reviewed = "";
-    if (out.stage !== "shortlist" && ids.length > 1) {
+    if (!shortOnly && ids.length > 1) {
       const lineOf = {}; fitLines.forEach(l => { lineOf[l.split(" | ")[0]] = l; });
       const rv = await askClaude(reviewPrompt(f, ids.map(id => lineOf[id] || id), pointers)).catch(() => null);
       const ck = id => norm(base((cat.byId[id] || {}).name || ""));
@@ -1406,7 +1410,7 @@ async function pitchFromEmail(b) {
     const intro = pick(["I've put together a shortlist of creators" + across + (who || " for you") + ".", "Here's a shortlist of creators" + across + (who || " who'd be happy to take this on") + ".", "Please find below a list of creators" + across + (who || " who would be happy to promote " + product) + ".", "I've pulled together some creators" + across + (who || " who'd be a great fit") + "."]);
     const solo = [...new Set(ids.map(id => base(cat.byId[id].name).replace(/^@/, "")))]; // one creator: say so plainly
     const soloFirst = solo.length === 1 ? solo[0].split(/\s+/)[0] : "";
-    const lead = out.stage === "shortlist" && solo.length > 1 ? pick(["I've put the creators you shortlisted together on one list.", "Here are the creators you shortlisted, all on one list."]) : solo.length === 1 ? pick(["Please find " + soloFirst + "'s rates below.", "Here are " + soloFirst + "'s rates for this.", "I've put " + soloFirst + "'s rates together for you below."]) : intro;
+    const lead = expanded ? pick(["I've put the creators you shortlisted on one list, along with some others" + (who || "") + " who'd suit " + product + " really well.", "Here are the creators you shortlisted, plus a few more" + (who || "") + " who I think would be great for " + product + "."]) : shortOnly && solo.length > 1 ? pick(["I've put the creators you shortlisted together on one list.", "Here are the creators you shortlisted, all on one list."]) : solo.length === 1 ? pick(["Please find " + soloFirst + "'s rates below.", "Here are " + soloFirst + "'s rates for this.", "I've put " + soloFirst + "'s rates together for you below."]) : intro;
     const howTo = pick(["You can tick a creator to approve them, tick again to mark a 'no', or use the speech bubble to comment or ask questions.", "Just tick anyone you'd like to go ahead with (tick again for a no), and use the speech bubble for any questions.", "Tick the creators you'd like to book, tick again for a no, and leave any questions in the speech bubble."]);
     const withRates = /\b(rates?|pric\w*|cost|budget)\b/i.test(f.body) ? " with current rates." : ".";
     const ans = [];
