@@ -1450,7 +1450,10 @@ async function pitchFromEmail(b) {
     const subject = /^re:/i.test(f.subject) ? f.subject : "Re: " + f.subject;
     await pitchMark(b.item, "Ready: " + ids.length + " placements (" + out.model + ")", saved.url);
     const cc = [...new Set((f.others || []).filter(x => x !== f.contactEmail && (!/@digitalfoxtalent\.com$/.test(x) || /^(alex|margot|george)@/.test(x))).concat(["tom@digitalfoxtalent.com", "alex@digitalfoxtalent.com", "margot@digitalfoxtalent.com"]) /* Tom, 14 Oct 2026: Tom, Alex and Margot on every pitch draft */)].filter(x => x !== fromEmail).join(", "); // reply-all minus DFT group inboxes; Tom and Alex always see what goes out (13 Oct 2026)
-    return { ok: true, listUrl: saved.url, title, placements: ids.length, to: f.contactEmail, cc, subject, search: "from:" + f.contactEmail + " subject:\"" + f.subject.replace(/"/g, "") + "\" newer_than:90d", html: html + quoteHtml, text: text + quoteText, model: out.model, picks: out.picks, stage: out.stage || "new", questions: out.questions || [], reviewed };
+    const resultObj = { ok: true, listUrl: saved.url, title, placements: ids.length, to: f.contactEmail, cc, subject, search: "from:" + f.contactEmail + " subject:\"" + f.subject.replace(/"/g, "") + "\" newer_than:90d", html: html + quoteHtml, text: text + quoteText, model: out.model, picks: out.picks, stage: out.stage || "new", questions: out.questions || [], reviewed };
+    // Teammates get the draft in their own Gmail (Tom, 14 Oct 2026); Tom's drafts still come from Make.
+    resultObj.draftMade = await teamDraft(fromEmail, resultObj).catch(e => "failed: " + String((e && e.message) || e).slice(0, 200));
+    return resultObj;
   } catch (e) {
     try { await pitchMark(b.item, "Failed: " + String(e && e.message || e).slice(0, 200)); } catch (_) {}
     throw e;
@@ -1458,6 +1461,37 @@ async function pitchFromEmail(b) {
 }
 
 // The raw Gmail draft for Make: a reply in the brand's thread, HTML and plain text, UTF-8.
+// Drafts in a teammate's own Gmail (Tom, 14 Oct 2026): Google domain-wide delegation for the service account
+// pitch-drafts@dft-pitch-drafts.iam.gserviceaccount.com (Cloud project dft-pitch-drafts), scope gmail.modify.
+// The key lives only in the Vercel env var GMAIL_DELEGATE_KEY. Drafts only: this code never sends.
+async function gmailToken(subject) {
+  const raw = process.env.GMAIL_DELEGATE_KEY; if (!raw) return null;
+  const key = JSON.parse(raw), now = Math.floor(Date.now() / 1000);
+  const b64u = o => Buffer.from(JSON.stringify(o)).toString("base64url");
+  const unsigned = b64u({ alg: "RS256", typ: "JWT" }) + "." + b64u({ iss: key.client_email, scope: "https://www.googleapis.com/auth/gmail.modify", aud: "https://oauth2.googleapis.com/token", sub: subject, iat: now, exp: now + 3000 });
+  const sig = crypto.createSign("RSA-SHA256").update(unsigned).sign(key.private_key).toString("base64url");
+  const r = await fetch("https://oauth2.googleapis.com/token", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: "grant_type=" + encodeURIComponent("urn:ietf:params:oauth:grant-type:jwt-bearer") + "&assertion=" + unsigned + "." + sig });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok || !d.access_token) throw new Error("Gmail token: " + (d.error_description || d.error || r.status));
+  return d.access_token;
+}
+async function teamDraft(fromEmail, o) {
+  if (!/@digitalfoxtalent\.com$/i.test(fromEmail) || /^tom@/i.test(fromEmail)) return false;
+  const tok = await gmailToken(fromEmail); if (!tok) return false;
+  const G = (path, opt = {}) => fetch("https://gmail.googleapis.com/gmail/v1/users/me" + path, Object.assign({}, opt, { headers: Object.assign({ Authorization: "Bearer " + tok }, opt.headers || {}) })).then(async r => { const t = await r.text(); let j = {}; try { j = t ? JSON.parse(t) : {}; } catch (_) {} if (!r.ok) throw new Error("Gmail " + r.status + " " + ((j.error && j.error.message) || "")); return j; });
+  const q = encodeURIComponent;
+  const found = ((await G("/messages?maxResults=1&q=" + q(o.search)).catch(() => ({}))).messages || [])[0];
+  let threadId = "", msgId = "";
+  if (found) { threadId = found.threadId; const m = await G("/messages/" + found.id + "?format=metadata&metadataHeaders=Message-ID").catch(() => ({})); msgId = (((m.payload || {}).headers || []).find(h => /^message-id$/i.test(h.name)) || {}).value || ""; }
+  // The previous draft to this brand in the same thread goes (Tom, 13 Oct 2026).
+  if (threadId) { const dr = (await G("/drafts?maxResults=20&q=" + q("to:" + o.to)).catch(() => ({}))).drafts || []; for (const d of dr) if (d.message && d.message.threadId === threadId) await G("/drafts/" + d.id, { method: "DELETE" }).catch(() => null); }
+  const draft = pitchMime({ to: o.to, cc: o.cc, subject: o.subject, html: o.html, text: o.text, threadId, inReplyTo: msgId, references: msgId }).draft;
+  await G("/drafts", { method: "POST", headers: { "Content-Type": "application/json" }, body: draft });
+  // Their forward to pitch@ leaves the brand thread (Tom, 13 Oct 2026).
+  if (threadId) { const sent = (await G("/messages?maxResults=25&q=" + q("in:sent to:pitch@digitalfoxtalent.com newer_than:7d")).catch(() => ({}))).messages || []; for (const m of sent) if (m.threadId === threadId) await G("/messages/" + m.id + "/trash", { method: "POST" }).catch(() => null); }
+  return true;
+}
+
 function pitchMime(b) {
   const enc = s => /[^\x20-\x7e]/.test(s) ? "=?UTF-8?B?" + Buffer.from(s, "utf8").toString("base64") + "?=" : s;
   const b64 = s => Buffer.from(String(s || ""), "utf8").toString("base64").replace(/(.{76})/g, "$1\r\n");
