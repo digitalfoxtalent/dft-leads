@@ -1463,7 +1463,7 @@ async function pitchFromEmail(b) {
 // The raw Gmail draft for Make: a reply in the brand's thread, HTML and plain text, UTF-8.
 // Drafts in a teammate's own Gmail (Tom, 14 Oct 2026): Google domain-wide delegation for the service account
 // pitch-drafts@dft-pitch-drafts.iam.gserviceaccount.com (Cloud project dft-pitch-drafts), scope gmail.modify.
-// The key lives only in the Vercel env var GMAIL_DELEGATE_KEY. Drafts only: this code never sends.
+// The key lives only in the Vercel env var GMAIL_DELEGATE_KEY. Drafts only: this code never sends. Key added by Tom, 14 Oct 2026.
 async function gmailToken(subject) {
   const raw = process.env.GMAIL_DELEGATE_KEY; if (!raw) return null;
   const key = JSON.parse(raw), now = Math.floor(Date.now() / 1000);
