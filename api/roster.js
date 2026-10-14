@@ -1163,7 +1163,8 @@ export const config = { maxDuration: 120 };
 const PITCH_BOARD = 18435316650;
 const AI_LIST = "ai-campaigns-tj-50001f"; // Tom's saved list of creators open to AI brands (13 Oct 2026). Edit the list, not the code.
 const PB = { by: "text_mm83t28h", contact: "text_mm83nbr6", result: "text_mm83dzmw", list: "link_mm832b9j" };
-const PITCH_MODELS = ["claude-sonnet-4-5", "claude-haiku-4-5-20251001"];
+const PITCH_MODELS = ["claude-opus-5-5", "claude-sonnet-4-5", "claude-haiku-4-5-20251001"]; // strongest first (Tom, 14 Oct 2026), older models only as a fallback
+const FACTS_ITEM = 13283766377; // Pitch Requests item "Standing facts for pitch replies": the only facts a reply may state
 const PITCH_LABEL = { topics: "YouTube integration", dedicated: "YouTube dedicated video", group_mm4av3kr: "YouTube Shorts", group_mm4a1fe0: "Instagram", group_mm4bd5tk: "TikTok", group_mm7yw8cy: "Snapchat" };
 const kfmt = n => !n ? "" : n >= 1e6 ? (Math.round(n / 1e5) / 10) + "M" : n >= 1000 ? Math.round(n / 1000) + "K" : String(n);
 const escH = s => String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -1221,7 +1222,26 @@ async function askClaude(prompt) {
   throw new Error("Claude: " + last);
 }
 
-function pitchPrompt(f, lines, fwdName, aiNames, namedNames, pointers) {
+function reviewPrompt(f, lines, pointers) {
+  return [
+    "You are Tom James, founder of Digital Fox Talent, checking a creator shortlist before it goes to a brand. Be a demanding, experienced talent agent who knows these creators.",
+    "THE ENQUIRY (newest message first, then any earlier thread; DFT's own replies in the thread stand):",
+    String(f.subject || ""),
+    String(f.body || "").slice(0, 9000),
+    "",
+    "PAST POINTERS FROM THE DFT TEAM:",
+    (pointers || []).slice(-30).map(p => "- " + String(p).replace(/\s+/g, " ")).join("\n") || "(none)",
+    "",
+    "THE SHORTLIST (id | format | name | handle | category | ... | about | DFT FIT NOTE if any):",
+    lines.join("\n"),
+    "",
+    "Remove any creator who would make Tom wince: an audience age, gender or tone that clashes with the product, a DFT FIT NOTE or past pointer that rules them out, something DFT already said in the thread, an audience in the wrong market, or only a tenuous link to the brief. Keep solid adjacent fits; breadth is good. Never remove a creator the brand's newest message asks for by name.",
+    "When you remove a creator, list every one of their ids (all formats).",
+    "Return ONLY JSON: {\"remove\":[{\"id\":\"\",\"reason\":\"max 8 words\"}]}"
+  ].join("\n");
+}
+
+function pitchPrompt(f, lines, fwdName, aiNames, namedNames, pointers, facts) {
   return [
     "You help Digital Fox Talent (DFT), a creator management agency, answer a brand enquiry with a shortlist from its creator roster.",
     "",
@@ -1233,13 +1253,25 @@ function pitchPrompt(f, lines, fwdName, aiNames, namedNames, pointers) {
     "THE ROSTER (one line per placement: id | format | creator | handle | category | subscribers | views | price | location and audience | about). Only these ids exist. guaranteed views = YouTube integration view guarantee; est views = estimated views for a dedicated video (no guarantee); avg views = short-form average, for context only (short form is priced per post).",
     lines.join("\n"),
     "",
+    "THE THREAD",
+    "- The forwarded email may carry earlier messages quoted below the newest one. Read them all. Replies from DFT (signed Tom James or Digital Fox Talent, even when sent from a creator's DFT inbox, e.g. 'Emmaiden wrote') are DFT's own words and stand: if DFT already said a creator is not a fit, leave that creator out unless the brand's NEWEST message asks for them by name.",
+    "- Set stage to 'new' if DFT should propose creators, or 'shortlist' if the brand has already chosen specific creators from DFT's roster. On a shortlist, pick ONLY the creators the brand chose (each in every format the brand asks about that they have) and mark them named: true.",
+    "- A creator's DFT inbox in the To line only counts as naming that creator on a first enquiry with no earlier thread.",
+    "",
+    "DFT FIT NOTES (on some catalogue lines) are Tom's own judgement about that creator. Follow them strictly: never pick a creator whose note rules them out for this kind of brand or product, unless the brand's newest message asks for them by name.",
+    "",
+    "QUESTIONS",
+    "- List each practical question the brand asks in its NEWEST message (not ones DFT already answered) in questions, as a short paraphrase. Answer each ONLY from the DFT FACTS below, in one short plain sentence in Tom's warm voice, no dashes. If the facts do not answer it, leave answer empty so Tom answers it himself. Never guess terms, prices, exclusivity, platforms, dates or policies.",
+    "DFT FACTS:",
+    facts || "(none yet)",
+    "",
     "HOW TO PICK (think like an experienced talent agent, not a category filter)",
     "- AI campaigns: only these creators accept AI brands (AI tools, AI apps, generative AI): " + (aiNames || []).join(", ") + ". If the product or campaign is AI-related, set ai_product to true and pick ONLY from them (any of their formats), except creators the enquiry names or says DFT already confirmed, who are always included. Otherwise set ai_product to false.",
     "- First work out who would buy or love this product and what kind of video would sell it. Then name 4 to 6 different angles a creator could cover it from: the same-genre angle, plus adjacent ones such as reaction and commentary, pop culture, film and TV, comedy and group personalities, family, lifestyle, fitness or tech, whichever genuinely fit.",
     "- Big, engaged reaction and personality channels (group reaction shows, for example) often sell fun, social or entertainment products better than niche specialists. Consider them seriously.",
     "- Read each creator's about line, not just the category, to judge audience and tone.",
     "- Respect any market or territory limit (a pointer or brief saying a campaign is for one country only means only creators based in, or with a real audience in, that country). If that leaves one creator, return one.",
-    "- Always include any creator the enquiry names, asks about, or says DFT already confirmed, and any creator it was sent to (a creator's DFT inbox in the To line counts), plus any creator the note from " + fwdName + " asks for. Mark these picks named: true. A named creator who is not in the roster above has left DFT: leave them out and do not mention them.",
+    "- Always include any creator the brand's newest message names, asks about, or says DFT already confirmed, and any creator it was sent to (a creator's DFT inbox in the To line counts only on a first enquiry with no earlier thread), plus any creator the note from " + fwdName + " asks for. Mark these picks named: true. A named creator who is not in the roster above has left DFT: leave them out and do not mention them.",
     namedNames && namedNames.length ? "- Named in this enquiry and on the roster: " + namedNames.join(", ") + ". They are always on the list, whatever else applies." : "",
     "- How many: every creator who genuinely fits, with no upper limit (the whole roster is fine if the brief truly suits everyone). Aim for at least 10 creators, topping up with the next-best real fits, unless a pointer, a market limit or the AI rule leaves fewer. Mix the closest fits with adjacent angles so the brand sees options it would not have thought of.",
     "- Be considerate about fit, creator by creator: leave out anyone whose audience, tone or content would jar with this brand or product, even if the category looks close (for example an edgy, mature or horror-led channel on a family or kids brief, a hardcore gaming channel on a beauty brief, an adult-skewing audience for a toy). Check age split, gender split and location against who the product is for. When unsure, leave them out.",
@@ -1252,7 +1284,7 @@ function pitchPrompt(f, lines, fwdName, aiNames, namedNames, pointers) {
     "Do not write the email (it is built from a fixed template). Give only: product, the short brand or product name exactly as people would say it (e.g. Catch Flex, Higgsfield), never a description; mix, a short phrase for the kinds of channels on your list (e.g. gaming, reaction, and personality channels); and answer, one or two short plain sentences that directly answer any practical question the enquiry asks, otherwise empty. answer may only use these facts: the current rates are on the list; availability and posting dates are confirmed with each creator as soon as they approve, and we can move quickly; which of the named creators are on the list (only those given above as named and on the roster). Never say a creator is not on the roster, has left, or is unavailable: simply leave other names out. Never invent availability, dates, prices or numbers, never mention creators who left, and never refer to anything below or attached. No em dashes, no slashes.",
     "",
     "Return ONLY JSON, no prose:",
-    "{\"brand\":\"\",\"ai_product\":false,\"product\":\"\",\"title\":\"short list name, e.g. EXT (Exterminauts)\",\"contact_first_name\":\"the sender's first name if known, else empty\",\"angles\":[\"\"],\"mix\":\"\",\"answer\":\"\",\"picks\":[{\"id\":\"\",\"named\":false,\"fit\":4,\"why\":\"max 6 words\"}]}"
+    "{\"brand\":\"\",\"ai_product\":false,\"product\":\"\",\"title\":\"short list name, e.g. EXT (Exterminauts)\",\"contact_first_name\":\"the sender's first name if known, else empty\",\"angles\":[\"\"],\"mix\":\"\",\"answer\":\"\",\"stage\":\"new\",\"questions\":[{\"q\":\"short paraphrase\",\"answer\":\"\"}],\"picks\":[{\"id\":\"\",\"named\":false,\"fit\":4,\"why\":\"max 6 words\"}]}"
   ].join("\n");
 }
 
@@ -1280,10 +1312,19 @@ async function pitchFromEmail(b) {
     // Tom's pointers (13 Oct 2026): the note above each forward is kept on the Pitch Requests board and fed into later pitches, so the system learns from them.
     if (f.note) await monday(`mutation{change_multiple_column_values(board_id:${PITCH_BOARD},item_id:${Number(b.item)},column_values:${JSON.stringify(JSON.stringify({ long_text_mm83jwpf: { text: f.note } }))}){id}}`).catch(() => null);
     const pastQ = await monday(`query{boards(ids:[${PITCH_BOARD}]){items_page(limit:200){items{id column_values(ids:["long_text_mm83jwpf"]){text}}}}}`).catch(() => null);
-    const pointers = (((((pastQ || {}).boards || [])[0] || {}).items_page || {}).items || []).filter(it => String(it.id) !== String(b.item)).map(it => String(((it.column_values || [])[0] || {}).text || "").trim()).filter(p => p && !/^(warm|kind|best) regards/i.test(p)).filter((p, i, a) => a.indexOf(p) === i).slice(-30);
+    const pointers = (((((pastQ || {}).boards || [])[0] || {}).items_page || {}).items || []).filter(it => String(it.id) !== String(b.item) && String(it.id) !== String(FACTS_ITEM)).map(it => String(((it.column_values || [])[0] || {}).text || "").trim()).filter(p => p && !/^(warm|kind|best) regards/i.test(p)).filter((p, i, a) => a.indexOf(p) === i).slice(-30);
     if (!f.contactEmail || f.body.length < 40) throw new Error("No forwarded enquiry found. Forward the brand's own email.");
+    const factsQ = await monday(`query{items(ids:[${FACTS_ITEM}]){column_values(ids:["long_text_mm83jwpf"]){text}}}`).catch(() => null);
+    const facts = String(((((factsQ || {}).items || [])[0] || {}).column_values || [{}])[0].text || "").trim();
     const data = await loadBoard();
     const cat = pitchCatalogue(data);
+    // Brand fit notes (Rates board column, Tom 14 Oct 2026): DFT's own judgement on who each creator suits, applied to all of that creator's formats.
+    const fitQ = await monday(`query{boards(ids:[${BOARD}]){items_page(limit:500){items{id name column_values(ids:["long_text_mm84rm3j","text_mm49w81b"]){id text}}}}}`).catch(() => null);
+    const fitKey = k => String(k || "").replace(/\s*-\s*(Shorts|Instagram|TikTok|Snapchat|Dedicated)\b.*$/i, "").replace(/^@/, "").toLowerCase().replace(/[^a-z0-9]/g, "");
+    const fitBy = {};
+    (((((fitQ || {}).boards || [])[0] || {}).items_page || {}).items || []).forEach(it => { const cv = {}; (it.column_values || []).forEach(c => { cv[c.id] = c.text || ""; }); const t = String(cv.long_text_mm84rm3j || "").replace(/\s+/g, " ").trim(); if (!t) return; [it.name, cv.text_mm49w81b].forEach(k => { const n = fitKey(k); if (n.length >= 4) fitBy[n] = t; }); });
+    const fitOf = id => { const c = cat.byId[id] || {}; for (const k of [fitKey(c.name), fitKey(c.handle)]) if (k && fitBy[k]) return fitBy[k]; return ""; };
+    const fitLines = cat.lines.map(l => { const n = fitOf(l.split(" | ")[0]); return n ? l + " | DFT FIT NOTE: " + n : l; });
     // AI campaigns (Tom, 13 Oct 2026): only creators on the AI_LIST saved list are open to AI brands.
     const aiL = (await freshList(AI_LIST).catch(() => ({}))).list;
     const aiIds = new Set(((aiL && aiL.body && aiL.body.ids) || []).map(String));
@@ -1293,12 +1334,16 @@ async function pitchFromEmail(b) {
     const aiNames = [...new Set([...aiIds].map(id => (cat.byId[id] || {}).name).filter(Boolean))];
     // Creators the enquiry names (or was sent to) are always on the list, even on AI campaigns (Tom, 13 Oct 2026).
     const norm = s => String(s || "").toLowerCase().replace(/[^a-z0-9]/g, ""), base = s => String(s || "").replace(/\s*-\s*(Shorts|Instagram|TikTok|Snapchat|Dedicated).*$/i, "");
-    const hay = norm(f.body + " " + f.to); // names in the pointer are left to the model, so "leave out X" never forces X in
+    // The newest message only (Tom, 14 Oct 2026, NETA AI): quoted history below it is context, and a creator inbox in the To line only names that creator on a first enquiry.
+    const fwdHead0 = String(f.body).split(/\n[ \t]*\n/)[0] || "", afterHead = String(f.body).slice(fwdHead0.length);
+    const hm = afterHead.search(/\n[ \t>*\-]*(on \d{4}-\d\d-\d\d[^\n]{0,80}wrote|On [^\n]{6,160}(\n[^\n]{0,80})?wrote:|-{3,}\s*Original Message|From:[^\n]*\n[ \t>*\-]*(Sent|Date):)/i);
+    const hasHistory = hm >= 0, latest = hasHistory ? afterHead.slice(0, hm) : afterHead;
+    const hay = norm(latest + (hasHistory ? "" : " " + f.to)); // names in the pointer are left to the model, so "leave out X" never forces X in
     const namedPl = Object.keys(cat.byId).filter(id => { const n = norm(base(cat.byId[id].name)), h = norm(cat.byId[id].handle); return (n.length >= 5 && hay.includes(n)) || (h.length >= 5 && hay.includes(h)); });
     const namedNames = []; namedPl.map(id => base(cat.byId[id].name).replace(/^@/, "")).sort((a, b) => b.length - a.length).forEach(nm => { const k = norm(nm); if (!namedNames.some(x => norm(x).startsWith(k) || k.startsWith(norm(x)))) namedNames.push(nm); });
     const nameOf = id => { const k = norm(base(cat.byId[id].name).replace(/^@/, "")); return namedNames.find(x => norm(x).startsWith(k) || k.startsWith(norm(x))) || ""; };
     const fwdName = String(b.fromName || "").replace(/["<>]/g, "").trim() || fromEmail.split("@")[0];
-    const out = await askClaude(pitchPrompt(f, cat.lines, fwdName, aiNames, namedNames, pointers));
+    const out = await askClaude(pitchPrompt(f, fitLines, fwdName, aiNames, namedNames, pointers, facts));
     const order = GROUPS.map(g => g.id);
     const aiCamp = aiIds.size > 0 && (out.ai_product === true || /\bAI\b/.test(f.subject + " " + f.body));
     const namedIds = new Set((out.picks || []).filter(p => p && p.named === true).map(p => String(p.id)));
@@ -1327,6 +1372,18 @@ async function pitchFromEmail(b) {
     if (market) for (let k = ids.length - 1; k >= 0; k--) if (!inMarket(ids[k])) ids.splice(k, 1);
     const aiDeclined = []; // named creators who do not take AI work (unless the enquiry says DFT already confirmed them)
     namedNames.forEach(nm => { if (leftOut(nm)) return; if (market && !namedPl.filter(id => nameOf(id) === nm).some(inMarket)) return; const mine = namedPl.filter(id => nameOf(id) === nm); if (aiCamp && !mine.some(aiOk) && !/confirm/i.test(f.body)) { aiDeclined.push(nm); mine.forEach(id => { const k = ids.indexOf(id); if (k >= 0) ids.splice(k, 1); }); return; } const inG = mine.filter(id => groupsUsed.has(cat.byId[id].gid)); (inG.length ? inG : mine).forEach(id => { if (!ids.includes(id)) ids.push(id); }); });
+    // A brand that has already chosen creators gets exactly those back (Tom, 14 Oct 2026, NETA AI).
+    if (out.stage === "shortlist") { const keep = ids.filter(id => nameOf(id) || namedIds.has(id)); if (keep.length) ids.splice(0, ids.length, ...keep); }
+    // Second pass (Tom, 14 Oct 2026): the list is checked the way Tom would before it is saved. Creators the brand's newest message names always stay.
+    let reviewed = "";
+    if (out.stage !== "shortlist" && ids.length > 1) {
+      const lineOf = {}; fitLines.forEach(l => { lineOf[l.split(" | ")[0]] = l; });
+      const rv = await askClaude(reviewPrompt(f, ids.map(id => lineOf[id] || id), pointers)).catch(() => null);
+      const ck = id => norm(base((cat.byId[id] || {}).name || ""));
+      const drop = new Set(((rv && rv.remove) || []).map(r => String(r && r.id)).filter(id => cat.byId[id] && !nameOf(id)).map(ck));
+      const kept = ids.filter(id => !drop.has(ck(id)) || nameOf(id));
+      if (kept.length) { reviewed = ((rv && rv.remove) || []).map(r => (cat.byId[String(r && r.id)] || {}).name + ": " + String((r && r.reason) || "")).join("; "); ids.splice(0, ids.length, ...kept); }
+    }
     if (!ids.length) throw new Error("No creators were picked");
     ids.sort((x, y) => order.indexOf(cat.byId[x].gid) - order.indexOf(cat.byId[y].gid));
     const title = noDash(out.title || f.subject || "Pitch").slice(0, 70);
@@ -1346,13 +1403,18 @@ async function pitchFromEmail(b) {
     const intro = pick(["I've put together a shortlist of creators" + across + (who || " for you") + ".", "Here's a shortlist of creators" + across + (who || " who'd be happy to take this on") + ".", "Please find below a list of creators" + across + (who || " who would be happy to promote " + product) + ".", "I've pulled together some creators" + across + (who || " who'd be a great fit") + "."]);
     const solo = [...new Set(ids.map(id => base(cat.byId[id].name).replace(/^@/, "")))]; // one creator: say so plainly
     const soloFirst = solo.length === 1 ? solo[0].split(/\s+/)[0] : "";
-    const lead = solo.length === 1 ? pick(["Please find " + soloFirst + "'s rates below.", "Here are " + soloFirst + "'s rates for this.", "I've put " + soloFirst + "'s rates together for you below."]) : intro;
+    const lead = out.stage === "shortlist" && solo.length > 1 ? pick(["I've put the creators you shortlisted together on one list.", "Here are the creators you shortlisted, all on one list."]) : solo.length === 1 ? pick(["Please find " + soloFirst + "'s rates below.", "Here are " + soloFirst + "'s rates for this.", "I've put " + soloFirst + "'s rates together for you below."]) : intro;
     const howTo = pick(["You can tick a creator to approve them, tick again to mark a 'no', or use the speech bubble to comment or ask questions.", "Just tick anyone you'd like to go ahead with (tick again for a no), and use the speech bubble for any questions.", "Tick the creators you'd like to book, tick again for a no, and leave any questions in the speech bubble."]);
     const withRates = /\b(rates?|pric\w*|cost|budget)\b/i.test(f.body) ? " with current rates." : ".";
     const ans = [];
+    const qs = Array.isArray(out.questions) ? out.questions.filter(q => q && q.q) : [];
     if (aiDeclined.length) ans.push("Sadly, " + joinN(aiDeclined) + " won't take on AI projects, but these creators would.");
-    if (solo.length > 1 && listNames.length && (/\?/.test(f.body) || withRates !== ".")) ans.push(pick([joinN(listNames) + (listNames.length > 1 ? " are" : " is") + " on the list" + withRates, "You'll find " + joinN(listNames) + " on there" + withRates]));
-    if (/availab|posting date|\bdates\b|schedule|timeline|timing|turnaround/i.test(f.body)) ans.push(pick(["We confirm availability and posting dates with each creator as soon as you approve, and can move quickly.", "Once you've picked, we'll confirm availability and posting dates with each creator straight away."]));
+    if (out.stage !== "shortlist" && solo.length > 1 && listNames.length && (/\?/.test(f.body) || withRates !== ".")) ans.push(pick([joinN(listNames) + (listNames.length > 1 ? " are" : " is") + " on the list" + withRates, "You'll find " + joinN(listNames) + " on there" + withRates]));
+    if (/availab|posting date|\bdates\b|schedule|timeline|timing|turnaround/i.test(f.body) && !qs.some(q => /availab|posting|\bdates?\b|timeline|timing/i.test(String(q.q)))) ans.push(pick(["We confirm availability and posting dates with each creator as soon as you approve, and can move quickly.", "Once you've picked, we'll confirm availability and posting dates with each creator straight away."]));
+    // The brand's questions: answered only from the Standing facts item; anything else is left for Tom, clearly marked (14 Oct 2026).
+    qs.forEach(q => { const a = noDash(String(q.answer || "").trim()); if (a) ans.push(a); });
+    const todo = qs.filter(q => !String(q.answer || "").trim()).map(q => noDash(String(q.q).trim().replace(/[.?\s]+$/, "")));
+    if (todo.length) ans.push("[TOM TO ANSWER: " + todo.join("; ") + "]");
     const answer = ans.join(" ");
     const ask = pick(["Could you confirm who you would like to book?", "Could you confirm who you would like to book please?", "Who would you like to book?", "Could you confirm who you'd like to book for this?"]);
     const options = /option\s*\d|both options|\boptions\b/i.test(f.body);
@@ -1377,7 +1439,7 @@ async function pitchFromEmail(b) {
     const subject = /^re:/i.test(f.subject) ? f.subject : "Re: " + f.subject;
     await pitchMark(b.item, "Ready: " + ids.length + " placements (" + out.model + ")", saved.url);
     const cc = [...new Set((f.others || []).filter(x => x !== f.contactEmail && (!/@digitalfoxtalent\.com$/.test(x) || /^(alex|margot|george)@/.test(x))).concat(["tom@digitalfoxtalent.com", "alex@digitalfoxtalent.com"]))].filter(x => x !== fromEmail).join(", "); // reply-all minus DFT group inboxes; Tom and Alex always see what goes out (13 Oct 2026)
-    return { ok: true, listUrl: saved.url, title, placements: ids.length, to: f.contactEmail, cc, subject, search: "from:" + f.contactEmail + " subject:\"" + f.subject.replace(/"/g, "") + "\" newer_than:90d", html: html + quoteHtml, text: text + quoteText, model: out.model, picks: out.picks };
+    return { ok: true, listUrl: saved.url, title, placements: ids.length, to: f.contactEmail, cc, subject, search: "from:" + f.contactEmail + " subject:\"" + f.subject.replace(/"/g, "") + "\" newer_than:90d", html: html + quoteHtml, text: text + quoteText, model: out.model, picks: out.picks, stage: out.stage || "new", questions: out.questions || [], reviewed };
   } catch (e) {
     try { await pitchMark(b.item, "Failed: " + String(e && e.message || e).slice(0, 200)); } catch (_) {}
     throw e;
