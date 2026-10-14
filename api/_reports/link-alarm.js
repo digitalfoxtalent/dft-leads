@@ -84,8 +84,8 @@ export async function runAlarm(token, opts) {
   for (const r of due) summary.plan.push({ id: r.id, deal: r.deal, row: r.row, live: r.live, why: r.why });
   if (opts.dry || !due.length) return summary;
   // One notification to Tom naming the rows; it opens the newest one.
-  const list = due.slice(0, LIST_MAX).map(r => r.brand + " x " + r.row + " (live " + nice(r.live) + "): " + r.why).join("; ");
-  const text = due.length + (due.length === 1 ? " live campaign has" : " live campaigns have") + " no video link 10+ days after go-live, and the automatic finders could not find one: " + list + (due.length > LIST_MAX ? "; and " + (due.length - LIST_MAX) + " more (each has an update)." : ".") + " Ask Claude to look at the finders for these.";
+  // Short headline (Tom, 14 Oct 2026): monday uses this text as the email subject and body; each row's update has the detail.
+  const text = due.length + (due.length === 1 ? " campaign is" : " campaigns are") + " still missing a video link 10 days after going live, newest " + due[0].brand + " x " + due[0].row;
   try { await mondayCall(token, "mutation ($u: ID!, $t: ID!, $x: String!) { create_notification(user_id:$u, target_id:$t, target_type:Project, text:$x) { text } }", { u: String(TOM), t: String(due[0].id), x: text.slice(0, 1900) }); }
   catch (e) { summary.errors.push("notify: " + String(e.message || e).slice(0, 160)); }
   for (const r of due) {

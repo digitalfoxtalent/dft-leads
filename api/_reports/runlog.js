@@ -100,7 +100,8 @@ export async function runWatch(token, opts) {
     const id = alert && alert.create_item && alert.create_item.id;
     if (id) {
       await mondayCall(token, "mutation ($i: ID!, $t: String!) { create_update(item_id:$i, body:$t) { id } }", { i: String(id), t: "<ul>" + problems.map(p => "<li>" + esc(p) + "</li>").join("") + "</ul><p>Logs: Vercel project dft-leads, Logs, filter /api/link-finder, /api/podcast-sync or /api/view-count-sync.</p>" });
-      const text = "Campaign reporting jobs need a look: " + day + "\n" + problems.slice(0, 4).join("\n") + "\nCampaign reporting may be missing links, views or podcast numbers until fixed.\nCheck the Vercel dft-leads logs. Tom";
+      // Short headline (Tom, 14 Oct 2026): this text becomes the email subject; the full list is in the alert row's update.
+      const text = "Campaign reporting needs a look: " + problems[0] + (problems.length > 1 ? ", plus " + (problems.length - 1) + " more" : "");
       for (const u of WATCH_USERS) {
         try { await mondayCall(token, "mutation ($u: ID!, $t: ID!, $x: String!) { create_notification(user_id:$u, target_id:$t, target_type:Project, text:$x) { text } }", { u: String(u), t: String(id), x: text }); summary.notified = (summary.notified || 0) + 1; }
         catch (e) { summary.notifyError = String(e.message || e).slice(0, 200); }

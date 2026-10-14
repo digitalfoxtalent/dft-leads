@@ -298,8 +298,9 @@ export async function runAudit(token, opts) {
       } catch (e) { summary.errors.push("flag " + x.r.id + ": " + String(e.message || e).slice(0, 120)); }
     }
     if (fresh.length) {
-      const lines = fresh.slice(0, FLAG_LIST).map(x => "- " + x.r.deal + ": " + x.kind + ", " + x.v.at + " " + x.v.v + ". Add: " + ACCEPT_URL + x.r.id + ":" + x.v.v);
-      const text = "Flight audit: " + fresh.length + " video" + (fresh.length === 1 ? "" : "s") + " with a sponsor read near a flight, not added automatically:\n" + lines.join("\n") + (fresh.length > FLAG_LIST ? "\n...and " + (fresh.length - FLAG_LIST) + " more (see each row's updates)." : "");
+      // Short headline (Tom, 14 Oct 2026): monday uses this text as the email subject and body. The detail,
+      // with each Add link, is already in the update on every flagged row.
+      const text = "Flight audit: " + fresh.length + " sponsor read" + (fresh.length === 1 ? "" : "s") + " to check by hand, newest on " + fresh[0].r.deal;
       try { await mondayVars(token, "mutation ($u: ID!, $t: ID!, $x: String!) { create_notification(user_id:$u, target_id:$t, target_type:Project, text:$x) { text } }", { u: String(TOM), t: String(fresh[0].r.id), x: text.slice(0, 1900) }); summary.notified = fresh.length; }
       catch (e) { summary.errors.push("notify: " + String(e.message || e).slice(0, 120)); }
     }
