@@ -692,6 +692,9 @@ function brandPayload(data, list, team, noLock) {
   const approached = new Set(((list && list.body.approached) || []).map(String));
   // Brand feedback (Tom, 10 Oct 2026): the brand can approve a creator or leave a note.
   const feedback = (list && list.body.feedback) || {};
+  // The creator's answer (Margot, 14 Oct 2026): set by DFT, interested or declined, with an
+  // optional note the brand can read, e.g. why they declined or the idea they already have.
+  const creatorRes = (list && list.body.creator) || {};
   const groups = {};
   GROUPS.forEach(g => { groups[g.id] = []; });
   data.rows.forEach(r => {
@@ -701,6 +704,7 @@ function brandPayload(data, list, team, noLock) {
       // Brands see the whole Stage too (Tom, 10 Oct 2026), read only apart from Brand approved.
       o.confirmed = confirmed.has(r.id); o.stage = o.confirmed ? "confirmed" : approached.has(r.id) ? "approached" : "";
       const f = feedback[r.id]; if (f && (f.ok || f.no || f.note)) o.fb = { ok: !!f.ok, no: !f.ok && !!f.no, note: String(f.note || "") };
+      const cr = creatorRes[r.id]; if (cr && (cr.ok || cr.no || cr.note)) o.cr = { ok: !!cr.ok, no: !cr.ok && !!cr.no, note: String(cr.note || "") };
     }
     if (o && lock && !noLock) applyLock(o, lock);
     if (o) groups[r.group].push(o);
@@ -1009,6 +1013,25 @@ async function brandFeedback(b, email) {
   // The team can tick "Brand approved" in Stage for a brand that approved by email.
   if (bits.length) { await audit(list.id, (email ? email + " (for the brand)" : "Brand feedback") + " on \u201c" + list.name + "\u201d: " + bits.join("; ")); await noteWrite(LISTS_BOARD); }
   return brandPayload(data, Object.assign({}, list, { body }), !!email);
+}
+
+// The creator's answer to the brand (Margot, 14 Oct 2026). Team only: "yes" interested,
+// "no" declined, "" none, plus a short note shown to the brand on the list.
+async function creatorResponse(b, email) {
+  const { data, list } = await freshList(b.slug);
+  if (!list) throw new Error("list not found");
+  if (list.bad) throw new Error(LIST_READ_ERROR);
+  const id = String(b.id || "");
+  if (!(list.body.ids || []).map(String).includes(id)) throw new Error("That creator is not on this list");
+  const note = String(b.note == null ? "" : b.note).replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, "").trim().slice(0, 500);
+  const decision = String(b.decision == null ? "" : b.decision);
+  if (!["", "yes", "no"].includes(decision)) throw new Error("Unknown response");
+  const ok = decision === "yes", no = decision === "no";
+  const creator = Object.assign({}, list.body.creator || {});
+  if (ok || no || note) creator[id] = { ok, no, note, at: stamp(), by: email }; else delete creator[id];
+  const body = Object.assign({}, list.body, { creator });
+  await writeList(list.id, body, { [L.updated]: email + " " + stamp() });
+  return brandPayload(data, Object.assign({}, list, { body }), true);
 }
 
 async function listLabel(b, email) {
@@ -1593,6 +1616,7 @@ export default async function handler(req, res) {
         if (b.op === "list-price") return res.status(200).json(await listPrice(b, email));
         if (b.op === "list-lock") return res.status(200).json(await listLock(b, email));
         if (b.op === "list-confirm") return res.status(200).json(await listConfirm(b, email));
+        if (b.op === "creator-response") return res.status(200).json(await creatorResponse(b, email));
         if (b.op === "list-label") return res.status(200).json(await listLabel(b, email));
         if (b.op === "list-show") return res.status(200).json(await listShow(b, email));
         if (b.op === "list-order") return res.status(200).json(await listOrder(b, email));
