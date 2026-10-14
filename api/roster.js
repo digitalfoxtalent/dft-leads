@@ -1235,8 +1235,8 @@ function reviewPrompt(f, lines, pointers) {
     "THE SHORTLIST (id | format | name | handle | category | ... | about | DFT FIT NOTE if any):",
     lines.join("\n"),
     "",
-    "Remove any creator who would make Tom wince: an audience age, gender or tone that clashes with the product, a DFT FIT NOTE or past pointer that rules them out, something DFT already said in the thread, an audience in the wrong market, or only a tenuous link to the brief. Keep solid adjacent fits; breadth is good. Never remove a creator the brand's newest message asks for by name.",
-    "When you remove a creator, list every one of their ids (all formats).",
+    "Remove only clear misfits, the ones that would make Tom wince: an audience age or tone that clashes with the product, a DFT FIT NOTE or past pointer that rules them out, something DFT already said in the thread, or an audience in the wrong market. Big, fun reaction and personality channels are deliberate adjacent picks (Tom likes The Reel Rejects and The Normies for broad, fun products), so keep them unless something above applies. Breadth is good: Tom wants at least 10 creators. Never remove a creator the brand's newest message asks for by name.",
+    "When you remove a creator, list every one of their ids (all formats). Order removals worst fit first.",
     "Return ONLY JSON: {\"remove\":[{\"id\":\"\",\"reason\":\"max 8 words\"}]}"
   ].join("\n");
 }
@@ -1381,6 +1381,9 @@ async function pitchFromEmail(b) {
       const rv = await askClaude(reviewPrompt(f, ids.map(id => lineOf[id] || id), pointers)).catch(() => null);
       const ck = id => norm(base((cat.byId[id] || {}).name || ""));
       const drop = new Set(((rv && rv.remove) || []).map(r => String(r && r.id)).filter(id => cat.byId[id] && !nameOf(id)).map(ck));
+      // Never below 10 creators (Tom, 13 Oct 2026): removals apply worst first until the floor is reached, unless a removal is a DFT fit note or pointer.
+      const creators = () => new Set(ids.filter(id => !drop.has(ck(id)) || nameOf(id)).map(ck)).size;
+      const order = [...drop]; while (order.length && creators() < Math.min(10, new Set(ids.map(ck)).size)) { const last = order.pop(); const why = ((rv && rv.remove) || []).filter(r => cat.byId[String(r && r.id)] && ck(String(r.id)) === last).map(r => String(r.reason || "")).join(" "); if (/fit note|pointer|said|thread/i.test(why)) continue; drop.delete(last); }
       const kept = ids.filter(id => !drop.has(ck(id)) || nameOf(id));
       if (kept.length) { reviewed = ((rv && rv.remove) || []).map(r => (cat.byId[String(r && r.id)] || {}).name + ": " + String((r && r.reason) || "")).join("; "); ids.splice(0, ids.length, ...kept); }
     }
