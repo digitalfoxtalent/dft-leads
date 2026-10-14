@@ -213,6 +213,18 @@ export default async function handler(req, res) {
   if (!tok) return res.status(500).json({ error: "MONDAY_API_KEY not set" });
   if (!isCron(req) && !teamEmail(req, tok)) return res.status(401).json({ error: "unauthorized" });
 
+  // Engaged views link for one channel (Tom, 14 Oct 2026). A signed-in DFT team member opens
+  // /api/kit-sync?viewsLink=UC... and gets the signed connect.digitalfoxtalent.com/api/views link
+  // (latest long-form uploads with YouTube engaged views), to send to a brand that prices on them.
+  // Its own signature purpose, so it never opens the kit, stats or remove-access pages.
+  if (CHANNEL_RE.test(String(req.query.viewsLink || ""))) {
+    const secret = await readSecret(tok);
+    if (secret.length < 20) return res.status(500).json({ error: "STATS_SECRET row on the API Keys board is empty" });
+    const ch = String(req.query.viewsLink);
+    const sig = crypto.createHmac("sha256", secret).update("views:" + ch).digest("base64url").slice(0, 32);
+    return res.status(200).json({ channel: ch, url: `${CONNECT}/api/views?k=${encodeURIComponent(ch)}&t=${sig}` });
+  }
+
   const dry = req.query.dry === "1";
   const only = CHANNEL_RE.test(String(req.query.only || "")) ? req.query.only : null;
   const day = today();
