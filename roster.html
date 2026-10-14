@@ -180,6 +180,14 @@
   .panel .li .mm{ color:var(--muted); font-size:11px; margin:2px 0 6px; }
   .panel .li .acts{ display:flex; gap:6px; flex-wrap:wrap; }
   .panel .empty{ padding:12px 16px 16px; color:var(--muted); font-size:12px; }
+  .panel .lhead{ position:sticky; top:0; z-index:1; background:#fff; border-bottom:1px solid #f1e8dc; padding-bottom:12px; }
+  .panel .lcount{ font-size:11px; font-weight:700; color:var(--muted); margin-left:4px; }
+  .panel .lsearch{ display:block; margin:2px 16px 10px; }
+  .panel .lsearch input{ width:100%; }
+  .lchips{ display:flex; flex-wrap:wrap; gap:6px; padding:0 16px; }
+  .lchip{ font-family:var(--font); font-size:11.5px; font-weight:600; border:1px solid #e4d8c7; background:#fff; color:#6b5c4d; border-radius:999px; padding:5px 11px; cursor:pointer; }
+  .lchip:hover{ background:#fff5ea; }
+  .lchip.on{ background:var(--team); border-color:var(--team); color:#fff; }
 
   .was{ display:block; font-size:10.5px; font-weight:600; color:#2f7d4f; line-height:1.2; margin-top:2px; }
   .was s{ color:var(--muted); font-weight:500; margin-right:4px; }
@@ -338,6 +346,8 @@
     .selbar{ position:sticky; bottom:50px; z-index:15; }
     .selbar input{ width:100%; font-size:16px; }
     .panel{ left:12px; right:12px; top:12px; width:auto; max-height:85vh; }
+    .panel .lsearch input{ font-size:16px; padding:10px 12px 10px 34px; }
+    .lchip{ padding:7px 12px; font-size:12.5px; }
     #fbpop{ width:auto; left:12px !important; right:12px; }
     #fbpop textarea{ font-size:16px; }
     .cbar{ bottom:66px; flex-wrap:wrap; }
@@ -1302,24 +1312,64 @@ function chooseCreatorsFor(l){
   picked.clear(); l.ids.forEach(id=>picked.add(String(id))); editingList={slug:l.slug,title:l.title};
   $("#listName").value=l.title; setMode("team"); toast("Loaded “"+l.title+"”. Tick or untick creators, then Update list");
 }
+// Saved lists panel (Margot, 14 Oct 2026): a search box and an owner filter (Everyone, Mine, or
+// one person), newest first, so the right list is quick to find as the number grows. The search
+// matches the list name, who made it, and the creators on it. The filter is remembered per browser.
+const LS_KEY="dftListsFilter:v1";
+let lsQuery="", lsOwner=(()=>{ try{ return localStorage.getItem(LS_KEY)||"all"; }catch(_){ return "all"; } })();
+const listOwner=l=>(String(l.by||"").match(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+/)||[""])[0].toLowerCase();
+const ownerName=em=>{ const n=String(em||"").split("@")[0]; return n?n.charAt(0).toUpperCase()+n.slice(1):"Unknown"; };
+const listDay=l=>((String(l.by||"")+" "+String(l.updated||"")).match(/\d{4}-\d\d-\d\d/g)||[""]).sort().pop();
+function listCreatorNames(l){
+  const want=new Set((l.ids||[]).map(String)), out=[];
+  GROUPS.forEach(g=>((TEAM&&TEAM.groups[g.id])||[]).forEach(c=>{ if(want.has(String(c.id))) out.push(c.name||"",c.handle||""); }));
+  return out.join(" ");
+}
 function renderPanel(){
   const lists=(TEAM&&TEAM.lists)||[];
-  $("#panel").innerHTML=`<h3>Saved lists</h3>`+(lists.length?lists.map(l=>`<div class="li">
-    <div class="tt">${esc(l.title)}</div>
-    <div class="mm">${l.ids.length} creators · ${esc(l.by||"")}${l.updated?" · updated "+esc(l.updated):""}${l.locked?" · prices locked "+esc(fmtDate(l.locked)):""}</div>
-    <div class="acts">
-      <a class="btn primary" href="/r/${esc(l.slug)}" title="Change this list's videos, views and prices. Nothing else changes.">Open list</a>
-      <button class="btn team" data-a="edit" data-s="${esc(l.slug)}" title="Tick or untick who is on this list">Add / remove creators</button>
-      <button class="btn" data-a="copy" data-s="${esc(l.slug)}">Copy brand link</button>
-      <button class="btn" data-a="del" data-s="${esc(l.slug)}" style="color:var(--hide)">Delete</button>
-    </div></div>`).join("")+`<div class="hint"><b>Open list</b> to change a list's videos and prices (only that list changes).<br><b>Add / remove creators</b> to choose who is on it.</div>`:`<div class="empty">No saved lists yet. Tick creators in the DFT view, name the list and save it.</div>`);
-  $("#panel").querySelectorAll("button[data-a]").forEach(b=>b.addEventListener("click",async()=>{
+  if(!lists.length){ $("#panel").innerHTML=`<h3>Saved lists</h3><div class="empty">No saved lists yet. Tick creators in the DFT view, name the list and save it.</div>`; return; }
+  const me=String((TEAM&&TEAM.email)||"").toLowerCase();
+  const owners=[...new Set(lists.map(listOwner).filter(Boolean))].sort((a,b)=>(a===me?-1:b===me?1:ownerName(a).localeCompare(ownerName(b))));
+  if(lsOwner!=="all"&&lsOwner!=="mine"&&!owners.includes(lsOwner)) lsOwner="all";
+  const chip=(k,label)=>`<button class="lchip${lsOwner===k?" on":""}" data-o="${esc(k)}">${esc(label)}</button>`;
+  $("#panel").innerHTML=`<div class="lhead"><h3>Saved lists <span class="lcount" id="lsCount"></span></h3>
+    <label class="search lsearch"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg><input id="lsq" type="text" placeholder="Search lists, brands or creators…" autocomplete="off" value="${esc(lsQuery)}"></label>
+    <div class="lchips">${chip("all","Everyone")}${chip("mine","Mine")}${owners.filter(o=>o!==me).map(o=>chip(o,ownerName(o)+"'s")).join("")}</div></div>
+    <div id="lsBody"></div>`;
+  const draw=()=>{
+    const q=lsQuery.trim().toLowerCase();
+    const shown=lists.filter(l=>{ const o=listOwner(l);
+      if(lsOwner==="mine"&&o!==me) return false;
+      if(lsOwner!=="all"&&lsOwner!=="mine"&&o!==lsOwner) return false;
+      if(!q) return true;
+      return [l.title,l.slug,o,ownerName(o),listCreatorNames(l)].join(" ").toLowerCase().includes(q);
+    }).sort((a,b)=>listDay(b).localeCompare(listDay(a)));
+    $("#lsCount").textContent=shown.length===lists.length?String(lists.length):`${shown.length} of ${lists.length}`;
+    $("#lsBody").innerHTML=(shown.length?shown.map(l=>{ const o=listOwner(l), pitch=/\(pitch\)/.test(String(l.by||"")), day=listDay(l);
+      return `<div class="li">
+      <div class="tt">${esc(l.title)}</div>
+      <div class="mm">${l.ids.length} creators · ${esc(o===me?"You":ownerName(o))}${pitch?" (from a pitch email)":""}${day?" · "+esc(fmtDate(day)):""}${l.locked?" · prices locked "+esc(fmtDate(l.locked)):""}</div>
+      <div class="acts">
+        <a class="btn primary" href="/r/${esc(l.slug)}" title="Change this list's videos, views and prices. Nothing else changes.">Open list</a>
+        <button class="btn team" data-a="edit" data-s="${esc(l.slug)}" title="Tick or untick who is on this list">Add / remove creators</button>
+        <button class="btn" data-a="copy" data-s="${esc(l.slug)}">Copy brand link</button>
+        <button class="btn" data-a="del" data-s="${esc(l.slug)}" style="color:var(--hide)">Delete</button>
+      </div></div>`; }).join("")+`<div class="hint"><b>Open list</b> to change a list's videos and prices (only that list changes).<br><b>Add / remove creators</b> to choose who is on it.</div>`
+      :`<div class="empty">No lists match${q?" “"+esc(lsQuery.trim())+"”":""}${lsOwner!=="all"?" for "+(lsOwner==="mine"?"you":esc(ownerName(lsOwner))):""}.</div>`);
+  };
+  draw();
+  const inp=$("#lsq");
+  inp.addEventListener("input",()=>{ lsQuery=inp.value; draw(); });
+  inp.addEventListener("keydown",e=>{ if(e.key==="Escape"){ if(inp.value){ inp.value=""; lsQuery=""; draw(); } else $("#panel").classList.remove("on"); } });
+  $("#panel").querySelectorAll(".lchip").forEach(b=>b.addEventListener("click",()=>{ lsOwner=b.dataset.o; try{ localStorage.setItem(LS_KEY,lsOwner); }catch(_){} $("#panel").querySelectorAll(".lchip").forEach(x=>x.classList.toggle("on",x===b)); draw(); }));
+  $("#lsBody").onclick=async e=>{
+    const b=e.target.closest("button[data-a]"); if(!b) return;
     const l=lists.find(x=>x.slug===b.dataset.s); if(!l) return;
     const url=location.origin+"/r/"+l.slug;
     if(b.dataset.a==="copy"){ try{await navigator.clipboard.writeText(url); toast("Link copied");}catch(_){ prompt("Copy this link",url); } }
     if(b.dataset.a==="edit"){ $("#panel").classList.remove("on"); chooseCreatorsFor(l); }
-    if(b.dataset.a==="del"){ if(!confirm("Delete “"+l.title+"”? Its link will stop working. (It is archived on monday and can be restored there.)")) return; try{ await post({op:"delete-list",slug:l.slug}); toast("List deleted"); await loadTeam(true); renderPanel(); }catch(e){ toast(e.message,true); } }
-  }));
+    if(b.dataset.a==="del"){ if(!confirm("Delete “"+l.title+"”? Its link will stop working. (It is archived on monday and can be restored there.)")) return; try{ await post({op:"delete-list",slug:l.slug}); toast("List deleted"); await loadTeam(true); renderPanel(); }catch(err){ toast(err.message,true); } }
+  };
 }
 
 // ---------- modes / loading ----------
@@ -1483,7 +1533,7 @@ $("#search").addEventListener("input",e=>{query=e.target.value; render();});
 $("#vTeam").addEventListener("click",()=>setMode("team"));
 $("#vBrand").addEventListener("click",()=>setMode("brand"));
 $("#vEdit").addEventListener("click",()=>setMode("edit"));
-$("#listsBtn").addEventListener("click",e=>{e.stopPropagation(); renderPanel(); $("#panel").classList.toggle("on");});
+$("#listsBtn").addEventListener("click",e=>{e.stopPropagation(); renderPanel(); $("#panel").classList.toggle("on"); const q=$("#lsq"); if(q&&$("#panel").classList.contains("on")&&!isMobile()) q.focus();});
 document.addEventListener("click",e=>{ if(!e.target.closest("#panel")&&!e.target.closest("#listsBtn")) $("#panel").classList.remove("on"); });
 $("#saveList").addEventListener("click",()=>saveList(false));
 $("#saveAsNew").addEventListener("click",()=>saveList(true));
