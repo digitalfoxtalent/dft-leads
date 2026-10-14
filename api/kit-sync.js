@@ -56,7 +56,7 @@ const KEY_COL = "text_mm5bcxe7";
 const CHANNEL_RE = /^UC[A-Za-z0-9_-]{22}$/;
 
 const ACCESS_BOARD = 18432126799;
-const A = { chan: "text_mm7df591", status: "color_mm7dpp3w", health: "color_mm7d6evf", verified: "date_mm7dvyy5", roster: "link_mm7wf7qv", kit: "color_mm7wzqqz" };
+const A = { chan: "text_mm7df591", status: "color_mm7dpp3w", health: "color_mm7d6evf", verified: "date_mm7dvyy5", roster: "link_mm7wf7qv", kit: "color_mm7wzqqz", granted: "date_mm7dmz8d" };
 const GTR_BOARD = 6160485039;
 const G = { kit: "link_mm7y59q3", kitDate: "date_mm7yb1h5" };
 const RATES_BOARD = 18417663127;
@@ -216,7 +216,7 @@ export default async function handler(req, res) {
   const dry = req.query.dry === "1";
   const only = CHANNEL_RE.test(String(req.query.only || "")) ? req.query.only : null;
   const day = today();
-  const report = { at: new Date().toISOString(), dry, connected: [], revoked: [], cleared: [], channelIdsFilled: [], noChannel: [], added: [], errors: [] };
+  const report = { at: new Date().toISOString(), dry, connected: [], newlyGranted: [], revoked: [], cleared: [], channelIdsFilled: [], noChannel: [], added: [], errors: [] };
 
   try {
     const secret = await readSecret(tok);
@@ -266,8 +266,12 @@ export default async function handler(req, res) {
           const rv = ratesValues(p.data);
           const rateRows = rates.filter(x => x.src === r.channel && (!r.gtrId || x.gtrIds.includes(r.gtrId)));
           report.connected.push({ name: r.name, ratesRows: rateRows.length, demographics: !!rv });
+          // First time this channel shows as connected: stamp Granted date, so the board says WHEN
+          // each creator completed Channel Connect (Tom, 14 Oct 2026). Never moved after that.
+          const firstGrant = r.status !== "Granted";
+          if (firstGrant) report.newlyGranted.push(r.name);
           if (dry) continue;
-          await write(tok, ACCESS_BOARD, r.id, { [A.status]: { label: "Granted" }, [A.health]: { label: "Healthy" }, [A.kit]: { label: "Live (Channel Connect)" }, [A.verified]: { date: day } });
+          await write(tok, ACCESS_BOARD, r.id, Object.assign({ [A.status]: { label: "Granted" }, [A.health]: { label: "Healthy" }, [A.kit]: { label: "Live (Channel Connect)" }, [A.verified]: { date: day } }, firstGrant ? { [A.granted]: { date: day } } : {}));
           if (r.gtrId) await write(tok, GTR_BOARD, r.gtrId, { [G.kit]: { url, text: "Audience stats (live)" }, [G.kitDate]: { date: day } });
           if (rv) for (const x of rateRows) await write(tok, RATES_BOARD, x.id, rv);
         } else if (p.state === "revoked" || p.state === "not-connected") {
