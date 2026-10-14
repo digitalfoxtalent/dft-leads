@@ -195,7 +195,7 @@
   .stg label.dft{ cursor:default; }
   .stg label.dft input{ cursor:default; pointer-events:none; }
   /* Stage tick boxes, one look for all three steps (Tom, 10 Oct 2026). */
-  .stg{ gap:3px; width:138px; }
+  .stg{ gap:3px; width:138px; margin:7px 0; } /* four steps since 14 Oct: room above and below */
   .stg input[type=checkbox]{ appearance:none; -webkit-appearance:none; width:14px; height:14px; margin:0; border:1.5px solid #b9a996; border-radius:3px; background:#fff; display:inline-grid; place-content:center; flex:0 0 auto; }
   .stg input[type=checkbox]:checked{ background:var(--orange); border-color:var(--orange); }
   .stg label:last-child input[type=checkbox]:checked{ background:var(--ok); border-color:var(--ok); }
