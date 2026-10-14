@@ -1,8 +1,8 @@
 // Amazon affiliate box on article pages.
 //
-// WORDIE (Tom, 14 Oct 2026: "we should put Amazon ads into it for now"): on as soon as WORDIE_AMAZON_TAG
-// is set in Vercel (the Wordie tracking id in DFT's Associates account, e.g. "wordie-20"). Wordie has no
-// AdSense account yet, so this is its only advertising for now.
+// WORDIE (Tom, 14 Oct 2026: "we should put Amazon ads into it for now"): on, with the tracking id below
+// (WORDIE_AMAZON_TAG in Vercel overrides it). Wordie has no AdSense account yet, so this is its only
+// advertising for now.
 // SUBPLOT: stays off here. SUBPLOT's own box ships with its launch commit (Tom, 10 Oct 2026: Amazon
 // closes an Associates account with no 3 qualifying sales in its first 180 days, so its links wait for
 // launch). Both read their tag from their own env var and never share one.
@@ -16,7 +16,10 @@ const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").
 
 export function amazonTag() {
   if (brand().key !== "wordie") return "";
-  const t = String(process.env.WORDIE_AMAZON_TAG || "").trim();
+  // The tracking id is public by nature (it rides in every link), so it lives in code with an env
+  // override. subplottv-20 is the account's only id today; SUBPLOT's box is not live, so every
+  // click on it is Wordie's until Tom adds a Wordie-specific id and sets WORDIE_AMAZON_TAG.
+  const t = String(process.env.WORDIE_AMAZON_TAG || "subplottv-20").trim();
   return /^[a-z0-9-]{3,40}$/i.test(t) ? t : "";
 }
 
