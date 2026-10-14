@@ -1201,6 +1201,13 @@ const htmlToText = h => String(h || "").replace(/<br\s*\/?>/gi, "\n").replace(/<
 // reply has a DFT address in From, so the brand is the outside address it was sent To. A forward
 // of a forward is followed down to the first header with an outside sender or recipient.
 const DFT_DOMAIN = /@digitalfoxtalent\.com$/i;
+// The note above a forward ends where the forwarder's signature starts: their own name on a line,
+// a phone number or the DFT web address (Margot's signature was being saved as a pointer, 14 Oct 2026).
+function stripSig(note, fromName) {
+  const fn = String(fromName || "").trim().toLowerCase(), lines = String(note || "").split("\n");
+  const at = lines.findIndex(l => (fn && l.trim().toLowerCase() === fn) || /^\s*(\+?\d[\d .()-]{8,}|(https?:\/\/)?(www\.)?digitalfoxtalent\.com\/?)\s*$/i.test(l));
+  return (at >= 0 ? lines.slice(0, at) : lines).join("\n").trim();
+}
 function parseForward(b) {
   const text = String(b.text || "").trim() || htmlToText(b.html);
   const at = text.search(/-{3,}\s*Forwarded message\s*-{3,}|Begin forwarded message:/i);
@@ -1230,7 +1237,7 @@ function parseForward(b) {
     subject: String(String(b.subject || "").replace(/^\s*((fwd?|fw):\s*)+/i, "").trim() || (subj ? subj[1] : "")).replace(/\*+/g, "").trim(),
     to: line(pick.hd.h, "To"),
     others: [...new Set(addrs(line(pick.hd.h, "To") + " " + line(pick.hd.h, "Cc")))].filter(x => x !== pick.email),
-    note: at > 0 ? text.slice(0, at).split(/(?:^|\n)\s*(?:Warm regards|Kind regards|Best regards|Thanks,?\s*\n\s*Tom)/i)[0].trim().slice(0, 1500) : "",
+    note: at > 0 ? stripSig(text.slice(0, at).split(/(?:^|\n)\s*(?:Warm regards|Kind regards|Best regards|Thanks,?\s*\n\s*Tom)/i)[0], b.fromName).slice(0, 1500) : "",
     body: (at >= 0 ? body : fwd).slice(0, 12000),
   };
 }
@@ -1358,8 +1365,10 @@ function pitchPrompt(f, lines, fwdName, aiNames, namedNames, pointers, facts, re
     "THE REPLY",
     "Do not write the email (it is built from a fixed template). Give only: product, the short brand or product name exactly as people would say it (e.g. Catch Flex, Higgsfield), never a description; mix, a short phrase for the kinds of channels on your list (e.g. gaming, reaction, and personality channels); and answer, one or two short plain sentences that directly answer any practical question the enquiry asks, otherwise empty. answer may only use these facts: the current rates are on the list; availability and posting dates are confirmed with each creator as soon as they approve, and we can move quickly; which of the named creators are on the list (only those given above as named and on the roster). Never say a creator is not on the roster, has left, or is unavailable: simply leave other names out. Never invent availability, dates, prices or numbers, never mention creators who left, and never refer to anything below or attached. No em dashes, no slashes.",
     "",
+    "- If the email does not call for creators at all (for example an ongoing booking about dates, contracts, payment or edits, or the brand has already said it wants no more names), return no picks and put one short plain sentence in no_pitch_reason saying why, for the DFT teammate who forwarded it. Otherwise leave no_pitch_reason empty.",
+    "",
     "Return ONLY JSON, no prose:",
-    "{\"brand\":\"\",\"ai_product\":false,\"product\":\"\",\"title\":\"short list name, e.g. EXT (Exterminauts)\",\"contact_first_name\":\"the sender's first name if known, else empty\",\"angles\":[\"\"],\"mix\":\"\",\"answer\":\"\",\"stage\":\"new\",\"closing\":false,\"formats\":[],\"questions\":[{\"q\":\"short paraphrase\",\"answer\":\"\"}],\"picks\":[{\"id\":\"\",\"named\":false,\"fit\":4,\"why\":\"max 6 words\"}]}"
+    "{\"brand\":\"\",\"ai_product\":false,\"product\":\"\",\"title\":\"short list name, e.g. EXT (Exterminauts)\",\"contact_first_name\":\"the sender's first name if known, else empty\",\"angles\":[\"\"],\"mix\":\"\",\"answer\":\"\",\"stage\":\"new\",\"closing\":false,\"formats\":[],\"questions\":[{\"q\":\"short paraphrase\",\"answer\":\"\"}],\"picks\":[{\"id\":\"\",\"named\":false,\"fit\":4,\"why\":\"max 6 words\"}],\"no_pitch_reason\":\"\"}"
   ].join("\n");
 }
 
@@ -1496,7 +1505,9 @@ async function pitchFromEmail(b) {
       const kept = ids.filter(id => !drop.has(ck(id)) || nameOf(id));
       if (kept.length) { reviewed = ((rv && rv.remove) || []).map(r => (cat.byId[String(r && r.id)] || {}).name + ": " + String((r && r.reason) || "")).join("; "); ids.splice(0, ids.length, ...kept); }
     }
-    if (!ids.length) throw new Error("No creators were picked");
+    // Nothing to pitch (Tom, 14 Oct 2026, Alex's Gamesight forward): say why in plain words, and how to get a list anyway.
+    const whyNone = noDash(String(out.no_pitch_reason || "").trim()).replace(/[.\s]+$/, "");
+    if (!ids.length) throw new Error("No list made: " + (whyNone ? whyNone + "." : "the email does not ask for creators.") + " To get a list anyway, forward it again with a note above it saying what you want, e.g. 'pitch more creators for this'.");
     if (!reuse) ids.sort((x, y) => order.indexOf(cat.byId[x].gid) - order.indexOf(cat.byId[y].gid));
     const title = reuse ? reuse.title : noDash(out.title || f.subject || "Pitch").slice(0, 70);
     const saved = reuse ? { ok: true, slug: reuse.slug, url: "https://" + HOST + "/r/" + reuse.slug } : await saveList({ title, ids }, fromEmail + " (pitch)");
@@ -1564,7 +1575,7 @@ async function pitchFromEmail(b) {
     resultObj.draftMade = await teamDraft(fromEmail, resultObj).catch(e => "failed: " + String((e && e.message) || e).slice(0, 200));
     return resultObj;
   } catch (e) {
-    try { await pitchMark(b.item, "Failed: " + String(e && e.message || e).slice(0, 200)); } catch (_) {}
+    try { await pitchMark(b.item, (/^No list made/.test(String(e && e.message)) ? "" : "Failed: ") + String(e && e.message || e).slice(0, 500)); } catch (_) {}
     throw e;
   }
 }
