@@ -88,9 +88,41 @@ export const unpinned = arts => [...new Set(arts.map(a => a.c))].filter(h => !SL
 // present. Returning null means "no gate".
 export const approvedNow = () => {
   const own = approvedHandles();
+  if (own === "rights-board") return null;            // resolved async in boardApprovals()
   if (own) return own;
   return process.env.SUBPLOT_APPROVED_ONLY ? APPROVED_HANDLES : null;
 };
+
+// WORDIE APPROVALS FROM THE RIGHTS BOARD (14 Oct 2026). Wordie approves channels automatically
+// at signup, so its approved list cannot live in code. It is read from Wordie - Article Rights
+// (monday 18429671241): every row whose Wordie Articles status is Approved, by its YouTube handle
+// column. FAILS CLOSED: if the board cannot be read and there is no earlier good read in this
+// instance, the list is empty and nothing shows, rather than everything.
+const WORDIE_RIGHTS = { board: "18429671241", status: "color_mm6wj5w0", handle: "text_mm84amzt" };
+let boardGood = { at: 0, list: null };
+export async function boardApprovals() {
+  if (boardGood.list && Date.now() - boardGood.at < TTL_MS) return boardGood.list;
+  const token = process.env.MONDAY_API_KEY || process.env.MONDAY_API_TOKEN;
+  try {
+    if (!token) throw new Error("no monday token");
+    const r = await fetch("https://api.monday.com/v2", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: token, "API-Version": "2024-10" },
+      body: JSON.stringify({ query: `{ boards(ids: [${WORDIE_RIGHTS.board}]) { items_page(limit: 500) { items { column_values(ids: ["${WORDIE_RIGHTS.status}", "${WORDIE_RIGHTS.handle}"]) { id text } } } } }` }),
+    });
+    const j = await r.json();
+    if (j.errors || !r.ok) throw new Error(JSON.stringify(j.errors || r.status).slice(0, 200));
+    const items = j.data.boards[0].items_page.items;
+    const list = items.map(it => Object.fromEntries(it.column_values.map(c => [c.id, c.text || ""])))
+      .filter(c => c[WORDIE_RIGHTS.status] === "Approved" && /^@\S+$/.test(c[WORDIE_RIGHTS.handle].trim()))
+      .map(c => c[WORDIE_RIGHTS.handle].trim().toLowerCase());
+    boardGood = { at: Date.now(), list };
+    return list;
+  } catch (e) {
+    console.error("Wordie: rights board read failed", String(e.message || e));
+    return boardGood.list || [];
+  }
+}
 
 export const slug = s => String(s).toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
 
@@ -367,8 +399,8 @@ async function load() {
   arts.sort((x, y) => new Date(y.p) - new Date(x.p));
   await addViews(arts);
   const removed = await pruneMissing(arts);
-  const gate = approvedNow();
-  if (gate) { const kept = arts.filter(a => gate.includes(a.c)); arts.length = 0; arts.push(...kept); }
+  const gate = approvedHandles() === "rights-board" ? await boardApprovals() : approvedNow();
+  if (gate) { const low = new Set(gate.map(h => String(h).toLowerCase())); const kept = arts.filter(a => low.has(String(a.c).toLowerCase())); arts.length = 0; arts.push(...kept); }
 
   // DISPLAY NAMES, 4 Oct 2026 (Tom). The feed's displayName is wrong on some records: one
   // Breakdowns & Blockbusters article carries "Breakdownsandblockbusters", and the ChaosTrek feed

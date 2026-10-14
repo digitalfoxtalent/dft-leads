@@ -98,14 +98,12 @@ export const BRANDS = {
     wordmark: { head: "Word", tail: "ie" },   // two-tone, sentence case
     feedStore: "YhkBlKFJ0wkpaOmck", // Wordie's OWN store. SUBPLOT's creators agreed to
                                     // SUBPLOT, not to Wordie - their work must not appear here
-    // EMPTY LIST, NOT null, and the difference matters. An empty list means "nobody is
-    // approved for Wordie yet", and it FAILS CLOSED: no handle can pass it. null would fall
-    // through to the SUBPLOT_APPROVED_ONLY env var, which is Production-scoped and therefore
-    // absent on the Preview deployment wordie.media runs from - i.e. no gate at all. That is
-    // exactly how seven creators who had approved nothing appeared here on 4 Sep. The signup
-    // flow adds a handle here only once that creator's approval is recorded on board
-    // 18429671241. Never set this back to null.
-    approvedHandles: [],
+    // "rights-board", NOT null, and the difference matters. null falls through to the
+    // SUBPLOT_APPROVED_ONLY env var, i.e. no gate where that var is unset - exactly how seven
+    // creators who had approved nothing appeared here on 4 Sep. "rights-board" reads Approved
+    // rows from Wordie - Article Rights (18429671241), where signup's automatic check writes
+    // them, and fails closed to an empty list. Never set this to null.
+    approvedHandles: "rights-board",
     topics: {
       // Narrow before broad: a Formula 1 video is sport, not cars-as-tech, so sport is
       // tested before tech. `screen` is the fallback because a video about a film or show

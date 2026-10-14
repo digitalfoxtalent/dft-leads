@@ -3,6 +3,7 @@ import { CSS, GRID_CSS } from "./css.js";
 import { cats, slug, slugFor, SNIPPETS_LIVE } from "./data.js";
 import { NOTES, NOTE_SIGNOFF } from "./notes.js";
 import { bioFor } from "./bios.js";
+import { box as amazonBox } from "./affiliate.js";
 import { brand, brandCss, member, joinCta, mail, siteUrl, hasCast, audience, taking, fontHref, hasShareCard, layout, wordmark, searchHint, usesGoogleAuth, pubFee } from "./brand.js";
 import { wordmarkSvg, accentToday, accentVars } from "./wordmark.js";
 import { design } from "./design.js";
@@ -711,7 +712,7 @@ export function articlePage(a, data, base) {
       ${bioFor(a.c) ? `<aside class="crbio" aria-label="About the creator" style="margin:2.4rem 0 0;padding:1rem 1.25rem;border:1px solid var(--rule-2);border-radius:4px">
         <p style="margin:0 0 .5rem;font-size:.72rem;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3)">About the creator</p>
         <p style="margin:0">${esc(bioFor(a.c))} <a href="${base}/c/${esc(slugH(a.c))}" style="color:var(--blue)">More from ${esc(a.b)} &rarr;</a></p>
-      </aside>` : ""}
+      </aside>` : ""}${amazonBox(a, data)}
       <div class="rule-h" style="margin-top:2.6rem"><h2>Watch the original</h2><span class="note">${esc(a.c)} · YouTube</span></div>
       <div class="player" data-v="${esc(a.v)}" style="margin-top:1rem">
         <img alt="" src="${esc(a.thumb)}" onerror="this.onerror=null;this.src='${esc(a.thumbSmall.replace("mqdefault","hqdefault"))}'">
@@ -828,7 +829,7 @@ export function joinPage(data, base) {
         <li><b>The videos are yours.</b> You own them, or hold the rights to have them adapted.</li>
         <li><b>Captions on.</b> We work from your public transcript; auto-captions are fine.</li>
         <li><b>A real name and a real channel.</b> No anonymous bylines here.</li>
-        <li><b>Patience with the odd hold.</b> If the check flags an article, it waits for a human. That&rsquo;s a feature.</li></ul></div>
+        <li><b>Patience with the odd hold.</b> If the check flags an article, ${brand().key === "wordie" ? "it doesn&rsquo;t publish" : "it waits for a human"}. That&rsquo;s a feature.</li></ul></div>
     </div>
     <div class="apply" id="apply">
       <div class="aside"><h2>Apply with your YouTube handle.</h2>
@@ -920,7 +921,7 @@ export function aboutPage(data, base) {
     <div class="abouttext">
     <h1 class="headline" style="font-size:clamp(1.9rem,4vw,2.8rem);margin-top:1rem">Who we are</h1>
     <p>${BRAND_()} is a publication written by the people who actually watch the things it covers. Every article here started life as a video by one of the ${data.panel.length} creators on <a href="${base}/#panel" style="color:var(--blue)">The Panel</a>, and runs under that creator&rsquo;s name with a link to the video it came from. We don&rsquo;t have staff writers. We don&rsquo;t have anonymous bylines.</p>
-    <p>The name is the idea: the story under the story. Breakdowns, theories, reactions, opinions, reviews and lore - the second layer that people who love this stuff actually talk about.</p>
+    ${brand().key === "wordie" ? `<p>The name is the idea: every video, in words. Reviews, explainers, guides, opinions and deep dives from the channels people already watch, written up for the times reading suits better than watching.</p>` : `<p>The name is the idea: the story under the story. Breakdowns, theories, reactions, opinions, reviews and lore - the second layer that people who love this stuff actually talk about.</p>`}
     ${brand().key === "subplot" ? `<h2 id="publisher">Who publishes ${BRAND_()}</h2>
     <p>${BRAND_()} is owned and published by <a href="https://digitalfoxtalent.com" rel="noopener" style="color:var(--blue)">Digital Fox Talent LLC</a>, a creator management agency based in Denver, Colorado. It is edited by Tom James, who reads and approves the editor&rsquo;s notes that sit on its articles. Questions about the site go to ${mail("hello")}.</p>` : ""}
 

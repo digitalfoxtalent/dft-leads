@@ -35,7 +35,20 @@ const RCOL = {
   channelId: "text_mm6xabqj",                  // the proved UC... id, the machine key for this row
   consentSource: "text_mm6fkdtk",
   notes: "text_mm6ffja1",
+  handle: "text_mm84amzt",                     // @handle; the site and the robot read approvals by it
+  subs: "numeric_mm84jgve",                    // public subscriber count at signup
+  longForm: "numeric_mm84z5s2",                // uploads over 3 minutes among the latest 50
+  check: "text_mm84f66a",                      // what the automatic check decided, and why
 };
+
+// AUTOMATIC CHANNEL APPROVAL (Tom, 14 Oct 2026). Wordie has no per-article review: a channel
+// that passes these checks at signup is Approved there and then, and its new articles publish
+// without a human. 25,000 subscribers is Tom's floor. 10 long-form uploads (over 3 minutes)
+// among the latest 50 is the floor for there being anything to write from: Shorts produce too
+// few words. The checks read PUBLIC data with Wordie's API key, never the creator's token.
+const MIN_SUBS = 25000;
+const MIN_LONG = 10;
+const LONG_SECS = 180;
 
 const SCOPE = "https://www.googleapis.com/auth/youtube.readonly";
 const AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
@@ -198,6 +211,7 @@ export async function callback(req, res) {
   }
 
   const sn = channel.snippet || {};
+  const verdict = await checkChannel(String(channel.id || ""));
   const rec = {
     channelId: String(channel.id || ""),
     title: String(sn.title || "").slice(0, 120),
@@ -206,6 +220,7 @@ export async function callback(req, res) {
     terms: st.terms,
     src: st.src,
     at: new Date().toISOString(),
+    verdict,
   };
 
   let saved = { ok: false, error: "" };
@@ -222,20 +237,60 @@ export async function callback(req, res) {
     <p style="font-size:1.1rem">Google confirmed that <b>${escapeHtml(chan)}</b> belongs to the account you signed in with. That is the only thing we asked it, and we did not keep the key.</p>
     ${tail}
     <h2 style="margin:2.5rem 0 .75rem">What happens now</h2>
-    <p>A person reads your channel before anything publishes - the kind of videos you make, whether they carry as writing, and whether the captions are good enough to work from. That is not automatic and it is not instant. We will email <b>${escapeHtml(rec.email)}</b> either way.</p>
-    <p>Nothing appears under your name until that has happened. You can change your mind at any point, and any articles come down.</p>
-    <p style="margin-top:2.5rem"><a href="/">Have a look at the site</a> while you wait.</p>`));
+    ${whatNext(saved.ok ? saved.status : "Pending - asked", verdict)}
+    <p style="margin-top:2.5rem"><a href="/">Have a look at the site</a>.</p>`));
 }
+
+function whatNext(status, v) {
+  if (status === "Approved") return `<p><b>You're in.</b> Your channel passed our checks, so there is nothing more to do. Your next long-form uploads become articles under your name, usually within a day of going live on YouTube.</p>
+    <p>You can leave at any time and every article comes down. Just email <a href="mailto:${mail("hello")}">${mail("hello")}</a>.</p>`;
+  if (status === "Not approved" && v.reason) return `<p>${escapeHtml(v.reason)}</p>
+    <p>Your agreement stays on file, so if that changes you only need to sign in again and we will re-check straight away.</p>`;
+  return `<p>We could not finish the automatic check just now, so a person will look at your channel instead. We will email you either way, and nothing appears under your name until then.</p>`;
+}
+
+// Public stats only, with the site's API key. Returns { status, subs, long, reason, note }.
+// "Pending - asked" means the check could not run and a person decides; it never blocks a
+// creator for our own outage.
+async function checkChannel(id) {
+  const key = process.env.YOUTUBE_API_KEY;
+  const today = new Date().toISOString().slice(0, 10);
+  const look = why => ({ status: "Pending - asked", subs: null, long: null, reason: "", note: `NEEDS A LOOK ${today}: ${why}` });
+  if (!key || !id) return look("the automatic check had no API key or channel id");
+  try {
+    const g = async u => { const r = await fetch(u + "&key=" + key); const j = await r.json(); if (!r.ok) throw new Error((j.error && j.error.message) || r.status); return j; };
+    const ch = ((await g(`https://www.googleapis.com/youtube/v3/channels?part=statistics,contentDetails&id=${encodeURIComponent(id)}`)).items || [])[0];
+    if (!ch) return look("YouTube returned no public data for the channel");
+    const st = ch.statistics || {};
+    if (st.hiddenSubscriberCount) return look("subscriber count is hidden");
+    const subs = Number(st.subscriberCount || 0);
+    const uploads = ch.contentDetails && ch.contentDetails.relatedPlaylists && ch.contentDetails.relatedPlaylists.uploads;
+    let long = 0;
+    if (uploads) {
+      const pl = await g(`https://www.googleapis.com/youtube/v3/playlistItems?part=contentDetails&maxResults=50&playlistId=${uploads}`);
+      const ids = (pl.items || []).map(i => i.contentDetails && i.contentDetails.videoId).filter(Boolean);
+      if (ids.length) {
+        const vs = await g(`https://www.googleapis.com/youtube/v3/videos?part=contentDetails&id=${ids.join(",")}`);
+        long = (vs.items || []).filter(v => secs(v.contentDetails && v.contentDetails.duration) > LONG_SECS).length;
+      }
+    }
+    if (subs < MIN_SUBS) return { status: "Not approved", subs, long, reason: `Wordie currently takes channels with ${MIN_SUBS.toLocaleString("en-US")} subscribers or more, and yours has ${subs.toLocaleString("en-US")}.`, note: `AUTO-DECLINED ${today}: ${subs} subscribers, under ${MIN_SUBS}` };
+    if (long < MIN_LONG) return { status: "Not approved", subs, long, reason: `Wordie writes from long-form videos, and only ${long} of your latest 50 uploads run over three minutes. We need ${MIN_LONG}.`, note: `AUTO-DECLINED ${today}: ${long} long-form uploads in the latest 50, under ${MIN_LONG}` };
+    return { status: "Approved", subs, long, reason: "", note: `AUTO-APPROVED ${today}: ${subs} subscribers, ${long} long-form uploads in the latest 50 (floors ${MIN_SUBS} and ${MIN_LONG})` };
+  } catch (e) {
+    return look("YouTube check failed: " + String(e.message || e).slice(0, 120));
+  }
+}
+const secs = d => { const m = String(d || "").match(/P(?:(\d+)D)?T?(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/); return m ? (+m[1] || 0) * 86400 + (+m[2] || 0) * 3600 + (+m[3] || 0) * 60 + (+m[4] || 0) : 0; };
 
 const escapeHtml = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
 // ---------- the rights record ----------
 //
-// The status set here is "Pending - asked", NOT "Approved", and that is deliberate. The
-// creator agreeing and Wordie accepting them are two different events, and this board gates
-// publishing. Signing up records the first. A human sets Approved after the second, which is
-// the yes/no gate the whole open-platform design rests on. Writing "Approved" here would let
-// the actor publish for anybody who could complete a Google sign-in.
+// The status set here comes from checkChannel (14 Oct 2026, replacing the human yes/no gate at
+// Tom's instruction): Approved when the public checks pass, Not approved with the reason when
+// they fail, Pending - asked when they could not run. A row Tom has set to Not approved BY HAND
+// (its check column does not start AUTO-) is a veto: a repeat signup never lifts it.
 async function recordConsent(rec) {
   const token = process.env.MONDAY_API_KEY || process.env.MONDAY_API_TOKEN;
   if (!token) return { ok: false, error: "MONDAY_API_KEY not set" };
@@ -256,9 +311,14 @@ async function recordConsent(rec) {
   // Every other row on this board states plainly what its status does NOT mean. Match that.
   // A creator agreeing and Wordie accepting them are two different events, and this column is
   // where the next person to read the row finds out which one has happened.
-  const source = `CREATOR CONSENT GIVEN - this is NOT ${brandName()} acceptance. Signup ${rec.at.slice(0, 10)}: the creator ticked the licence on /join and proved they own this channel by their own Google sign-in, on the terms of ${rec.terms}. That is their permission to us. It is not an approval to publish - a human still sets Wordie Articles to Approved after the channel checks, and nothing runs under this byline until they do.`;
+  const v = rec.verdict;
+  const source = `CREATOR CONSENT GIVEN at signup ${rec.at.slice(0, 10)}: the creator ticked the licence on /join and proved they own this channel by their own Google sign-in, on the terms of ${rec.terms}. Acceptance is the separate Wordie Articles status, set by the automatic channel check (see Channel check).`;
   const values = {
-    [RCOL.wordie]: { label: "Pending - asked" },
+    [RCOL.wordie]: { label: v.status },
+    [RCOL.handle]: rec.handle,
+    [RCOL.check]: v.note.slice(0, 500),
+    ...(v.subs != null ? { [RCOL.subs]: String(v.subs) } : {}),
+    ...(v.long != null ? { [RCOL.longForm]: String(v.long) } : {}),
     [RCOL.channelId]: rec.channelId,
     [RCOL.consentSource]: source.slice(0, 500),
     [RCOL.notes]: note.slice(0, 500),
@@ -266,17 +326,23 @@ async function recordConsent(rec) {
 
   // A repeat signup must not create a second row for the same channel.
   const found = await gql(
-    `query($b: ID!, $c: String!, $v: CompareValue!) { items_page_by_column_values(board_id: $b, columns: [{column_id: $c, column_values: [$v]}], limit: 1) { items { id } } }`,
+    `query($b: ID!, $c: String!, $v: CompareValue!) { items_page_by_column_values(board_id: $b, columns: [{column_id: $c, column_values: [$v]}], limit: 1) { items { id column_values(ids: ["${RCOL.wordie}", "${RCOL.check}"]) { id text } } } }`,
     { b: String(RIGHTS_BOARD), c: RCOL.channelId, v: rec.channelId },
   ).catch(() => null);
   const existing = found && found.items_page_by_column_values && (found.items_page_by_column_values.items || [])[0];
 
   if (existing && existing.id) {
+    const cv = Object.fromEntries((existing.column_values || []).map(c => [c.id, c.text || ""]));
+    if (cv[RCOL.wordie] === "Not approved" && !/^AUTO-/.test(cv[RCOL.check])) {
+      delete values[RCOL.wordie];                      // a hand-set veto stands
+      values[RCOL.check] = ("VETOED BY HAND, re-signup did not change it. Latest check: " + v.note).slice(0, 500);
+      rec.verdict = { ...v, status: "Pending - asked", reason: "" };
+    }
     await gql(
       `mutation($b: ID!, $i: ID!, $v: JSON!) { change_multiple_column_values(board_id: $b, item_id: $i, column_values: $v) { id } }`,
       { b: String(RIGHTS_BOARD), i: String(existing.id), v: JSON.stringify(values) },
     );
-    return { ok: true, id: existing.id, updated: true };
+    return { ok: true, id: existing.id, updated: true, status: rec.verdict.status };
   }
 
   const name = (rec.title || rec.handle || rec.channelId).slice(0, 200);
@@ -284,5 +350,5 @@ async function recordConsent(rec) {
     `mutation($b: ID!, $n: String!, $v: JSON!) { create_item(board_id: $b, item_name: $n, column_values: $v) { id } }`,
     { b: String(RIGHTS_BOARD), n: name, v: JSON.stringify(values) },
   );
-  return { ok: true, id: made.create_item.id, updated: false };
+  return { ok: true, id: made.create_item.id, updated: false, status: v.status };
 }
