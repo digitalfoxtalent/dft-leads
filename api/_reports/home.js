@@ -14,6 +14,9 @@ export const REPORTS = [
   { path: "/coverage", title: "Creator distribution", live: true,
     blurb: "Every Megaphone creator against every platform: where they are live, what is in review, rejection rates against a 2% target, and the openings we have not tried.",
     sources: ["Megaphone", "Platform register", "Back-catalogue agent"] },
+  { path: "/engaged", title: "Engaged views", live: true,
+    blurb: "Every creator connected through Channel Connect: their latest long-form videos with YouTube engaged views, and a brand link to share the same figures.",
+    sources: ["YouTube Analytics", "monday"] },
 ];
 
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
