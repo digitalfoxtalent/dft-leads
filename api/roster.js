@@ -1550,7 +1550,17 @@ async function teamDraft(fromEmail, o) {
   return true;
 }
 
+// Clean links in every draft (Tom, 14 Oct 2026): a link copied from Gmail or a quoted thread can
+// arrive wrapped as https://www.google.com/url?q=<real url>&sa=...; unwrap it to the real URL.
+function cleanLinks(s) {
+  return String(s || "").replace(/https?:\/\/(?:www\.)?google\.[a-z.]+\/url\?[^\s"'<>]*/gi, m => {
+    const q = /[?&](?:amp;)?(?:q|url)=([^&\s"'<>]+)/i.exec(m);
+    if (!q) return m;
+    try { const u = decodeURIComponent(q[1]); return /^https?:\/\//i.test(u) ? u.replace(/&/g, m.includes("&amp;") ? "&amp;" : "&") : m; } catch (_) { return m; }
+  });
+}
 function pitchMime(b) {
+  b = Object.assign({}, b, { html: cleanLinks(b.html), text: cleanLinks(b.text) });
   const enc = s => /[^\x20-\x7e]/.test(s) ? "=?UTF-8?B?" + Buffer.from(s, "utf8").toString("base64") + "?=" : s;
   const b64 = s => Buffer.from(String(s || ""), "utf8").toString("base64").replace(/(.{76})/g, "$1\r\n");
   const bound = "dftpitch" + crypto.randomBytes(8).toString("hex");
