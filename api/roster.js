@@ -1159,7 +1159,7 @@ async function saveColumns(b, email) {
 // formats asked for). A saved list is created, the result is written back to the item, and the
 // reply comes back for Make to save as a Gmail draft (op "pitch-mime" builds the raw message, so
 // links in the draft stay clean).
-export const config = { maxDuration: 60 };
+export const config = { maxDuration: 120 };
 const PITCH_BOARD = 18435316650;
 const AI_LIST = "ai-campaigns-tj-50001f"; // Tom's saved list of creators open to AI brands (13 Oct 2026). Edit the list, not the code.
 const PB = { by: "text_mm83t28h", contact: "text_mm83nbr6", result: "text_mm83dzmw", list: "link_mm832b9j" };
@@ -1208,7 +1208,7 @@ async function askClaude(prompt) {
   if (!key) throw new Error("ANTHROPIC_API_KEY not set");
   let last = "";
   for (const model of PITCH_MODELS) {
-    const r = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers: { "Content-Type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01" }, body: JSON.stringify({ model, max_tokens: 5000, messages: [{ role: "user", content: prompt }] }) });
+    const r = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers: { "Content-Type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01" }, body: JSON.stringify({ model, max_tokens: 9000, messages: [{ role: "user", content: prompt }] }) });
     const d = await r.json().catch(() => ({}));
     if (r.ok && d && d.content) {
       const t = String((d.content.find(x => x.type === "text") || {}).text || "").split("```json").join("").split("```").join("");
@@ -1241,7 +1241,9 @@ function pitchPrompt(f, lines, fwdName, aiNames, namedNames, pointers) {
     "- Respect any market or territory limit (a pointer or brief saying a campaign is for one country only means only creators based in, or with a real audience in, that country). If that leaves one creator, return one.",
     "- Always include any creator the enquiry names, asks about, or says DFT already confirmed, and any creator it was sent to (a creator's DFT inbox in the To line counts), plus any creator the note from " + fwdName + " asks for. Mark these picks named: true. A named creator who is not in the roster above has left DFT: leave them out and do not mention them.",
     namedNames && namedNames.length ? "- Named in this enquiry and on the roster: " + namedNames.join(", ") + ". They are always on the list, whatever else applies." : "",
-    "- Aim for 12 to 18 creators: about half the closest fits, the rest spread across the adjacent angles, so the brand sees options it would not have thought of. Every pick must be defensible in a few words. Go smaller only if the brief is genuinely narrow.",
+    "- How many: every creator who genuinely fits, with no upper limit (the whole roster is fine if the brief truly suits everyone). Aim for at least 10 creators, topping up with the next-best real fits, unless a pointer, a market limit or the AI rule leaves fewer. Mix the closest fits with adjacent angles so the brand sees options it would not have thought of.",
+    "- Be considerate about fit, creator by creator: leave out anyone whose audience, tone or content would jar with this brand or product, even if the category looks close (for example an edgy, mature or horror-led channel on a family or kids brief, a hardcore gaming channel on a beauty brief, an adult-skewing audience for a toy). Check age split, gender split and location against who the product is for. When unsure, leave them out.",
+    "- Give each pick a fit score from 1 to 5 (5 = obvious fit, 4 = strong, 3 = solid adjacent fit). Do not pick anyone below 3. Named creators are always included whatever their fit.",
     "- Formats: only the ones the enquiry asks for. If none are stated, use YouTube integration plus YouTube Shorts. Integration = YouTube integration; dedicated or full video = YouTube dedicated video; Shorts = YouTube Shorts; TikTok, Instagram and Snapchat as named. Give each creator every requested format they have; skip formats they lack.",
     "- Leave out short-form placements under 5K avg views and YouTube placements under 20K views unless the creator is named.",
     "- Never invent ids.",
@@ -1250,7 +1252,7 @@ function pitchPrompt(f, lines, fwdName, aiNames, namedNames, pointers) {
     "Do not write the email (it is built from a fixed template). Give only: product, the short brand or product name exactly as people would say it (e.g. Catch Flex, Higgsfield), never a description; mix, a short phrase for the kinds of channels on your list (e.g. gaming, reaction, and personality channels); and answer, one or two short plain sentences that directly answer any practical question the enquiry asks, otherwise empty. answer may only use these facts: the current rates are on the list; availability and posting dates are confirmed with each creator as soon as they approve, and we can move quickly; which of the named creators are on the list (only those given above as named and on the roster). Never say a creator is not on the roster, has left, or is unavailable: simply leave other names out. Never invent availability, dates, prices or numbers, never mention creators who left, and never refer to anything below or attached. No em dashes, no slashes.",
     "",
     "Return ONLY JSON, no prose:",
-    "{\"brand\":\"\",\"ai_product\":false,\"product\":\"\",\"title\":\"short list name, e.g. EXT (Exterminauts)\",\"contact_first_name\":\"the sender's first name if known, else empty\",\"angles\":[\"\"],\"mix\":\"\",\"answer\":\"\",\"picks\":[{\"id\":\"\",\"named\":false,\"why\":\"a few words\"}]}"
+    "{\"brand\":\"\",\"ai_product\":false,\"product\":\"\",\"title\":\"short list name, e.g. EXT (Exterminauts)\",\"contact_first_name\":\"the sender's first name if known, else empty\",\"angles\":[\"\"],\"mix\":\"\",\"answer\":\"\",\"picks\":[{\"id\":\"\",\"named\":false,\"fit\":4,\"why\":\"max 6 words\"}]}"
   ].join("\n");
 }
 
@@ -1300,7 +1302,7 @@ async function pitchFromEmail(b) {
     const order = GROUPS.map(g => g.id);
     const aiCamp = aiIds.size > 0 && (out.ai_product === true || /\bAI\b/.test(f.subject + " " + f.body));
     const namedIds = new Set((out.picks || []).filter(p => p && p.named === true).map(p => String(p.id)));
-    const ids = [...new Set((out.picks || []).map(p => String(p && p.id)).filter(id => cat.byId[id] && (!aiCamp || aiOk(id) || namedIds.has(id))))];
+    const ids = [...new Set((out.picks || []).filter(p => p && (p.named === true || !(Number(p.fit) < 3))).map(p => String(p && p.id)).filter(id => cat.byId[id] && (!aiCamp || aiOk(id) || namedIds.has(id))))];
     // Only formats the enquiry asks for: dedicated and social placements need to be named; integrations and Shorts are the default.
     const wantF = { dedicated: /dedicated|full video|standalone video/i, group_mm4a1fe0: /instagram|\binsta\b|\bIG\b|\breels?\b/i, group_mm4bd5tk: /tik ?tok/i, group_mm7yw8cy: /snap ?chat/i };
     for (let k = ids.length - 1; k >= 0; k--) { const re = wantF[cat.byId[ids[k]].gid]; if (re && !re.test(f.body + " " + f.note)) ids.splice(k, 1); }
