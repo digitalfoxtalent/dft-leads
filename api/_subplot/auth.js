@@ -39,6 +39,8 @@ const RCOL = {
   subs: "numeric_mm84jgve",                    // public subscriber count at signup
   longForm: "numeric_mm84z5s2",                // uploads over 3 minutes among the latest 50
   check: "text_mm84f66a",                      // what the automatic check decided, and why
+  feedKey: "text_mm84ebnj",                    // the article robot's key: handle, lower case, no @
+  channels: "text_mm84mcxt",                   // "@handle=UC...", the robot's channel list (rosterFromBoard)
 };
 
 // AUTOMATIC CHANNEL APPROVAL (Tom, 14 Oct 2026). Wordie has no per-article review: a channel
@@ -316,6 +318,7 @@ async function recordConsent(rec) {
   const values = {
     [RCOL.wordie]: { label: v.status },
     [RCOL.handle]: rec.handle,
+    ...(/^@\S+$/.test(rec.handle) ? { [RCOL.feedKey]: rec.handle.slice(1).toLowerCase(), [RCOL.channels]: `${rec.handle}=${rec.channelId}` } : {}),
     [RCOL.check]: v.note.slice(0, 500),
     ...(v.subs != null ? { [RCOL.subs]: String(v.subs) } : {}),
     ...(v.long != null ? { [RCOL.longForm]: String(v.long) } : {}),
