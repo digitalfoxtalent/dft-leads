@@ -1574,11 +1574,19 @@ async function pitchFromEmail(b) {
     const soloFirst = solo.length === 1 ? solo[0].split(/\s+/)[0] : "";
     const lead = expanded ? pick(["I've put the creators you shortlisted on one list, along with some others" + (who ? who + " and would suit " : " who'd suit ") + product + " really well.", "Here are the creators you shortlisted, plus a few more" + (who ? who + " and would be great for " : " who I think would be great for ") + product + "."]) : shortOnly && solo.length > 1 ? pick(["I've put the creators you shortlisted together on one list.", "Here are the creators you shortlisted, all on one list."]) : solo.length === 1 ? pick(["Please find " + soloFirst + "'s rates below.", "Here are " + soloFirst + "'s rates for this.", "I've put " + soloFirst + "'s rates together for you below."]) : intro;
     const howTo = pick(["You can tick a creator to approve them, tick again to mark a 'no', or use the speech bubble to comment or ask questions.", "Just tick anyone you'd like to go ahead with (tick again for a no), and use the speech bubble for any questions.", "Tick the creators you'd like to book, tick again for a no, and leave any questions in the speech bubble."]);
+    // A brand asking about a specific creator (Tom, 15 Oct 2026, Gidues and CyberGhost): thank them for reaching out to
+    // that creator, put that creator's rates in the email itself, then offer the wider list (the creator is on it too).
+    const FMT = { topics: "YouTube integration", dedicated: "YouTube dedicated video", group_mm4av3kr: "YouTube Short", group_mm4a1fe0: "Instagram Reel", group_mm4bd5tk: "TikTok", group_mm7yw8cy: "Snapchat" };
+    const usd = n => "$" + Number(n).toLocaleString("en-US");
+    const rateLine = id => { const c = cat.byId[id] || {}; const price = typeof c.total === "number" ? c.total : c.rate; if (!price || !FMT[c.gid]) return ""; const lm = String(c.adLength || "").match(/^(\d+)\s*-\s*(\d+)\s*s/i); const len = c.gid === "topics" && lm ? " (" + lm[1] + " to " + lm[2] + " sec)" : ""; const vg = c.gid === "topics" && c.vg ? " with a " + Number(c.vg).toLocaleString("en-US") + " view guarantee" : ""; return FMT[c.gid] + len + ": " + usd(price) + vg; };
+    const askedFor = out.stage !== "shortlist" && !expanded && !shortOnly && solo.length > 1 ? listNames : [];
+    const gOrder = Object.keys(FMT);
+    const details = askedFor.map(nm => [nm].concat(ids.filter(id => nameOf(id) === nm).sort((x, y) => gOrder.indexOf(cat.byId[x].gid) - gOrder.indexOf(cat.byId[y].gid)).map(rateLine).filter(Boolean)).join("\n")).filter(d => d.indexOf("\n") > 0);
     const withRates = /\b(rates?|pric\w*|cost|budget)\b/i.test(f.body) ? " with current rates." : ".";
     const ans = [];
     const qs = Array.isArray(out.questions) ? out.questions.filter(q => q && q.q) : [];
     if (aiDeclined.length) ans.push("Sadly, " + joinN(aiDeclined) + " won't take on AI projects, but these creators would.");
-    if (out.stage !== "shortlist" && solo.length > 1 && listNames.length && (/\?/.test(f.body) || withRates !== ".")) ans.push(pick([joinN(listNames) + (listNames.length > 1 ? " are" : " is") + " on the list" + withRates, "You'll find " + joinN(listNames) + " on there" + withRates]));
+    if (out.stage !== "shortlist" && solo.length > 1 && listNames.length && !details.length && (/\?/.test(f.body) || withRates !== ".")) ans.push(pick([joinN(listNames) + (listNames.length > 1 ? " are" : " is") + " on the list" + withRates, "You'll find " + joinN(listNames) + " on there" + withRates]));
     if (/availab|posting date|\bdates\b|schedule|timeline|timing|turnaround/i.test(f.body) && !qs.some(q => /availab|posting|\bdates?\b|timeline|timing/i.test(String(q.q)))) ans.push(pick(["We confirm availability and posting dates with each creator as soon as you approve, and can move quickly.", "Once you've picked, we'll confirm availability and posting dates with each creator straight away."]));
     // The brand's questions: answered only from the Standing facts item.
     // NEVER put a note for DFT inside the draft (Tom, 14 Oct 2026: two drafts went to brands with
@@ -1594,12 +1602,16 @@ async function pitchFromEmail(b) {
     const how = solo.length === 1 ? "" : " " + howTo;
     const ask2 = solo.length === 1 ? pick(["Could you confirm if you'd like to go ahead?", "Let me know if you'd like to go ahead and we'll get it booked in.", "Could you confirm if you'd like to book " + soloFirst + "?"]) : ask; // one placement: never "which option" (Tom, 13 Oct 2026)
     // Last line of defence: nothing in square brackets ever reaches a brand (placeholders, notes to DFT).
-    const paras = [thanks, lead + how, "[[LIST_LINK]]"].concat(answer ? [answer] : [], [ask2]).map(p => p === "[[LIST_LINK]]" ? p : p.replace(/\s*\[[^\]]*\]/g, "").trim()).filter(Boolean);
+    const named = details.length > 0;
+    const thanksN = named ? "Thanks for reaching out to " + joinN(askedFor) + " about " + product + ". We'd be very keen to explore this." : thanks;
+    const leadN = named ? "Also, here's a shortlist of creators" + across + (who || " who'd be happy to take this on") + ". Just tick anyone you'd like to go ahead with (tick again for a no), and use the speech bubble for any questions." : lead + how;
+    const askN = named ? "Could you confirm who you would like to book please?" : ask2;
+    const paras = [thanksN].concat(named ? details : [], [leadN, "[[LIST_LINK]]"]).concat(answer ? [answer] : [], [askN]).map(p => p === "[[LIST_LINK]]" ? p : p.replace(/\s*\[[^\]]*\]/g, "").trim()).filter(Boolean);
     if (!paras.some(p => p.indexOf("[[LIST_LINK]]") >= 0)) paras.splice(Math.min(2, paras.length), 0, "[[LIST_LINK]]");
     const bullets = [];
     const sig = ["Warm regards", fwdName, "Digital Fox Talent", "\u{1F98A}"];
     const linkText = title + " creator list";
-    const html = "<div dir=\"ltr\">Hi " + escH(first) + ",<br><br>" + paras.map(p => p.indexOf("[[LIST_LINK]]") >= 0 ? "<a href=\"" + saved.url + "\">" + escH(linkText) + "</a>" : escH(p)).join("<br><br>") + (bullets.length ? "<br><br>" + bullets.map(x => "- " + escH(x)).join("<br>") : "") + "<br><br>" + sig.map(escH).join("<br>") + "</div>";
+    const html = "<div dir=\"ltr\">Hi " + escH(first) + ",<br><br>" + paras.map(p => p.indexOf("[[LIST_LINK]]") >= 0 ? "<a href=\"" + saved.url + "\">" + escH(linkText) + "</a>" : escH(p).replace(/\n/g, "<br>")).join("<br><br>") + (bullets.length ? "<br><br>" + bullets.map(x => "- " + escH(x)).join("<br>") : "") + "<br><br>" + sig.map(escH).join("<br>") + "</div>";
     const text = "Hi " + first + ",\n\n" + paras.map(p => p.indexOf("[[LIST_LINK]]") >= 0 ? saved.url : p).join("\n\n") + (bullets.length ? "\n\n" + bullets.map(x => "- " + x).join("\n") : "") + "\n\n" + sig.join("\n");
     // Quote the brand's original email under the reply, like a normal Gmail reply (Tom, 13 Oct 2026).
     const fwdHead = (String(f.body).split(/\n[ \t]*\n/)[0] || ""), dateM = fwdHead.match(/\nDate:\s*([^\n]+)/i);
