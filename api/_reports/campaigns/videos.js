@@ -5,6 +5,11 @@
 // oEmbed gives the title and channel (no views). YouTube serves servers a page without view
 // counts, so reading the watch page does not work from here. Full results are cached for
 // 3 hours; title-only results are not cached, so views appear as soon as the allowance resets.
+//
+// ENGAGED VIEWS (Tom, 15 Oct 2026). For the team (not partner pages), each video whose creator is
+// connected through Channel Connect also gets `ev`, YouTube's engaged views, via ../engaged/load.js.
+
+import { engagedForVideos } from "../engaged/load.js";
 
 const CACHE_MS = 3 * 60 * 60 * 1000;
 const cache = {}; // id -> { at, d }
@@ -18,7 +23,7 @@ async function viaApi(ids, key) {
   const r = await fetch("https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics&id=" + ids.join(",") + "&key=" + key);
   if (r.status === 403) { const n = new Date(); n.setUTCHours(7, 5, 0, 0); if (n <= new Date()) n.setUTCDate(n.getUTCDate() + 1); apiOffUntil = n.getTime(); return {}; }
   const j = await r.json(); const out = {};
-  for (const x of (j && j.items) || []) out[x.id] = { t: x.snippet.title, ch: x.snippet.channelTitle, at: String(x.snippet.publishedAt || "").slice(0, 10), v: Number(x.statistics && x.statistics.viewCount || 0), src: "api" };
+  for (const x of (j && j.items) || []) out[x.id] = { t: x.snippet.title, ch: x.snippet.channelTitle, at: String(x.snippet.publishedAt || "").slice(0, 10), v: Number(x.statistics && x.statistics.viewCount || 0), cid: x.snippet.channelId || "", src: "api" };
   return out;
 }
 async function viaOembed(id) {
@@ -28,7 +33,7 @@ async function viaOembed(id) {
   return { t: j.title || "", ch: j.author_name || "", at: "", v: null, src: "oembed" };
 }
 
-export async function videoDetails(idsParam) {
+export async function videoDetails(idsParam, tok) {
   const ids = [...new Set(String(idsParam || "").split(",").map(s => s.trim()).filter(s => /^[A-Za-z0-9_-]{11}$/.test(s)))].slice(0, 50);
   const out = {}, want = [];
   for (const id of ids) { const c = cache[id]; if (c && Date.now() - c.at < CACHE_MS) out[id] = c.d; else want.push(id); }
@@ -42,6 +47,12 @@ export async function videoDetails(idsParam) {
     ]);
     for (const [id, d] of pages) if (d) got[id] = d;
     for (const id of want) if (got[id]) { if (got[id].v != null) cache[id] = { at: Date.now(), d: got[id] }; out[id] = got[id]; }
+  }
+  if (tok) { // team only: engaged views for connected creators
+    const by = {};
+    for (const id of ids) { const d = out[id]; if (d && d.cid) (by[d.cid] = by[d.cid] || []).push(id); }
+    const ev = await engagedForVideos(tok, by).catch(() => ({}));
+    for (const id of Object.keys(ev)) if (out[id] && ev[id].engagedViews != null) out[id] = Object.assign({}, out[id], { ev: ev[id].engagedViews });
   }
   return { at: new Date().toISOString(), videos: out };
 }
