@@ -4,8 +4,9 @@
 // was rejected?" dft-connect's /api/signup-check answers "not yet" to channels under the bar
 // and revokes our access. Before it answers, it posts the channel id and its average here;
 // we look up the public channel name and handle and email Tom (creator alerts are Tom only,
-// 6 Oct 2026) from theteam@. Nothing is written anywhere else. The not-yet page says we keep
-// only the channel name.
+// 6 Oct 2026) from theteam@. Nothing is written anywhere else, and the sent copy in
+// theteam@ is trashed straight away. The not-yet page still says "We haven't kept any of
+// your details": Tom deletes each alert on receipt (15 Oct 2026), so nothing is kept.
 //
 // AUTH. dft-connect has no monday token, so the call is signed with Channel Connect's
 // STATS_SECRET (purpose "underbar"), the same secret kit-sync reads from the API Keys
@@ -36,6 +37,9 @@ async function sendAlert(subject, html) {
   const mime = ["From: Digital Fox Talent <" + ALERT_FROM + ">", "To: " + ALERT_TO, "Subject: " + enc(subject), "MIME-Version: 1.0", "Content-Type: text/html; charset=UTF-8", "Content-Transfer-Encoding: base64", "", Buffer.from(html).toString("base64")].join("\r\n");
   const r = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", { method: "POST", headers: { Authorization: "Bearer " + tok, "Content-Type": "application/json" }, body: JSON.stringify({ raw: Buffer.from(mime).toString("base64url") }) });
   if (!r.ok) throw new Error("Gmail send " + r.status);
+  // Don't leave a copy in theteam@'s Sent folder.
+  const sent = await r.json().catch(() => ({}));
+  if (sent.id) await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${sent.id}/trash`, { method: "POST", headers: { Authorization: "Bearer " + tok } }).catch(() => {});
 }
 
 const esc = (x) => String(x).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
@@ -92,7 +96,7 @@ export default async function handler(req, res) {
     const subject = `Sign-up check under the bar: ${name} (${n(avg)} avg views)`;
     const html = `<p><a href="${esc(url)}">${esc(name)}</a>${info.handle ? " (" + esc(info.handle) + ")" : ""} checked their channel on the sign-up page and was under the bar.</p>
 <p>Average views per long-form video: ${n(avg)}<br>Subscribers: ${n(info.subs)}</p>
-<p>We removed their YouTube access, as the page promises. No contact details are captured at this step.</p>`;
+<p>We removed their YouTube access, as the page promises. No contact details are captured at this step. Please delete this email once read: the page tells them we keep nothing.</p>`;
     await sendAlert(subject, html);
     return res.status(200).json({ ok: true, sent: true });
   } catch (e) {
