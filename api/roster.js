@@ -1046,6 +1046,37 @@ function feedbackColumns(data, body) {
   if (body.fbAt) { const d = new Date(body.fbAt).toISOString(); v[FB.at] = { date: d.slice(0, 10), time: d.slice(11, 19) }; }
   return v;
 }
+// The brand-feedback email (Tom approved the send, 15 Oct 2026). One email per list, about 15 minutes after
+// the brand's last tick or note, so a brand clicking through forty creators sends one email, not forty.
+// Run by the roster-warm cron every five minutes. Internal only: from theteam@ to Tom, Alex and Margot,
+// never to a brand or a creator. Ticks a teammate makes for the brand do not trigger it.
+const ALERT_TO = ["tom@digitalfoxtalent.com", "alex@digitalfoxtalent.com", "margot@digitalfoxtalent.com"];
+const ALERT_FROM = "theteam@digitalfoxtalent.com";
+const ALERT_WAIT_MS = 15 * 60 * 1000;
+async function feedbackAlerts() {
+  const data = await loadBoard(), now = Date.now(), sent = [];
+  const due = b => !!b && Number(b.fbSeq) > (Number(b.fbAlerted) || 0) && now - Date.parse(b.fbAt) >= ALERT_WAIT_MS;
+  for (const l0 of data.lists.slice()) {
+    if (!due(l0.body)) continue;
+    const { list } = await freshList(l0.slug);
+    if (!list || list.bad || !due(list.body)) continue;
+    const body = list.body, s = feedbackSummary(data, body), url = "https://" + HOST + "/r/" + list.slug;
+    const sec = (t, a) => a.length ? "<p><b>" + escH(t) + "</b><br>" + a.map(escH).join("<br>") + "</p>" : "";
+    const html = "<div dir=\"ltr\"><p>The brand has given feedback on <b>" + escH(list.name) + "</b>.</p>" + sec("Approved", s.ok) + sec("Declined", s.no) + sec("Notes", s.notes) + "<p><a href=\"" + url + "\">Open the list</a></p></div>";
+    const subject = "Brand feedback: " + list.name + " (" + s.ok.length + " approved, " + s.no.length + " declined" + (s.notes.length ? ", " + s.notes.length + (s.notes.length === 1 ? " note" : " notes") : "") + ")";
+    await sendInternal(ALERT_TO, subject, html);
+    await writeList(list.id, Object.assign({}, body, { fbAlerted: body.fbSeq }), {});
+    sent.push(list.slug);
+  }
+  return sent;
+}
+async function sendInternal(to, subject, html) {
+  const tok = await gmailToken(ALERT_FROM); if (!tok) throw new Error("GMAIL_DELEGATE_KEY not set");
+  const enc = s => "=?UTF-8?B?" + Buffer.from(s).toString("base64") + "?=";
+  const mime = ["From: Digital Fox Talent <" + ALERT_FROM + ">", "To: " + to.join(", "), "Subject: " + enc(subject), "MIME-Version: 1.0", "Content-Type: text/html; charset=UTF-8", "Content-Transfer-Encoding: base64", "", Buffer.from(html).toString("base64")].join("\r\n");
+  const r = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", { method: "POST", headers: { Authorization: "Bearer " + tok, "Content-Type": "application/json" }, body: JSON.stringify({ raw: Buffer.from(mime).toString("base64url") }) });
+  if (!r.ok) throw new Error("Gmail send " + r.status + " " + (await r.text()).slice(0, 200));
+}
 // Rename a list (Alex, 15 Oct 2026): the name brands see at the top of the list. The link stays the same.
 async function listRename(b, email) {
   const { list } = await freshList(b.slug);
@@ -1080,7 +1111,7 @@ async function brandFeedback(b, email) {
   // not a teammate ticking for them, also stamps Last brand activity.
   const changed = (before.ok ? "yes" : before.no ? "no" : "") !== decision || String(before.note || "") !== note;
   const body = Object.assign({}, list.body, { feedback });
-  if (changed && !email) body.fbAt = new Date().toISOString();
+  if (changed && !email) { body.fbAt = new Date().toISOString(); body.fbSeq = (Number(list.body.fbSeq) || 0) + 1; }
   await writeList(list.id, body, changed ? feedbackColumns(data, body) : {});
   const row = data.rows.find(r => r.id === id), who = (row && row.name) || "a creator";
   const bits = [];
@@ -1686,7 +1717,8 @@ async function pitchFromEmail(b) {
 // The raw Gmail draft for Make: a reply in the brand's thread, HTML and plain text, UTF-8.
 // Drafts in a teammate's own Gmail (Tom, 14 Oct 2026): Google domain-wide delegation for the service account
 // pitch-drafts@dft-pitch-drafts.iam.gserviceaccount.com (Cloud project dft-pitch-drafts), scope gmail.modify.
-// The key lives only in the Vercel env var GMAIL_DELEGATE_KEY. Drafts only: this code never sends. Key added by Tom, 14 Oct 2026.
+// The key lives only in the Vercel env var GMAIL_DELEGATE_KEY. Key added by Tom, 14 Oct 2026. Brand and creator email is
+// only ever drafted. The one send is sendInternal: the brand-feedback alert from theteam@ to Tom, Alex and Margot.
 async function gmailToken(subject) {
   const raw = process.env.GMAIL_DELEGATE_KEY; if (!raw) return null;
   const key = JSON.parse(raw), now = Math.floor(Date.now() / 1000);
@@ -1816,7 +1848,7 @@ export default async function handler(req, res) {
 
     // Warm-up (roster-warm cron): loads the board into this server copy so the first list
     // page or signed-in view after a quiet spell does not wait for a cold start.
-    if (q.warm) { res.setHeader("Cache-Control", "no-store"); await loadBoard(); return res.status(200).json({ ok: true }); }
+    if (q.warm) { res.setHeader("Cache-Control", "no-store"); await loadBoard(); const alerts = await feedbackAlerts().catch(e => "failed: " + String((e && e.message) || e).slice(0, 200)); return res.status(200).json({ ok: true, alerts }); }
     if (q.list) {
       // The list itself is read fresh every time (one small call), so a page never shows, or
       // later saves over, an older copy of it.
