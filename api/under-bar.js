@@ -1,22 +1,47 @@
-// Handle log for sign-up checks under the bar.
+// Alert for sign-up checks under the bar.
 //
-// WHY (Tom, 15 Oct 2026): "Let's keep a record? Not of the data, but just the YT handle."
-// dft-connect's /api/signup-check answers "not yet" to channels under the bar and revokes
-// our access. Before it answers, it posts the channel id here; we look up the public
-// handle and add it to the Creator Applications board, group "Checked, under the bar
-// (handle only)". One row per channel, named by its handle. Nothing else is stored:
-// no average, no analytics, no email. The not-yet page says exactly this.
+// WHY (Tom, 15 Oct 2026): "Can we just be pinged a notification at the time who applied but
+// was rejected?" dft-connect's /api/signup-check answers "not yet" to channels under the bar
+// and revokes our access. Before it answers, it posts the channel id and its average here;
+// we look up the public channel name and handle and email Tom (creator alerts are Tom only,
+// 6 Oct 2026) from theteam@. Nothing is written anywhere else. The not-yet page says we keep
+// only the channel name.
 //
 // AUTH. dft-connect has no monday token, so the call is signed with Channel Connect's
 // STATS_SECRET (purpose "underbar"), the same secret kit-sync reads from the API Keys
-// board. Only dft-connect can produce a valid signature, so nobody can write rows here.
+// board. Only dft-connect can produce a valid signature, so nobody else can trigger an alert.
 import crypto from "node:crypto";
 import { monday, mondayToken } from "./_reports/monday.js";
 
+const ALERT_FROM = "theteam@digitalfoxtalent.com";
+const ALERT_TO = "tom@digitalfoxtalent.com";
+
+// Same delegated Gmail service account roster.js uses for its internal alerts.
+async function gmailToken(subject) {
+  const raw = process.env.GMAIL_DELEGATE_KEY;
+  if (!raw) throw new Error("GMAIL_DELEGATE_KEY not set");
+  const key = JSON.parse(raw), now = Math.floor(Date.now() / 1000);
+  const b64u = (o) => Buffer.from(JSON.stringify(o)).toString("base64url");
+  const unsigned = b64u({ alg: "RS256", typ: "JWT" }) + "." + b64u({ iss: key.client_email, scope: "https://www.googleapis.com/auth/gmail.modify", aud: "https://oauth2.googleapis.com/token", sub: subject, iat: now, exp: now + 3000 });
+  const sig = crypto.createSign("RSA-SHA256").update(unsigned).sign(key.private_key).toString("base64url");
+  const r = await fetch("https://oauth2.googleapis.com/token", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: "grant_type=" + encodeURIComponent("urn:ietf:params:oauth:grant-type:jwt-bearer") + "&assertion=" + unsigned + "." + sig });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok || !d.access_token) throw new Error("Gmail token: " + (d.error_description || d.error || r.status));
+  return d.access_token;
+}
+
+async function sendAlert(subject, html) {
+  const tok = await gmailToken(ALERT_FROM);
+  const enc = (x) => "=?UTF-8?B?" + Buffer.from(x).toString("base64") + "?=";
+  const mime = ["From: Digital Fox Talent <" + ALERT_FROM + ">", "To: " + ALERT_TO, "Subject: " + enc(subject), "MIME-Version: 1.0", "Content-Type: text/html; charset=UTF-8", "Content-Transfer-Encoding: base64", "", Buffer.from(html).toString("base64")].join("\r\n");
+  const r = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", { method: "POST", headers: { Authorization: "Bearer " + tok, "Content-Type": "application/json" }, body: JSON.stringify({ raw: Buffer.from(mime).toString("base64url") }) });
+  if (!r.ok) throw new Error("Gmail send " + r.status);
+}
+
+const esc = (x) => String(x).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
 export const config = { maxDuration: 30 };
 
-const BOARD = 18429940671; // Creator Applications (Website)
-const GROUP = "group_mm85z0xm"; // Checked, under the bar (handle only)
 const KEY_ITEM = 13197661446; // API Keys: "Channel Connect STATS_SECRET (dft-connect Vercel)"
 const KEY_COL = "text_mm5bcxe7";
 const CHANNEL_RE = /^UC[A-Za-z0-9_-]{22}$/;
@@ -26,20 +51,21 @@ function readBody(req) {
   try { return JSON.parse(req.body || "{}"); } catch (e) { return {}; }
 }
 
-async function handleFor(channel) {
+async function channelInfo(channel) {
   const key = process.env.YOUTUBE_API_KEY;
-  if (!key) return null;
-  const r = await fetch(`https://www.googleapis.com/youtube/v3/channels?part=snippet&id=${channel}&key=${key}`);
-  if (!r.ok) return null;
+  if (!key) return {};
+  const r = await fetch(`https://www.googleapis.com/youtube/v3/channels?part=snippet,statistics&id=${channel}&key=${key}`);
+  if (!r.ok) return {};
   const d = await r.json();
-  const s = d.items && d.items[0] && d.items[0].snippet;
-  return s ? s.customUrl || s.title || null : null;
+  const it = d.items && d.items[0];
+  if (!it) return {};
+  return { title: it.snippet.title, handle: it.snippet.customUrl || "", subs: it.statistics.hiddenSubscriberCount ? null : +it.statistics.subscriberCount };
 }
 
 export default async function handler(req, res) {
   res.setHeader("Cache-Control", "no-store");
   if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
-  const tok = mondayToken();
+  const tok = mondayToken(); // only to read the shared secret off the API Keys board
   if (!tok) return res.status(500).json({ error: "MONDAY_API_KEY not set" });
 
   const body = readBody(req);
@@ -55,17 +81,18 @@ export default async function handler(req, res) {
     const a = Buffer.from(expected), b = Buffer.from(t);
     if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return res.status(403).json({ error: "bad signature" });
 
-    const handle = (await handleFor(channel)) || channel;
-    const name = JSON.stringify(handle.slice(0, 120));
-
-    // One row per channel: skip if this handle is already in the group.
-    const found = await monday(tok, `query { boards(ids:[${BOARD}]) { groups(ids:["${GROUP}"]) { items_page(limit: 1, query_params: { rules: [{ column_id: "name", compare_value: [${name}], operator: any_of }] }) { items { id } } } } }`);
-    const g = found.boards[0] && found.boards[0].groups[0];
-    if (g && g.items_page.items.length) return res.status(200).json({ ok: true, existing: true });
-
-    const made = await monday(tok, `mutation { create_item(board_id: ${BOARD}, group_id: "${GROUP}", item_name: ${name}) { id } }`);
-    return res.status(200).json({ ok: true, itemId: made.create_item.id });
+    const info = await channelInfo(channel);
+    const avg = body.average == null || body.average === "" || !Number.isFinite(+body.average) ? null : Math.round(+body.average);
+    const n = (x) => (x == null ? "n/a" : Math.round(x).toLocaleString("en-US"));
+    const name = info.title || info.handle || channel;
+    const url = info.handle ? `https://www.youtube.com/${info.handle}` : `https://www.youtube.com/channel/${channel}`;
+    const subject = `Sign-up check under the bar: ${name} (${n(avg)} avg views)`;
+    const html = `<p><a href="${esc(url)}">${esc(name)}</a>${info.handle ? " (" + esc(info.handle) + ")" : ""} checked their channel on the sign-up page and was under the bar.</p>
+<p>Average views per long-form video: ${n(avg)}<br>Subscribers: ${n(info.subs)}</p>
+<p>We removed their YouTube access, as the page promises. No contact details are captured at this step.</p>`;
+    await sendAlert(subject, html);
+    return res.status(200).json({ ok: true, sent: true });
   } catch (e) {
-    return res.status(502).json({ error: "could not record" });
+    return res.status(502).json({ error: "could not send" });
   }
 }
