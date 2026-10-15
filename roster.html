@@ -245,6 +245,15 @@
   #fbpop textarea{ width:100%; box-sizing:border-box; min-height:84px; font:inherit; font-size:13px; border:1px solid #d8c9b8; border-radius:6px; padding:7px; resize:vertical; }
   #fbpop .ro{ font-size:13px; white-space:pre-wrap; line-height:1.4; max-height:200px; overflow:auto; }
   #fbpop .acts{ display:flex; gap:6px; justify-content:flex-end; margin-top:8px; }
+  /* Set one CPM for the whole tab of a saved list (Margot, 15 Oct 2026) */
+  th .cpmset{ margin-left:6px; font:inherit; font-size:11px; font-weight:600; padding:2px 7px; border-radius:999px; border:1px solid rgba(0,0,0,.25); background:rgba(255,255,255,.7); cursor:pointer; vertical-align:middle; }
+  th .cpmset:hover{ background:#fff; }
+  .cpmall{ position:absolute; z-index:60; width:270px; background:#fff; border:1px solid #e2d6c8; border-radius:10px; box-shadow:0 10px 30px rgba(0,0,0,.18); padding:12px; font-size:13px; }
+  .cpmall b{ display:block; font-size:12.5px; margin-bottom:8px; }
+  .cpmall .in{ display:flex; align-items:center; gap:6px; }
+  .cpmall input{ flex:1; font:inherit; font-size:14px; border:1px solid #d8c9b8; border-radius:6px; padding:6px 8px; }
+  .cpmall .acts{ display:flex; gap:6px; justify-content:flex-end; margin-top:10px; }
+  .cpmall small{ display:block; color:#777; margin-top:8px; line-height:1.35; }
   .banner .hint{ font-weight:600; margin-left:10px; }
   .cbar{ position:fixed; left:50%; bottom:58px; transform:translateX(-50%) translateY(12px); display:flex; align-items:center; gap:12px; max-width:calc(100vw - 32px); background:var(--charcoal); color:#fff; font-size:12.5px; padding:10px 12px 10px 16px; border-radius:12px; box-shadow:0 12px 34px rgba(0,0,0,.28); z-index:31; opacity:0; pointer-events:none; transition:opacity .15s, transform .15s; }
   .cbar.on{ opacity:1; pointer-events:auto; transform:translateX(-50%) translateY(0); }
@@ -886,7 +895,7 @@ function render(){
     const car=""; // no sort arrows (Tom, 6 Oct 2026); the sorted column is shaded instead
     const drag=!c.t&&c.key!=="name"?` data-drag="1"`:""; // made draggable on grab, so the resize edge stays free
     const hgrip=drag?`<span class="hgrip" aria-hidden="true">⠿</span>`:"";
-    return `<th class="${c.cls||""}${c.t?" tcol":""}${drag?" movable":""}${active?" sorted":""}" data-key="${c.key}"${drag} title="${c.tip?esc(c.tip)+" ":""}${c.t?"DFT only":"Click to sort"}${drag?" · drag to move":""} · drag the right edge to resize">${hgrip}${esc(c.head)}${car}<span class="rsz" data-k="${c.key}" title="Drag to resize · double-click to reset"></span></th>`;
+    return `<th class="${c.cls||""}${c.t?" tcol":""}${drag?" movable":""}${active?" sorted":""}" data-key="${c.key}"${drag} title="${c.tip?esc(c.tip)+" ":""}${c.t?"DFT only":"Click to sort"}${drag?" · drag to move":""} · drag the right edge to resize">${hgrip}${esc(c.head)}${car}${c.key==="cpm"&&listEdit()?'<button class="cpmset" type="button" title="Set one CPM for every creator on this tab, for this list only">Set all</button>':""}<span class="rsz" data-k="${c.key}" title="Drag to resize · double-click to reset"></span></th>`;
   }).join("")}</tr></thead>`;
   const totalW=cols.reduce((a,c)=>a+c.w,0);
   $("#scroll").innerHTML=list.length
@@ -926,6 +935,7 @@ function wire(){
     }));
     sc.querySelectorAll(".edit[data-edit]").forEach(td=>td.addEventListener("click",e=>{e.stopPropagation(); startEdit(td);}));
   } else if(listEdit()){
+    sc.querySelectorAll("button.cpmset").forEach(b=>{ b.addEventListener("mousedown",e=>e.stopPropagation()); b.addEventListener("click",e=>{ e.preventDefault(); e.stopPropagation(); cpmAllPopup(b.closest("th")); }); });
     sc.querySelectorAll("button.nt.ro").forEach(bt=>bt.addEventListener("click",e=>{ e.preventDefault(); e.stopPropagation(); const f=findListRow(bt.dataset.id); if(f) fbPopup(bt,f.row,true); }));
     sc.querySelectorAll("button.leye").forEach(bt=>bt.addEventListener("click",e=>{ e.preventDefault(); e.stopPropagation();
       const vis=bt.dataset.vis; patchListRow(bt.dataset.id,x=>{ x.listHidden=vis==="hide"?true:undefined; });
@@ -1208,6 +1218,33 @@ function startEdit(td){
   inp.addEventListener("click",e=>e.stopPropagation());
 }
 
+// Set one CPM for every creator on this tab of a saved list (Margot, 15 Oct 2026), instead of
+// changing each row. Creators hidden on the list are left alone. Saved for this list only, in
+// one write; any row can still be changed on its own afterwards.
+function cpmAllRows(){ const out=[]; currentList().forEach(c=>{ if(c.listHidden) return; if(c.vg>0||c.vgPer>0) out.push(c); (c.shows||[]).forEach(s=>{ if(!s.listHidden&&(s.vg>0||s.vgPer>0)) out.push(s); }); }); return out; }
+function cpmAllPopup(th){
+  document.querySelectorAll(".cpmall").forEach(x=>x.remove());
+  const rows=cpmAllRows(); if(!rows.length){ toast("No creators on this tab to change",true); return; }
+  const p=document.createElement("div"); p.className="cpmall";
+  p.innerHTML=`<b>Set the CPM for all ${rows.length} on this tab</b><div class="in"><span>$</span><input type="number" min="0.01" step="0.01" placeholder="20"></div><div class="acts"><button class="btn" data-a="x">Cancel</button><button class="btn primary" data-a="ok">Apply to all</button></div><small>For this list only. You can still change any creator on their own afterwards.</small>`;
+  document.body.appendChild(p);
+  const r=th.getBoundingClientRect(); p.style.top=(r.bottom+window.scrollY+6)+"px"; p.style.left=Math.max(8,Math.min(r.left+window.scrollX,window.scrollX+innerWidth-290))+"px";
+  const inp=p.querySelector("input"); inp.focus();
+  const outside=e=>{ if(!p.contains(e.target)) close(); };
+  const close=()=>{ p.remove(); document.removeEventListener("mousedown",outside); };
+  const go=()=>{ const v=numv(inp.value.trim()); if(!(v>0)||v>10000){ toast("Enter a CPM above $0",true); inp.focus(); return; } close(); applyCpmAll(rows,v); };
+  p.querySelector('[data-a="x"]').onclick=close; p.querySelector('[data-a="ok"]').onclick=go;
+  inp.addEventListener("keydown",e=>{ if(e.key==="Enter") go(); if(e.key==="Escape") close(); });
+  setTimeout(()=>document.addEventListener("mousedown",outside),0);
+}
+function applyCpmAll(rows,v){
+  const items=rows.map(r=>{ const f=findListRow(r.id), k=f?f.kind:"long";
+    const it={id:r.id,curVg:r.vgPer!=null?r.vgPer:r.vg,curCpm:r.askCpm||r.cpm};
+    if(k!=="long") it.curFee=r.fee!=null?r.fee:(r.vg>=250000?7500:r.vg>=100000?5000:3000);
+    return it; });
+  rows.forEach(r=>{ r.cpm=v; if(r.askCpm!=null) r.askCpm=v; r.custom=true; }); render(); // shows at once; totals follow the save
+  listSave({op:"list-price-all",slug:LIST_SLUG,cpm:v,items},`CPM set to ${money2(v)} for ${items.length} on this list`).catch(()=>{});
+}
 // Saved-list changes (Tom, 11 Oct 2026): the page changes straight away and the save runs
 // behind it. Saves for a list go one at a time, in the order they were made, so quick
 // clicks can never overtake each other. If a save fails, the list is put back to what
