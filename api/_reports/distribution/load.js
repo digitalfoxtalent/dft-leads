@@ -58,12 +58,26 @@ export async function distributionData(mondayTok) {
 // If it fails for any reason the MSN page still renders, with a note in place of the section.
 const BREAKS_ANCHOR = '<section class="kpis" id="kpis" aria-live="polite"></section>';
 
+// The page never waits more than BREAKS_WAIT_MS for the breaks section (15 Oct 2026: after a deploy the
+// first Megaphone read can run past the server's time limit and the whole page answered 504). Requests
+// that arrive while one read is running share it instead of each starting their own, so Megaphone is
+// not asked the same thing several times at once; the next visit shows the section once it is ready.
+const BREAKS_WAIT_MS = 20000;
+let breaksWork = null;
+function breaksOnce(mondayTok, payload) {
+  if (!breaksWork) breaksWork = breaksData(mondayTok, payload).finally(() => { breaksWork = null; });
+  return breaksWork;
+}
+
 export async function renderDistribution(mondayTok) {
   const payload = await distributionData(mondayTok);
   const json = JSON.stringify(payload).replace(/</g, "\\u003c");
   const page = TEMPLATE.replace("__DATA__", () => json);
   let section;
-  try { section = breaksSection(await breaksData(mondayTok, payload)); }
+  try {
+    const d = await Promise.race([breaksOnce(mondayTok, payload), new Promise(res => setTimeout(() => res(null), BREAKS_WAIT_MS))]);
+    section = d ? breaksSection(d) : '<div class="notice">The breaks section is still gathering figures from Megaphone. Refresh in a minute. The MSN figures above are unaffected.</div>';
+  }
   catch (e) { section = '<div class="notice">The breaks section could not load just now. The MSN figures below are unaffected.</div>'; }
   return page.includes(BREAKS_ANCHOR) ? page.replace(BREAKS_ANCHOR, () => BREAKS_ANCHOR + section) : page.replace("</body>", () => section + "</body>");
 }
