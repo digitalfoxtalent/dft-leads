@@ -1737,9 +1737,11 @@ async function pitchFromEmail(b) {
     // Last line of defence: nothing in square brackets ever reaches a brand (placeholders, notes to DFT).
     const named = askedFor.length > 0 && details.length > 0;
     const thanksN = named ? "Thanks for reaching out to " + joinN(askedFor) + " about " + product + ". We'd be very keen to explore this." : thanks;
-    const leadN = named ? "Also, here's a shortlist of creators" + across + (who || " who'd be happy to take this on") + ". Just tick \u201cApprove?\u201d next to anyone you'd like to go ahead with (tick again for a no), and use the speech bubble for any questions." : lead + how;
+    const leadN = named ? "Also, here's a shortlist of creators" + across + (who || " who'd be happy to take this on") + "." : lead;
+    // The tick instruction is its own paragraph (Tom, 15 Oct 2026, Mucinex: "It just makes the email a bit clearer").
+    const howN = named ? "Just tick \u201cApprove?\u201d next to anyone you'd like to go ahead with (tick again for a no), and use the speech bubble for any questions." : how.trim();
     const askN = named ? "Could you confirm who you would like to book please?" : ask2;
-    const paras = [thanksN].concat(named ? details : [], [leadN], !named && solo.length === 1 ? details : [], ["[[LIST_LINK]]"]).concat(answer ? [answer] : [], [askN]).map(p => p === "[[LIST_LINK]]" ? p : p.replace(/\s*\[[^\]]*\]/g, "").trim()).filter(Boolean);
+    const paras = [thanksN].concat(named ? details : [], [leadN], howN ? [howN] : [], !named && solo.length === 1 ? details : [], ["[[LIST_LINK]]"]).concat(answer ? [answer] : [], [askN]).map(p => p === "[[LIST_LINK]]" ? p : p.replace(/\s*\[[^\]]*\]/g, "").trim()).filter(Boolean);
     if (!paras.some(p => p.indexOf("[[LIST_LINK]]") >= 0)) paras.splice(Math.min(2, paras.length), 0, "[[LIST_LINK]]");
     const bullets = [];
     const sig = ["Warm regards", fwdName, "Digital Fox Talent", "\u{1F98A}"];
