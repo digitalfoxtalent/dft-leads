@@ -988,6 +988,45 @@ async function listPrice(b, email) {
   return brandPayload(data, Object.assign({}, list, { body }), true);
 }
 
+// One CPM for every creator on a list tab (Margot, 15 Oct 2026): "rather than going in and
+// changing CPMs to $20" one by one. Same rules as list-price for each row (this list only, the
+// row's views and any discount kept), saved in one write so the list never half-changes.
+async function listPriceAll(b, email) {
+  const { data, list } = await freshList(b.slug);
+  if (!list) throw new Error("list not found");
+  if (list.bad) throw new Error(LIST_READ_ERROR);
+  const cpmIn = num(b.cpm);
+  if (!(cpmIn > 0) || cpmIn > 10000) throw new Error("CPM must be a positive number");
+  const kinds = {};
+  data.rows.forEach(r => { kinds[r.id] = r.kind; r.shows.forEach(s => { kinds[s.id] = "long"; }); });
+  const prices = Object.assign({}, list.body.prices || {});
+  const changed = new Set();
+  (Array.isArray(b.items) ? b.items.slice(0, 1000) : []).forEach(it => {
+    const id = String((it && it.id) || "");
+    if (!ROW_ID.test(id) || !kinds[id]) return;
+    const cur = prices[id] || {};
+    const vg = Math.round(num(cur.vg != null ? cur.vg : it.curVg) || 0);
+    if (!(vg > 0) || vg > 1e9) return;
+    const keep = cur.disc ? { disc: true, discFrom: cur.discFrom } : {};
+    if (kinds[id] === "long") prices[id] = Object.assign({ vg, cpm: r2(cpmIn) }, cur.videos ? { videos: cur.videos } : {}, keep);
+    else {
+      const fee = num(cur.fee != null ? cur.fee : it.curFee);
+      if (fee == null || fee < 0 || fee > 1e6) return;
+      prices[id] = Object.assign({ vg, cpm: r2(cpmIn), fee: Math.round(fee) }, keep);
+    }
+    changed.add(id);
+  });
+  if (!changed.size) throw new Error("No creators on this tab have a price to change");
+  const body = Object.assign({}, list.body, { prices });
+  if (body.lock) { // prices changed on a locked list are locked at their new values
+    const snap = lockSnapshot(data, Object.assign({}, list, { body }), changed);
+    const rows = Object.assign({}, body.lock.rows); changed.forEach(id => { delete rows[id]; }); Object.assign(rows, snap);
+    body.lock = Object.assign({}, body.lock, { rows });
+  }
+  await writeList(list.id, body, { [L.updated]: email + " " + stamp() });
+  return brandPayload(data, Object.assign({}, list, { body }), true);
+}
+
 // The brand's own feedback on a list (Tom, 10 Oct 2026). Brands are not signed in: the list's
 // link (with its random tail) is what lets them in, the same as viewing it. They can only
 // approve or un-approve a creator already on the list and leave a short note on it. Each
@@ -1694,6 +1733,7 @@ export default async function handler(req, res) {
         if (b.op === "delete-list") return res.status(200).json(await deleteList(b));
         if (b.op === "columns") return res.status(200).json(await saveColumns(b, email));
         if (b.op === "list-price") return res.status(200).json(await listPrice(b, email));
+        if (b.op === "list-price-all") return res.status(200).json(await listPriceAll(b, email));
         if (b.op === "list-lock") return res.status(200).json(await listLock(b, email));
         if (b.op === "list-confirm") return res.status(200).json(await listConfirm(b, email));
         if (b.op === "creator-response") return res.status(200).json(await creatorResponse(b, email));
