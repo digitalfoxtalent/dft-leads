@@ -127,7 +127,7 @@ export default async function handler(req, res) {
     catch (e) { return res.status(500).json({ error: String(e && e.message || e).slice(0, 300) }); }
   }
   if (route === "videos") {
-    try { return res.status(200).json(await videoDetails(req.query && req.query.ids)); }
+    try { return res.status(200).json(await videoDetails(req.query && req.query.ids, token)); } // team: with engaged views
     catch (e) { return res.status(500).json({ error: String(e && e.message || e).slice(0, 300) }); }
   }
   if (route === "platforms-data") {
