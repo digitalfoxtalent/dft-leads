@@ -1385,10 +1385,11 @@ function renderPanel(){
     $("#lsBody").innerHTML=(shown.length?shown.map(l=>{ const o=listOwner(l), pitch=/\(pitch\)/.test(String(l.by||"")), day=listDay(l);
       return `<div class="li">
       <div class="tt">${esc(l.title)}</div>
-      <div class="mm">${l.ids.length} creators · ${esc(o===me?"You":ownerName(o))}${pitch?" (from a pitch email)":""}${day?" · "+esc(fmtDate(day)):""}${l.locked?" · prices locked "+esc(fmtDate(l.locked)):""}</div>
+      <div class="mm">${l.ids.length} creators · ${esc(o===me?"You":ownerName(o))}${pitch?" (from a pitch email)":""}${day?" · "+esc(fmtDate(day)):""}${l.locked?" · prices locked "+esc(fmtDate(l.locked)):""}${l.fb&&(l.fb.ok||l.fb.no||l.fb.notes)?` · <b style="color:#1a7f37" title="What the brand ticked on this list${l.fb.at?", last "+esc(fmtDate(l.fb.at.slice(0,10))):""}">Brand: ${l.fb.ok} approved, ${l.fb.no} declined${l.fb.notes?`, ${l.fb.notes} note${l.fb.notes===1?"":"s"}`:""}</b>`:""}</div>
       <div class="acts">
         <a class="btn primary" href="/r/${esc(l.slug)}" title="Change this list's videos, views and prices. Nothing else changes.">Open list</a>
         <button class="btn team" data-a="edit" data-s="${esc(l.slug)}" title="Tick or untick who is on this list">Add / remove creators</button>
+        <button class="btn" data-a="ren" data-s="${esc(l.slug)}" title="Change the list's name. The link stays the same.">Rename</button>
         <button class="btn" data-a="copy" data-s="${esc(l.slug)}">Copy brand link</button>
         <button class="btn" data-a="del" data-s="${esc(l.slug)}" style="color:var(--hide)">Delete</button>
       </div></div>`; }).join("")+`<div class="hint"><b>Open list</b> to change a list's videos and prices (only that list changes).<br><b>Add / remove creators</b> to choose who is on it.</div>`
@@ -1405,6 +1406,9 @@ function renderPanel(){
     const url=location.origin+"/r/"+l.slug;
     if(b.dataset.a==="copy"){ try{await navigator.clipboard.writeText(url); toast("Link copied");}catch(_){ prompt("Copy this link",url); } }
     if(b.dataset.a==="edit"){ $("#panel").classList.remove("on"); chooseCreatorsFor(l); }
+    // Rename a list (Alex, 15 Oct 2026). The link stays the same.
+    if(b.dataset.a==="ren"){ const t=prompt("Rename this list",l.title); if(t==null) return; const v=t.trim(); if(!v||v===l.title) return;
+      try{ const j=await post({op:"list-rename",slug:l.slug,title:v}); l.title=j.title||v; if(typeof LIST_SLUG!=="undefined"&&LIST_SLUG===l.slug) $("#title").textContent=l.title; toast("Renamed to “"+l.title+"”"); draw(); }catch(err){ toast(err.message,true); } }
     if(b.dataset.a==="del"){ if(!confirm("Delete “"+l.title+"”? Its link will stop working. (It is archived on monday and can be restored there.)")) return; try{ await post({op:"delete-list",slug:l.slug}); toast("List deleted"); await loadTeam(true); renderPanel(); }catch(err){ toast(err.message,true); } }
   };
 }
