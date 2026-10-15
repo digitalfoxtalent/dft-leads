@@ -81,11 +81,14 @@ export default async function handler(req, res) {
     const a = Buffer.from(expected), b = Buffer.from(t);
     if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return res.status(403).json({ error: "bad signature" });
 
-    const info = await channelInfo(channel);
+    // dft-connect sends the public title, handle and subscribers it already read; the
+    // YouTube lookup here is only a fallback.
+    const sent = { title: String(body.title || "").slice(0, 120), handle: String(body.handle || "").slice(0, 60), subs: Number.isFinite(+body.subscribers) && body.subscribers !== null && body.subscribers !== "" ? +body.subscribers : null };
+    const info = sent.title ? sent : { ...sent, ...(await channelInfo(channel)) };
     const avg = body.average == null || body.average === "" || !Number.isFinite(+body.average) ? null : Math.round(+body.average);
     const n = (x) => (x == null ? "n/a" : Math.round(x).toLocaleString("en-US"));
     const name = info.title || info.handle || channel;
-    const url = info.handle ? `https://www.youtube.com/${info.handle}` : `https://www.youtube.com/channel/${channel}`;
+    const url = /^@[A-Za-z0-9._-]+$/.test(info.handle) ? `https://www.youtube.com/${info.handle}` : `https://www.youtube.com/channel/${channel}`;
     const subject = `Sign-up check under the bar: ${name} (${n(avg)} avg views)`;
     const html = `<p><a href="${esc(url)}">${esc(name)}</a>${info.handle ? " (" + esc(info.handle) + ")" : ""} checked their channel on the sign-up page and was under the bar.</p>
 <p>Average views per long-form video: ${n(avg)}<br>Subscribers: ${n(info.subs)}</p>
