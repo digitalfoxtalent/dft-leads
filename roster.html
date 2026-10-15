@@ -909,7 +909,7 @@ function render(){
     const car=""; // no sort arrows (Tom, 6 Oct 2026); the sorted column is shaded instead
     const drag=!c.t&&c.key!=="name"?` data-drag="1"`:""; // made draggable on grab, so the resize edge stays free
     const hgrip=drag?`<span class="hgrip" aria-hidden="true">⠿</span>`:"";
-    return `<th class="${c.cls||""}${c.t?" tcol":""}${drag?" movable":""}${active?" sorted":""}" data-key="${c.key}"${drag} title="${c.tip?esc(c.tip)+" ":""}${c.t?"DFT only":"Click to sort"}${drag?" · drag to move":""} · drag the right edge to resize">${hgrip}${esc(c.head)}${car}${c.key==="cpm"&&listEdit()?'<button class="cpmset" type="button" title="Set one CPM, or a discount, for every creator on this tab, for this list only">Set all</button>':""}<span class="rsz" data-k="${c.key}" title="Drag to resize · double-click to reset"></span></th>`;
+    return `<th class="${c.cls||""}${c.t?" tcol":""}${drag?" movable":""}${active?" sorted":""}" data-key="${c.key}"${drag} title="${c.tip?esc(c.tip)+" ":""}${c.t?"DFT only":"Click to sort"}${drag?" · drag to move":""} · drag the right edge to resize">${hgrip}${esc(c.head)}${car}${(c.key==="cpm"||(c.key==="rate"&&(GROUPS.find(g=>g.id===activeTab)||{}).kind!=="long"))&&listEdit()?'<button class="cpmset" type="button" title="Set one CPM, or a discount, for every creator on this tab, for this list only">'+(c.key==="cpm"?"Set all":"Set CPM")+'</button>':""}<span class="rsz" data-k="${c.key}" title="Drag to resize · double-click to reset"></span></th>`;
   }).join("")}</tr></thead>`;
   const totalW=cols.reduce((a,c)=>a+c.w,0);
   $("#scroll").innerHTML=list.length
