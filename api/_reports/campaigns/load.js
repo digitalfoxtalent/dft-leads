@@ -26,6 +26,7 @@ import { SNAPSHOT } from "./snapshot.js";
 import { AVATARS } from "./avatars.js";
 import { PARTNERS } from "../partners.js";
 import { parseSocial } from "../social.js";
+import { engagedForVideos, connectedChannels } from "../engaged/load.js";
 const SUB_BOARD = 6162879732;
 const SUB_COLS = ["connect_boards__1", "text_mm6aq9qp", "date_mm1mb38m", "numeric_mm4bn6yq", "numeric_mm3yxqes", "numeric_mm4b44ta", "color_mm41rsrc", "numeric_mm3vg42g", "timerange_mm1m50vx", "dropdown_mm7jd5dk", "long_text_mm7jfzzx", "numeric_mm7khyj1", "numeric_mm7k2ver", "long_text_mm7kw197"];
 const PAR_COLS = ["dropdown_mm1a3tqp", "connect_boards", "deal_value", "status_1", "date__1", "deal_owner", "lookup_mkz6pygk", "lookup_mm5zp13v"]; // the last two: CLIENT (from CONTACTS) and QB Customer mirrors
@@ -196,11 +197,34 @@ async function getPayload(token) {
 
 export const campaignPayload = token => getPayload(token);
 
+// ENGAGED VIEWS (Tom, 15 Oct 2026). For the team page only (partner pages are unchanged): YouTube
+// engaged views per video, for creators connected through Channel Connect, so the YouTube bars can
+// show engaged views inside total views. Creators are matched to their connected channel by handle
+// or name. Cached 3 hours per server instance; the page never waits more than 8 seconds for it.
+const EV_MS = 3 * 60 * 60 * 1000;
+let evCache = { at: 0, map: {} }, evWork = null;
+const evKey = s => String(s || "").toLowerCase().replace(/^@/, "").replace(/[^a-z0-9]/g, "");
+function campaignEngaged(token, payload) {
+  if (Date.now() - evCache.at < EV_MS) return Promise.resolve(evCache.map);
+  if (!evWork) evWork = (async () => {
+    try {
+      const byKey = {}; (await connectedChannels(token)).forEach(r => { byKey[evKey(r.name)] = r.channel; });
+      const by = {};
+      payload.c.forEach(c => c.r.forEach(r => { const ch = byKey[evKey(r.h)] || byKey[evKey(r.nm)]; if (ch && (r.v || []).length) by[ch] = (by[ch] || []).concat(r.v); }));
+      const ev = await engagedForVideos(token, by);
+      const map = {}; for (const id in ev) if (ev[id] && ev[id].engagedViews != null) map[id] = ev[id].engagedViews;
+      evCache = { at: Date.now(), map };
+    } catch (e) { /* keep the last figures */ } finally { evWork = null; }
+    return evCache.map;
+  })();
+  return Promise.race([evWork, new Promise(res => setTimeout(() => res(evCache.map), 8000))]);
+}
+
 export async function renderCampaigns(token) {
   const payload = await getPayload(token);
   const handles = [...new Set(payload.c.flatMap(c => c.r.map(r => r.h)).filter(Boolean))];
-  const [avatars, roster] = await Promise.all([loadAvatars(handles).catch(() => Object.assign({}, AVATARS)), loadRoster(token).catch(() => null)]);
-  const json = JSON.stringify(Object.assign({}, payload, { avatars, roster })).replace(/</g, "\\u003c");
+  const [avatars, roster, ev] = await Promise.all([loadAvatars(handles).catch(() => Object.assign({}, AVATARS)), loadRoster(token).catch(() => null), campaignEngaged(token, payload).catch(() => ({}))]);
+  const json = JSON.stringify(Object.assign({}, payload, { avatars, roster, ev })).replace(/</g, "\\u003c");
   return TEMPLATE.replace("__DATA__", () => json);
 }
 
