@@ -646,11 +646,13 @@ function fmtCell(c,col,isShow){
       // Stage (Tom, 10 Oct 2026), three steps: Approached, the brand's decision (approve or
       // reject, with a note), Confirmed. The team can set the decision for a brand that told
       // us another way.
-      return `<span class="stg" onclick="event.stopPropagation()"><label title="We have reached out to this creator"><input type="checkbox" class="conf" data-id="${c.id}" data-st="approached" ${st?"checked":""}>Approached</label>${creatorRow(c,true)}${decisionRow(c,true)}<label title="Locked in for this campaign"><input type="checkbox" class="conf" data-id="${c.id}" data-st="confirmed" ${st==="confirmed"?"checked":""}>Confirmed</label></span>`; }
+      return `<span class="stg" onclick="event.stopPropagation()">${decisionRow(c,true)}<label title="We have reached out to this creator"><input type="checkbox" class="conf" data-id="${c.id}" data-st="approached" ${st?"checked":""}>Approached</label>${creatorRow(c,true)}<label title="Locked in for this campaign"><input type="checkbox" class="conf" data-id="${c.id}" data-st="confirmed" ${st==="confirmed"?"checked":""}>Confirmed</label></span>`; }
+    // Brand approval comes first, top left, for the team and for brands (Tom, 15 Oct 2026: a brand clicked
+    // the first box, Approached, which is ours, and thought the list could not be used).
     // Brands (Tom, 10 Oct 2026): the same three steps. Approached and Confirmed are DFT's, shown
     // but not clickable; the middle step is theirs: Approve or Reject, and a note.
     const st=c.stage||(c.confirmed?"confirmed":"");
-    return `<span class="stg" onclick="event.stopPropagation()"><label class="dft" title="Digital Fox Talent has reached out to this creator"><input type="checkbox" tabindex="-1" onclick="return false" ${st?"checked":""}>Approached</label>${creatorRow(c,false)}${decisionRow(c,false)}<label class="dft" title="Locked in by Digital Fox Talent"><input type="checkbox" tabindex="-1" onclick="return false" ${st==="confirmed"?"checked":""}>Confirmed</label></span>`;
+    return `<span class="stg" onclick="event.stopPropagation()">${decisionRow(c,false)}<label class="dft" title="Digital Fox Talent has reached out to this creator"><input type="checkbox" tabindex="-1" onclick="return false" ${st?"checked":""}>Approached</label>${creatorRow(c,false)}<label class="dft" title="Locked in by Digital Fox Talent"><input type="checkbox" tabindex="-1" onclick="return false" ${st==="confirmed"?"checked":""}>Confirmed</label></span>`;
   }
   if(col.key==="disc") return `<label class="ckc disc" onclick="event.stopPropagation()"><input type="checkbox" class="dsc" data-id="${c.id}"${isShow?' data-show="1"':""} ${c.disc?"checked":""} title="Discount: tick, then type a lower CPM"></label>`;
   if((col.key==="rate"||col.key==="total")&&c.wasRate&&(col.key==="rate"||c.kind!=="long")){
