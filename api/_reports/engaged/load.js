@@ -68,9 +68,17 @@ export async function engagedData(tok, ch) {
 // Engaged views for specific videos (Campaign reach drawer, 15 Oct 2026). byChannel is
 // { channelId: [videoIds] }. Channels not connected through Channel Connect answer 404 and are
 // skipped. Never throws: a report must render even if Channel Connect is down.
-export async function engagedForVideos(tok, byChannel) {
+// unknown: video ids whose channel is not known (YouTube's daily allowance ran out, so only
+// oEmbed answered). Each connected channel is asked for those too; YouTube Analytics only ever
+// answers for a channel's own videos, so the right channel claims each one.
+export async function engagedForVideos(tok, byChannel, unknown) {
   const out = {};
-  const chans = Object.keys(byChannel || {}).filter(c => CH_RE.test(c)).slice(0, 20);
+  byChannel = Object.assign({}, byChannel || {});
+  const unk = (unknown || []).filter(id => /^[A-Za-z0-9_-]{11}$/.test(id)).slice(0, 50);
+  if (tok && unk.length) {
+    try { (await creators(tok)).filter(r => r.connected).forEach(r => { byChannel[r.channel] = [...new Set((byChannel[r.channel] || []).concat(unk))]; }); } catch (e) {}
+  }
+  const chans = Object.keys(byChannel).filter(c => CH_RE.test(c)).slice(0, 80);
   if (!tok || !chans.length) return out;
   let secret;
   try { secret = await readSecret(tok); } catch (e) { return out; }
