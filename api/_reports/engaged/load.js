@@ -83,16 +83,22 @@ export async function engagedForVideos(tok, byChannel, unknown) {
   let secret;
   try { secret = await readSecret(tok); } catch (e) { return out; }
   await Promise.all(chans.map(async ch => {
-    const ids = (byChannel[ch] || []).filter(id => /^[A-Za-z0-9_-]{11}$/.test(id)).slice(0, 50);
-    if (!ids.length) return;
-    const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), 12000);
-    try {
-      const r = await fetch(viewsUrl(secret, ch) + "&v=" + ids.join(","), { signal: ctl.signal, headers: { Accept: "application/json" } });
-      if (r.ok) Object.assign(out, (await r.json()).videos || {});
-    } catch (e) { /* not connected or unreachable: no engaged figure */ } finally { clearTimeout(t); }
+    const all = [...new Set((byChannel[ch] || []).filter(id => /^[A-Za-z0-9_-]{11}$/.test(id)))].slice(0, 500);
+    for (let i = 0; i < all.length; i += 50) { // YouTube Analytics takes up to 50 videos per report
+      const ids = all.slice(i, i + 50);
+      const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), 12000);
+      try {
+        const r = await fetch(viewsUrl(secret, ch) + "&v=" + ids.join(","), { signal: ctl.signal, headers: { Accept: "application/json" } });
+        if (r.ok) Object.assign(out, (await r.json()).videos || {});
+        else if (r.status === 404 || r.status === 410) break; // not connected
+      } catch (e) { /* unreachable: no engaged figure */ } finally { clearTimeout(t); }
+    }
   }));
   return out;
 }
+
+// Connected creators only, for other reports (Campaign reach).
+export async function connectedChannels(tok) { return (await creators(tok)).filter(r => r.connected); }
 
 export async function renderEngaged(tok) {
   let list = [], error = "";
