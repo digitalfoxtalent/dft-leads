@@ -57,7 +57,11 @@ const day = d => new Date(d).toISOString().slice(0, 10);
 export async function mget(tok, path) {
   let last = "";
   for (let a = 0; a < 4; a++) {
-    const r = await fetch(CMS + path, { headers: { Authorization: 'Token token="' + tok + '"', Accept: "application/json" } });
+    // 15 Oct 2026: a Megaphone call that never answers is given up after 15 seconds and retried, instead of
+    // holding the page until the server's time limit (the Video distribution page answered 504).
+    let r;
+    try { r = await fetch(CMS + path, { headers: { Authorization: 'Token token="' + tok + '"', Accept: "application/json" }, signal: AbortSignal.timeout(15000) }); }
+    catch (e) { last = "no answer in 15s"; await sleep(1500 * (a + 1)); continue; }
     if (r.status === 429 || r.status >= 500) { last = String(r.status); await sleep(1500 * (a + 1)); continue; }
     if (!r.ok) throw new Error("Megaphone answered " + r.status);
     return r.json();

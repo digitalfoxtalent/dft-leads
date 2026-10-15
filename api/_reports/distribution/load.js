@@ -62,7 +62,7 @@ const BREAKS_ANCHOR = '<section class="kpis" id="kpis" aria-live="polite"></sect
 // first Megaphone read can run past the server's time limit and the whole page answered 504). Requests
 // that arrive while one read is running share it instead of each starting their own, so Megaphone is
 // not asked the same thing several times at once; the next visit shows the section once it is ready.
-const BREAKS_WAIT_MS = 20000;
+const BREAKS_WAIT_MS = 40000;
 let breaksWork = null;
 function breaksOnce(mondayTok, payload) {
   if (!breaksWork) breaksWork = breaksData(mondayTok, payload).finally(() => { breaksWork = null; });
