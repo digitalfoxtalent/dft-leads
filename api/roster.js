@@ -1750,7 +1750,7 @@ async function pitchFromEmail(b) {
     const cDom = domOf(f.contactEmail);
     const brandSide = x => !!cDom && !FREE_MAIL.test(cDom) && domOf(x) === cDom;
     const cc = [...new Set((f.others || []).filter(x => x !== f.contactEmail && (brandSide(x) || /^(alex|margot|george)@digitalfoxtalent\.com$/i.test(x))).concat(["tom@digitalfoxtalent.com", "alex@digitalfoxtalent.com", "margot@digitalfoxtalent.com"]))].filter(x => x !== fromEmail).join(", ");
-    const resultObj = { ok: true, listUrl: saved.url, title, placements: ids.length, to: f.contactEmail, cc, subject, search: "from:" + f.contactEmail + " subject:\"" + f.subject.replace(/"/g, "") + "\" newer_than:90d", html: html + quoteHtml, text: text + quoteText, model: out.model, picks: out.picks, research, stage: out.stage || "new", closing: out.closing === true, questions: out.questions || [], reviewed, reused: reuse ? reuse.slug : "" };
+    const resultObj = { ok: true, listUrl: saved.url, title, placements: ids.length, to: f.contactEmail, cc, subject, search: pitchSearch(f), html: html + quoteHtml, text: text + quoteText, model: out.model, picks: out.picks, research, stage: out.stage || "new", closing: out.closing === true, questions: out.questions || [], reviewed, reused: reuse ? reuse.slug : "" };
     // For the sender only, never the brand: the questions the draft holds over (Make route "Before you send").
     resultObj.unanswered = todo;
     resultObj.unansweredHtml = todo.length ? "<p>Your pitch draft to " + escH(f.contactEmail) + " is ready (subject: " + escH(subject) + ").</p><p>The brand also asked these, which the standing facts do not cover. The draft tells them you will come back to them shortly, so it is safe to send as it is. Reply on these yourself, or add your answers to the draft before you send:</p><ul>" + todo.map(q => "<li>" + escH(q) + "</li>").join("") + "</ul><p>To have the system answer a question like this next time, add the answer to the Standing facts item on the Roster - Pitch Requests board.</p>" : "";
@@ -1779,6 +1779,34 @@ async function gmailToken(subject) {
   if (!r.ok || !d.access_token) throw new Error("Gmail token: " + (d.error_description || d.error || r.status));
   return d.access_token;
 }
+// Keeping the reply in the brand's thread (Tom, 15 Oct 2026: "None of the emails we're sending out are appearing in
+// the thread"). The old search looked for the brand's email by sender and exact subject, and Gmail finds nothing
+// when the subject has a "|" in it (JuJuBit, Meshy AI, Ulike) or when the brand's email is not searchable at all
+// (Ulike came Bcc from a Feishu sender). So the search now finds the forward to pitch@ instead: it always sits in
+// the brand's thread, and its words are cleaned of punctuation. The reply headers then point at the brand's own
+// latest message in that thread (brandMsgId), not at our forward.
+const subjectWords = s => String(s || "").replace(/^\s*((re|fwd?|fw|aw|wg|tr)\s*:\s*)+/i, "").replace(/[^\p{L}\p{N}]+/gu, " ").trim().slice(0, 200);
+function pitchSearch(f) {
+  const w = subjectWords(f.subject);
+  return w ? "in:sent to:pitch@digitalfoxtalent.com subject:\"" + w + "\" newer_than:7d" : "from:" + f.contactEmail + " newer_than:90d";
+}
+function brandMsgId(thread, fallbackId) {
+  const ms = (thread && thread.messages) || [];
+  const m = ms.filter(x => !(x.labelIds || []).some(l => l === "SENT" || l === "DRAFT")).pop() || ms.find(x => x.id === fallbackId) || {};
+  return (((m.payload || {}).headers || []).find(h => /^message-id$/i.test(h.name)) || {}).value || "";
+}
+// Tom's drafts are saved by Make (op pitch-mime). Make passes the thread it found; the reply headers are pointed at
+// the brand's message in it from Tom's mailbox. If that look-up fails, Make's own headers stand.
+async function pitchReplyTo(b) {
+  if (!b || !b.threadId) return b;
+  try {
+    const tok = await gmailToken("tom@digitalfoxtalent.com"); if (!tok) return b;
+    const r = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/threads/" + encodeURIComponent(String(b.threadId)) + "?format=metadata&metadataHeaders=Message-ID", { headers: { Authorization: "Bearer " + tok } });
+    if (!r.ok) return b;
+    const mid = brandMsgId(await r.json(), "");
+    return mid ? Object.assign({}, b, { inReplyTo: mid, references: "" }) : b;
+  } catch (e) { return b; }
+}
 async function teamDraft(fromEmail, o) {
   if (!/@digitalfoxtalent\.com$/i.test(fromEmail) || /^tom@/i.test(fromEmail)) return false;
   const tok = await gmailToken(fromEmail); if (!tok) return false;
@@ -1786,7 +1814,7 @@ async function teamDraft(fromEmail, o) {
   const q = encodeURIComponent;
   const found = ((await G("/messages?maxResults=1&q=" + q(o.search)).catch(() => ({}))).messages || [])[0];
   let threadId = "", msgId = "";
-  if (found) { threadId = found.threadId; const m = await G("/messages/" + found.id + "?format=metadata&metadataHeaders=Message-ID").catch(() => ({})); msgId = (((m.payload || {}).headers || []).find(h => /^message-id$/i.test(h.name)) || {}).value || ""; }
+  if (found) { threadId = found.threadId; msgId = brandMsgId(await G("/threads/" + threadId + "?format=metadata&metadataHeaders=Message-ID").catch(() => ({})), found.id); }
   // The previous draft to this brand in the same thread goes (Tom, 13 Oct 2026).
   if (threadId) { const dr = (await G("/drafts?maxResults=20&q=" + q("to:" + o.to)).catch(() => ({}))).drafts || []; for (const d of dr) if (d.message && d.message.threadId === threadId) await G("/drafts/" + d.id, { method: "DELETE" }).catch(() => null); }
   const draft = pitchMime({ to: o.to, cc: o.cc, subject: o.subject, html: o.html, text: o.text, threadId, inReplyTo: msgId, references: msgId }).draft;
@@ -1860,7 +1888,7 @@ export default async function handler(req, res) {
         catch (e) { return res.status(400).json({ error: String(e && e.message || e) }); }
       }
       // Pitch pipeline (Tom, 13 Oct 2026): Make, with a fresh Roster - Pitch Requests item as proof.
-    if (b && b.op === "pitch-mime") { try { return res.status(200).json(pitchMime(b)); } catch (e) { return res.status(400).json({ error: String(e && e.message || e) }); } }
+    if (b && b.op === "pitch-mime") { try { return res.status(200).json(pitchMime(await pitchReplyTo(b))); } catch (e) { return res.status(400).json({ error: String(e && e.message || e) }); } }
     if (b && b.op === "pitch") { try { return res.status(200).json(await pitchFromEmail(b)); } catch (e) { return res.status(400).json({ error: String(e && e.message || e) }); } }
     if (!email) return res.status(401).json({ error: "Sign in with your DFT Google account" });
       try {
