@@ -1060,15 +1060,64 @@ async function feedbackAlerts() {
     if (!due(l0.body)) continue;
     const { list } = await freshList(l0.slug);
     if (!list || list.bad || !due(list.body)) continue;
-    const body = list.body, s = feedbackSummary(data, body), url = "https://" + HOST + "/r/" + list.slug;
-    const sec = (t, a) => a.length ? "<p><b>" + escH(t) + "</b><br>" + a.map(escH).join("<br>") + "</p>" : "";
-    const html = "<div dir=\"ltr\"><p>The brand has given feedback on <b>" + escH(list.name) + "</b>.</p>" + sec("Approved", s.ok) + sec("Declined", s.no) + sec("Notes", s.notes) + "<p><a href=\"" + url + "\">Open the list</a></p></div>";
-    const subject = "Brand feedback: " + list.name + " (" + s.ok.length + " approved, " + s.no.length + " declined" + (s.notes.length ? ", " + s.notes.length + (s.notes.length === 1 ? " note" : " notes") : "") + ")";
+    const { subject, html, seen } = feedbackEmail(data, list);
     await sendInternal(ALERT_TO, subject, html);
-    await writeList(list.id, Object.assign({}, body, { fbAlerted: body.fbSeq }), {});
+    await writeList(list.id, Object.assign({}, list.body, { fbAlerted: list.body.fbSeq, fbSeen: seen }), {});
     sent.push(list.slug);
   }
   return sent;
+}
+// The alert email itself (Tom, 15 Oct 2026: "Can we make this a bit more dynamic with more info?"). One row per
+// creator the brand has answered, with the format, price and views the brand sees on the list, newest answers
+// marked NEW (compared with what the last email showed, kept on the list as fbSeen), plus the totals and the
+// next step. Built from brandPayload, so the numbers are exactly the ones on the brand's page.
+const ALERT_FMT = { topics: "YouTube integration", dedicated: "YouTube dedicated", group_mm4av3kr: "YouTube Short", group_mm4a1fe0: "Instagram Reel", group_mm4bd5tk: "TikTok", group_mm7yw8cy: "Snapchat" };
+function feedbackEmail(data, list) {
+  const body = list.body, fb = body.feedback || {}, prev = body.fbSeen || {};
+  const sig = f => (f.ok ? "y" : f.no ? "n" : "") + "|" + String(f.note || "");
+  const usd = n => "$" + Math.round(n).toLocaleString("en-US"), k = n => n >= 1e6 ? (Math.round(n / 1e5) / 10) + "M" : n >= 1e3 ? Math.round(n / 1e3) + "K" : String(n);
+  const p = brandPayload(data, list, false), byId = {};
+  Object.keys(p.groups).forEach(g => p.groups[g].forEach(o => { byId[o.id] = Object.assign({ gid: g }, o); }));
+  const all = (body.ids || []).map(String), seen = {}, items = [];
+  all.forEach(id => {
+    const f = fb[id]; if (!f || !(f.ok || f.no || f.note)) return;
+    seen[id] = sig(f);
+    const o = byId[id] || {}, r = data.rows.find(x => x.id === id) || {};
+    const price = typeof o.total === "number" ? o.total : typeof o.rate === "number" ? o.rate : null;
+    items.push({ id, name: o.name || r.name || "A creator", url: o.url || "", subs: o.subs || null, fmt: ALERT_FMT[o.gid || r.group] || "", price, views: o.vg || null, ok: !!f.ok, no: !f.ok && !!f.no, note: String(f.note || ""), stage: o.stage || "", isNew: Object.keys(prev).length > 0 && prev[id] !== seen[id] });
+  });
+  const rank = x => x.ok ? 0 : x.no ? 2 : 1;
+  items.sort((a, b) => (b.isNew - a.isNew) || (rank(a) - rank(b)));
+  const ok = items.filter(x => x.ok), no = items.filter(x => x.no), notes = items.filter(x => x.note), fresh = items.filter(x => x.isNew);
+  const value = ok.reduce((s, x) => s + (x.price || 0), 0), left = all.length - items.length;
+  const url = "https://" + HOST + "/r/" + list.slug, mon = "https://digitalfoxtalent.monday.com/boards/" + LISTS_BOARD + "/pulses/" + list.id;
+  const viewsWord = body.estViews ? "est. views" : "views";
+  const F = "font-family:Arial,Helvetica,sans-serif;", muted = "color:#6b7280;", td = "padding:10px 12px;border-bottom:1px solid #eceef1;vertical-align:top;";
+  const pill = x => { const c = x.ok ? ["#e7f6ec", "#1a7f37", "Approved"] : x.no ? ["#fdecec", "#b42318", "Declined"] : ["#eef2ff", "#3949ab", "Note only"]; return "<span style=\"display:inline-block;padding:3px 9px;border-radius:999px;background:" + c[0] + ";color:" + c[1] + ";font-size:12px;font-weight:bold\">" + c[2] + "</span>"; };
+  const stat = (n, label, sub, color) => "<td style=\"" + F + "padding:14px 16px;background:#f7f8fa;border-radius:10px;width:23%\"><div style=\"font-size:22px;font-weight:bold;color:" + color + "\">" + n + "</div><div style=\"font-size:12px;" + muted + "margin-top:2px\">" + escH(label) + (sub ? "<br><span style=\"color:#1f2328\">" + escH(sub) + "</span>" : "") + "</div></td>";
+  const gap = "<td style=\"width:2%;font-size:0\">&nbsp;</td>";
+  const rowsHtml = items.map(x => "<tr>" +
+    "<td style=\"" + F + td + "\">" + (x.isNew ? "<span style=\"font-size:10px;font-weight:bold;color:#fff;background:#f97316;border-radius:4px;padding:1px 5px;margin-right:6px\">NEW</span>" : "") + (x.url ? "<a href=\"" + escH(x.url) + "\" style=\"color:#1f2328;font-weight:bold;text-decoration:none\">" + escH(x.name) + "</a>" : "<b>" + escH(x.name) + "</b>") + "<div style=\"font-size:12px;" + muted + "margin-top:2px\">" + escH([x.fmt, x.subs ? k(x.subs) + " subs" : ""].filter(Boolean).join(" · ")) + "</div></td>" +
+    "<td style=\"" + F + td + "white-space:nowrap\">" + (x.price ? "<b>" + usd(x.price) + "</b>" : "<span style=\"" + muted + "\">n/a</span>") + (x.views ? "<div style=\"font-size:12px;" + muted + "margin-top:2px\">" + k(x.views) + " " + viewsWord + "</div>" : "") + "</td>" +
+    "<td style=\"" + F + td + "\">" + pill(x) + (x.stage ? "<div style=\"font-size:12px;" + muted + "margin-top:4px\">Stage: " + (x.stage === "confirmed" ? "Confirmed" : "Approached") + "</div>" : "") + "</td>" +
+    "<td style=\"" + F + td + "font-size:13px\">" + (x.note ? "“" + escH(x.note) + "”" : "<span style=\"" + muted + "\">No note</span>") + "</td></tr>").join("");
+  const toConfirm = ok.filter(x => x.stage !== "confirmed").map(x => x.name);
+  const next = toConfirm.length ? "Confirm " + (toConfirm.length > 4 ? toConfirm.slice(0, 4).join(", ") + " and " + (toConfirm.length - 4) + " more" : toConfirm.join(", ").replace(/, ([^,]*)$/, " and $1")) + " with the creator" + (toConfirm.length > 1 ? "s" : "") + " and the brand, then set Stage on the list." : notes.length ? "Reply to the brand's " + (notes.length === 1 ? "note" : "notes") + " on the list." : "";
+  const btn = (href, label, solid) => "<a href=\"" + href + "\" style=\"" + F + "display:inline-block;padding:10px 18px;border-radius:8px;font-size:14px;font-weight:bold;text-decoration:none;" + (solid ? "background:#f97316;color:#ffffff" : "background:#ffffff;color:#1f2328;border:1px solid #d0d4da") + "\">" + label + "</a>";
+  const html = "<div dir=\"ltr\" style=\"" + F + "color:#1f2328;font-size:14px;line-height:1.45;max-width:680px;padding:8px 4px\">" +
+    "<div style=\"font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:#f97316;font-weight:bold\">Brand feedback</div>" +
+    "<div style=\"font-size:22px;font-weight:bold;margin:4px 0 6px\">" + escH(list.name) + "</div>" +
+    "<div style=\"" + muted + "margin-bottom:20px\">The brand has answered on " + items.length + " of " + all.length + " creators" + (fresh.length ? ", " + fresh.length + " new since the last email" : "") + ".</div>" +
+    "<table role=\"presentation\" cellspacing=\"0\" cellpadding=\"0\" style=\"width:100%;border-collapse:separate;margin-bottom:22px\"><tr>" +
+    stat(ok.length, "Approved", value ? usd(value) : "", "#1a7f37") + gap + stat(no.length, "Declined", "", "#b42318") + gap + stat(notes.length, notes.length === 1 ? "Note" : "Notes", "", "#3949ab") + gap + stat(left, "Not answered yet", "", "#1f2328") +
+    "</tr></table>" +
+    (next ? "<div style=\"background:#fff7ed;border-left:4px solid #f97316;padding:12px 14px;border-radius:6px;margin-bottom:22px\"><b>Next step:</b> " + escH(next) + "</div>" : "") +
+    "<table cellspacing=\"0\" cellpadding=\"0\" style=\"width:100%;border-collapse:collapse;margin-bottom:24px\"><tr>" +
+    ["Creator", "Price", "Brand", "Note"].map(h => "<th align=\"left\" style=\"" + F + "padding:8px 12px;font-size:11px;letter-spacing:.05em;text-transform:uppercase;" + muted + "border-bottom:2px solid #eceef1\">" + h + "</th>").join("") + "</tr>" + rowsHtml + "</table>" +
+    "<div style=\"margin-bottom:22px\">" + btn(url, "Open the list", true) + " &nbsp; " + btn(mon, "Open on monday", false) + "</div>" +
+    "<div style=\"font-size:12px;" + muted + "\">Sent automatically about 15 minutes after the brand's last change" + (list.by ? ". List made by " + escH(String(list.by).split(" ")[0]) : "") + ".</div></div>";
+  const subject = "Brand feedback: " + list.name + " (" + ok.length + " approved" + (value ? ", " + usd(value) : "") + ", " + no.length + " declined" + (notes.length ? ", " + notes.length + (notes.length === 1 ? " note" : " notes") : "") + ")";
+  return { subject, html, seen };
 }
 async function sendInternal(to, subject, html) {
   const tok = await gmailToken(ALERT_FROM); if (!tok) throw new Error("GMAIL_DELEGATE_KEY not set");
