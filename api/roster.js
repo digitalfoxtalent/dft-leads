@@ -1521,14 +1521,20 @@ async function pitchFromEmail(b) {
     const prevL = data.lists.filter(l => l.slug && l.slug !== AI_LIST && /\(pitch\)/.test(String(l.by || "")) && recent(l)).map(l => ({ l, k: ckey(l.name) })).filter(x => x.k.length >= 5 && (pKeys.some(k => k === x.k || (k.length >= 7 && (k.startsWith(x.k) || x.k.startsWith(k)))) || (x.k.length >= 7 && mailKey.includes(x.k))))
       .sort((a, b) => lastDay(b.l).localeCompare(lastDay(a.l)))[0];
     let reuse = null;
-    if (prevL && !shortOnly && !expandAsk && !market && !aiCamp && !/new list|fresh list|start (again|over)|from scratch|different list/i.test(f.note || "")) {
+    // One list per campaign (Tom, 15 Oct 2026: "update the one we had rather than creating a new version").
+    // When the earlier list cannot simply be reused, the new picks go onto THAT list instead of a new one:
+    // added to what it already holds (team edits, prices and stages kept), or, for a brand shortlist, a
+    // market limit or an AI brief, the list is set to the new picks. Only a note asking for a new list makes one.
+    let update = null;
+    if (prevL && !/new list|fresh list|start (again|over)|from scratch|different list/i.test(f.note || "")) {
       const pl = (await freshList(prevL.l.slug).catch(() => ({}))).list;
       const pIds = ((pl && !pl.bad && pl.body && pl.body.ids) || []).map(String).filter(id => cat.byId[id]);
       const pG = new Set(pIds.map(id => cat.byId[id].gid));
       const fmtOk = !(Array.isArray(out.formats) && out.formats.length) || [...askedG].every(g => pG.has(g));
       const namesOk = namedNames.every(nm => pIds.some(id => nameOf(id) === nm));
       const outOk = !pIds.some(id => leftOut(base(cat.byId[id].name)));
-      if (pIds.length && fmtOk && namesOk && outOk) reuse = { slug: pl.slug, title: pl.name, ids: pIds };
+      if (!shortOnly && !expandAsk && !market && !aiCamp && pIds.length && fmtOk && namesOk && outOk) reuse = { slug: pl.slug, title: pl.name, ids: pIds };
+      else if (pl && pl.slug && !pl.bad) update = { slug: pl.slug, title: pl.name, ids: pIds, replace: !!(shortOnly || market || aiCamp) };
     }
     if (reuse) ids.splice(0, ids.length, ...reuse.ids);
     // Second pass (Tom, 14 Oct 2026): the list is checked the way Tom would before it is saved. Creators the brand's newest message names always stay.
@@ -1547,9 +1553,10 @@ async function pitchFromEmail(b) {
     // Nothing to pitch (Tom, 14 Oct 2026, Alex's Gamesight forward): say why in plain words, and how to get a list anyway.
     const whyNone = noDash(String(out.no_pitch_reason || "").trim()).replace(/[.\s]+$/, "");
     if (!ids.length) throw new Error("No list made: " + (whyNone ? whyNone + "." : "the email does not ask for creators.") + " To get a list anyway, forward it again with a note above it saying what you want, e.g. 'pitch more creators for this'.");
+    if (update && !update.replace) { const keep = update.ids.filter(id => !leftOut(base(cat.byId[id].name))); const had = new Set(keep); ids.splice(0, ids.length, ...keep, ...ids.filter(id => !had.has(id))); }
     if (!reuse) ids.sort((x, y) => order.indexOf(cat.byId[x].gid) - order.indexOf(cat.byId[y].gid));
-    const title = reuse ? reuse.title : noDash(out.title || f.subject || "Pitch").slice(0, 70);
-    const saved = reuse ? { ok: true, slug: reuse.slug, url: "https://" + HOST + "/r/" + reuse.slug } : await saveList({ title, ids }, fromEmail + " (pitch)");
+    const title = reuse ? reuse.title : update ? update.title : noDash(out.title || f.subject || "Pitch").slice(0, 70);
+    const saved = reuse ? { ok: true, slug: reuse.slug, url: "https://" + HOST + "/r/" + reuse.slug } : await saveList(update ? { title, ids, slug: update.slug } : { title, ids }, fromEmail + " (pitch)");
     const first = noDash(out.contact_first_name || String(f.contactName).split(/\s+/)[0] || "there");
     const product = noDash(out.product || out.brand || f.subject || "your campaign").replace(/[.\s]+$/, "");
     const mix = noDash(out.mix || "").replace(/[.\s]+$/, "").replace(/\s*\/\s*/g, " and ");
