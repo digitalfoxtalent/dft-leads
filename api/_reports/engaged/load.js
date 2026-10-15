@@ -65,6 +65,27 @@ export async function engagedData(tok, ch) {
   } finally { clearTimeout(t); }
 }
 
+// Engaged views for specific videos (Campaign reach drawer, 15 Oct 2026). byChannel is
+// { channelId: [videoIds] }. Channels not connected through Channel Connect answer 404 and are
+// skipped. Never throws: a report must render even if Channel Connect is down.
+export async function engagedForVideos(tok, byChannel) {
+  const out = {};
+  const chans = Object.keys(byChannel || {}).filter(c => CH_RE.test(c)).slice(0, 20);
+  if (!tok || !chans.length) return out;
+  let secret;
+  try { secret = await readSecret(tok); } catch (e) { return out; }
+  await Promise.all(chans.map(async ch => {
+    const ids = (byChannel[ch] || []).filter(id => /^[A-Za-z0-9_-]{11}$/.test(id)).slice(0, 50);
+    if (!ids.length) return;
+    const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), 12000);
+    try {
+      const r = await fetch(viewsUrl(secret, ch) + "&v=" + ids.join(","), { signal: ctl.signal, headers: { Accept: "application/json" } });
+      if (r.ok) Object.assign(out, (await r.json()).videos || {});
+    } catch (e) { /* not connected or unreachable: no engaged figure */ } finally { clearTimeout(t); }
+  }));
+  return out;
+}
+
 export async function renderEngaged(tok) {
   let list = [], error = "";
   try { list = await creators(tok); } catch (e) { error = "Could not read the Creator YouTube Access board just now."; }
