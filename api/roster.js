@@ -1007,7 +1007,11 @@ async function listPriceAll(b, email) {
     const cur = prices[id] || {};
     const vg = Math.round(num(cur.vg != null ? cur.vg : it.curVg) || 0);
     if (!(vg > 0) || vg > 1e9) return;
-    const keep = cur.disc ? { disc: true, discFrom: cur.discFrom } : {};
+    // Set all as a discount (Tom, 15 Oct 2026): every row remembers the CPM it starts from, so brands see the old price
+    // crossed out and the % off. A row already discounted keeps its original starting CPM.
+    const fromCpm = r2(num(cur.cpm != null ? cur.cpm : it.curCpm) || 0);
+    const keep = b.disc === true ? { disc: true, discFrom: cur.disc && cur.discFrom > 0 ? cur.discFrom : fromCpm } : cur.disc ? { disc: true, discFrom: cur.discFrom } : {};
+    if (b.disc === true && !(keep.discFrom > 0)) return;
     if (kinds[id] === "long") prices[id] = Object.assign({ vg, cpm: r2(cpmIn) }, cur.videos ? { videos: cur.videos } : {}, keep);
     else {
       const fee = num(cur.fee != null ? cur.fee : it.curFee);
