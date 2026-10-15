@@ -1518,7 +1518,7 @@ function pitchPrompt(f, lines, fwdName, aiNames, namedNames, pointers, facts, re
     facts || "(none yet)",
     "",
     "HOW TO PICK (think like an experienced talent agent, not a category filter)",
-    "- AI campaigns: only these creators accept AI brands (AI tools, AI apps, generative AI): " + (aiNames || []).join(", ") + ". If the product or campaign is AI-related, set ai_product to true and pick ONLY from them (any of their formats), except creators the enquiry names or says DFT already confirmed, who are always included. Otherwise set ai_product to false.",
+    "- AI campaigns: only these creators accept AI brands (AI tools, AI apps, generative AI): " + (aiNames || []).join(", ") + ". Set ai_product to true only when AI is the main thing being sold (an AI tool, AI app, AI companion or generative AI service), and then pick ONLY from them (any of their formats), except creators the enquiry names or says DFT already confirmed, who are always included. A product that only has some AI features (smart or AR glasses, phones, cameras, headphones, a game or app with an AI assistant) is NOT an AI product: set ai_product to false and pick from the whole roster.",
     "- First work out who would buy or love this product and what kind of video would sell it. Then name 4 to 6 different angles a creator could cover it from: the same-genre angle, plus adjacent ones such as reaction and commentary, pop culture, film and TV, comedy and group personalities, family, lifestyle, fitness or tech, whichever genuinely fit.",
     "- Big, engaged reaction and personality channels (group reaction shows, for example) often sell fun, social or entertainment products better than niche specialists. Consider them seriously.",
     "- Read each creator's about line, not just the category, to judge audience and tone.",
@@ -1602,7 +1602,9 @@ async function pitchFromEmail(b) {
     const researchTxt = research ? JSON.stringify(research).slice(0, 2500) : "";
     const out = await askClaude(pitchPrompt(f, fitLines, fwdName, aiNames, namedNames, pointers, facts, researchTxt));
     const order = GROUPS.map(g => g.id);
-    const aiCamp = aiIds.size > 0 && (out.ai_product === true || /\bAI\b/.test(f.subject + " " + f.body));
+    // AI campaigns are the model's call on the product, not any mention of "AI" in the email (Tom, 15 Oct 2026: RayNeo AR glasses
+    // "touches on AI but isn't a completely AI focussed product", and got an AI-only list).
+    const aiCamp = aiIds.size > 0 && out.ai_product === true;
     const namedIds = new Set((out.picks || []).filter(p => p && p.named === true).map(p => String(p.id)));
     const ids = [...new Set((out.picks || []).filter(p => p && (p.named === true || !(Number(p.fit) < 3))).map(p => String(p && p.id)).filter(id => cat.byId[id] && (!aiCamp || aiOk(id) || namedIds.has(id))))];
     // Only formats the enquiry asks for: dedicated and social placements need to be named; integrations and Shorts are the default.
