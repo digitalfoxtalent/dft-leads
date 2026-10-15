@@ -51,7 +51,8 @@ export async function videoDetails(idsParam, tok) {
   if (tok) { // team only: engaged views for connected creators
     const by = {};
     for (const id of ids) { const d = out[id]; if (d && d.cid) (by[d.cid] = by[d.cid] || []).push(id); }
-    const ev = await engagedForVideos(tok, by).catch(() => ({}));
+    const unknown = ids.filter(id => out[id] && !out[id].cid);
+    const ev = await engagedForVideos(tok, by, unknown).catch(() => ({}));
     for (const id of Object.keys(ev)) if (out[id] && ev[id].engagedViews != null) out[id] = Object.assign({}, out[id], { ev: ev[id].engagedViews });
   }
   return { at: new Date().toISOString(), videos: out };
