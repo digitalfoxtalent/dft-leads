@@ -730,7 +730,7 @@ function teamPayload(data, email) {
   data.rows.forEach(r => groups[r.group].push(teamRow(r)));
   Object.values(groups).forEach(a => a.sort((x, y) => (y.vgPer || 0) - (x.vgPer || 0)));
   return { view: "team", email, quarter: quarterLabel(), columns: data.columns, widths: data.widths, rows: data.rowOrder, groups,
-    lists: data.lists.map(l => ({ id: l.id, title: l.name, slug: l.slug, ids: l.body.ids || [], by: l.by, updated: l.updated, locked: l.body.lock ? l.body.lock.on : "" })) };
+    lists: data.lists.map(l => ({ id: l.id, title: l.name, slug: l.slug, ids: l.body.ids || [], by: l.by, updated: l.updated, locked: l.body.lock ? l.body.lock.on : "", fb: feedbackCounts(l.body) })) };
 }
 
 // ---------------------------------------------------------------- writes (team only)
@@ -1027,6 +1027,36 @@ async function listPriceAll(b, email) {
   return brandPayload(data, Object.assign({}, list, { body }), true);
 }
 
+// Brand feedback tracking (Tom, 15 Oct 2026): "We need to set up a slick system here so we can see who is
+// accepted and track it." The Saved Pitch Lists board carries the brand's answers per list, and the Saved
+// lists panel on the roster site shows the counts.
+const FB = { ok: "long_text_mm85mveg", no: "long_text_mm85rnfg", notes: "long_text_mm85eqf2", at: "date_mm85p562" };
+function feedbackSummary(data, body) {
+  const fb = body.feedback || {}, name = id => ((data.rows.find(r => r.id === id) || {}).name) || "a creator";
+  const ids = (body.ids || []).map(String).filter(id => fb[id]);
+  return { ok: ids.filter(id => fb[id].ok).map(name), no: ids.filter(id => fb[id].no).map(name), notes: ids.filter(id => fb[id].note).map(id => name(id) + ": " + fb[id].note) };
+}
+function feedbackCounts(body) {
+  const v = Object.values((body && body.feedback) || {});
+  return { ok: v.filter(x => x && x.ok).length, no: v.filter(x => x && x.no).length, notes: v.filter(x => x && x.note).length, at: (body && body.fbAt) || "" };
+}
+function feedbackColumns(data, body) {
+  const s = feedbackSummary(data, body), cut = a => a.join("\n").slice(0, 1900);
+  const v = { [FB.ok]: { text: cut(s.ok) }, [FB.no]: { text: cut(s.no) }, [FB.notes]: { text: cut(s.notes) } };
+  if (body.fbAt) { const d = new Date(body.fbAt).toISOString(); v[FB.at] = { date: d.slice(0, 10), time: d.slice(11, 19) }; }
+  return v;
+}
+// Rename a list (Alex, 15 Oct 2026): the name brands see at the top of the list. The link stays the same.
+async function listRename(b, email) {
+  const { list } = await freshList(b.slug);
+  if (!list) throw new Error("list not found");
+  const title = noDash(String(b.title || "")).replace(/\s+/g, " ").trim().slice(0, 80);
+  if (!title) throw new Error("Give the list a name");
+  await monday(`mutation($b:ID!,$i:ID!,$v:JSON!){change_multiple_column_values(board_id:$b,item_id:$i,column_values:$v){id}}`, { b: String(LISTS_BOARD), i: String(list.id), v: JSON.stringify({ name: title, [L.updated]: email + " " + stamp() }) });
+  cache = null;
+  return { ok: true, title };
+}
+
 // The brand's own feedback on a list (Tom, 10 Oct 2026). Brands are not signed in: the list's
 // link (with its random tail) is what lets them in, the same as viewing it. They can only
 // approve or un-approve a creator already on the list and leave a short note on it. Each
@@ -1045,8 +1075,13 @@ async function brandFeedback(b, email) {
   const feedback = Object.assign({}, list.body.feedback || {});
   const before = feedback[id] || {};
   if (ok || no || note) feedback[id] = { ok, no, note, at: stamp() }; else delete feedback[id];
+  // Tracking (Tom, 15 Oct 2026: ARZOPA's feedback sat unseen for a day). Every change keeps the list's
+  // monday row current (Brand approved, Brand declined, Brand notes); a change made by the brand itself,
+  // not a teammate ticking for them, also stamps Last brand activity.
+  const changed = (before.ok ? "yes" : before.no ? "no" : "") !== decision || String(before.note || "") !== note;
   const body = Object.assign({}, list.body, { feedback });
-  await writeList(list.id, body, {});
+  if (changed && !email) body.fbAt = new Date().toISOString();
+  await writeList(list.id, body, changed ? feedbackColumns(data, body) : {});
   const row = data.rows.find(r => r.id === id), who = (row && row.name) || "a creator";
   const bits = [];
   const was = before.ok ? "yes" : before.no ? "no" : "";
@@ -1763,6 +1798,7 @@ export default async function handler(req, res) {
         if (b.op === "list-order") return res.status(200).json(await listOrder(b, email));
         if (b.op === "list-preview") return res.status(200).json(await listPreview(b));
         if (b.op === "list-remove") return res.status(200).json(await listRemove(b, email));
+        if (b.op === "list-rename") return res.status(200).json(await listRename(b, email));
       } catch (e) {
         return res.status(400).json({ error: String(e && e.message || e) });
       }
