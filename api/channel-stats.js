@@ -11,11 +11,15 @@
 // average long-form views onto the row. Connect replaced the Media Kit PDF on the form, so
 // this snapshot is what stays on file if the creator later removes access.
 //
-// AUTO-DECLINE (Tom, 3 Oct 2026). From the average long-form views it also sets "Views check":
-//   under 50k            -> declined, always
-//   50k to 100k          -> declined, unless "Referred by" is filled in ("Referral, review")
-//   100k and over        -> "Meets 100k"
+// AUTO-DECLINE (Tom, 3 Oct 2026; bar lowered 15 Oct 2026 to match dft-connect's sign-up check,
+// which qualifies at 50k since 13 Oct). From the average long-form views it sets "Views check":
+//   under 30k            -> declined, always
+//   30k to 50k           -> declined, unless "Referred by" is filled in ("Referral, review")
+//   50k and over         -> "Meets 50k"
 //   no average           -> "No data", a human decides
+// KEEP THESE TWO NUMBERS IN STEP WITH QUALIFY and NEAR in dft-connect api/signup-check.js. On
+// 15 Oct 2026 they drifted (this said 100k, the check said 50k) and a 67k applicant who had
+// just passed the check was auto-declined here.
 // A decline also sets Review status to Declined, asks the site backend to send the applicant
 // the decline email (POST /api/applications/decline, token read from the API Keys board), and
 // removes our YouTube access via dft-connect's revoke link. The snapshot stays on the row, and
@@ -30,8 +34,8 @@ const EMAIL_COL = "email_mm6z87as";
 const STATS_COL = "link_mm7sak1n";
 const AVG_COL = "numeric_mm7sxx55"; // Avg long-form views
 const SNAPSHOT_COL = "long_text_mm7se2f4"; // Channel stats snapshot
-const ELIGIBILITY_AVG_VIEWS = 100000; // DFT's bar to apply (long-form average)
-const REFERRAL_FLOOR_VIEWS = 50000; // referred applicants under this are still declined
+const ELIGIBILITY_AVG_VIEWS = 50000; // DFT's bar to apply (long-form average), = QUALIFY in dft-connect
+const REFERRAL_FLOOR_VIEWS = 30000; // referred applicants under this are still declined, = NEAR in dft-connect
 const REFERRED_COL = "text_mm6z1sx9"; // Referred by (written by Make from the form)
 const REVIEW_COL = "color_mm6znq58"; // Review status
 const CHECK_COL = "color_mm7s1pw2"; // Views check
@@ -99,7 +103,7 @@ function snapshotText(s, statsUrl) {
     `${s.title || s.channelId}${s.handle ? " (" + s.handle + ")" : ""}${s.country ? ", " + s.country : ""}`,
     `Snapshot taken ${String(s.generatedAt || "").slice(0, 10)} when they connected YouTube on the sign-up form.`,
     "",
-    `Avg views per long-form video: ${n(s.avgLongformViews)} (median ${n(s.medianLongformViews)}, last ${s.longformCounted} uploads). Meets the 100k bar: ${meets}`,
+    `Avg views per long-form video: ${n(s.avgLongformViews)} (median ${n(s.medianLongformViews)}, last ${s.longformCounted} uploads). Meets the 50k bar: ${meets}`,
     `Subscribers: ${s.subscribers == null ? "hidden" : n(s.subscribers)}`,
     `Views: ${n(s.views28)} last 28 days, ${n(s.views90)} last 90 days`,
     `Watch time, last 28 days: ${n(s.watchHours28)} hrs`,
@@ -125,10 +129,10 @@ function isReferred(text) {
 
 function viewsCheck(avg, referred) {
   if (avg == null) return { label: "No data", decline: false };
-  if (avg >= ELIGIBILITY_AVG_VIEWS) return { label: "Meets 100k", decline: false };
-  if (avg < REFERRAL_FLOOR_VIEWS) return { label: "Declined under 50k", decline: true };
+  if (avg >= ELIGIBILITY_AVG_VIEWS) return { label: "Meets 50k", decline: false };
+  if (avg < REFERRAL_FLOOR_VIEWS) return { label: "Declined under 30k", decline: true };
   if (referred) return { label: "Referral, review", decline: false };
-  return { label: "Declined under 100k", decline: true };
+  return { label: "Declined under 50k", decline: true };
 }
 
 async function declineToken(token) {
@@ -220,7 +224,7 @@ export default async function handler(req, res) {
     const value = JSON.stringify(cols);
     await monday(
       token,
-      `mutation($b: ID!, $i: ID!, $v: JSON!) { change_multiple_column_values(board_id: $b, item_id: $i, column_values: $v) { id } }`,
+      `mutation($b: ID!, $i: ID!, $v: JSON!) { change_multiple_column_values(board_id: $b, item_id: $i, column_values: $v, create_labels_if_missing: true) { id } }`,
       { b: String(BOARD), i: String(row.id), v: value }
     );
     const declined = check.decline && s ? await decline(token, row, email, s) : null;
