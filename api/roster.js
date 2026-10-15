@@ -1072,7 +1072,7 @@ async function feedbackAlerts() {
 // marked NEW (compared with what the last email showed, kept on the list as fbSeen), plus the totals and the
 // next step. Built from brandPayload, so the numbers are exactly the ones on the brand's page.
 const ALERT_FMT = { topics: "YouTube integration", dedicated: "YouTube dedicated", group_mm4av3kr: "YouTube Short", group_mm4a1fe0: "Instagram Reel", group_mm4bd5tk: "TikTok", group_mm7yw8cy: "Snapchat" };
-function feedbackEmail(data, list) {
+function feedbackEmail(data, list, submitted) {
   const body = list.body, fb = body.feedback || {}, prev = body.fbSeen || {};
   const sig = f => (f.ok ? "y" : f.no ? "n" : "") + "|" + String(f.note || "");
   const usd = n => "$" + Math.round(n).toLocaleString("en-US"), k = n => n >= 1e6 ? (Math.round(n / 1e5) / 10) + "M" : n >= 1e3 ? Math.round(n / 1e3) + "K" : String(n);
@@ -1105,9 +1105,9 @@ function feedbackEmail(data, list) {
   const next = toConfirm.length ? "Confirm " + (toConfirm.length > 4 ? toConfirm.slice(0, 4).join(", ") + " and " + (toConfirm.length - 4) + " more" : toConfirm.join(", ").replace(/, ([^,]*)$/, " and $1")) + " with the creator" + (toConfirm.length > 1 ? "s" : "") + " and the brand, then set Stage on the list." : notes.length ? "Reply to the brand's " + (notes.length === 1 ? "note" : "notes") + " on the list." : "";
   const btn = (href, label, solid) => "<a href=\"" + href + "\" style=\"" + F + "display:inline-block;padding:10px 18px;border-radius:8px;font-size:14px;font-weight:bold;text-decoration:none;" + (solid ? "background:#f97316;color:#ffffff" : "background:#ffffff;color:#1f2328;border:1px solid #d0d4da") + "\">" + label + "</a>";
   const html = "<div dir=\"ltr\" style=\"" + F + "color:#1f2328;font-size:14px;line-height:1.45;max-width:680px;padding:8px 4px\">" +
-    "<div style=\"font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:#f97316;font-weight:bold\">Brand feedback</div>" +
+    "<div style=\"font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:#f97316;font-weight:bold\">" + (submitted ? "Picks sent by the brand" : "Brand feedback") + "</div>" +
     "<div style=\"font-size:22px;font-weight:bold;margin:4px 0 6px\">" + escH(list.name) + "</div>" +
-    "<div style=\"" + muted + "margin-bottom:20px\">The brand has answered on " + items.length + " of " + all.length + " creators" + (fresh.length ? ", " + fresh.length + " new since the last email" : "") + ".</div>" +
+    "<div style=\"" + muted + "margin-bottom:20px\">The brand has answered on " + items.length + " of " + all.length + " creators" + (fresh.length ? ", " + fresh.length + " new since the last email" : "") + "." + (submitted ? " They pressed Send my picks, so they are waiting to hear from us." : "") + "</div>" +
     "<table role=\"presentation\" cellspacing=\"0\" cellpadding=\"0\" style=\"width:100%;border-collapse:separate;margin-bottom:22px\"><tr>" +
     stat(ok.length, "Approved", value ? usd(value) : "", "#1a7f37") + gap + stat(no.length, "Declined", "", "#b42318") + gap + stat(notes.length, notes.length === 1 ? "Note" : "Notes", "", "#3949ab") + gap + stat(left, "Not answered yet", "", "#1f2328") +
     "</tr></table>" +
@@ -1115,9 +1115,25 @@ function feedbackEmail(data, list) {
     "<table cellspacing=\"0\" cellpadding=\"0\" style=\"width:100%;border-collapse:collapse;margin-bottom:24px\"><tr>" +
     ["Creator", "Price", "Brand", "Note"].map(h => "<th align=\"left\" style=\"" + F + "padding:8px 12px;font-size:11px;letter-spacing:.05em;text-transform:uppercase;" + muted + "border-bottom:2px solid #eceef1\">" + h + "</th>").join("") + "</tr>" + rowsHtml + "</table>" +
     "<div style=\"margin-bottom:22px\">" + btn(url, "Open the list", true) + " &nbsp; " + btn(mon, "Open on monday", false) + "</div>" +
-    "<div style=\"font-size:12px;" + muted + "\">Sent automatically about 15 minutes after the brand's last change" + (list.by ? ". List made by " + escH(String(list.by).split(" ")[0]) : "") + ".</div></div>";
-  const subject = "Brand feedback: " + list.name + " (" + ok.length + " approved" + (value ? ", " + usd(value) : "") + ", " + no.length + " declined" + (notes.length ? ", " + notes.length + (notes.length === 1 ? " note" : " notes") : "") + ")";
+    "<div style=\"font-size:12px;" + muted + "\">" + (submitted ? "Sent when the brand pressed Send my picks" : "Sent automatically about 15 minutes after the brand's last change") + (list.by ? ". List made by " + escH(String(list.by).split(" ")[0]) : "") + ".</div></div>";
+  const subject = (submitted ? "Brand sent their picks: " : "Brand feedback: ") + list.name + " (" + ok.length + " approved" + (value ? ", " + usd(value) : "") + ", " + no.length + " declined" + (notes.length ? ", " + notes.length + (notes.length === 1 ? " note" : " notes") : "") + ")";
   return { subject, html, seen };
+}
+// Send my picks (Tom, 15 Oct 2026): the brand's own "I'm done" button on its list. Sends the feedback email to Tom,
+// Alex and Margot straight away instead of 15 minutes after the last tick. Anyone with the list's link can press it,
+// so it sends at most once every 10 minutes per list; later ticks still reach us through the normal alert.
+async function brandSubmit(b) {
+  const { data, list } = await freshList(b.slug);
+  if (!list) throw new Error("This list is no longer available");
+  if (list.bad) throw new Error("Sorry, that could not be sent. Please let Digital Fox Talent know.");
+  const body = list.body, fb = body.feedback || {};
+  if (!Object.values(fb).some(f => f && (f.ok || f.no || f.note))) throw new Error("Tick \u201cApprove?\u201d on the creators you would like to book first.");
+  if (Date.now() - (Date.parse(body.fbSubmitted || "") || 0) < 10 * 60 * 1000) return { ok: true, sent: false };
+  const { subject, html, seen } = feedbackEmail(data, list, true);
+  await sendInternal(ALERT_TO, subject, html);
+  await writeList(list.id, Object.assign({}, body, { fbAlerted: Number(body.fbSeq) || 0, fbSeen: seen, fbSubmitted: new Date().toISOString() }), {});
+  await audit(list.id, "Brand pressed Send my picks on \u201c" + list.name + "\u201d").catch(() => null);
+  return { ok: true, sent: true };
 }
 async function sendInternal(to, subject, html) {
   const tok = await gmailToken(ALERT_FROM); if (!tok) throw new Error("GMAIL_DELEGATE_KEY not set");
@@ -1688,7 +1704,7 @@ async function pitchFromEmail(b) {
     const solo = [...new Set(ids.map(id => base(cat.byId[id].name).replace(/^@/, "")))]; // one creator: say so plainly
     const soloFirst = solo.length === 1 ? solo[0] : ""; // full name: first word alone gave "Mr.'s rates" (Mr. Know-It-All, 15 Oct 2026)
     const lead = expanded ? pick(["I've put the creators you shortlisted on one list, along with some others" + (who ? who + " and would suit " : " who'd suit ") + product + " really well.", "Here are the creators you shortlisted, plus a few more" + (who ? who + " and would be great for " : " who I think would be great for ") + product + "."]) : shortOnly && solo.length > 1 ? pick(["I've put the creators you shortlisted together on one list.", "Here are the creators you shortlisted, all on one list."]) : solo.length === 1 ? pick(["Please find " + soloFirst + "'s rates below.", "Here are " + soloFirst + "'s rates for this.", "I've put " + soloFirst + "'s rates together for you below."]) : intro;
-    const howTo = pick(["You can tick a creator to approve them, tick again to mark a 'no', or use the speech bubble to comment or ask questions.", "Just tick anyone you'd like to go ahead with (tick again for a no), and use the speech bubble for any questions.", "Tick the creators you'd like to book, tick again for a no, and leave any questions in the speech bubble."]);
+    const howTo = pick(["You can tick \u201cApprove?\u201d next to a creator to book them, tick again to mark a 'no', or use the speech bubble to comment or ask questions.", "Just tick \u201cApprove?\u201d next to anyone you'd like to go ahead with (tick again for a no), and use the speech bubble for any questions.", "Tick \u201cApprove?\u201d next to the creators you'd like to book, tick again for a no, and leave any questions in the speech bubble."]);
     // A brand asking about a specific creator (Tom, 15 Oct 2026, Gidues and CyberGhost): thank them for reaching out to
     // that creator, put that creator's rates in the email itself, then offer the wider list (the creator is on it too).
     const FMT = { topics: "YouTube integration", dedicated: "YouTube dedicated video", group_mm4av3kr: "YouTube Short", group_mm4a1fe0: "Instagram Reel", group_mm4bd5tk: "TikTok", group_mm7yw8cy: "Snapchat" };
@@ -1721,7 +1737,7 @@ async function pitchFromEmail(b) {
     // Last line of defence: nothing in square brackets ever reaches a brand (placeholders, notes to DFT).
     const named = askedFor.length > 0 && details.length > 0;
     const thanksN = named ? "Thanks for reaching out to " + joinN(askedFor) + " about " + product + ". We'd be very keen to explore this." : thanks;
-    const leadN = named ? "Also, here's a shortlist of creators" + across + (who || " who'd be happy to take this on") + ". Just tick anyone you'd like to go ahead with (tick again for a no), and use the speech bubble for any questions." : lead + how;
+    const leadN = named ? "Also, here's a shortlist of creators" + across + (who || " who'd be happy to take this on") + ". Just tick \u201cApprove?\u201d next to anyone you'd like to go ahead with (tick again for a no), and use the speech bubble for any questions." : lead + how;
     const askN = named ? "Could you confirm who you would like to book please?" : ask2;
     const paras = [thanksN].concat(named ? details : [], [leadN], !named && solo.length === 1 ? details : [], ["[[LIST_LINK]]"]).concat(answer ? [answer] : [], [askN]).map(p => p === "[[LIST_LINK]]" ? p : p.replace(/\s*\[[^\]]*\]/g, "").trim()).filter(Boolean);
     if (!paras.some(p => p.indexOf("[[LIST_LINK]]") >= 0)) paras.splice(Math.min(2, paras.length), 0, "[[LIST_LINK]]");
@@ -1885,6 +1901,11 @@ export default async function handler(req, res) {
       if (b && b.op === "brand-feedback") {
         if (!origin) return res.status(403).json({ error: "Bad origin" });
         try { return res.status(200).json(await brandFeedback(b, email)); }
+        catch (e) { return res.status(400).json({ error: String(e && e.message || e) }); }
+      }
+      if (b && b.op === "brand-submit") {
+        if (!origin) return res.status(403).json({ error: "Bad origin" });
+        try { return res.status(200).json(await brandSubmit(b)); }
         catch (e) { return res.status(400).json({ error: String(e && e.message || e) }); }
       }
       // Pitch pipeline (Tom, 13 Oct 2026): Make, with a fresh Roster - Pitch Requests item as proof.
