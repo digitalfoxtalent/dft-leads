@@ -197,7 +197,7 @@ async function getPayload(token) {
 
 export const campaignPayload = token => getPayload(token);
 
-// ENGAGED VIEWS (Tom, 15 Oct 2026). For the team page only (partner pages are unchanged): YouTube
+// ENGAGED VIEWS (Tom, 15 Oct 2026). On the team page and, since 15 Oct, partner pages too: YouTube
 // engaged views per video, for creators connected through Channel Connect, so the YouTube bars can
 // show engaged views inside total views. Creators are matched to their connected channel by handle
 // or name. Cached 3 hours per server instance; the page never waits more than 8 seconds for it.
@@ -244,7 +244,10 @@ export async function renderPartner(token, id) {
   const handles = [...new Set(c.flatMap(x => x.r.map(r => r.h)).filter(Boolean))];
   const avatars = await loadAvatars(handles).catch(() => Object.assign({}, AVATARS));
   const av = {}; for (const h of handles) { const u = avatars[h.toLowerCase()]; if (u) av[h.toLowerCase()] = u; }
-  const out = { now: payload.now, pod, podAsOf: payload.podAsOf, multi: {}, c, source: payload.source, asOf: payload.asOf, fetchedAt: payload.fetchedAt, avatars: av, roster: null, partner: { id, name: P.name } };
+  // Engaged views (Tom, 15 Oct 2026: partners see them too), only for this partner's own videos.
+  const evAll = await campaignEngaged(token, payload).catch(() => ({}));
+  const ev = {}; for (const v of vids) if (evAll[v] != null) ev[v] = evAll[v];
+  const out = { now: payload.now, pod, podAsOf: payload.podAsOf, multi: {}, c, source: payload.source, asOf: payload.asOf, fetchedAt: payload.fetchedAt, avatars: av, roster: null, partner: { id, name: P.name }, ev };
   const json = JSON.stringify(out).replace(/</g, "\\u003c");
   return TEMPLATE.replace("__DATA__", () => json).replace("<title>DFT Campaign Reach</title>", "<title>" + P.name + " campaign reach</title>")
     .replace(/<nav class="tabs"[\s\S]*?<\/nav>/, ""); // internal report names never reach a partner
