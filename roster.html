@@ -593,7 +593,7 @@ function brandColsFor(){
   let cols=BRAND_COLS.filter(c=>{
     // Saved lists: the team's Stage column, which brands see as "Your feedback".
     if(c.listOnly) return !!(BRAND&&BRAND.list&&mode!=="team");
-    if(c.pressOnly) return isPress();
+    if(c.pressOnly) return isPress()||(paidIdeas()&&activeTab!=="dedicated");
     if(isPress()&&PRESS_HIDE.has(c.key)) return false;
     if(c.listEditOnly) return listEdit();
     if(c.shortOnly) return k!=="long";
@@ -651,6 +651,11 @@ function brandColsFor(){
     return c;
   });
   if(activeTab==="dedicated") cols=cols.map(c=>c.key==="cpm"?Object.assign({},c,{t:1,head:c.edit?"CPM ✎ (DFT only)":"CPM (DFT only)",w:c.edit?130:112,tip:"Brands never see the CPM on dedicated videos. "+(c.tip||"")}):c);
+  if(paidIdeas()){ // ideas lead, right after the Stage, with the creator's numbers after them
+    const pc=finishCols(cols.map(c=>c.key==="ideas"?Object.assign({},c,{w:360,tip:"Ideas for how this creator would feature the campaign in their own content."}):c));
+    const i=pc.findIndex(c=>c.key==="ideas"); if(i<0) return pc;
+    const [idc]=pc.splice(i,1); const at=pc.findIndex(c=>c.key==="confirmed"); pc.splice(at<0?0:at+1,0,idc); return pc;
+  }
   return finishCols(cols);
 }
 function finishCols(cols){
@@ -713,7 +718,7 @@ function creatorRow(c,team){
 function fmtCell(c,col,isShow){
   if(col.key==="ideas"&&!isShow){
     const lines=String(c.ideas||"").split("\n").map(x=>x.trim()).filter(Boolean);
-    const canEdit=(listEdit()&&isPress())||(mode==="team"&&!baseLocked()&&!isDed(c));
+    const canEdit=(listEdit()&&(isPress()||paidIdeas()))||(mode==="team"&&!baseLocked()&&!isDed(c));
     const body=lines.length?`<ul class="idl">${lines.map(l=>`<li>${esc(l)}</li>`).join("")}</ul>`:(canEdit?`<span class="idnone">No ideas yet</span>`:"");
     return body+(canEdit?`<div class="idact">${listEdit()&&c.ideaOwn?'<span class="idown">This list only</span>':""}<button class="ided" data-id="${c.id}" onclick="event.stopPropagation()">Edit</button></div>`:"");
   }
@@ -863,6 +868,8 @@ function currentList(){
 // package, so totals count channel rows only.
 const isPitch=()=>!!(BRAND&&BRAND.list&&mode!=="team");
 const isPress=()=>!!(isPitch()&&BRAND.list.press);
+// Campaign ideas on a paid list (Tom, 16 Oct 2026): a column of ideas for this campaign, prices stay.
+const paidIdeas=()=>!!(BRAND&&BRAND.list&&BRAND.list.ideasOn&&!BRAND.list.press&&(isPitch()||listEdit()));
 // A list set to "Estimated Views" (Tom, 10 Oct 2026) says estimated, not guaranteed, for YouTube.
 const estLong=()=>!!(isPitch()&&BRAND.list.estViews);
 function sumBy(list,k){ return list.reduce((a,c)=>a+(typeof c[k]==="number"?c[k]:0),0); }
@@ -1203,7 +1210,7 @@ function ideaPopup(anchor,r,inList){
   fbPopup(anchor,{fb:{note:""}},true); const p=$("#fbpop"); p.classList.add("wide");
   const txt=String(r.ideas||"");
   p.innerHTML=`<b>Campaign ideas for ${esc(dispHandle(r))}</b><textarea maxlength="600" placeholder="One idea per line, e.g. First-look reaction to the trailer">${esc(txt)}</textarea>`
-    +`<div class="acts"><button class="btn" data-a="x">Cancel</button>${inList?'<button class="btn" data-a="list" title="Only this press package changes">Save for this list</button><button class="btn primary" data-a="std" title="Every press package with this creator uses these">Save for every press package</button>':'<button class="btn primary" data-a="std">Save</button>'}</div>`;
+    +`<div class="acts"><button class="btn" data-a="x">Cancel</button>${inList&&paidIdeas()?'<button class="btn primary" data-a="list" title="Ideas for this campaign, on this list only">Save</button>':inList?'<button class="btn" data-a="list" title="Only this press package changes">Save for this list</button><button class="btn primary" data-a="std" title="Every press package with this creator uses these">Save for every press package</button>':'<button class="btn primary" data-a="std">Save</button>'}</div>`;
   const ta=p.querySelector("textarea"); ta.focus(); ta.setSelectionRange(ta.value.length,ta.value.length);
   p.querySelectorAll("button").forEach(bt=>bt.onclick=async()=>{
     const a=bt.dataset.a; p.classList.remove("on"); p.classList.remove("wide"); if(a==="x") return;
@@ -1570,6 +1577,23 @@ function $$typeWire(){
     try{ applyBrand(await post({op:"list-type",slug:LIST_SLUG,press})); toast(press?"Now a press package: no prices, campaign ideas instead":"Now a paid pitch with prices"); loadTeam(true).catch(()=>{}); }catch(e){ toast(e.message,true); }
   });
 }
+// Campaign ideas on a paid list (Tom, 16 Oct 2026): on or off, and drafted for this campaign by Claude.
+function ideasButton(){
+  const on=!!(BRAND&&BRAND.list&&BRAND.list.ideasOn);
+  return `<span class="lseg" title="Show a column of campaign ideas for each creator, next to the prices."><span>Ideas</span><button data-on="0" class="pideas ${on?"":"on"}">Off</button><button data-on="1" class="pideas ${on?"on":""}">On</button></span>`;
+}
+function $$ideasWire(){
+  document.querySelectorAll("#banner .pideas").forEach(bt=>bt.onclick=async()=>{
+    const on=bt.dataset.on==="1"; if(on===!!BRAND.list.ideasOn) return;
+    try{ applyBrand(await post({op:"list-ideas-on",slug:LIST_SLUG,on})); toast(on?"Campaign ideas shown on this list":"Campaign ideas hidden"); }catch(e){ toast(e.message,true); }
+  });
+}
+async function draftCampaignIdeas(btn){
+  btn.disabled=true; let made=0;
+  try{ for(let i=0;i<20;i++){ btn.textContent=`Drafting ideas… ${made} done`; const j=await post({op:"campaign-ideas",slug:LIST_SLUG}); made+=j.done||0; if(!j.left||!j.done) break; }
+    toast(`Drafted campaign ideas for ${made} creator${made===1?"":"s"}. Check them, then edit any that need it`); }catch(e){ toast(e.message,true); }
+  await loadBrand(true);
+}
 // Draft ideas (Tom, 16 Oct 2026): Claude writes typical ideas for creators on this list with none.
 async function draftIdeas(btn){
   const ids=[]; GROUPS.forEach(g=>(BRAND.groups[g.id]||[]).forEach(c=>{ if(!String(c.ideas||"").trim()) ids.push(String(c.id)); }));
@@ -1632,10 +1656,10 @@ function renderBanner(){
   } else if(TEAM){
     if(listEdit()){
       b.className="banner listbar"; b.style.display="";
-      const pr=isPress(), missing=pr?GROUPS.reduce((n,g)=>n+(BRAND.groups[g.id]||[]).filter(c=>!String(c.ideas||"").trim()).length,0):0;
-      b.innerHTML=`<div class="lb-acts"><a class="btn" href="/?edit=${encodeURIComponent(LIST_SLUG)}">Add / remove creators</a>${typeButton()}${pr?"":lockButton()+viewsButton()}${missing?`<button class="btn" id="draftIdeas" title="Claude drafts typical ideas for the ${missing} creator${missing===1?"":"s"} with none, from their channels. They become each creator's standard ideas.">Draft ideas for ${missing}</button>`:""}${acceptButton()}</div>${packageSummary()}`;
-      $$typeWire();
-      const di=$("#draftIdeas"); if(di) di.onclick=()=>draftIdeas(di);
+      const pr=isPress(), pi=paidIdeas(), missing=(pr||pi)?GROUPS.reduce((n,g)=>n+(g.id==="dedicated"?0:(BRAND.groups[g.id]||[]).filter(c=>!String(c.ideas||"").trim()).length),0):0;
+      b.innerHTML=`<div class="lb-acts"><a class="btn" href="/?edit=${encodeURIComponent(LIST_SLUG)}">Add / remove creators</a>${typeButton()}${pr?"":ideasButton()+lockButton()+viewsButton()}${missing?`<button class="btn" id="draftIdeas" title="${pi?`Claude drafts campaign ideas for the ${missing} creator${missing===1?"":"s"} with none, from the brief and their channels. For this list only.`:`Claude drafts typical ideas for the ${missing} creator${missing===1?"":"s"} with none, from their channels. They become each creator's standard ideas.`}">Draft ideas for ${missing}</button>`:""}${acceptButton()}</div>${packageSummary()}`;
+      $$typeWire(); $$ideasWire();
+      const di=$("#draftIdeas"); if(di) di.onclick=()=>pi?draftCampaignIdeas(di):draftIdeas(di);
       const lb=$("#lockBtn"); if(lb) lb.onclick=()=>toggleLock(lb.dataset.lock==="1");
       const ab=$("#acceptBtn"); if(ab) ab.onclick=()=>acceptChanges(ab);
       [$("#viewsBtn"),$("#viewsBtn2")].forEach(vb=>{ if(vb) vb.onclick=async()=>{ const est=vb.dataset.est==="1"; if(est===!!BRAND.list.estViews) return; try{ applyBrand(await post({op:"list-label",slug:LIST_SLUG,est})); toast(est?"Brands now see Estimated Views":"Brands now see View Guarantee"); }catch(e){ toast(e.message,true); } }; });

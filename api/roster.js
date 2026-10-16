@@ -718,6 +718,9 @@ function brandPayload(data, list, team, noLock) {
   // campaign ideas instead: the list's own idea for a creator, or the creator's standard ideas.
   const press = !!(list && list.body.press);
   const listIdeas = (list && list.body.ideas) || {};
+  // Campaign ideas on a paid list (Tom, 16 Oct 2026, Sony's Ghost Soldier: "they want campaign ideas, so I think we
+  // might need to add another column"). Ideas for this campaign only, kept on the list; prices stay.
+  const ideasOn = !press && !!(list && list.body.ideasOn);
   const groups = {};
   GROUPS.forEach(g => { groups[g.id] = []; });
   data.rows.forEach(r => {
@@ -725,6 +728,7 @@ function brandPayload(data, list, team, noLock) {
     if (press && r.dedicated) return; // a paid format only
     const o = brandRow(r, !!ids, press ? {} : prices, team, list ? (list.body.showVis || {}) : null);
     if (o && press) pressRow(o, r, listIdeas, team);
+    if (o && ideasOn && !r.dedicated) { o.ideas = String(listIdeas[r.id] || ""); if (team && o.ideas) o.ideaOwn = true; }
     if (o && list) {
       // Brands see the whole Stage too (Tom, 10 Oct 2026), read only apart from Brand approved.
       o.confirmed = confirmed.has(r.id); o.stage = o.confirmed ? "confirmed" : approached.has(r.id) ? "approached" : "";
@@ -746,7 +750,7 @@ function brandPayload(data, list, team, noLock) {
     lock: list.body.lock ? { on: list.body.lock.on, quarter: list.body.lock.quarter } : null,
     // Estimated Views (Tom, 10 Oct 2026): a list can call YouTube's View Guarantee
     // "Estimated Views" instead, for pitches where the views are not guaranteed.
-    estViews: !!list.body.estViews, press } : null, groups };
+    estViews: !!list.body.estViews, press, ideasOn } : null, groups };
 }
 // Press rows: views as typical views (the quarter's average, not a guarantee), every price and
 // pricing note taken out, shows dropped (they are sold separately), ideas added.
@@ -1351,6 +1355,70 @@ async function creatorResponse(b, email) {
 }
 
 // Press package on or off for a list (Tom, 16 Oct 2026). The link stays the same.
+// Campaign ideas on or off for a paid list (Tom, 16 Oct 2026).
+async function listIdeasOn(b, email) {
+  const { data, list } = await freshList(b.slug);
+  if (!list) throw new Error("list not found");
+  if (list.bad) throw new Error(LIST_READ_ERROR);
+  const body = Object.assign({}, list.body);
+  if (b.on) body.ideasOn = true; else delete body.ideasOn;
+  if (b.brief != null) body.brief = String(b.brief).slice(0, 4000);
+  await writeList(list.id, body, { [L.updated]: email + " " + stamp() });
+  return brandPayload(data, Object.assign({}, list, { body }), true);
+}
+// Paid campaign ideas with Claude for the creators on a list (Tom, 16 Oct 2026). Unlike the press ideas these are
+// sponsored content the creator would make for the brand: specific to this campaign and to the creator's channel.
+// Kept on the list only, so the team edits them there. Up to 20 creators a call; the page calls again until done.
+const PAID_FMT = { topics: "YouTube integration (30 to 90 seconds inside a long-form video)", group_mm4av3kr: "YouTube Short", group_mm4a1fe0: "Instagram Reel", group_mm4bd5tk: "TikTok", group_mm7yw8cy: "Snapchat" };
+async function campaignIdeas(list, data, opt = {}) {
+  const body = list.body, ids = new Set((body.ids || []).map(String)), have = body.ideas || {};
+  const brief = String(opt.brief != null ? opt.brief : body.brief || "").slice(0, 4000);
+  const rows = data.rows.filter(r => ids.has(r.id) && !r.dedicated && (opt.redo || !String(have[r.id] || "").trim()));
+  const todo = rows.slice(0, 20);
+  if (!todo.length) return { done: 0, left: 0, body };
+  const known = Object.keys(have).filter(id => String(have[id] || "").trim()).slice(0, 8).map(id => { const r = data.rows.find(x => x.id === id); return r ? "- " + r.name + ": " + String(have[id]).replace(/\n/g, " / ") : ""; }).filter(Boolean);
+  const lines = todo.map(r => JSON.stringify({ id: r.id, name: r.name, platform: PAID_FMT[r.group] || "", category: r.cv[C.category] || "", host: r.cv[C.host] || "", about: String(r.cv[C.about] || r.cv[C.audience] || "").slice(0, 500) }));
+  const prompt = [
+    "You write campaign ideas for Digital Fox Talent, a creator management agency, for a PAID brand campaign. The brand pays the creator to feature it in their own content.",
+    "Campaign (title of the pitch list and the brand's brief):", "Title: " + list.name, brief ? "Brief: " + brief : "Brief: not given, work from the title.",
+    known.length ? "Ideas the team or the creators have already suggested (match their spirit and level of detail):\n" + known.join("\n") : "",
+    "For each creator below write 2 ideas for how THIS creator would feature the campaign in their usual content, in the format given (a long-form integration, a Short, a Reel or a TikTok). Make them specific to the creator's channel and to the campaign (for a film: rankings, tier lists, comparisons with similar films or roles, trailer breakdowns, first reactions after a screening; for a product or game: how it fits a typical video). Each idea is one plain sentence of at most 22 words. Positive and brand safe: never mock or criticise the brand or its product. Do not promise views, dates or results. Do not invent facts about the creator. No prices. Never use em dashes or en dashes.",
+    "Answer with JSON only: {\"ideas\": {\"<id>\": [\"idea\", \"idea\"]}}",
+    "Creators:", ...lines,
+  ].filter(Boolean).join("\n");
+  const out = await askClaude(prompt);
+  const got = (out && out.ideas) || {}, ideas = Object.assign({}, have);
+  let done = 0;
+  todo.forEach(r => { const text = cleanIdeas((Array.isArray(got[r.id]) ? got[r.id] : []).join("\n")); if (text) { ideas[r.id] = text; done++; } });
+  const next = Object.assign({}, body, { ideas });
+  if (brief && opt.brief != null) next.brief = brief;
+  const left = rows.length - todo.length + (todo.length - done);
+  if (!left) delete next.ideasPending;
+  await writeList(list.id, next, opt.by ? { [L.updated]: opt.by + " " + stamp() } : {});
+  return { done, left: Math.max(0, rows.length - done), body: next, model: out && out.model };
+}
+async function listCampaignIdeas(b, email) {
+  const { data, list } = await freshList(b.slug);
+  if (!list) throw new Error("list not found");
+  if (list.bad) throw new Error(LIST_READ_ERROR);
+  if (list.body.press) throw new Error("Press packages use press ideas");
+  const r = await campaignIdeas(Object.assign({}, list, { body: Object.assign({}, list.body, { ideasOn: true }) }), data, { brief: b.brief, redo: !!b.redo, by: email });
+  return { done: r.done, left: r.left };
+}
+// Lists waiting for campaign ideas (set by the pitch pipeline when a brand asks for ideas): drafted by the
+// roster-warm cron, a batch at a time, so the pitch reply is never slowed down.
+async function pendingIdeas() {
+  const data = await loadBoard(), done = [];
+  for (const l0 of data.lists) {
+    if (!l0.body || !l0.body.ideasPending || l0.body.press) continue;
+    const { list } = await freshList(l0.slug);
+    if (!list || list.bad || !list.body.ideasPending) continue;
+    const r = await campaignIdeas(list, data, {}).catch(() => null);
+    if (r) done.push(list.slug + ":" + r.done);
+    if (done.length >= 2) break;
+  }
+  return done;
+}
 async function listType(b, email) {
   const { data, list } = await freshList(b.slug);
   if (!list) throw new Error("list not found");
@@ -1918,6 +1986,10 @@ async function pitchFromEmail(b) {
     const libsyn = isLibsyn(f) && !press;
     const saved = reuse ? { ok: true, slug: reuse.slug, url: "https://" + HOST + "/r/" + reuse.slug } : await saveList(update ? { title, ids, slug: update.slug } : { title, ids, press }, fromEmail + " (pitch)");
     if (libsyn) await setListCpm(saved.slug, LIBSYN_CPM, fromEmail + " (pitch)").catch(() => null);
+    // The brand asks for ideas (Tom, 16 Oct 2026, Ghost Soldier): the list gets a Campaign ideas column, drafted for
+    // each creator by the roster-warm cron within a few minutes, from the brief.
+    const wantsIdeas = !press && /\b(ideas?|concepts?|creative (?:direction|angles?|treatments?)|how (?:\w+ ){0,4}(?:promote|feature|integrate))\b/i.test(String(f.note || "") + " " + String(f.body || ""));
+    if (wantsIdeas) { const { list: il } = await freshList(saved.slug).catch(() => ({})); if (il && !il.bad) await writeList(il.id, Object.assign({}, il.body, { ideasOn: true, ideasPending: true, brief: (String(f.note || "") + "\n" + String(f.body || "")).trim().slice(0, 4000) }), {}).catch(() => null); }
     const reportUrl = libsyn ? await libsynReportUrl().catch(() => "") : "";
     const first = noDash(out.contact_first_name || String(f.contactName).split(/\s+/)[0] || "there");
     const product = noDash(out.product || out.brand || f.subject || "your campaign").replace(/[.\s]+$/, "");
@@ -1949,6 +2021,7 @@ async function pitchFromEmail(b) {
     const details = press ? [] : (askedFor.length ? askedFor : solo.length === 1 ? solo : []).map(nm => [nm].concat(ids.filter(id => nameOf(id) === nm || baseOf(id) === nm).sort((x, y) => gOrder.indexOf(cat.byId[x].gid) - gOrder.indexOf(cat.byId[y].gid)).map(rateLine).filter(Boolean)).join("\n")).filter(d => d.indexOf("\n") > 0);
     const withRates = !press && /\b(rates?|pric\w*|cost|budget)\b/i.test(f.body) ? " with current rates." : ".";
     const ans = [];
+    if (wantsIdeas) ans.push(pick(["I've added campaign ideas for each creator to the list.", "You'll find campaign ideas for each creator on the list.", "Each creator on the list has a couple of campaign ideas next to them."]));
     const qs = Array.isArray(out.questions) ? out.questions.filter(q => q && q.q) : [];
     if (aiDeclined.length) ans.push("Sadly, " + joinN(aiDeclined) + " won't take on AI projects, but these creators would.");
     if (out.stage !== "shortlist" && solo.length > 1 && listNames.length && !details.length && (/\?/.test(f.body) || withRates !== ".")) ans.push(pick([joinN(listNames) + (listNames.length > 1 ? " are" : " is") + " on the list" + withRates, "You'll find " + joinN(listNames) + " on there" + withRates]));
@@ -2218,6 +2291,8 @@ export default async function handler(req, res) {
         if (b.op === "creator-response") return res.status(200).json(await creatorResponse(b, email));
         if (b.op === "list-label") return res.status(200).json(await listLabel(b, email));
         if (b.op === "list-type") return res.status(200).json(await listType(b, email));
+        if (b.op === "list-ideas-on") return res.status(200).json(await listIdeasOn(b, email));
+        if (b.op === "campaign-ideas") return res.status(200).json(await listCampaignIdeas(b, email));
         if (b.op === "list-libsyn") return res.status(200).json(await listLibsyn(b, email));
         if (b.op === "libsyn-report-url") return res.status(200).json({ url: await libsynReportUrl() });
         // Make the confirmation draft for a list now, without waiting for the next brand tick (team only).
@@ -2248,7 +2323,7 @@ export default async function handler(req, res) {
 
     // Warm-up (roster-warm cron): loads the board into this server copy so the first list
     // page or signed-in view after a quiet spell does not wait for a cold start.
-    if (q.warm) { res.setHeader("Cache-Control", "no-store"); await loadBoard(); const alerts = await feedbackAlerts().catch(e => "failed: " + String((e && e.message) || e).slice(0, 200)); return res.status(200).json({ ok: true, alerts }); }
+    if (q.warm) { res.setHeader("Cache-Control", "no-store"); await loadBoard(); const alerts = await feedbackAlerts().catch(e => "failed: " + String((e && e.message) || e).slice(0, 200)); const ideas = await pendingIdeas().catch(e => "failed: " + String((e && e.message) || e).slice(0, 200)); return res.status(200).json({ ok: true, alerts, ideas }); }
     if (q.list) {
       // The list itself is read fresh every time (one small call), so a page never shows, or
       // later saves over, an older copy of it.
