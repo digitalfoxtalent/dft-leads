@@ -828,12 +828,12 @@ function totalsRow(list,cols){
     switch(k){
       case "name": return `Total<span class="sub">${list.length} creator${list.length===1?"":"s"}</span>`;
       case "subs": return int(subs)+`<span class="sub">subscribers</span>`;
-      case "rate": { const was=list.reduce((a,c)=>a+(c.wasRate||c.rate||0),0); return money(rate)+`<span class="sub">${long?"total rate":"publishing rate"}</span>`+(was>rate?`<span class="sub">saves ${money(was-rate)}</span>`:""); }
+      case "rate": { const was=list.reduce((a,c)=>a+(c.wasRate||c.rate||0),0); return money(rate)+`<span class="sub">${long?"total rate":"publishing rate"}</span>`+(long&&was>rate?`<span class="sub">saves ${money(was-rate)}</span>`:""); }
       case "vg": return vg?int(vg)+`<span class="sub">${long?(!estLong()&&activeTab!=="dedicated"?"guaranteed views":"estimated views"):"avg views"}</span>`:"";
       case "cpm": return long&&vg?money2(Math.round(rate*100000/vg)/100)+`<span class="sub">CPM</span>`:"";
       case "minVideos": return `${int(vids)}<span class="sub">video${vids===1?"":"s"}</span>`;
       case "fee": return money(fee)+`<span class="sub">production rate</span>`;
-      case "total": return money(total)+`<span class="sub">total rate</span>`;
+      case "total": { const was=list.reduce((a,c)=>a+(c.wasTotal||c.total||0),0); return money(total)+`<span class="sub">total rate</span>`+(was>total?`<span class="sub">saves ${money(was-total)}</span>`:""); }
       case "rights": return long?"":`<span class="sub">12 months included</span>`;
       default: return "";
     }
@@ -1478,6 +1478,8 @@ function lockButton(){
     :`<button class="btn" id="lockBtn" data-lock="1" title="Keep these prices past the quarter reset, for this campaign">Lock prices</button>`;
 }
 function viewsButton(){
+  // Only lists with YouTube integrations need it.
+  if(!((BRAND&&BRAND.groups.topics)||[]).length) return "";
   const est=!!(BRAND&&BRAND.list&&BRAND.list.estViews);
   return `<span class="lseg" title="How brands see YouTube views on this list"><span>YouTube views</span><button id="viewsBtn" data-est="0" class="${est?"":"on"}">Guaranteed</button><button id="viewsBtn2" data-est="1" class="${est?"on":""}">Estimated</button></span>`;
 }
