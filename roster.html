@@ -116,6 +116,10 @@
   tr.chan.chosen > td{ background:#eaf7ee; }
   tr.chan.chosen > td.name{ background:#d5f0dd; box-shadow:inset 4px 0 0 #1a7f37; }
   tr.chan.chosen:hover > td{ background:#dff3e5; }
+  /* Rejected by the brand (Tom, 16 Oct 2026): greyed out and moved to the bottom, out of the totals. The Stage cell stays clear so it can be undone. */
+  tr.chan.declined > td{ background:#f4f5f6; color:#8a9099; }
+  tr.chan.declined > td:not([data-k="confirmed"]) > *{ opacity:.55; }
+  tr.chan.declined > td.name{ text-decoration:line-through; text-decoration-color:#b8bec6; }
   tr.show > td{ background:#fff; color:var(--child); }
   tr.show > td.name{ background:#fff; }
   tr.show.hidden > td{ color:#a39b92; background:#faf8f5; }
@@ -809,7 +813,7 @@ function rowsFor(list,cols){
   let html="";
   list.forEach(c=>{
     const open=openSet.has(c.id);
-    const cls=["chan",open?"open":"",mode==="team"&&!c.show?"hidden":"",picked.has(c.id)?"picked":"",BRAND&&BRAND.list&&c.fb&&c.fb.ok?"chosen":""].join(" ");
+    const cls=["chan",open?"open":"",mode==="team"&&!c.show?"hidden":"",picked.has(c.id)?"picked":"",BRAND&&BRAND.list&&c.fb&&c.fb.ok?"chosen":"",BRAND&&BRAND.list&&c.fb&&c.fb.no?"declined":""].join(" ");
     html+=`<tr class="${cls}" data-id="${c.id}">`;
     cols.forEach(col=>{
       // Dedicated rows are priced from the YouTube tab, so on the main rate card they are read only.
@@ -851,6 +855,8 @@ function cmp(a,b){
   }
   return sortDir==="desc"?-r:r;
 }
+let heldOrder=null, heldTimer=null;
+function holdOrder(){ if(!heldOrder||heldOrder.tab!==activeTab) heldOrder={tab:activeTab,ids:orderedAll().map(c=>c.id)}; clearTimeout(heldTimer); heldTimer=setTimeout(()=>{ heldOrder=null; render(); },2500); }
 function orderedAll(){
   const all=((PAYLOAD&&PAYLOAD.groups[activeTab])||[]).slice();
   if(sortKey) return all.sort(cmp);
@@ -860,8 +866,11 @@ function orderedAll(){
     const base={}; all.forEach((c,i)=>base[c.id]=i);
     all.sort((a,b)=>((pos[a.id]??1e6+base[a.id])-(pos[b.id]??1e6+base[b.id])));
   }
-  // On a list, creators the brand approved come first (Tom, 16 Oct 2026); the order is otherwise kept.
-  if(BRAND&&BRAND.list){ const won=c=>c.fb&&c.fb.ok?0:1, at={}; all.forEach((c,i)=>at[c.id]=i); all.sort((a,b)=>(won(a)-won(b))||(at[a.id]-at[b.id])); }
+  // On a list, creators the brand approved come first and rejected ones go last (Tom, 16 Oct 2026); the order is otherwise kept.
+  // While someone is ticking, rows stay where they are, so a second click (approve, then reject) lands on the same row.
+  // They settle into place a moment after the last click.
+  if(BRAND&&BRAND.list&&heldOrder&&heldOrder.tab===activeTab){ const p={}; heldOrder.ids.forEach((id,i)=>p[id]=i); return all.sort((a,b)=>(p[a.id]??1e6)-(p[b.id]??1e6)); }
+  if(BRAND&&BRAND.list){ const won=c=>c.fb&&c.fb.ok?0:c.fb&&c.fb.no?2:1, at={}; all.forEach((c,i)=>at[c.id]=i); all.sort((a,b)=>(won(a)-won(b))||(at[a.id]-at[b.id])); }
   return all;
 }
 const selectable=list=>list.filter(c=>c.override!=="Hide").map(c=>c.id);
@@ -882,13 +891,14 @@ const paidIdeas=()=>!!(BRAND&&BRAND.list&&BRAND.list.ideasOn&&!BRAND.list.press&
 // A list set to "Estimated Views" (Tom, 10 Oct 2026) says estimated, not guaranteed, for YouTube.
 const estLong=()=>!!(isPitch()&&BRAND.list.estViews);
 function sumBy(list,k){ return list.reduce((a,c)=>a+(typeof c[k]==="number"?c[k]:0),0); }
-function totalsRow(list,cols){
+function totalsRow(list0,cols){
   const long=kindOf()==="long";
+  const list=list0.filter(c=>!(c.fb&&c.fb.no)), out=list0.length-list.length; // rejected creators drop out of the totals
   const rate=sumBy(list,"rate"), vg=sumBy(list,"vg"), subs=sumBy(list,"subs"), fee=sumBy(list,"fee"), total=sumBy(list,"total");
   const vids=long?list.reduce((a,c)=>a+(c.minVideos||1),0):list.length;
   const cell=k=>{
     switch(k){
-      case "name": return `Total<span class="sub">${list.length} creator${list.length===1?"":"s"}</span>`;
+      case "name": return `Total<span class="sub">${list.length} creator${list.length===1?"":"s"}</span>`+(out?`<span class="sub">${out} rejected, not counted</span>`:"");
       case "subs": return int(subs)+`<span class="sub">subscribers</span>`;
       case "rate": { const was=list.reduce((a,c)=>a+(c.wasRate||c.rate||0),0); return money(rate)+`<span class="sub">${long?"total rate":"publishing rate"}</span>`+(long&&was>rate?`<span class="sub">saves ${money(was-rate)}</span>`:""); }
       case "vg": return vg?int(vg)+`<span class="sub">${isPress()?"typical views":long?(!estLong()&&activeTab!=="dedicated"?"guaranteed views":"estimated views"):"avg views"}</span>`:"";
@@ -903,16 +913,18 @@ function totalsRow(list,cols){
   return `<tfoot><tr>${cols.map(c=>`<td class="${c.cls||""}">${cell(c.key)}</td>`).join("")}</tr></tfoot>`;
 }
 function packageSummary(){
-  const all=GROUPS.reduce((a,g)=>a.concat((BRAND.groups[g.id]||[]).map(c=>Object.assign({kind:g.kind,gid:g.id},c))),[]);
+  const every=GROUPS.reduce((a,g)=>a.concat((BRAND.groups[g.id]||[]).map(c=>Object.assign({kind:g.kind,gid:g.id},c))),[]);
+  const bno=every.filter(c=>c.fb&&c.fb.no).length, all=every.filter(c=>!(c.fb&&c.fb.no)); // rejected creators are out of the package
   if(isPress()){ // no prices on a press package
-    const bok=all.filter(c=>c.fb&&c.fb.ok).length, bno=all.filter(c=>c.fb&&c.fb.no).length, conf=all.filter(c=>c.confirmed).length, cok=all.filter(c=>c.cr&&c.cr.ok).length;
+    const bok=all.filter(c=>c.fb&&c.fb.ok).length, conf=all.filter(c=>c.confirmed).length, cok=all.filter(c=>c.cr&&c.cr.ok).length;
     return `<span class="pkg"><span><b>${all.length}</b> creator${all.length===1?"":"s"}</span><span><b>${int(sumBy(all,"subs"))}</b> combined audience</span><span><b>${int(sumBy(all,"vg"))}</b> typical views per post, combined</span>${cok?`<span><b>${cok}</b> creator${cok===1?"":"s"} interested</span>`:""}${bok?`<span><b>${bok}</b> approved</span>`:""}${bno?`<span><b>${bno}</b> declined</span>`:""}${conf?`<span><b>${conf}</b> of ${all.length} confirmed</span>`:""}</span>`;
   }
   const rate=all.reduce((a,c)=>a+(typeof c.total==="number"?c.total:(typeof c.rate==="number"?c.rate:0)),0), vg=sumBy(all.filter(c=>c.kind==="long"&&c.gid!=="dedicated"),"vg"), ded=sumBy(all.filter(c=>c.gid==="dedicated"),"vg"), est=sumBy(all.filter(c=>c.kind!=="long"),"vg");
   const vids=all.reduce((a,c)=>a+(c.kind==="long"?(c.minVideos||1):1),0);
   const saved=all.reduce((a,c)=>a+(c.wasTotal?(c.wasTotal-(typeof c.total==="number"?c.total:c.rate||0)):0),0);
-  const conf=all.filter(c=>c.confirmed).length, appr=listEdit()?all.filter(c=>c.stage==="approached").length:0, bok=all.filter(c=>c.fb&&c.fb.ok).length, bno=all.filter(c=>c.fb&&c.fb.no).length, bnotes=listEdit()?all.filter(c=>c.fb&&c.fb.note).length:0, cok=all.filter(c=>c.cr&&c.cr.ok).length, cno=all.filter(c=>c.cr&&c.cr.no).length;
-  return `<span class="pkg"><span>Package total <b>${money(rate)}</b></span>${saved>0?`<span>Discount <b>${money(saved)}</b></span>`:""}${appr?`<span><b>${appr}</b> approached</span>`:""}${cok?`<span><b>${cok}</b> creator${cok===1?"":"s"} interested</span>`:""}${cno?`<span><b>${cno}</b> creator${cno===1?"":"s"} declined</span>`:""}${bok?`<span><b>${bok}</b> ${listEdit()?"approved by brand":"approved"}</span>`:""}${bno?`<span><b>${bno}</b> ${listEdit()?"rejected by brand":"rejected"}</span>`:""}${bnotes?`<span><b>${bnotes}</b> brand note${bnotes===1?"":"s"}</span>`:""}${conf?`<span><b>${conf}</b> of ${all.length} confirmed</span>`:""}<span><b>${all.length}</b> profile${all.length===1?"":"s"}</span><span><b>${vids}</b> video${vids===1?"":"s"}</span>${vg?`<span><b>${int(vg)}</b> ${estLong()?"estimated":"guaranteed"} YouTube views</span>`:""}${ded?`<span><b>${int(ded)}</b> estimated dedicated video views</span>`:""}${est?`<span><b>${int(est)}</b> average short-form views</span>`:""}</span>`;
+  const conf=all.filter(c=>c.confirmed).length, appr=listEdit()?all.filter(c=>c.stage==="approached").length:0, bok=all.filter(c=>c.fb&&c.fb.ok).length, bnotes=listEdit()?every.filter(c=>c.fb&&c.fb.note).length:0, cok=all.filter(c=>c.cr&&c.cr.ok).length, cno=all.filter(c=>c.cr&&c.cr.no).length;
+  const okRate=all.filter(c=>c.fb&&c.fb.ok).reduce((a,c)=>a+(typeof c.total==="number"?c.total:(typeof c.rate==="number"?c.rate:0)),0);
+  return `<span class="pkg"><span>Package total <b>${money(rate)}</b></span>${okRate?`<span>Approved <b>${money(okRate)}</b></span>`:""}${saved>0?`<span>Discount <b>${money(saved)}</b></span>`:""}${appr?`<span><b>${appr}</b> approached</span>`:""}${cok?`<span><b>${cok}</b> creator${cok===1?"":"s"} interested</span>`:""}${cno?`<span><b>${cno}</b> creator${cno===1?"":"s"} declined</span>`:""}${bok?`<span><b>${bok}</b> ${listEdit()?"approved by brand":"approved"}</span>`:""}${bno?`<span><b>${bno}</b> ${listEdit()?"rejected by brand":"rejected"}</span>`:""}${bnotes?`<span><b>${bnotes}</b> brand note${bnotes===1?"":"s"}</span>`:""}${conf?`<span><b>${conf}</b> of ${all.length} confirmed</span>`:""}<span><b>${all.length}</b> profile${all.length===1?"":"s"}</span><span><b>${vids}</b> video${vids===1?"":"s"}</span>${vg?`<span><b>${int(vg)}</b> ${estLong()?"estimated":"guaranteed"} YouTube views</span>`:""}${ded?`<span><b>${int(ded)}</b> estimated dedicated video views</span>`:""}${est?`<span><b>${int(est)}</b> average short-form views</span>`:""}</span>`;
 }
 
 // Never redraw the table under someone typing (Tom, 12 Oct 2026): a save coming back while a
@@ -1060,7 +1072,7 @@ function wire(){
     sc.querySelectorAll("button.tri:not(.cr)").forEach(bt=>bt.addEventListener("click",async e=>{
       e.stopPropagation(); const f=findListRow(bt.dataset.id); if(!f) return; const r=f.row;
       const d={"":"yes",yes:"no",no:""}[bt.dataset.s||""], note=(r.fb&&r.fb.note)||"";
-      patchListRow(r.id,x=>{ x.fb=(d||note)?{ok:d==="yes",no:d==="no",note}:undefined; });
+      holdOrder(); patchListRow(r.id,x=>{ x.fb=(d||note)?{ok:d==="yes",no:d==="no",note}:undefined; });
       listSave({op:"brand-feedback",slug:LIST_SLUG,id:r.id,decision:d,note},d==="yes"?"Marked as approved by the brand":d==="no"?"Marked as rejected by the brand":"Brand decision cleared").catch(()=>{});
     }));
     sc.querySelectorAll(".edit[data-edit]").forEach(td=>td.addEventListener("click",e=>{e.stopPropagation(); startEdit(td);}));
@@ -1176,7 +1188,7 @@ function wireFeedback(sc){
   sc.querySelectorAll("button.tri:not(.cr)").forEach(bt=>bt.addEventListener("click",async e=>{
     e.stopPropagation(); const f=findListRow(bt.dataset.id); if(!f) return; const r=f.row;
     const d={"":"yes",yes:"no",no:""}[bt.dataset.s||""], note=(r.fb&&r.fb.note)||"";
-    patchListRow(r.id,x=>{ x.fb=(d||note)?{ok:d==="yes",no:d==="no",note}:undefined; });
+    holdOrder(); patchListRow(r.id,x=>{ x.fb=(d||note)?{ok:d==="yes",no:d==="no",note}:undefined; });
     listSave({op:"brand-feedback",slug:LIST_SLUG,id:r.id,decision:d,note},d==="yes"?"Approved. Tick again to reject":d==="no"?"Rejected. Add a note to tell us why":"Cleared").catch(()=>{});
   }));
   sc.querySelectorAll(".drow:not(.cr) button.nt").forEach(bt=>bt.addEventListener("click",e=>{ e.stopPropagation(); const f=findListRow(bt.dataset.id); if(f) fbPopup(bt,f.row,false); }));
