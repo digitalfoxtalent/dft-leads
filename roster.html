@@ -312,7 +312,7 @@
   .cbar button{ font-family:var(--font); font-size:12px; font-weight:700; border-radius:8px; padding:7px 12px; cursor:pointer; border:1px solid #5a524a; background:transparent; color:#fff; white-space:nowrap; }
   .cbar button.go{ background:var(--orange); border-color:var(--orange); color:var(--charcoal); }
   /* "Done? Send your picks" nudge (Tom, 16 Oct 2026): appears after a brand's first approval, bottom right, above the tabs. */
-  .nudge{ position:fixed; right:24px; bottom:58px; z-index:40; display:none; align-items:center; gap:12px; background:#fff; border:1px solid #f0d9bd; border-radius:12px; padding:10px 10px 10px 16px; box-shadow:0 8px 24px rgba(0,0,0,.12); font-size:12.5px; font-weight:600; color:#5a3000; }
+  .nudge{ position:fixed; right:24px; bottom:104px; z-index:40; display:none; align-items:center; gap:12px; background:#fff; border:1px solid #f0d9bd; border-radius:12px; padding:10px 10px 10px 16px; box-shadow:0 8px 24px rgba(0,0,0,.12); font-size:12.5px; font-weight:600; color:#5a3000; }
   .nudge.on{ display:flex; }
   .nudge .btn.sendpicks{ margin:0; padding:8px 14px; }
   .nudge .nx{ border:0; background:none; color:#a39587; font-size:13px; cursor:pointer; padding:4px 6px; }
@@ -421,7 +421,7 @@
     #fbpop{ width:auto; left:12px !important; right:12px; }
     #fbpop textarea{ font-size:16px; }
     .cbar{ bottom:66px; flex-wrap:wrap; }
-    .nudge{ left:16px; right:16px; bottom:64px; justify-content:space-between; }
+    .nudge{ left:16px; right:16px; bottom:110px; justify-content:space-between; }
     .toast{ bottom:74px; max-width:calc(100vw - 32px); text-align:center; }
   }
   @media (max-width:640px){
@@ -1022,7 +1022,7 @@ function render(){
   const shown=mode==="team"?all.filter(c=>c.show).length:all.length;
   $("#count").textContent=mode==="team"
     ?`${all.length} profiles · ${shown} shown to brands · ${list.length} in view`
-    :(()=>{ const pl=GROUPS.filter(g=>g.id!=="dedicated"&&(PAYLOAD.groups[g.id]||[]).length).map(g=>g.label); const n=all.length+" profile"+(all.length===1?"":"s"); return pl.length===1?`${n} on ${pl[0]}`:pl.length&&pl.length<=3?`${n} across ${pl.slice(0,-1).join(", ")} and ${pl[pl.length-1]}`:`${n} across ${pl.length} platforms`; })();
+    :(()=>{ const pl=GROUPS.filter(g=>g.id!=="dedicated"&&(PAYLOAD.groups[g.id]||[]).length).map(g=>g.label); const nc=new Set(all.map(creatorKey)).size, n=nc+" creator"+(nc===1?"":"s"); // creators, not placements (Tom, 16 Oct 2026) return pl.length===1?`${n} on ${pl[0]}`:pl.length&&pl.length<=3?`${n} across ${pl.slice(0,-1).join(", ")} and ${pl[pl.length-1]}`:`${n} across ${pl.length} platforms`; })();
   if(isMobile()){
     $("#scroll").innerHTML=list.length?cardsFor(list,cols):`<div class="state"><div>${query?"No creators match your search.":"No creators on this tab."}</div></div>`;
     wire(); renderSelbar(); return;
