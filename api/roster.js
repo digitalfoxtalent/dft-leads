@@ -956,6 +956,7 @@ async function saveList(b, email) {
   if (existing && existing.bad) throw new Error(LIST_READ_ERROR);
   const nextBody = Object.assign({}, existing ? existing.body : {}, { ids });
   if (!existing && b.press) nextBody.press = true;
+  if (!existing && Array.isArray(b.for) && b.for.length) nextBody.for = b.for.map(String).filter(Boolean);
   if (existing && nextBody.lock) { // creators added to a locked list are locked at today's prices
     const fresh = new Set(ids.filter(id => !(nextBody.lock.rows || {})[id]));
     if (fresh.size) nextBody.lock = Object.assign({}, nextBody.lock, { rows: Object.assign({}, nextBody.lock.rows, lockSnapshot(data, { name: title, slug: existing.slug, body: nextBody }, fresh)) });
@@ -1215,6 +1216,52 @@ async function brandSubmit(b) {
 // reply in that thread (same subject, In-Reply-To and References), so it lands under the brand's emails for Tom, Alex
 // and Margot. Still internal only: To is Tom, Alex and Margot, never the brand. With no thread found it is sent on
 // its own, as before. The counts that were in the subject are in the email's own heading.
+// Pitch audit (Tom, 16 Oct 2026): every list link the team has emailed out, and which companies received it. A list
+// sent to more than one company is flagged, since its title, approvals and comments are shared by everyone holding the
+// link. With write:true each list records the company it was first sent to (body.for), so it is only ever reused for
+// that company and its feedback alerts and confirmation drafts go to that company's thread.
+async function pitchAudit(b) {
+  const days = Math.min(90, Math.max(1, +b.days || 30));
+  const boxes = ["tom", "alex", "margot", "george", "hani"].map(x => x + "@digitalfoxtalent.com");
+  const data = await loadBoard();
+  const bySlug = {}; data.lists.forEach(l => { if (l.slug) bySlug[l.slug] = l; });
+  const sent = {}; const errors = [];
+  const hd = (m, n) => (((m.payload || {}).headers || []).find(h => h.name.toLowerCase() === n) || {}).value || "";
+  const text = pl => { let out = ""; const walk = x => { if (!x) return; if (x.body && x.body.data) out += Buffer.from(x.body.data, "base64url").toString("utf8"); (x.parts || []).forEach(walk); }; walk(pl); return out; };
+  for (const box of boxes) {
+    let tok; try { tok = await gmailToken(box); } catch (e) { errors.push(box + ": " + e.message); continue; }
+    if (!tok) continue;
+    const G = path => fetch("https://gmail.googleapis.com/gmail/v1/users/me" + path, { headers: { Authorization: "Bearer " + tok } }).then(r => r.ok ? r.json() : {}).catch(() => ({}));
+    const q = "in:sent newer_than:" + days + "d {\"creator list\" \"roster-viewguarantee\" \"digitalfoxtalent.com/r\"}";
+    let ms = [], pt = "";
+    do { const r = await G("/messages?maxResults=100&q=" + encodeURIComponent(q) + (pt ? "&pageToken=" + pt : "")); ms = ms.concat(r.messages || []); pt = r.nextPageToken || ""; } while (pt && ms.length < 400);
+    for (let i = 0; i < ms.length; i += 10) {
+      const full = await Promise.all(ms.slice(i, i + 10).map(m => G("/messages/" + m.id + "?format=full")));
+      full.forEach(m => {
+        if (!m || !m.payload) return;
+        const sj = hd(m, "subject"); if (/brand feedback|brand sent their picks/i.test(sj)) return;
+        const rc = (hd(m, "to") + "," + hd(m, "cc")).match(/[A-Za-z0-9._%+'-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g) || [];
+        const ext = [...new Set(rc.map(a => a.toLowerCase()).filter(a => !DFT_DOMAIN.test(a)))];
+        if (!ext.length) return;
+        const slugs = [...new Set((text(m.payload).match(/digitalfoxtalent\.com\/r\/([a-z0-9-]+)/gi) || []).map(x => x.split("/r/")[1].toLowerCase()))];
+        const at = new Date(+m.internalDate || 0).toISOString();
+        slugs.forEach(sl => { (sent[sl] = sent[sl] || []).push({ at, from: box, to: ext, orgs: [...new Set(ext.map(orgOf).filter(Boolean))], subject: sj, thread: m.threadId, id: m.id }); });
+      });
+    }
+  }
+  const out = [];
+  for (const sl of Object.keys(sent)) {
+    const l = bySlug[sl]; const rows = sent[sl].filter((x, i, a) => a.findIndex(y => y.id === x.id) === i).sort((x, y) => x.at.localeCompare(y.at));
+    const orgs = []; rows.forEach(r => r.orgs.forEach(o => { if (!orgs.includes(o)) orgs.push(o); }));
+    out.push({ slug: sl, title: l ? l.name : "(list deleted)", orgs, flagged: orgs.length > 1, sends: rows.map(r => ({ at: r.at.slice(0, 16), from: r.from.split("@")[0], to: r.to.join(", "), subject: r.subject.slice(0, 90), thread: r.thread })) });
+    if (b.write && l && l.id && orgs.length && !(Array.isArray(l.body.for) && l.body.for.length)) {
+      const fresh = (await freshList(sl).catch(() => ({}))).list;
+      if (fresh && !fresh.bad) await writeList(fresh.id, Object.assign({}, fresh.body, { for: [orgs[0]] }), {});
+    }
+  }
+  out.sort((x, y) => (y.flagged - x.flagged) || x.title.localeCompare(y.title));
+  return { ok: true, days, lists: out.length, flagged: out.filter(x => x.flagged).length, errors, out };
+}
 async function listThread(list) {
   const tok = await gmailToken("tom@digitalfoxtalent.com"); if (!tok) return null;
   const G = path => fetch("https://gmail.googleapis.com/gmail/v1/users/me" + path, { headers: { Authorization: "Bearer " + tok } }).then(r => r.ok ? r.json() : {}).catch(() => ({}));
@@ -1224,7 +1271,7 @@ async function listThread(list) {
     const q = "from:digitalfoxtalent.com -from:" + ALERT_FROM + " -subject:\"Brand feedback\" -subject:\"Brand sent their picks\" newer_than:60d {\"creator list\"" + (name ? " \"" + name + "\"" : "") + "}";
     const ms = (await G("/messages?maxResults=40&q=" + encodeURIComponent(q))).messages || [];
     const text = pl => { let out = ""; const walk = x => { if (!x) return; if (x.body && x.body.data) out += Buffer.from(x.body.data, "base64url").toString("utf8"); (x.parts || []).forEach(walk); }; walk(pl); return out; };
-    for (const m of ms) { const full = await G("/messages/" + m.id + "?format=full"); const sj = (((full.payload || {}).headers || []).find(h => h.name.toLowerCase() === "subject") || {}).value || ""; if (!/brand feedback|brand sent their picks/i.test(sj) && text(full.payload).includes(want)) { id = full.threadId; break; } }
+    for (const m of ms) { const full = await G("/messages/" + m.id + "?format=full"); const sj = (((full.payload || {}).headers || []).find(h => h.name.toLowerCase() === "subject") || {}).value || ""; const rc = ["to", "cc"].map(n => (((full.payload || {}).headers || []).find(h => h.name.toLowerCase() === n) || {}).value || "").join(","); const forOk = !Array.isArray(list.body.for) || !list.body.for.length || (rc.match(/[A-Za-z0-9._%+'-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g) || []).some(a => list.body.for.includes(orgOf(a))); if (forOk && !/brand feedback|brand sent their picks/i.test(sj) && text(full.payload).includes(want)) { id = full.threadId; break; } }
   }
   if (!id) return null;
   const t = await G("/threads/" + id + "?format=metadata&metadataHeaders=Message-ID&metadataHeaders=Subject");
@@ -1713,6 +1760,12 @@ const htmlToText = h => String(h || "").replace(/<br\s*\/?>/gi, "\n").replace(/<
 // reply has a DFT address in From, so the brand is the outside address it was sent To. A forward
 // of a forward is followed down to the first header with an outside sender or recipient.
 const DFT_DOMAIN = /@digitalfoxtalent\.com$/i;
+// Who a list was made for (Tom, 16 Oct 2026, after Blossom & Wood and Dorun Media were sent the list made for StarAce:
+// "double check that any agencies names are actually the intended recipient"). A company is its email domain
+// (creator.noxinfluencer.com and noxinfluencer.com are one company); on a free mail domain the person is the address.
+const FREE_MAIL_DOM = /^(gmail|googlemail|icloud|me|mac|yahoo|ymail|rocketmail|hotmail|outlook|live|msn|aol|proton|protonmail|pm|gmx|mail|zoho|yandex|qq|163|126|hey|fastmail)\./i;
+const mailDom = x => { const p = String(String(x || "").split("@")[1] || "").toLowerCase().split("."); return p.slice(p.length > 2 && p[p.length - 1].length === 2 && p[p.length - 2].length <= 3 ? -3 : -2).join("."); };
+const orgOf = x => { const a = String(x || "").trim().toLowerCase(); if (!/@/.test(a) || DFT_DOMAIN.test(a)) return ""; const d = mailDom(a); return FREE_MAIL_DOM.test(d) ? a : d; };
 // The note above a forward ends where the forwarder's signature starts: their own name on a line,
 // a phone number or the DFT web address (Margot's signature was being saved as a pointer, 14 Oct 2026).
 function stripSig(note, fromName) {
@@ -2009,7 +2062,10 @@ async function pitchFromEmail(b) {
     const mailKey = ckey(f.subject + " " + latest).slice(0, 4000);
     const lastDay = l => ((String(l.by || "") + " " + String(l.updated || "")).match(/\d{4}-\d\d-\d\d/g) || [""]).sort().pop();
     const recent = l => { const d = (String(l.by || "") + " " + String(l.updated || "")).match(/\d{4}-\d\d-\d\d/g) || []; return d.some(x => Date.now() - Date.parse(x) < 120 * 864e5); };
-    const prevL = data.lists.filter(l => l.slug && l.slug !== AI_LIST && /\(pitch\)/.test(String(l.by || "")) && recent(l) && !!(l.body && l.body.press) === press).map(l => ({ l, k: ckey(l.name) })).filter(x => x.k.length >= 5 && (pKeys.some(k => k === x.k || (k.length >= 7 && (k.startsWith(x.k) || x.k.startsWith(k)))) || (x.k.length >= 7 && mailKey.includes(x.k))))
+    // Only ever a list made for the same company (Tom, 16 Oct 2026): StarAce's Transformers list went to Dorun Media and
+    // Blossom & Wood because the product matched. A list with no record of who it was made for is never reused.
+    const org = orgOf(f.contactEmail);
+    const prevL = data.lists.filter(l => l.slug && l.slug !== AI_LIST && /\(pitch\)/.test(String(l.by || "")) && recent(l) && !!(l.body && l.body.press) === press && !!org && Array.isArray(l.body && l.body.for) && l.body.for.includes(org)).map(l => ({ l, k: ckey(l.name) })).filter(x => x.k.length >= 5 && (pKeys.some(k => k === x.k || (k.length >= 7 && (k.startsWith(x.k) || x.k.startsWith(k)))) || (x.k.length >= 7 && mailKey.includes(x.k))))
       .sort((a, b) => lastDay(b.l).localeCompare(lastDay(a.l)))[0];
     let reuse = null;
     // One list per campaign (Tom, 15 Oct 2026: "update the one we had rather than creating a new version").
@@ -2049,7 +2105,7 @@ async function pitchFromEmail(b) {
     const title = reuse ? reuse.title : update ? update.title : noDash(out.title || f.subject || "Pitch").slice(0, 70);
     // Libsyn Ads pitches (Tom, 16 Oct 2026): YouTube integrations at a $28 CPM, and the Libsyn sub report in the draft.
     const libsyn = isLibsyn(f) && !press;
-    const saved = reuse ? { ok: true, slug: reuse.slug, url: "https://" + HOST + "/r/" + reuse.slug } : await saveList(update ? { title, ids, slug: update.slug } : { title, ids, press }, fromEmail + " (pitch)");
+    const saved = reuse ? { ok: true, slug: reuse.slug, url: "https://" + HOST + "/r/" + reuse.slug } : await saveList(update ? { title, ids, slug: update.slug } : { title, ids, press, for: org ? [org] : [] }, fromEmail + " (pitch)");
     if (libsyn) await setListCpm(saved.slug, LIBSYN_CPM, fromEmail + " (pitch)").catch(() => null);
     // The brand asks for ideas (Tom, 16 Oct 2026, Ghost Soldier): the list gets a Campaign ideas column, drafted for
     // each creator by the roster-warm cron within a few minutes, from the brief.
@@ -2364,6 +2420,7 @@ export default async function handler(req, res) {
         if (b.op === "confirm-draft") { const { data, list } = await freshList(b.slug); if (!list || list.bad) throw new Error("list not found"); const th = await listThread(list); if (!th) throw new Error("No email thread found for this list"); const { ok } = feedbackEmail(data, list); const c = await confirmDraft(list, ok, th); if (c) await writeList(list.id, Object.assign({}, list.body, { thread: { id: th.id }, confirm: c }), {}); return res.status(200).json({ made: !!c, to: c ? c.to : "", approved: ok.length, subject: th.subject }); }
         // Which email thread a list's brand-feedback alert will go into (read only, for checking).
         if (b.op === "list-thread") { const { list } = await freshList(b.slug); if (!list) throw new Error("list not found"); const t = await listThread(list); return res.status(200).json({ found: !!t, subject: t ? t.subject : "", thread: t ? t.id : "" }); }
+        if (b.op === "pitch-audit") return res.status(200).json(await pitchAudit(b));
         if (b.op === "list-idea") return res.status(200).json(await listIdea(b, email));
         if (b.op === "ideas-draft") return res.status(200).json(await ideasDraft(b, email));
         if (b.op === "list-show") return res.status(200).json(await listShow(b, email));
