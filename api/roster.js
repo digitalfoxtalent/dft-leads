@@ -53,7 +53,7 @@ const REGISTER_BOARD = 18430229380;
 // "Directories live". Its "YouTube channel" cell holds @handles and/or UC channel ids.
 const MEGA_BOARD = 18428698730;
 const MEGA = { yt: "text_mm6nx38t", status: "color_mm6ncgkd", dirs: "dropdown_mm6npmzw" };
-const REG = { handle: "text_mm70axtt", supplier: "color_mm70wx2a", state: "color_mm708t66", type: "color_mm70bcs0" };
+const REG = { handle: "text_mm70axtt", supplier: "color_mm70wx2a", state: "color_mm708t66", type: "color_mm70bcs0", reach: "numeric_mm70p44q", price: "numeric_mm86mxk2" };
 const HOST = "roster-viewguarantee.digitalfoxtalent.com";
 
 const GROUPS = [
@@ -411,6 +411,7 @@ async function loadBoard() {
     monday(megaQ).catch(() => null),
   ]);
   const simulcast = new Set();
+  const libsynListing = {}; // YouTube handle -> { reach, price } on the creator's Libsyn Ads listing
   const simulcastIds = new Set(); // UC channel ids, matched against the rates board's Source ID
   ((((mega || {}).boards || [])[0] || {}).items_page || { items: [] }).items.forEach(it => {
     const v = {}; (it.column_values || []).forEach(c => { v[c.id] = c.text || ""; });
@@ -422,6 +423,9 @@ async function loadBoard() {
     const v = {}; (it.column_values || []).forEach(c => { v[c.id] = c.text || ""; });
     if (v[REG.supplier] === "Libsyn" && v[REG.type] === "Simulcast" && v[REG.state] === "Live" && v[REG.handle])
       simulcast.add(v[REG.handle].replace(/^@/, "").toLowerCase());
+    // The Libsyn Ads listing's own reach and price (Tom, 16 Oct 2026): lists pitched to Libsyn use them exactly.
+    if (v[REG.supplier] === "Libsyn" && v[REG.handle] && pos(v[REG.reach]) && pos(v[REG.price]) && !/Inactive|Not a fit/.test(v[REG.state]))
+      libsynListing[v[REG.handle].replace(/^@/, "").toLowerCase()] = { reach: pos(v[REG.reach]), price: pos(v[REG.price]) };
   });
   const geoById = {}, geoByHandle = {}, geoByName = {};
   ((((state || {}).boards || [])[0] || {}).items_page || { items: [] }).items.forEach(it => {
@@ -470,7 +474,7 @@ async function loadBoard() {
       });
       const sim = kind === "long" && (simulcast.has(String(cv[C.handle] || "").replace(/^@/, "").toLowerCase()) || simulcastIds.has(String(cv[C.src] || "").trim()));
       const geo = geoFor(creator, cv[C.handle], it.name, cv[C.location]);
-      rows.push({ id: String(it.id), name: it.name, group: REAL_GROUPS()[gi].id, kind, cv, creator, adEx, state: geo.region, country: geo.country, kit: kitFor(creator, cv[C.handle], it.name), shows, simulcast: sim });
+      rows.push({ id: String(it.id), name: it.name, group: REAL_GROUPS()[gi].id, kind, cv, creator, adEx, state: geo.region, country: geo.country, kit: kitFor(creator, cv[C.handle], it.name), shows, simulcast: sim, libsyn: kind === "long" ? libsynListing[String(cv[C.handle] || "").replace(/^@/, "").toLowerCase()] || null : null });
     });
   });
 
@@ -1849,7 +1853,7 @@ async function pitchFromEmail(b) {
     // that creator, put that creator's rates in the email itself, then offer the wider list (the creator is on it too).
     const FMT = { topics: "YouTube integration", dedicated: "YouTube dedicated video", group_mm4av3kr: "YouTube Short", group_mm4a1fe0: "Instagram Reel", group_mm4bd5tk: "TikTok", group_mm7yw8cy: "Snapchat" };
     const usd = n => "$" + Number(n).toLocaleString("en-US");
-    const rateLine = id => { const c = cat.byId[id] || {}; const lv = libsyn && c.gid === "topics" && c.vg ? Math.round(c.vg / PRICE.long.mult * LIBSYN_VIEWS) : 0; const price = lv ? Math.round(lv * LIBSYN_CPM / 1000) : typeof c.total === "number" ? c.total : c.rate; if (!price || !FMT[c.gid]) return ""; const lm = String(c.adLength || "").match(/^(\d+)\s*-\s*(\d+)\s*s/i); const len = c.gid === "topics" && lm ? " (" + lm[1] + " to " + lm[2] + " sec)" : ""; const vg = c.gid === "topics" && c.vg ? " with a " + Number(lv || c.vg).toLocaleString("en-US") + " view guarantee" : ""; return FMT[c.gid] + len + ": " + usd(price) + vg; };
+    const rateLine = id => { const c = cat.byId[id] || {}; const ll = libsyn && c.gid === "topics" ? (data.rows.find(x => x.id === id) || {}).libsyn : null; const lv = ll ? ll.reach : libsyn && c.gid === "topics" && c.vg ? Math.round(c.vg / PRICE.long.mult * LIBSYN_VIEWS) : 0; const price = ll ? ll.price : lv ? Math.round(lv * LIBSYN_CPM / 1000) : typeof c.total === "number" ? c.total : c.rate; if (!price || !FMT[c.gid]) return ""; const lm = String(c.adLength || "").match(/^(\d+)\s*-\s*(\d+)\s*s/i); const len = c.gid === "topics" && lm ? " (" + lm[1] + " to " + lm[2] + " sec)" : ""; const vg = c.gid === "topics" && c.vg ? " with a " + Number(lv || c.vg).toLocaleString("en-US") + " view guarantee" : ""; return FMT[c.gid] + len + ": " + usd(price) + vg; };
     const askedFor = out.stage !== "shortlist" && !expanded && !shortOnly && solo.length > 1 ? listNames : [];
     const gOrder = Object.keys(FMT);
     const baseOf = id => base(cat.byId[id].name).replace(/^@/, "");
@@ -1947,7 +1951,11 @@ async function setListCpm(slug, cpm, by) {
   };
   data.rows.forEach(r => {
     if (r.group !== "topics" || !ids.has(r.id)) return;
-    set(r.id, brandNumbers(r.cv, C, "long"));
+    // A creator with a Libsyn Ads listing is priced exactly as the listing (Tom, 16 Oct 2026, "so every Libsyn rep
+    // sees one number"): its reach as the views, its price as the rate for one video. Kept on the Supplier register
+    // (Listed reach, Listed price). The CPM is stored to 4 decimals so views x CPM gives the listed price.
+    if (r.libsyn) prices[r.id] = { vg: Math.round(r.libsyn.reach), cpm: Math.round(r.libsyn.price * 1000 / r.libsyn.reach * 1e4) / 1e4, videos: 1 };
+    else set(r.id, brandNumbers(r.cv, C, "long"));
     r.shows.forEach(s => set(s.id, brandNumbers(s.cv, SC, "long")));
   });
   await writeList(list.id, Object.assign({}, list.body, { prices }), { [L.updated]: by + " " + stamp() });
