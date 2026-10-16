@@ -49,6 +49,10 @@
       "schedule": "*/5 * * * *"
     },
     {
+      "path": "/api/reports?r=warm",
+      "schedule": "*/5 * * * *"
+    },
+    {
       "path": "/api/link-finder",
       "schedule": "20 7 * * *"
     },

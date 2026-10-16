@@ -26,7 +26,8 @@ import { hostOf, isPreview, cookieOk, teamEmail, setTeamCookie, cleanUrl, gatePa
 import { handleAuth } from "./_reports/auth.js";
 import { PARTNERS, loadPartners } from "./_reports/partners.js";
 import { mondayToken } from "./_reports/monday.js";
-import { renderCampaigns, campaignsHealth, renderPartner, campaignPayload } from "./_reports/campaigns/load.js";
+import { renderCampaigns, campaignsHealth, renderPartner, campaignPayload, warmCampaigns } from "./_reports/campaigns/load.js";
+import { isCron } from "./_reports/cron.js";
 import { timestampProbe, timestampCheck, timestampApply } from "./_reports/timestamps.js";
 import { probe } from "./_reports/megaphone.js";
 import { backfill, missingRows } from "./_reports/backfill.js";
@@ -55,6 +56,15 @@ const html = (res, code, body) => { res.setHeader("Content-Type", "text/html; ch
 export default async function handler(req, res) {
   res.setHeader("Cache-Control", "private, no-store");
   res.setHeader("X-Robots-Tag", "noindex, nofollow");
+  // reports-warm cron (vercel.json, every 5 minutes): does the slow monday read here so visitors don't.
+  // Scheduler only; anyone else gets a plain 404. Read only, returns timings and no data.
+  if (req.query && req.query.r === "warm") {
+    if (!isCron(req)) return res.status(404).json({ error: "Not found" });
+    const wt = mondayToken(); if (!wt) return res.status(500).json({ error: "monday token missing" });
+    const t0 = Date.now();
+    try { await loadPartners(wt); return res.status(200).json(Object.assign({ ok: true, ms: 0 }, await warmCampaigns(wt), { ms: Date.now() - t0 })); }
+    catch (e) { return res.status(500).json({ ok: false, error: String(e && e.message || e).slice(0, 300) }); }
+  }
   const host = hostOf(req);
   const preview = isPreview(host);
   if (!HOSTS.has(host) && !preview) return res.status(404).json({ error: "Not found" });

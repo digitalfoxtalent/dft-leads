@@ -171,8 +171,36 @@ async function loadRoster(token) {
 
 const stamp = d => d.toLocaleString("en-US", { timeZone: "America/Denver", hour: "numeric", minute: "2-digit", month: "short", day: "numeric" }) + " MT";
 
-async function getPayload(token) {
-  if (cache && Date.now() - cache.at < CACHE_MS) return cache.payload;
+// SPEED (16 Oct 2026, Tom: "Why is this so slow to load?"). The live read used to happen inside the
+// visitor's request whenever this instance's copy was over 10 minutes old, and after every deploy,
+// so whoever opened the page next waited several seconds for monday. Now:
+//   - a visitor is never made to wait while there is any copy to show: an old copy is served at once
+//     and the live read runs behind it (one at a time);
+//   - the reports-warm cron (/api/reports?r=warm, every 5 minutes) does the live read, so the copy a
+//     visitor sees is normally under 5 minutes old and a fresh deploy is warm within 5 minutes.
+// Only a brand-new instance that no cron has reached yet still waits, once.
+let refreshing = null;
+function startRefresh(token) {
+  if (!refreshing) refreshing = refreshPayload(token).finally(() => { refreshing = null; });
+  return refreshing;
+}
+async function getPayload(token, maxAge = CACHE_MS) {
+  if (cache && Date.now() - cache.at < maxAge) return cache.payload;
+  if (cache && maxAge === CACHE_MS) { startRefresh(token).catch(() => {}); return cache.payload; }
+  return startRefresh(token);
+}
+
+// For the reports-warm cron: a live read if the copy is over 4 minutes old, then everything else the
+// page needs (pictures, roster, engaged views), so the next visitor gets it all from memory.
+export async function warmCampaigns(token) {
+  const t0 = Date.now();
+  const payload = await getPayload(token, 4 * 60 * 1000);
+  const t1 = Date.now();
+  await renderCampaigns(token);
+  return { source: payload.source, fetchedAt: payload.fetchedAt, liveMs: t1 - t0, renderMs: Date.now() - t1 };
+}
+
+async function refreshPayload(token) {
   const snapRows = SNAPSHOT.c.reduce((s, c) => s + c.r.length, 0);
   const now = new Date();
   const base = { now: now.toISOString(), pod: PODCAST, podAsOf: PODCAST_AS_OF, multi: {} };
