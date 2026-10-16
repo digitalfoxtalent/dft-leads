@@ -257,6 +257,10 @@
   .tri.no .bx::after{ content:"✕"; color:#fff; font-size:9px; font-weight:800; line-height:1; }
   .tri.yes .lb{ color:var(--ok); } .tri.no .lb{ color:#b23a2a; }
   .tri.cr.ro{ cursor:default; }
+  /* Reject is its own small button beside Approve (Tom, 16 Oct 2026): a quiet 16px cross that turns red when used. */
+  .rej{ width:16px; height:16px; margin-left:2px; padding:0; border:1px solid #d9cfc3; border-radius:4px; background:#fff; color:#a39587; font-size:9px; font-weight:800; line-height:1; cursor:pointer; display:inline-grid; place-content:center; flex:0 0 auto; }
+  .rej:hover{ border-color:#b23a2a; color:#b23a2a; }
+  .rej.on{ background:#b23a2a; border-color:#b23a2a; color:#fff; }
   .nt{ display:inline-flex; align-items:center; background:none; border:0; padding:1px; cursor:pointer; color:#b9a996; }
   .nt:hover{ color:#a85f00; } .nt.has{ color:var(--orange); }
   /* Brands (Tom, 15 Oct 2026): our Stage boxes read as read-only, the brand's own box reads as the one to click */
@@ -486,7 +490,7 @@ const RENAME={ "Down To Earth With Kristian Harloff (UAP NEWS)":"Down to Earth" 
 // "Save column order") and is then the same for every viewer.
 const BRAND_COLS=[
   // Saved lists only (Tom, 10 Oct 2026): Confirmed sits first after the handle.
-  {key:"confirmed",head:"Stage", w:176, listOnly:true, tip:"Approached, the creator's response and Confirmed are set by Digital Fox Talent. Tick a creator to approve, tick again to reject. The speech bubble adds a note, or shows the creator's."},
+  {key:"confirmed",head:"Stage", w:176, listOnly:true, tip:"Approached, the creator's response and Confirmed are set by Digital Fox Talent. Tick a creator to approve, or use the cross to reject. The speech bubble adds a note, or shows the creator's."},
   {key:"subs",   head:"Subscribers", w:112, fmt:"int"},
   // Press packages (Tom, 16 Oct 2026): campaign ideas instead of prices.
   {key:"ideas",  head:"Campaign ideas", w:420, pressOnly:true, cls:"ideas", tip:"The kind of content this creator typically makes for a press partner: early access, product, screenings or invitations."},
@@ -715,9 +719,9 @@ const NOTE_ICON='<svg width="13" height="13" viewBox="0 0 24 24" fill="none" str
 function decisionRow(c,team){
   const ok=!!(c.fb&&c.fb.ok), no=!!(c.fb&&c.fb.no), note=(c.fb&&c.fb.note)||"";
   const state=ok?"yes":no?"no":"", label=ok?"Brand approved":no?"Brand rejected":(team?"Brand approval":"Approve?");
-  const tip=team?"The brand's decision. Click to set it for them: approved, rejected, clear.":"Click once to approve, twice to reject, again to clear.";
+  const tip=team?"The brand's decision. Tick to approve for them, or use the cross to reject.":(ok?"Approved. Click again to undo":no?"Rejected. Click to approve instead":"Click to approve this creator");
   const noteBtn=(team&&!note)?"":`<button class="nt${note?" has":""}${team?" ro":""}" data-id="${c.id}" title="${note?esc(note):"Add a note: tell us why, or anything else"}">${NOTE_ICON}</button>`;
-  return `<span class="drow${team?"":" ask"}"><button class="tri ${state}" data-id="${c.id}" data-s="${state}" title="${tip}"><span class="bx"></span><span class="lb">${label}</span></button>${noteBtn}</span>`;
+  return `<span class="drow${team?"":" ask"}"><button class="tri ${state}" data-id="${c.id}" data-s="${state}" title="${tip}"><span class="bx"></span><span class="lb">${label}</span></button><button class="rej${no?" on":""}" data-id="${c.id}" data-s="${state}" title="${no?"Rejected. Click to undo":"Reject this creator"}">✕</button>${noteBtn}</span>`;
 }
 // The creator's response (Margot, 14 Oct 2026): DFT sets interested or declined and can add
 // a note the brand reads (why they declined, or the idea they already have). Brands read only.
@@ -748,7 +752,9 @@ function fmtCell(c,col,isShow){
     // Brands (Tom, 10 Oct 2026): the same three steps. Approached and Confirmed are DFT's, shown
     // but not clickable; the middle step is theirs: Approve or Reject, and a note.
     const st=c.stage||(c.confirmed?"confirmed":"");
-    return `<span class="stg" onclick="event.stopPropagation()">${decisionRow(c,false)}<label class="dft" title="Digital Fox Talent has reached out to this creator"><input type="checkbox" tabindex="-1" onclick="return false" ${st?"checked":""}>Approached</label>${creatorRow(c,false)}<label class="dft" title="Locked in by Digital Fox Talent"><input type="checkbox" tabindex="-1" onclick="return false" ${st==="confirmed"?"checked":""}>Confirmed</label></span>`;
+    // Our steps show only once they mean something (Tom, 16 Oct 2026): three empty grey boxes on every creator was noise.
+    const crSet=!!(c.cr&&(c.cr.ok||c.cr.no||c.cr.note));
+    return `<span class="stg" onclick="event.stopPropagation()">${decisionRow(c,false)}${st?`<label class="dft" title="Digital Fox Talent has reached out to this creator"><input type="checkbox" tabindex="-1" onclick="return false" checked>Approached</label>`:""}${crSet?creatorRow(c,false):""}${st==="confirmed"?`<label class="dft" title="Locked in by Digital Fox Talent"><input type="checkbox" tabindex="-1" onclick="return false" checked>Confirmed</label>`:""}</span>`;
   }
   if(col.key==="disc") return `<label class="ckc disc" onclick="event.stopPropagation()"><input type="checkbox" class="dsc" data-id="${c.id}"${isShow?' data-show="1"':""} ${c.disc?"checked":""} title="Discount: tick, then lower the rate or CPM"></label>`;
   if(c.wasRate&&((col.key==="rate"&&(c.kind==="long"||isShow))||(col.key==="total"&&c.kind!=="long"&&!isShow))){
@@ -912,19 +918,31 @@ function totalsRow(list0,cols){
   };
   return `<tfoot><tr>${cols.map(c=>`<td class="${c.cls||""}">${cell(c.key)}</td>`).join("")}</tr></tfoot>`;
 }
+// Counts are of creators, not placements (Tom, 16 Oct 2026, Ghost Soldier: "6 creators interested" was 2 creators
+// across YouTube, Dedicated and Shorts). A creator's rows on every platform count once; placements are shown beside it.
+const creatorKey=c=>String(c.name||"").replace(/\s*[-\u2013]\s*(shorts?|instagram|reels?|tiktok|snapchat|dedicated|ig|tt|youtube)\b.*$/i,"").trim().toLowerCase()||String(c.id);
+function countLine(l,what){
+  if(!l.length) return "";
+  const n=new Set(l.map(creatorKey)).size;
+  return `<span><b>${n}</b> creator${n===1?"":"s"} ${what}${l.length>n?` (${l.length} placements)`:""}</span>`;
+}
 function packageSummary(){
   const every=GROUPS.reduce((a,g)=>a.concat((BRAND.groups[g.id]||[]).map(c=>Object.assign({kind:g.kind,gid:g.id},c))),[]);
-  const bno=every.filter(c=>c.fb&&c.fb.no).length, all=every.filter(c=>!(c.fb&&c.fb.no)); // rejected creators are out of the package
+  const rej=every.filter(c=>c.fb&&c.fb.no), all=every.filter(c=>!(c.fb&&c.fb.no)); // rejected placements are out of the package
+  const nAll=new Set(all.map(creatorKey)).size;
+  const sizeLine=`<span><b>${nAll}</b> creator${nAll===1?"":"s"}</span>${all.length>nAll?`<span><b>${all.length}</b> placements</span>`:""}`;
+  const ok=all.filter(c=>c.fb&&c.fb.ok), conf=all.filter(c=>c.confirmed), cok=all.filter(c=>c.cr&&c.cr.ok), cno=all.filter(c=>c.cr&&c.cr.no);
+  const nConf=new Set(conf.map(creatorKey)).size;
+  const confLine=conf.length?`<span><b>${nConf}</b> of ${nAll} creator${nAll===1?"":"s"} confirmed${conf.length>nConf?` (${conf.length} placements)`:""}</span>`:"";
   if(isPress()){ // no prices on a press package
-    const bok=all.filter(c=>c.fb&&c.fb.ok).length, conf=all.filter(c=>c.confirmed).length, cok=all.filter(c=>c.cr&&c.cr.ok).length;
-    return `<span class="pkg"><span><b>${all.length}</b> creator${all.length===1?"":"s"}</span><span><b>${int(sumBy(all,"subs"))}</b> combined audience</span><span><b>${int(sumBy(all,"vg"))}</b> typical views per post, combined</span>${cok?`<span><b>${cok}</b> creator${cok===1?"":"s"} interested</span>`:""}${bok?`<span><b>${bok}</b> approved</span>`:""}${bno?`<span><b>${bno}</b> declined</span>`:""}${conf?`<span><b>${conf}</b> of ${all.length} confirmed</span>`:""}</span>`;
+    return `<span class="pkg">${sizeLine}<span><b>${int(sumBy(all,"subs"))}</b> combined audience</span><span><b>${int(sumBy(all,"vg"))}</b> typical views per post, combined</span>${countLine(cok,"interested")}${countLine(ok,"approved")}${countLine(rej,"declined")}${confLine}</span>`;
   }
   const rate=all.reduce((a,c)=>a+(typeof c.total==="number"?c.total:(typeof c.rate==="number"?c.rate:0)),0), vg=sumBy(all.filter(c=>c.kind==="long"&&c.gid!=="dedicated"),"vg"), ded=sumBy(all.filter(c=>c.gid==="dedicated"),"vg"), est=sumBy(all.filter(c=>c.kind!=="long"),"vg");
   const vids=all.reduce((a,c)=>a+(c.kind==="long"?(c.minVideos||1):1),0);
   const saved=all.reduce((a,c)=>a+(c.wasTotal?(c.wasTotal-(typeof c.total==="number"?c.total:c.rate||0)):0),0);
-  const conf=all.filter(c=>c.confirmed).length, appr=listEdit()?all.filter(c=>c.stage==="approached").length:0, bok=all.filter(c=>c.fb&&c.fb.ok).length, bnotes=listEdit()?every.filter(c=>c.fb&&c.fb.note).length:0, cok=all.filter(c=>c.cr&&c.cr.ok).length, cno=all.filter(c=>c.cr&&c.cr.no).length;
-  const okRate=all.filter(c=>c.fb&&c.fb.ok).reduce((a,c)=>a+(typeof c.total==="number"?c.total:(typeof c.rate==="number"?c.rate:0)),0);
-  return `<span class="pkg"><span>Package total <b>${money(rate)}</b></span>${okRate?`<span>Approved <b>${money(okRate)}</b></span>`:""}${saved>0?`<span>Discount <b>${money(saved)}</b></span>`:""}${appr?`<span><b>${appr}</b> approached</span>`:""}${cok?`<span><b>${cok}</b> creator${cok===1?"":"s"} interested</span>`:""}${cno?`<span><b>${cno}</b> creator${cno===1?"":"s"} declined</span>`:""}${bok?`<span><b>${bok}</b> ${listEdit()?"approved by brand":"approved"}</span>`:""}${bno?`<span><b>${bno}</b> ${listEdit()?"rejected by brand":"rejected"}</span>`:""}${bnotes?`<span><b>${bnotes}</b> brand note${bnotes===1?"":"s"}</span>`:""}${conf?`<span><b>${conf}</b> of ${all.length} confirmed</span>`:""}<span><b>${all.length}</b> profile${all.length===1?"":"s"}</span><span><b>${vids}</b> video${vids===1?"":"s"}</span>${vg?`<span><b>${int(vg)}</b> ${estLong()?"estimated":"guaranteed"} YouTube views</span>`:""}${ded?`<span><b>${int(ded)}</b> estimated dedicated video views</span>`:""}${est?`<span><b>${int(est)}</b> average short-form views</span>`:""}</span>`;
+  const appr=listEdit()?all.filter(c=>c.stage==="approached"):[], bnotes=listEdit()?every.filter(c=>c.fb&&c.fb.note).length:0;
+  const okRate=ok.reduce((a,c)=>a+(typeof c.total==="number"?c.total:(typeof c.rate==="number"?c.rate:0)),0);
+  return `<span class="pkg"><span>Package total <b>${money(rate)}</b></span>${okRate?`<span>Approved <b>${money(okRate)}</b></span>`:""}${saved>0?`<span>Discount <b>${money(saved)}</b></span>`:""}${countLine(appr,"approached")}${countLine(cok,"interested")}${countLine(cno,"declined")}${countLine(ok,listEdit()?"approved by brand":"approved")}${countLine(rej,listEdit()?"rejected by brand":"rejected")}${bnotes?`<span><b>${bnotes}</b> brand note${bnotes===1?"":"s"}</span>`:""}${confLine}${sizeLine}<span><b>${vids}</b> video${vids===1?"":"s"}</span>${vg?`<span><b>${int(vg)}</b> ${estLong()?"estimated":"guaranteed"} YouTube views</span>`:""}${ded?`<span><b>${int(ded)}</b> estimated dedicated video views</span>`:""}${est?`<span><b>${int(est)}</b> average short-form views</span>`:""}</span>`;
 }
 
 // Never redraw the table under someone typing (Tom, 12 Oct 2026): a save coming back while a
@@ -1069,9 +1087,9 @@ function wire(){
       listSave({op:"creator-response",slug:LIST_SLUG,id:r.id,decision:d,note},d==="yes"?"Creator interested":d==="no"?"Creator declined. Add a note to tell the brand why":"Creator response cleared").catch(()=>{});
     }));
     sc.querySelectorAll("button.crn").forEach(bt=>bt.addEventListener("click",e=>{ e.preventDefault(); e.stopPropagation(); const f=findListRow(bt.dataset.id); if(f) crPopup(bt,f.row,true); }));
-    sc.querySelectorAll("button.tri:not(.cr)").forEach(bt=>bt.addEventListener("click",async e=>{
+    sc.querySelectorAll("button.tri:not(.cr), button.rej").forEach(bt=>bt.addEventListener("click",async e=>{
       e.stopPropagation(); const f=findListRow(bt.dataset.id); if(!f) return; const r=f.row;
-      const d={"":"yes",yes:"no",no:""}[bt.dataset.s||""], note=(r.fb&&r.fb.note)||"";
+      const s0=bt.dataset.s||"", d=bt.classList.contains("rej")?(s0==="no"?"":"no"):(s0==="yes"?"":"yes"), note=(r.fb&&r.fb.note)||"";
       holdOrder(); patchListRow(r.id,x=>{ x.fb=(d||note)?{ok:d==="yes",no:d==="no",note}:undefined; });
       listSave({op:"brand-feedback",slug:LIST_SLUG,id:r.id,decision:d,note},d==="yes"?"Marked as approved by the brand":d==="no"?"Marked as rejected by the brand":"Brand decision cleared").catch(()=>{});
     }));
@@ -1185,11 +1203,11 @@ function wireFeedback(sc){
   sc.querySelectorAll("button.crn").forEach(bt=>bt.addEventListener("click",e=>{ e.stopPropagation(); const f=findListRow(bt.dataset.id); if(f) crPopup(bt,f.row,false); }));
   // A click on one of our boxes says which box is theirs (Tom, 15 Oct 2026: Olga clicked Approached and gave up).
   sc.querySelectorAll(".stg label.dft, button.tri.cr.ro").forEach(el=>el.addEventListener("click",e=>{ e.preventDefault(); e.stopPropagation(); toast("That one is updated by our team. Tick \u201cApprove?\u201d to choose this creator."); }));
-  sc.querySelectorAll("button.tri:not(.cr)").forEach(bt=>bt.addEventListener("click",async e=>{
+  sc.querySelectorAll("button.tri:not(.cr), button.rej").forEach(bt=>bt.addEventListener("click",async e=>{
     e.stopPropagation(); const f=findListRow(bt.dataset.id); if(!f) return; const r=f.row;
-    const d={"":"yes",yes:"no",no:""}[bt.dataset.s||""], note=(r.fb&&r.fb.note)||"";
+    const s0=bt.dataset.s||"", d=bt.classList.contains("rej")?(s0==="no"?"":"no"):(s0==="yes"?"":"yes"), note=(r.fb&&r.fb.note)||"";
     holdOrder(); patchListRow(r.id,x=>{ x.fb=(d||note)?{ok:d==="yes",no:d==="no",note}:undefined; });
-    listSave({op:"brand-feedback",slug:LIST_SLUG,id:r.id,decision:d,note},d==="yes"?"Approved. Tick again to reject":d==="no"?"Rejected. Add a note to tell us why":"Cleared").catch(()=>{});
+    listSave({op:"brand-feedback",slug:LIST_SLUG,id:r.id,decision:d,note},d==="yes"?"Approved":d==="no"?"Rejected. Add a note to tell us why":"Cleared").catch(()=>{});
   }));
   sc.querySelectorAll(".drow:not(.cr) button.nt").forEach(bt=>bt.addEventListener("click",e=>{ e.stopPropagation(); const f=findListRow(bt.dataset.id); if(f) fbPopup(bt,f.row,false); }));
 }
