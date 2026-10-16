@@ -500,7 +500,7 @@ const BRAND_COLS=[
   {key:"adEx",   head:"Ad Examples", w:108},
   {key:"location",head:"Location",   w:124},
   {key:"state",  head:"State / Region", w:126},
-  {key:"about",  head:"About",       w:460, cls:"wide"},
+  {key:"about",  head:"About the Show", w:460, cls:"wide"}, // renamed and placed next to Stage everywhere (Tom, 16 Oct 2026)
   {key:"hostGender",head:"Host Gender", w:90},
   {key:"hostRead",head:"Host Read",  w:78},
   {key:"exclusive",head:"Category Exclusive (30 days)", w:130}, // 30-day category exclusivity (Tom, 14 Oct 2026)
@@ -674,13 +674,22 @@ function finishCols(cols){
 // added clipped the Note button, Tom 10 Oct 2026).
 const MIN_W={confirmed:176};
 function sized(cols){ return cols.map(c=>c.key!=="sel"&&colWidths[c.key]?Object.assign({},c,{w:Math.max(colWidths[c.key],MIN_W[c.key]||0)}):c); }
+// About the Show sits straight after the Stage (or first, where there is no Stage), with Campaign ideas after it
+// (Tom, 16 Oct 2026: "The About column should be next to the stage on the right hand side ... across all the system").
+function leadCols(cols){
+  const out=cols.slice(), take=k=>{ const i=out.findIndex(c=>c.key===k); return i<0?null:out.splice(i,1)[0]; };
+  const ab=take("about"), id=take("ideas");
+  let at=out.findIndex(c=>c.key==="confirmed"); at=at<0?0:at+1;
+  const lead=[ab,id].filter(Boolean); out.splice(at,0,...lead);
+  return out;
+}
 function columns(){
   const name={key:"name",head:"Creator / Shows",w:280,cls:"name"};
-  if(mode!=="team") return sized([name].concat(brandColsFor()));
+  if(mode!=="team") return sized([name].concat(leadCols(brandColsFor())));
   // Signed in: the same columns in the same (movable) order brands see, with the blue
   // DFT-only block slotted in straight after the last of Rate / View Guarantee / CPM.
   // (These used to be pinned, which made dragging them look like it did nothing.)
-  const bc=brandColsFor();
+  const bc=leadCols(brandColsFor());
   const cut=Math.max(...["rate","vg","cpm","minVideos","fee","total"].map(k=>bc.findIndex(c=>c.key===k)));
   const tc=kindOf()==="long"?TEAM_COLS:TEAM_COLS.filter(c=>c.key!=="lcpm").map(c=>c.key==="lvg"?Object.assign({},c,{head:"Live Estimate",w:104}):c);
   return sized([{key:"sel",head:"",w:34,cls:"sel"},Object.assign({},name,{w:320})].concat(bc.slice(0,cut+1),tc,bc.slice(cut+1)));
