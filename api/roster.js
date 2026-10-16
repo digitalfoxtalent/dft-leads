@@ -1986,7 +1986,9 @@ async function gmailToken(subject) {
 // (Ulike came Bcc from a Feishu sender). So the search now finds the forward to pitch@ instead: it always sits in
 // the brand's thread, and its words are cleaned of punctuation. The reply headers then point at the brand's own
 // latest message in that thread (brandMsgId), not at our forward.
-const subjectWords = s => String(s || "").replace(/^\s*((re|fwd?|fw|aw|wg|tr)\s*:\s*)+/i, "").replace(/[^\p{L}\p{N}]+/gu, " ").trim().slice(0, 200);
+// Underscores stay inside a word: Gmail indexes "tugboat_spenny_official" as one word, so splitting it found nothing
+// (Tom's Facemoji forward, 16 Oct 2026).
+const subjectWords = s => String(s || "").replace(/^\s*((re|fwd?|fw|aw|wg|tr)\s*:\s*)+/i, "").replace(/[^\p{L}\p{N}_]+/gu, " ").replace(/(^|\s)_+|_+(?=\s|$)/g, "$1").trim().slice(0, 200);
 function pitchSearch(f) {
   const w = subjectWords(f.subject);
   // subject:(...) matches all the words; the quoted phrase it replaced missed subjects with "&", "|" or a date
@@ -2001,7 +2003,23 @@ function brandMsgId(thread, fallbackId) {
 // Tom's drafts are saved by Make (op pitch-mime). Make passes the thread it found; the reply headers are pointed at
 // the brand's message in it from Tom's mailbox. If that look-up fails, Make's own headers stand.
 async function pitchReplyTo(b) {
-  if (!b || !b.threadId) return b;
+  if (!b) return b;
+  // Make found no thread (its subject search missed): look for the brand's email in Tom's mailbox here, so the draft
+  // still lands in the brand's thread (Tom, 16 Oct 2026: "This one doesn't seem to have come back with a pitch").
+  // First by sender and subject words; then by sender alone, only when that sender has a single thread.
+  if (!b.threadId && b.to) {
+    try {
+      const tok0 = await gmailToken("tom@digitalfoxtalent.com");
+      const from = String(b.to).split(/[,\s]+/).find(x => /@/.test(x)) || "", w = subjectWords(b.subject);
+      const look = async q => { const r = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/threads?maxResults=2&q=" + encodeURIComponent(q), { headers: { Authorization: "Bearer " + tok0 } }); return r.ok ? ((await r.json()).threads || []) : []; };
+      if (tok0 && from) {
+        let t = w ? await look("from:" + from + " subject:(" + w + ") newer_than:30d") : [];
+        if (!t.length) { const all = await look("from:" + from + " newer_than:30d"); if (all.length === 1) t = all; }
+        if (t.length) b = Object.assign({}, b, { threadId: t[0].id });
+      }
+    } catch (e) {}
+  }
+  if (!b.threadId) return b;
   try {
     const tok = await gmailToken("tom@digitalfoxtalent.com"); if (!tok) return b;
     const r = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/threads/" + encodeURIComponent(String(b.threadId)) + "?format=metadata&metadataHeaders=Message-ID", { headers: { Authorization: "Bearer " + tok } });
