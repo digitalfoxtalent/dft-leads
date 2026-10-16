@@ -1022,7 +1022,7 @@ function render(){
   const shown=mode==="team"?all.filter(c=>c.show).length:all.length;
   $("#count").textContent=mode==="team"
     ?`${all.length} profiles · ${shown} shown to brands · ${list.length} in view`
-    :(()=>{ const pl=GROUPS.filter(g=>g.id!=="dedicated"&&(PAYLOAD.groups[g.id]||[]).length).map(g=>g.label); const nc=new Set(all.map(creatorKey)).size, n=nc+" creator"+(nc===1?"":"s"); // creators, not placements (Tom, 16 Oct 2026) return pl.length===1?`${n} on ${pl[0]}`:pl.length&&pl.length<=3?`${n} across ${pl.slice(0,-1).join(", ")} and ${pl[pl.length-1]}`:`${n} across ${pl.length} platforms`; })();
+    :(()=>{ const pl=GROUPS.filter(g=>g.id!=="dedicated"&&(PAYLOAD.groups[g.id]||[]).length).map(g=>g.label); /* creators, not placements (Tom, 16 Oct 2026) */ const nc=new Set(all.map(creatorKey)).size, n=nc+" creator"+(nc===1?"":"s"); return pl.length===1?`${n} on ${pl[0]}`:pl.length&&pl.length<=3?`${n} across ${pl.slice(0,-1).join(", ")} and ${pl[pl.length-1]}`:`${n} across ${pl.length} platforms`; })();
   if(isMobile()){
     $("#scroll").innerHTML=list.length?cardsFor(list,cols):`<div class="state"><div>${query?"No creators match your search.":"No creators on this tab."}</div></div>`;
     wire(); renderSelbar(); return;
