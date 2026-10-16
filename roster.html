@@ -112,6 +112,10 @@
   tr.chan.hidden > td{ background:#f3efea; color:#8c847b; }
   tr.chan.hidden > td.name, tr.chan.hidden > td.sel{ background:#e9e2d9; }
   tr.chan.picked > td.sel, tr.chan.picked > td.name{ background:#ffd9a8; }
+  /* Creators the brand approved on a list (Tom, 16 Oct 2026): green and at the top, so the link shows the agreed plan. */
+  tr.chan.chosen > td{ background:#eaf7ee; }
+  tr.chan.chosen > td.name{ background:#d5f0dd; box-shadow:inset 4px 0 0 #1a7f37; }
+  tr.chan.chosen:hover > td{ background:#dff3e5; }
   tr.show > td{ background:#fff; color:var(--child); }
   tr.show > td.name{ background:#fff; }
   tr.show.hidden > td{ color:#a39b92; background:#faf8f5; }
@@ -791,7 +795,7 @@ function rowsFor(list,cols){
   let html="";
   list.forEach(c=>{
     const open=openSet.has(c.id);
-    const cls=["chan",open?"open":"",mode==="team"&&!c.show?"hidden":"",picked.has(c.id)?"picked":""].join(" ");
+    const cls=["chan",open?"open":"",mode==="team"&&!c.show?"hidden":"",picked.has(c.id)?"picked":"",BRAND&&BRAND.list&&c.fb&&c.fb.ok?"chosen":""].join(" ");
     html+=`<tr class="${cls}" data-id="${c.id}">`;
     cols.forEach(col=>{
       // Dedicated rows are priced from the YouTube tab, so on the main rate card they are read only.
@@ -842,6 +846,8 @@ function orderedAll(){
     const base={}; all.forEach((c,i)=>base[c.id]=i);
     all.sort((a,b)=>((pos[a.id]??1e6+base[a.id])-(pos[b.id]??1e6+base[b.id])));
   }
+  // On a list, creators the brand approved come first (Tom, 16 Oct 2026); the order is otherwise kept.
+  if(BRAND&&BRAND.list){ const won=c=>c.fb&&c.fb.ok?0:1, at={}; all.forEach((c,i)=>at[c.id]=i); all.sort((a,b)=>(won(a)-won(b))||(at[a.id]-at[b.id])); }
   return all;
 }
 const selectable=list=>list.filter(c=>c.override!=="Hide").map(c=>c.id);

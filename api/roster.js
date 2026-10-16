@@ -1123,9 +1123,9 @@ async function feedbackAlerts() {
     if (!due(l0.body)) continue;
     const { list } = await freshList(l0.slug);
     if (!list || list.bad || !due(list.body)) continue;
-    const { subject, html, seen } = feedbackEmail(data, list);
-    const th = await sendAlert(list, subject, html);
-    await writeList(list.id, Object.assign({}, list.body, { fbAlerted: list.body.fbSeq, fbSeen: seen }, th ? { thread: th } : {}), {});
+    const { subject, html, seen, ok } = feedbackEmail(data, list);
+    const extra = await sendAlert(list, subject, html, ok);
+    await writeList(list.id, Object.assign({}, list.body, { fbAlerted: list.body.fbSeq, fbSeen: seen }, extra), {});
     sent.push(list.slug);
   }
   return sent;
@@ -1147,7 +1147,7 @@ function feedbackEmail(data, list, submitted) {
     seen[id] = sig(f);
     const o = byId[id] || {}, r = data.rows.find(x => x.id === id) || {};
     const price = body.press ? null : typeof o.total === "number" ? o.total : typeof o.rate === "number" ? o.rate : null;
-    items.push({ id, name: o.name || r.name || "A creator", url: o.url || "", subs: o.subs || null, fmt: ALERT_FMT[o.gid || r.group] || "", price, views: o.vg || null, ok: !!f.ok, no: !f.ok && !!f.no, note: String(f.note || ""), stage: o.stage || "", isNew: Object.keys(prev).length > 0 && prev[id] !== seen[id] });
+    items.push({ id, name: o.name || r.name || "A creator", url: o.url || "", subs: o.subs || null, fmt: ALERT_FMT[o.gid || r.group] || "", long: /^(topics|dedicated)$/.test(o.gid || r.group || ""), videos: o.minVideos > 1 ? o.minVideos : 1, price, views: o.vg || null, ok: !!f.ok, no: !f.ok && !!f.no, note: String(f.note || ""), stage: o.stage || "", isNew: Object.keys(prev).length > 0 && prev[id] !== seen[id] });
   });
   const rank = x => x.ok ? 0 : x.no ? 2 : 1;
   items.sort((a, b) => (b.isNew - a.isNew) || (rank(a) - rank(b)));
@@ -1180,7 +1180,7 @@ function feedbackEmail(data, list, submitted) {
     "<div style=\"margin-bottom:22px\">" + btn(url, "Open the list", true) + " &nbsp; " + btn(mon, "Open on monday", false) + "</div>" +
     "<div style=\"font-size:12px;" + muted + "\">" + (submitted ? "Sent when the brand pressed Send my picks" : "Sent automatically about 15 minutes after the brand's last change") + (list.by ? ". List made by " + escH(String(list.by).split(" ")[0]) : "") + ".</div></div>";
   const subject = (submitted ? "Brand sent their picks: " : "Brand feedback: ") + list.name + " (" + ok.length + " approved" + (value ? ", " + usd(value) : "") + ", " + no.length + " declined" + (notes.length ? ", " + notes.length + (notes.length === 1 ? " note" : " notes") : "") + ")";
-  return { subject, html, seen };
+  return { subject, html, seen, ok, value };
 }
 // Send my picks (Tom, 15 Oct 2026): the brand's own "I'm done" button on its list. Sends the feedback email to Tom,
 // Alex and Margot straight away instead of 15 minutes after the last tick. Anyone with the list's link can press it,
@@ -1192,9 +1192,9 @@ async function brandSubmit(b) {
   const body = list.body, fb = body.feedback || {};
   if (!Object.values(fb).some(f => f && (f.ok || f.no || f.note))) throw new Error("Tick \u201cApprove?\u201d on the creators you would like to book first.");
   if (Date.now() - (Date.parse(body.fbSubmitted || "") || 0) < 10 * 60 * 1000) return { ok: true, sent: false };
-  const { subject, html, seen } = feedbackEmail(data, list, true);
-  const th = await sendAlert(list, subject, html);
-  await writeList(list.id, Object.assign({}, body, { fbAlerted: Number(body.fbSeq) || 0, fbSeen: seen, fbSubmitted: new Date().toISOString() }, th ? { thread: th } : {}), {});
+  const { subject, html, seen, ok } = feedbackEmail(data, list, true);
+  const extra = await sendAlert(list, subject, html, ok);
+  await writeList(list.id, Object.assign({}, body, { fbAlerted: Number(body.fbSeq) || 0, fbSeen: seen, fbSubmitted: new Date().toISOString() }, extra), {});
   await audit(list.id, "Brand pressed Send my picks on \u201c" + list.name + "\u201d").catch(() => null);
   return { ok: true, sent: true };
 }
@@ -1224,11 +1224,59 @@ async function listThread(list) {
   if (!ids.length || !subj || /^(brand feedback|brand sent their picks)/i.test(subj)) return null; // never an alert's own thread
   return { id, subject: "Re: " + subj, inReplyTo: ids[ids.length - 1], references: ids.slice(-20).join(" ") };
 }
-async function sendAlert(list, subject, html) {
+// Confirmation draft (Tom approved, 16 Oct 2026, after sending Yumi a screenshot of her picks: "if a draft could be
+// produced, in a similar way to the email I just sent"). When the brand has approved creators, a reply is drafted in
+// Tom's Gmail, in the brand's thread: his wording, a table of the approved creators (format, views, rate, total) and
+// the ask for their agreement. Draft only; Tom sends. Made again only when the approved set changes. A previous
+// confirmation draft is replaced only if nobody has edited it, and one Tom sent or deleted is never re-made for the
+// same picks. Never for press packages (no prices).
+async function confirmDraft(list, ok, th) {
+  if (!th || list.body.press || !ok || !ok.length) return null;
+  const sig = ok.map(x => x.id + ":" + (x.price || 0)).sort().join(",");
+  const prev = list.body.confirm || {};
+  if (prev.sig === sig) return null;
+  const tok = await gmailToken("tom@digitalfoxtalent.com"); if (!tok) return null;
+  const G = (path, opt = {}) => fetch("https://gmail.googleapis.com/gmail/v1/users/me" + path, Object.assign({}, opt, { headers: Object.assign({ Authorization: "Bearer " + tok }, opt.headers || {}) })).then(async r => { const t = await r.text(); let j = {}; try { j = t ? JSON.parse(t) : {}; } catch (_) {} return r.ok ? j : Object.assign(j, { _status: r.status }); });
+  if (prev.draft) { const d = await G("/drafts/" + prev.draft + "?format=minimal"); if (d.message && d.message.id === prev.msg) await G("/drafts/" + prev.draft, { method: "DELETE" }); }
+  const t = await G("/threads/" + th.id + "?format=metadata&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Cc&metadataHeaders=Message-ID");
+  const ms = (t.messages || []).filter(m => !(m.labelIds || []).some(l => l === "DRAFT" || l === "TRASH"));
+  const hd = (m, n) => (((m.payload || {}).headers || []).find(h => h.name.toLowerCase() === n) || {}).value || "";
+  const addrs = v => (String(v || "").match(/[A-Za-z0-9._%+'-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g) || []).map(a => a.toLowerCase());
+  const outside = a => !DFT_DOMAIN.test(a);
+  const brand = ms.slice().reverse().find(m => addrs(hd(m, "from")).some(outside));
+  if (!brand) return null;
+  const to = addrs(hd(brand, "from")).find(outside);
+  const first = (String(hd(brand, "from")).replace(/<.*>/, "").replace(/["']/g, "").trim().split(/\s+/)[0] || "").replace(/@.*/, "");
+  const cc = [...new Set(addrs(hd(brand, "to") + "," + hd(brand, "cc")).filter(a => outside(a) && a !== to))].concat(["alex@digitalfoxtalent.com"]).join(", ");
+  // Replies to the brand's messages only: never point at an internal alert in the thread.
+  const refs = ms.filter(m => !addrs(hd(m, "from")).includes(ALERT_FROM)).map(m => hd(m, "message-id")).filter(Boolean);
+  const usd = n => "$" + Math.round(n).toLocaleString("en-US");
+  const views = x => x.views ? Math.round(x.views).toLocaleString("en-US") + (x.long && !list.body.estViews ? " view guarantee" : " est. views") : "";
+  const fmt = x => x.fmt + (x.videos > 1 ? " x " + x.videos : "");
+  const F = "font-family:Arial,Helvetica,sans-serif;font-size:14px;", td = "padding:8px 12px;border:1px solid #e3e6ea;vertical-align:top;";
+  const total = ok.reduce((n, x) => n + (x.price || 0), 0);
+  const table = "<table cellspacing=\"0\" cellpadding=\"0\" style=\"border-collapse:collapse;" + F + "\"><tr>" + ["Creator", "Format", "Views", "Rate"].map(h => "<th align=\"left\" style=\"" + td + "background:#f5f6f8\">" + h + "</th>").join("") + "</tr>" +
+    ok.map(x => "<tr><td style=\"" + td + "\">" + (x.url ? "<a href=\"" + escH(x.url) + "\">" + escH(x.name) + "</a>" : escH(x.name)) + "</td><td style=\"" + td + "\">" + escH(fmt(x)) + "</td><td style=\"" + td + "\">" + escH(views(x)) + "</td><td style=\"" + td + "\">" + (x.price ? usd(x.price) : "") + "</td></tr>").join("") +
+    (ok.length > 1 && total ? "<tr><td colspan=\"3\" style=\"" + td + "font-weight:bold\">Total</td><td style=\"" + td + "font-weight:bold\">" + usd(total) + "</td></tr>" : "") + "</table>";
+  const hi = "Hi " + (first && !/^(the|team|info|hello|support|admin|contact)$/i.test(first) ? first : "there") + ",";
+  const html = "<div dir=\"ltr\" style=\"" + F + "\">" + escH(hi) + "<br><br>Can you confirm that you would like to proceed with the details below?<br><br>" + table + "<br>Could you please send over your agreement, and we will get this booked in for you?<br><br>Warm regards<br>Tom James<br>Digital Fox Talent<br>🦊</div>";
+  const text = hi + "\n\nCan you confirm that you would like to proceed with the details below?\n\n" + ok.map(x => "- " + x.name + ": " + fmt(x) + (x.views ? ", " + views(x) : "") + (x.price ? ", " + usd(x.price) : "")).join("\n") + (ok.length > 1 && total ? "\nTotal: " + usd(total) : "") + "\n\nCould you please send over your agreement, and we will get this booked in for you?\n\nWarm regards\nTom James\nDigital Fox Talent\n🦊";
+  const mime = pitchMime({ to, cc, subject: th.subject, html, text, threadId: th.id, inReplyTo: refs[refs.length - 1] || th.inReplyTo, references: refs.slice(-20, -1).join(" ") }).draft;
+  const d = await G("/drafts", { method: "POST", headers: { "Content-Type": "application/json" }, body: mime });
+  if (!d.id) return null;
+  return { sig, draft: d.id, msg: (d.message || {}).id || "", to, at: new Date().toISOString() };
+}
+async function sendAlert(list, subject, html, ok) {
   const th = await listThread(list).catch(() => null);
-  if (th) { await sendInternal(ALERT_TO, th.subject, html, th); return { id: th.id }; }
-  await sendInternal(ALERT_TO, subject, html);
-  return null;
+  const extra = th ? { thread: { id: th.id } } : {};
+  const c = th ? await confirmDraft(list, ok, th).catch(() => null) : null;
+  if (c) {
+    extra.confirm = c;
+    html = "<div style=\"font-family:Arial,Helvetica,sans-serif;font-size:14px;background:#e7f6ec;border-left:4px solid #1a7f37;padding:12px 14px;border-radius:6px;margin:0 0 16px\"><b>Reply drafted:</b> a confirmation to " + escH(c.to) + " with the approved creators and the ask for their agreement is in Tom's Drafts, in this thread.</div>" + html;
+  }
+  if (th) await sendInternal(ALERT_TO, th.subject, html, th);
+  else await sendInternal(ALERT_TO, subject, html);
+  return extra;
 }
 async function sendInternal(to, subject, html, reply) {
   const tok = await gmailToken(ALERT_FROM); if (!tok) throw new Error("GMAIL_DELEGATE_KEY not set");
@@ -2172,6 +2220,8 @@ export default async function handler(req, res) {
         if (b.op === "list-type") return res.status(200).json(await listType(b, email));
         if (b.op === "list-libsyn") return res.status(200).json(await listLibsyn(b, email));
         if (b.op === "libsyn-report-url") return res.status(200).json({ url: await libsynReportUrl() });
+        // Make the confirmation draft for a list now, without waiting for the next brand tick (team only).
+        if (b.op === "confirm-draft") { const { data, list } = await freshList(b.slug); if (!list || list.bad) throw new Error("list not found"); const th = await listThread(list); if (!th) throw new Error("No email thread found for this list"); const { ok } = feedbackEmail(data, list); const c = await confirmDraft(list, ok, th); if (c) await writeList(list.id, Object.assign({}, list.body, { thread: { id: th.id }, confirm: c }), {}); return res.status(200).json({ made: !!c, to: c ? c.to : "", approved: ok.length, subject: th.subject }); }
         // Which email thread a list's brand-feedback alert will go into (read only, for checking).
         if (b.op === "list-thread") { const { list } = await freshList(b.slug); if (!list) throw new Error("list not found"); const t = await listThread(list); return res.status(200).json({ found: !!t, subject: t ? t.subject : "", thread: t ? t.id : "" }); }
         if (b.op === "list-idea") return res.status(200).json(await listIdea(b, email));
