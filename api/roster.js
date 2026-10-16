@@ -1312,7 +1312,9 @@ async function outreachDraft(b, email) {
   const tok = await gmailToken(email); if (!tok) throw new Error("Gmail is not connected for " + email);
   const G = (path, opt = {}) => fetch("https://gmail.googleapis.com/gmail/v1/users/me" + path, Object.assign({}, opt, { headers: Object.assign({ Authorization: "Bearer " + tok }, opt.headers || {}) })).then(async r => { const t = await r.text(); let j = {}; try { j = t ? JSON.parse(t) : {}; } catch (_) {} return r.ok ? j : Object.assign(j, { _status: r.status }); });
   const sa = await G("/settings/sendAs").catch(() => ({}));
-  const fromName = String((((sa.sendAs || []).find(x => String(x.sendAsEmail).toLowerCase() === email) || (sa.sendAs || [])[0] || {}).displayName) || "").trim() || email.split("@")[0].replace(/^./, c => c.toUpperCase());
+  const sendAs = (sa.sendAs || []).find(x => String(x.sendAsEmail).toLowerCase() === email) || (sa.sendAs || [])[0] || {};
+  const NAMES = { "tom@digitalfoxtalent.com": "Tom James", "margot@digitalfoxtalent.com": "Margot Grant", "george@digitalfoxtalent.com": "George Roush" };
+  const fromName = NAMES[email] || String(sendAs.displayName || "").trim() || email.split("@")[0].replace(/^./, c => c.toUpperCase());
   const me = fromName.split(/\s+/)[0];
   const pick = a => a[Math.floor(Math.random() * a.length)];
   const lastCampaign = String(b.last || "").replace(/[<>]/g, "").slice(0, 80);
@@ -1333,14 +1335,22 @@ async function outreachDraft(b, email) {
   const item = cr && cr.create_item && cr.create_item.id; if (!item) throw new Error("Could not log the outreach on monday");
   const text = note + "\n\n---------- Forwarded message ---------\nFrom: " + (b.name ? String(b.name).replace(/[<>"]/g, "") + " " : "") + "<" + to + ">\nSubject: " + subject + "\nTo: " + email + "\n\nWHAT WE KNOW ABOUT " + brand.toUpperCase() + " (from our monday row, not from them):\n" + facts;
   const r = await pitchFromEmail({ item, fromEmail: email, fromName, text, subject, outreach: { kind, opener, subject }, sentTo: kind === "studio" ? "press@digitalfoxtalent.com" : "" });
-  const html = String(r.html || "").replace(/Hi [^,<]{1,60},/, "Hi " + escH(first || "there") + ",");
-  const plain = String(r.text || "").replace(/^Hi [^,\n]{1,60},/, "Hi " + (first || "there") + ",");
+  let html = String(r.html || "").replace(/Hi [^,<]{1,60},/, "Hi " + escH(first || "there") + ",");
+  let plain = String(r.text || "").replace(/^Hi [^,\n]{1,60},/, "Hi " + (first || "there") + ",");
+  // Tom's drafts keep his standard sign-off. Anyone else signs with their own Gmail signature (Margot's and George's
+  // carry their title and number), or their name if they have none.
+  if (email !== "tom@digitalfoxtalent.com") {
+    const sigH = String(sendAs.signature || "").trim(), sigT = htmlToText(sigH).trim();
+    const tailH = escH(fromName) + "<br>Digital Fox Talent<br>\u{1F98A}", tailT = fromName + "\nDigital Fox Talent\n\u{1F98A}";
+    html = html.replace(tailH, sigH ? '<div class="gmail_signature">' + sigH + "</div>" : escH(fromName) + "<br>Digital Fox Talent");
+    plain = plain.replace(tailT, sigT || fromName + "\nDigital Fox Talent");
+  }
   const cc = ["tom@digitalfoxtalent.com", "alex@digitalfoxtalent.com"].filter(x => x !== email).join(", ");
   const mime = pitchMime({ to, cc, subject, html, text: plain }).draft;
   const dr = await G("/drafts", { method: "POST", headers: { "Content-Type": "application/json" }, body: mime });
   if (!dr.id) throw new Error("Gmail did not save the draft" + (dr.error ? ": " + (dr.error.message || "") : ""));
   const mid = (dr.message || {}).id || "";
-  return { ok: true, list: r.listUrl, title: r.title, placements: r.placements, draft: dr.id, url: "https://mail.google.com/mail/?authuser=" + encodeURIComponent(email) + "#drafts?compose=" + mid };
+  return { ok: true, list: r.listUrl, title: r.title, placements: r.placements, draft: dr.id, url: "https://mail.google.com/mail/?authuser=" + encodeURIComponent(email) + "#drafts?compose=" + (dr.message && dr.message.threadId ? "thread-f:" + BigInt("0x" + dr.message.threadId).toString() + "%2Bmsg-a:" + dr.id : mid) };
 }
 function outreachPage(q) {
   const e = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -2221,7 +2231,7 @@ async function pitchFromEmail(b) {
     const solo = [...new Set(ids.map(id => base(cat.byId[id].name).replace(/^@/, "")))]; // one creator: say so plainly
     const soloFirst = solo.length === 1 ? solo[0] : ""; // full name: first word alone gave "Mr.'s rates" (Mr. Know-It-All, 15 Oct 2026)
     const pressLine = press ? " For each one you'll see their audience and the kind of press access that would suit them, such as interviews, early screenings or early play." : "";
-    const lead = press && solo.length === 1 ? "I've put " + soloFirst + " on a list for you, with their audience and the kind of press access that would suit them." : (expanded ? pick(["I've put the creators you shortlisted on one list, along with some others" + (who ? who + " and would suit " : " who'd suit ") + product + " really well.", "Here are the creators you shortlisted, plus a few more" + (who ? who + " and would be great for " : " who I think would be great for ") + product + "."]) : shortOnly && solo.length > 1 ? pick(["I've put the creators you shortlisted together on one list.", "Here are the creators you shortlisted, all on one list."]) : solo.length === 1 ? pick(["Please find " + soloFirst + "'s rates below.", "Here are " + soloFirst + "'s rates for this.", "I've put " + soloFirst + "'s rates together for you below."]) : intro) + (solo.length === 1 ? "" : pressLine);
+    let lead = press && solo.length === 1 ? "I've put " + soloFirst + " on a list for you, with their audience and the kind of press access that would suit them." : (expanded ? pick(["I've put the creators you shortlisted on one list, along with some others" + (who ? who + " and would suit " : " who'd suit ") + product + " really well.", "Here are the creators you shortlisted, plus a few more" + (who ? who + " and would be great for " : " who I think would be great for ") + product + "."]) : shortOnly && solo.length > 1 ? pick(["I've put the creators you shortlisted together on one list.", "Here are the creators you shortlisted, all on one list."]) : solo.length === 1 ? pick(["Please find " + soloFirst + "'s rates below.", "Here are " + soloFirst + "'s rates for this.", "I've put " + soloFirst + "'s rates together for you below."]) : intro) + (solo.length === 1 ? "" : pressLine);
     // No "tick Approve?" instructions in the email (Tom, 16 Oct 2026: "It's explained well in the actual dashboard anyway").
     const howTo = "";
     // A brand asking about a specific creator (Tom, 15 Oct 2026, Gidues and CyberGhost): thank them for reaching out to
@@ -2259,7 +2269,8 @@ async function pitchFromEmail(b) {
     const named = askedFor.length > 0 && details.length > 0;
     // A touch of variety so drafts read naturally (Tom, 16 Oct 2026), keeping the shape of his template.
     // Outreach from a Sales Desk alert (Tom, 16 Oct 2026): DFT writes first, so the opener comes from the alert, not a thank-you.
-    if (b.outreach) thanks = String(b.outreach.opener || thanks);
+    if (b.outreach) { thanks = String(b.outreach.opener || thanks);
+      if (solo.length > 1) lead = press ? pick(["I've put together a press package of creators" + across + " who'd love to cover " + product + ".", "Here are some of our creators" + across + " whose audiences would be right for " + product + "."]) + pressLine : pick(["I've put together a shortlist of creators" + across + " who'd be a great fit for " + product + ".", "Here are some of our creators" + across + " who I think would suit " + product + " really well.", "I've pulled together a few creators" + across + " whose audiences line up well with " + product + "."]); }
     const thanksN = named ? pick(["Thanks for reaching out to " + joinN(askedFor) + " about " + product + ". We'd be very keen to explore this.", "Thanks for getting in touch with " + joinN(askedFor) + " about " + product + ". We'd love to explore this with you.", "Thanks for thinking of " + joinN(askedFor) + " for " + product + ". This sounds like a great fit and we'd be keen to explore it.", "Great to hear you're interested in " + joinN(askedFor) + " for " + product + ". We'd be really keen to make this happen."]) : thanks;
     const leadN = named ? pick(["Also, here's a shortlist of creators" + across + (who || " who'd be happy to take this on") + ".", "I've also put together a shortlist of other creators" + across + (who || " who'd suit this well") + ".", "If you'd like to widen it, here are some more creators" + across + (who || " who'd be a great fit") + ".", "Alongside " + joinN(askedFor) + ", here are a few other creators" + across + (who || " who I think would work really well") + "."]) : lead;
     // The tick instruction is its own paragraph (Tom, 15 Oct 2026, Mucinex: "It just makes the email a bit clearer").
