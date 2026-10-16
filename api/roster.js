@@ -1814,7 +1814,11 @@ async function pitchFromEmail(b) {
     if (update && !update.replace) { const keep = update.ids.filter(id => !leftOut(base(cat.byId[id].name))); const had = new Set(keep); ids.splice(0, ids.length, ...keep, ...ids.filter(id => !had.has(id))); }
     if (!reuse) ids.sort((x, y) => order.indexOf(cat.byId[x].gid) - order.indexOf(cat.byId[y].gid));
     const title = reuse ? reuse.title : update ? update.title : noDash(out.title || f.subject || "Pitch").slice(0, 70);
+    // Libsyn Ads pitches (Tom, 16 Oct 2026): YouTube integrations at a $28 CPM, and the Libsyn sub report in the draft.
+    const libsyn = isLibsyn(f);
     const saved = reuse ? { ok: true, slug: reuse.slug, url: "https://" + HOST + "/r/" + reuse.slug } : await saveList(update ? { title, ids, slug: update.slug } : { title, ids }, fromEmail + " (pitch)");
+    if (libsyn) await setListCpm(saved.slug, LIBSYN_CPM, fromEmail + " (pitch)").catch(() => null);
+    const reportUrl = libsyn ? await libsynReportUrl().catch(() => "") : "";
     const first = noDash(out.contact_first_name || String(f.contactName).split(/\s+/)[0] || "there");
     const product = noDash(out.product || out.brand || f.subject || "your campaign").replace(/[.\s]+$/, "");
     const mix = noDash(out.mix || "").replace(/[.\s]+$/, "").replace(/\s*\/\s*/g, " and ");
@@ -1836,7 +1840,7 @@ async function pitchFromEmail(b) {
     // that creator, put that creator's rates in the email itself, then offer the wider list (the creator is on it too).
     const FMT = { topics: "YouTube integration", dedicated: "YouTube dedicated video", group_mm4av3kr: "YouTube Short", group_mm4a1fe0: "Instagram Reel", group_mm4bd5tk: "TikTok", group_mm7yw8cy: "Snapchat" };
     const usd = n => "$" + Number(n).toLocaleString("en-US");
-    const rateLine = id => { const c = cat.byId[id] || {}; const price = typeof c.total === "number" ? c.total : c.rate; if (!price || !FMT[c.gid]) return ""; const lm = String(c.adLength || "").match(/^(\d+)\s*-\s*(\d+)\s*s/i); const len = c.gid === "topics" && lm ? " (" + lm[1] + " to " + lm[2] + " sec)" : ""; const vg = c.gid === "topics" && c.vg ? " with a " + Number(c.vg).toLocaleString("en-US") + " view guarantee" : ""; return FMT[c.gid] + len + ": " + usd(price) + vg; };
+    const rateLine = id => { const c = cat.byId[id] || {}; const price = libsyn && c.gid === "topics" && c.vg ? Math.round(c.vg * LIBSYN_CPM / 1000) : typeof c.total === "number" ? c.total : c.rate; if (!price || !FMT[c.gid]) return ""; const lm = String(c.adLength || "").match(/^(\d+)\s*-\s*(\d+)\s*s/i); const len = c.gid === "topics" && lm ? " (" + lm[1] + " to " + lm[2] + " sec)" : ""; const vg = c.gid === "topics" && c.vg ? " with a " + Number(c.vg).toLocaleString("en-US") + " view guarantee" : ""; return FMT[c.gid] + len + ": " + usd(price) + vg; };
     const askedFor = out.stage !== "shortlist" && !expanded && !shortOnly && solo.length > 1 ? listNames : [];
     const gOrder = Object.keys(FMT);
     const baseOf = id => base(cat.byId[id].name).replace(/^@/, "");
@@ -1870,11 +1874,13 @@ async function pitchFromEmail(b) {
     const askN = named ? "Could you confirm who you would like to book please?" : ask2;
     const paras = [thanksN].concat(named ? details : [], [leadN], howN ? [howN] : [], !named && solo.length === 1 ? details : [], ["[[LIST_LINK]]"]).concat(answer ? [answer] : [], [askN]).map(p => p === "[[LIST_LINK]]" ? p : p.replace(/\s*\[[^\]]*\]/g, "").trim()).filter(Boolean);
     if (!paras.some(p => p.indexOf("[[LIST_LINK]]") >= 0)) paras.splice(Math.min(2, paras.length), 0, "[[LIST_LINK]]");
+    if (reportUrl) paras.splice(paras.length - 1, 0, "[[REPORT_LINK]]");
+    const REPORT_LEAD = "You can also see how our recent Libsyn campaigns have performed here: ";
     const bullets = [];
     const sig = ["Warm regards", fwdName, "Digital Fox Talent", "\u{1F98A}"];
     const linkText = title + " creator list";
-    const html = "<div dir=\"ltr\">Hi " + escH(first) + ",<br><br>" + paras.map(p => p.indexOf("[[LIST_LINK]]") >= 0 ? "<a href=\"" + saved.url + "\">" + escH(linkText) + "</a>" : escH(p).replace(/\n/g, "<br>")).join("<br><br>") + (bullets.length ? "<br><br>" + bullets.map(x => "- " + escH(x)).join("<br>") : "") + "<br><br>" + sig.map(escH).join("<br>") + "</div>";
-    const text = "Hi " + first + ",\n\n" + paras.map(p => p.indexOf("[[LIST_LINK]]") >= 0 ? saved.url : p).join("\n\n") + (bullets.length ? "\n\n" + bullets.map(x => "- " + x).join("\n") : "") + "\n\n" + sig.join("\n");
+    const html = "<div dir=\"ltr\">Hi " + escH(first) + ",<br><br>" + paras.map(p => p === "[[REPORT_LINK]]" ? escH(REPORT_LEAD) + "<a href=\"" + escH(reportUrl) + "\">Libsyn campaign report</a>" : p.indexOf("[[LIST_LINK]]") >= 0 ? "<a href=\"" + saved.url + "\">" + escH(linkText) + "</a>" : escH(p).replace(/\n/g, "<br>")).join("<br><br>") + (bullets.length ? "<br><br>" + bullets.map(x => "- " + escH(x)).join("<br>") : "") + "<br><br>" + sig.map(escH).join("<br>") + "</div>";
+    const text = "Hi " + first + ",\n\n" + paras.map(p => p === "[[REPORT_LINK]]" ? REPORT_LEAD + reportUrl : p.indexOf("[[LIST_LINK]]") >= 0 ? saved.url : p).join("\n\n") + (bullets.length ? "\n\n" + bullets.map(x => "- " + x).join("\n") : "") + "\n\n" + sig.join("\n");
     // Quote the brand's original email under the reply, like a normal Gmail reply (Tom, 13 Oct 2026).
     const fwdHead = (String(f.body).split(/\n[ \t]*\n/)[0] || ""), dateM = fwdHead.match(/\nDate:\s*([^\n]+)/i);
     const attr = "On " + (dateM ? dateM[1].trim() + " " : "") + (f.quoteName ? f.quoteName + " " : "") + "<" + (f.quoteEmail || f.contactEmail) + "> wrote:";
@@ -1907,6 +1913,35 @@ async function pitchFromEmail(b) {
     throw e;
   }
 }
+
+// Libsyn Ads (Tom, 16 Oct 2026): every pitch to Libsyn or AdvertiseCast prices YouTube integrations at $28 CPM on
+// the saved list (shows too), and the draft links Libsyn's own sub report. The link lives on the API Keys board.
+const LIBSYN_CPM = 28;
+const LIBSYN_REPORT_ITEM = 13312527118;
+const isLibsyn = f => /@(libsyn|advertisecast)\.com$/i.test(String(f.contactEmail || "")) || /libsyn ads/i.test(String(f.subject || ""));
+async function libsynReportUrl() {
+  const d = await monday(`query{items(ids:[${LIBSYN_REPORT_ITEM}]){column_values(ids:["text_mm5bcxe7"]){text}}}`);
+  const u = String(((((d || {}).items || [])[0] || {}).column_values || [{}])[0].text || "").trim();
+  return /^https:\/\/reports\.digitalfoxtalent\.com\/\S+$/.test(u) ? u : "";
+}
+async function setListCpm(slug, cpm, by) {
+  const { data, list } = await freshList(slug);
+  if (!list || list.bad) return;
+  const ids = new Set((list.body.ids || []).map(String)), prices = Object.assign({}, list.body.prices || {});
+  const set = (id, own) => {
+    if (!own || !(own.vg > 0)) return;
+    const cur = prices[id] || {}, vg = Math.round(cur.vg > 0 ? cur.vg : own.vg);
+    prices[id] = Object.assign({ vg, cpm }, cur.videos ? { videos: cur.videos } : {}, cur.disc ? { disc: true, discFrom: cur.discFrom } : {});
+  };
+  data.rows.forEach(r => {
+    if (r.group !== "topics" || !ids.has(r.id)) return;
+    set(r.id, brandNumbers(r.cv, C, "long"));
+    r.shows.forEach(s => set(s.id, brandNumbers(s.cv, SC, "long")));
+  });
+  await writeList(list.id, Object.assign({}, list.body, { prices }), { [L.updated]: by + " " + stamp() });
+}
+// One-off and for the team: put a list's YouTube integrations at the Libsyn CPM.
+async function listLibsyn(b, email) { await setListCpm(b.slug, LIBSYN_CPM, email); const { data, list } = await freshList(b.slug); return brandPayload(data, list, true); }
 
 // The raw Gmail draft for Make: a reply in the brand's thread, HTML and plain text, UTF-8.
 // Drafts in a teammate's own Gmail (Tom, 14 Oct 2026): Google domain-wide delegation for the service account
@@ -2054,6 +2089,8 @@ export default async function handler(req, res) {
         if (b.op === "creator-response") return res.status(200).json(await creatorResponse(b, email));
         if (b.op === "list-label") return res.status(200).json(await listLabel(b, email));
         if (b.op === "list-type") return res.status(200).json(await listType(b, email));
+        if (b.op === "list-libsyn") return res.status(200).json(await listLibsyn(b, email));
+        if (b.op === "libsyn-report-url") return res.status(200).json({ url: await libsynReportUrl() });
         if (b.op === "list-idea") return res.status(200).json(await listIdea(b, email));
         if (b.op === "ideas-draft") return res.status(200).json(await ideasDraft(b, email));
         if (b.op === "list-show") return res.status(200).json(await listShow(b, email));
