@@ -1558,6 +1558,13 @@ function parseForward(b) {
     if (te) { pick = { hd, email: te, name: nameFor(tl, te), fromName: nameFor(fl, fe) || fl.replace(/<[^>]*>/g, "").trim(), fromEmail: fe }; break; }
   }
   if (!pick) { const hd = heads[0], fl = line(hd.h, "From"), fe = addrs(fl)[0] || ""; pick = { hd, email: fe, name: nameFor(fl, fe), fromName: nameFor(fl, fe), fromEmail: fe }; }
+  // A website brief (Tom, 16 Oct 2026, Nativex): the notification comes from theteam@ and the brand's address is only
+  // in its body ("Email: ..."). Reply to that address, never to a DFT one.
+  if (DFT_DOMAIN.test(pick.email || "")) {
+    const seg = text.slice(pick.hd.at);
+    const em = ((seg.match(/(?:^|\n)[ \t*]*E-?mail[ \t]*:[ \t]*\*?[ \t]*([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})/i) || [])[1] || addrs(seg).find(x => !DFT_DOMAIN.test(x)) || "").toLowerCase();
+    if (em && !DFT_DOMAIN.test(em)) { const un = ((seg.match(/(?:^|\n)[ \t*]*(?:User|Name)[ \t]*:[ \t]*([^\n]+)/i) || [])[1] || "").replace(/\*+/g, "").trim(); pick = Object.assign({}, pick, { email: em, name: un }); }
+  }
   const body = text.slice(pick.hd.at);
   const subj = body.match(/\nSubject:\s*\*?\s*(.+)/i);
   return {
