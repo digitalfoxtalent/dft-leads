@@ -157,6 +157,9 @@ const C = {
   // publishing rate + fee, as the roster quotes them. Written by edits here and the quarterly
   // snapshot; the roster itself works the fee out from the views, so it never reads these.
   bfee: "numeric_mm833t0", btotal: "numeric_mm83h8tz",
+  // Press packages (Tom, 16 Oct 2026): the creator's typical earned media ideas, one per line.
+  // Shown on press packages instead of prices. Edited here or on a press package's page.
+  ideas: "long_text_mm865v16",
 };
 const SC = {
   rate: "numeric_mm495xbb", vg: "numeric_mm49tej8", cpm: "numeric_mm49fe4b", avg: "numeric_mm4957y3", url: "text_mm49bb5z",
@@ -650,6 +653,7 @@ function dedLive(l) {
 }
 function teamRow(r) {
   const o = baseFields(r);
+  o.ideas = r.cv[C.ideas] || "";
   const b = addFee(bundle(ownNumbers(r), r.kind), r.kind);
   const v = visibility(b, r.cv[C.vis], r.cv[C.bnote], r.kind);
   if (r.kind !== "long") Object.assign(o, { fee: b ? b.fee : feeFor(0), total: b ? b.total : null, rights: RIGHTS });
@@ -705,11 +709,18 @@ function brandPayload(data, list, team, noLock) {
   // The creator's answer (Margot, 14 Oct 2026): set by DFT, interested or declined, with an
   // optional note the brand can read, e.g. why they declined or the idea they already have.
   const creatorRes = (list && list.body.creator) || {};
+  // Press packages (Tom, 16 Oct 2026): earned media pitches. Same creators, stages and brand
+  // feedback as a paid list, but no prices anywhere in what the brand receives, and a column of
+  // campaign ideas instead: the list's own idea for a creator, or the creator's standard ideas.
+  const press = !!(list && list.body.press);
+  const listIdeas = (list && list.body.ideas) || {};
   const groups = {};
   GROUPS.forEach(g => { groups[g.id] = []; });
   data.rows.forEach(r => {
     if (ids && !ids.has(r.id)) return;
-    const o = brandRow(r, !!ids, prices, team, list ? (list.body.showVis || {}) : null);
+    if (press && r.dedicated) return; // a paid format only
+    const o = brandRow(r, !!ids, press ? {} : prices, team, list ? (list.body.showVis || {}) : null);
+    if (o && press) pressRow(o, r, listIdeas, team);
     if (o && list) {
       // Brands see the whole Stage too (Tom, 10 Oct 2026), read only apart from Brand approved.
       o.confirmed = confirmed.has(r.id); o.stage = o.confirmed ? "confirmed" : approached.has(r.id) ? "approached" : "";
@@ -731,7 +742,19 @@ function brandPayload(data, list, team, noLock) {
     lock: list.body.lock ? { on: list.body.lock.on, quarter: list.body.lock.quarter } : null,
     // Estimated Views (Tom, 10 Oct 2026): a list can call YouTube's View Guarantee
     // "Estimated Views" instead, for pitches where the views are not guaranteed.
-    estViews: !!list.body.estViews } : null, groups };
+    estViews: !!list.body.estViews, press } : null, groups };
+}
+// Press rows: views as typical views (the quarter's average, not a guarantee), every price and
+// pricing note taken out, shows dropped (they are sold separately), ideas added.
+const PRESS_STRIP = ["rate", "total", "fee", "cpm", "askCpm", "wasRate", "wasTotal", "discPct", "rights", "minVideos", "vgPer", "videosSet", "custom", "disc", "simulcast", "adLength", "adTypes", "adEx", "exclusive", "hostRead"];
+function pressRow(o, r, listIdeas, team) {
+  const avg = r.kind === "long" ? (o.vgPer || o.vg || 0) / PRICE.long.mult : (o.vg || 0);
+  PRESS_STRIP.forEach(k => { delete o[k]; });
+  o.vg = avg > 0 ? Math.max(1000, Math.round(avg / 1000) * 1000) : null;
+  o.shows = [];
+  const own = String(listIdeas[r.id] || "");
+  o.ideas = own || r.cv[C.ideas] || "";
+  if (team) { o.ideaStd = r.cv[C.ideas] || ""; if (own) o.ideaOwn = true; }
 }
 
 function teamPayload(data, email) {
@@ -740,7 +763,7 @@ function teamPayload(data, email) {
   data.rows.forEach(r => groups[r.group].push(teamRow(r)));
   Object.values(groups).forEach(a => a.sort((x, y) => (y.vgPer || 0) - (x.vgPer || 0)));
   return { view: "team", email, quarter: quarterLabel(), columns: data.columns, widths: data.widths, rows: data.rowOrder, groups,
-    lists: data.lists.map(l => ({ id: l.id, title: l.name, slug: l.slug, ids: l.body.ids || [], by: l.by, updated: l.updated, locked: l.body.lock ? l.body.lock.on : "", fb: feedbackCounts(l.body) })) };
+    lists: data.lists.map(l => ({ id: l.id, title: l.name, slug: l.slug, ids: l.body.ids || [], by: l.by, updated: l.updated, locked: l.body.lock ? l.body.lock.on : "", press: !!l.body.press, fb: feedbackCounts(l.body) })) };
 }
 
 // ---------------------------------------------------------------- writes (team only)
@@ -917,6 +940,7 @@ async function saveList(b, email) {
   if (b.slug && !existing) throw new Error("list not found");
   if (existing && existing.bad) throw new Error(LIST_READ_ERROR);
   const nextBody = Object.assign({}, existing ? existing.body : {}, { ids });
+  if (!existing && b.press) nextBody.press = true;
   if (existing && nextBody.lock) { // creators added to a locked list are locked at today's prices
     const fresh = new Set(ids.filter(id => !(nextBody.lock.rows || {})[id]));
     if (fresh.size) nextBody.lock = Object.assign({}, nextBody.lock, { rows: Object.assign({}, nextBody.lock.rows, lockSnapshot(data, { name: title, slug: existing.slug, body: nextBody }, fresh)) });
@@ -1118,7 +1142,7 @@ function feedbackEmail(data, list, submitted) {
     const f = fb[id]; if (!f || !(f.ok || f.no || f.note)) return;
     seen[id] = sig(f);
     const o = byId[id] || {}, r = data.rows.find(x => x.id === id) || {};
-    const price = typeof o.total === "number" ? o.total : typeof o.rate === "number" ? o.rate : null;
+    const price = body.press ? null : typeof o.total === "number" ? o.total : typeof o.rate === "number" ? o.rate : null;
     items.push({ id, name: o.name || r.name || "A creator", url: o.url || "", subs: o.subs || null, fmt: ALERT_FMT[o.gid || r.group] || "", price, views: o.vg || null, ok: !!f.ok, no: !f.ok && !!f.no, note: String(f.note || ""), stage: o.stage || "", isNew: Object.keys(prev).length > 0 && prev[id] !== seen[id] });
   });
   const rank = x => x.ok ? 0 : x.no ? 2 : 1;
@@ -1148,7 +1172,7 @@ function feedbackEmail(data, list, submitted) {
     "</tr></table>" +
     (next ? "<div style=\"background:#fff7ed;border-left:4px solid #f97316;padding:12px 14px;border-radius:6px;margin-bottom:22px\"><b>Next step:</b> " + escH(next) + "</div>" : "") +
     "<table cellspacing=\"0\" cellpadding=\"0\" style=\"width:100%;border-collapse:collapse;margin-bottom:24px\"><tr>" +
-    ["Creator", "Price", "Brand", "Note"].map(h => "<th align=\"left\" style=\"" + F + "padding:8px 12px;font-size:11px;letter-spacing:.05em;text-transform:uppercase;" + muted + "border-bottom:2px solid #eceef1\">" + h + "</th>").join("") + "</tr>" + rowsHtml + "</table>" +
+    ["Creator", body.press ? "Typical views" : "Price", "Brand", "Note"].map(h => "<th align=\"left\" style=\"" + F + "padding:8px 12px;font-size:11px;letter-spacing:.05em;text-transform:uppercase;" + muted + "border-bottom:2px solid #eceef1\">" + h + "</th>").join("") + "</tr>" + rowsHtml + "</table>" +
     "<div style=\"margin-bottom:22px\">" + btn(url, "Open the list", true) + " &nbsp; " + btn(mon, "Open on monday", false) + "</div>" +
     "<div style=\"font-size:12px;" + muted + "\">" + (submitted ? "Sent when the brand pressed Send my picks" : "Sent automatically about 15 minutes after the brand's last change") + (list.by ? ". List made by " + escH(String(list.by).split(" ")[0]) : "") + ".</div></div>";
   const subject = (submitted ? "Brand sent their picks: " : "Brand feedback: ") + list.name + " (" + ok.length + " approved" + (value ? ", " + usd(value) : "") + ", " + no.length + " declined" + (notes.length ? ", " + notes.length + (notes.length === 1 ? " note" : " notes") : "") + ")";
@@ -1240,6 +1264,72 @@ async function creatorResponse(b, email) {
   const body = Object.assign({}, list.body, { creator });
   await writeList(list.id, body, { [L.updated]: email + " " + stamp() });
   return brandPayload(data, Object.assign({}, list, { body }), true);
+}
+
+// Press package on or off for a list (Tom, 16 Oct 2026). The link stays the same.
+async function listType(b, email) {
+  const { data, list } = await freshList(b.slug);
+  if (!list) throw new Error("list not found");
+  if (list.bad) throw new Error(LIST_READ_ERROR);
+  const body = Object.assign({}, list.body);
+  if (b.press) body.press = true; else delete body.press;
+  await writeList(list.id, body, { [L.updated]: email + " " + stamp() });
+  return brandPayload(data, Object.assign({}, list, { body }), true);
+}
+// Ideas text: plain lines, no em or en dashes as breaks (Tom's standing rule), at most 600 characters.
+const cleanIdeas = t => String(t || "").replace(/\r/g, "").replace(/\s*[\u2014\u2013]\s*/g, ", ").split("\n").map(x => x.replace(/^\s*[-*\u2022]\s*/, "").trim()).filter(Boolean).slice(0, 6).join("\n").slice(0, 600);
+// One creator's ideas on a press package: for this list only, or as the creator's standard
+// ideas (the Earned Media Ideas column on the rates board, used by every press package).
+async function listIdea(b, email) {
+  const id = String(b.id || "");
+  if (!ROW_ID.test(id) || isDedId(id)) throw new Error("bad id");
+  const text = cleanIdeas(b.text);
+  if (b.standard) {
+    const { row } = await freshRow(id, false);
+    await writeRow(BOARD, id, { [C.ideas]: text }, C, false);
+    await audit(id, "Earned media ideas " + (text ? "set" : "cleared") + " by " + email + (text ? ":\n" + text : ""));
+    void row;
+    if (!b.slug) return { ok: true, id, ideas: text }; // edited in the DFT view, no list involved
+  }
+  if (!b.slug) throw new Error("list not found");
+  const { data, list } = await freshList(b.slug);
+  if (!list) throw new Error("list not found");
+  if (list.bad) throw new Error(LIST_READ_ERROR);
+  const ideas = Object.assign({}, list.body.ideas || {});
+  if (b.standard || !text) delete ideas[id]; else ideas[id] = text;
+  const body = Object.assign({}, list.body, { ideas });
+  if (!Object.keys(ideas).length) delete body.ideas;
+  await writeList(list.id, body, { [L.updated]: email + " " + stamp() });
+  return brandPayload(await loadBoard(), Object.assign({}, list, { body }), true);
+}
+// Draft standard ideas with Claude for creators that have none (Tom, 16 Oct 2026: "typical
+// ideas for what the creators do based on their channels"). Up to 25 rows a call; the page
+// calls again until nothing is missing. Written to the rates board, so the team can edit them.
+const FMT_WORD = { topics: "YouTube long-form channel", group_mm4av3kr: "YouTube Shorts", group_mm4a1fe0: "Instagram", group_mm4bd5tk: "TikTok", group_mm7yw8cy: "Snapchat" };
+async function ideasDraft(b, email) {
+  const data = await loadBoard();
+  const want = Array.isArray(b.ids) && b.ids.length ? new Set(b.ids.map(String)) : null;
+  const todo = data.rows.filter(r => !r.dedicated && (want ? want.has(r.id) : true) && (b.redo ? true : !String(r.cv[C.ideas] || "").trim()) && r.cv[C.vis] !== "Hide").slice(0, Math.min(25, Math.max(1, Number(b.limit) || 25)));
+  if (!todo.length) return { done: 0, left: 0 };
+  const lines = todo.map(r => JSON.stringify({ id: r.id, handle: r.cv[C.handle] || "", name: r.name, platform: FMT_WORD[r.group] || "", category: r.cv[C.category] || "", host: r.cv[C.host] || "", about: String(r.cv[C.audience] || r.cv[C.about] || "").slice(0, 600) }));
+  const prompt = [
+    "You write short earned media ideas for Digital Fox Talent, a creator management agency. These go on press packages sent to brands, film and TV studios, game publishers and PR agencies, who send creators product, early access, screenings or invitations instead of paying a fee. The brand then reads what each creator would typically make.",
+    "For each creator below, write 3 typical ideas: the kind of content this creator already makes that a press partner could slot into. Base them only on the channel's own format and subject (from its description, category and platform). Make them specific to the creator's style, e.g. a lore breakdown, a first-look reaction, an unboxing on stream, a top 10, a premiere vlog. Each idea is one plain sentence of at most 16 words. Do not promise views, coverage, positive opinions or dates. Do not invent facts about the creator. Do not mention money. Never use em dashes or en dashes.",
+    "Answer with JSON only: {\"ideas\": {\"<id>\": [\"idea\", \"idea\", \"idea\"]}}",
+    "Creators:", ...lines,
+  ].join("\n");
+  const out = await askClaude(prompt);
+  const got = (out && out.ideas) || {};
+  let done = 0;
+  for (const r of todo) {
+    const arr = Array.isArray(got[r.id]) ? got[r.id] : [];
+    const text = cleanIdeas(arr.join("\n"));
+    if (!text) continue;
+    await writeRow(BOARD, r.id, { [C.ideas]: text }, C, false);
+    done++;
+  }
+  const left = data.rows.filter(r => !r.dedicated && r.cv[C.vis] !== "Hide" && !String(r.cv[C.ideas] || "").trim() && (want ? want.has(r.id) : true)).length;
+  return { done, left, model: out && out.model };
 }
 
 async function listLabel(b, email) {
@@ -1963,6 +2053,9 @@ export default async function handler(req, res) {
         if (b.op === "list-confirm") return res.status(200).json(await listConfirm(b, email));
         if (b.op === "creator-response") return res.status(200).json(await creatorResponse(b, email));
         if (b.op === "list-label") return res.status(200).json(await listLabel(b, email));
+        if (b.op === "list-type") return res.status(200).json(await listType(b, email));
+        if (b.op === "list-idea") return res.status(200).json(await listIdea(b, email));
+        if (b.op === "ideas-draft") return res.status(200).json(await ideasDraft(b, email));
         if (b.op === "list-show") return res.status(200).json(await listShow(b, email));
         if (b.op === "list-order") return res.status(200).json(await listOrder(b, email));
         if (b.op === "list-preview") return res.status(200).json(await listPreview(b));

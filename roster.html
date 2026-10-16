@@ -133,6 +133,20 @@
   .exlink{ color:#c26a00; font-weight:600; }
   .exlink:hover{ text-decoration:underline; }
   td.wide{ text-align:left; }
+  td.ideas{ text-align:left; white-space:normal; padding:10px 14px; }
+  .idl{ margin:0; padding-left:16px; line-height:1.45; font-size:12.5px; }
+  .idl li{ margin:2px 0; }
+  .idnone{ color:var(--muted); font-size:12px; }
+  .idact{ display:flex; align-items:center; gap:8px; margin-top:6px; }
+  .ided{ border:1px solid #e4d8c7; background:#fff; color:#a85f00; font-size:11px; font-weight:700; border-radius:6px; padding:3px 9px; cursor:pointer; }
+  .ided:hover{ background:#fff5ea; }
+  .idown{ font-size:10.5px; font-weight:700; color:#2f7d4f; }
+  #fbpop.wide{ width:420px; }
+  #fbpop.wide textarea{ min-height:120px; }
+  .cideas{ margin:10px 0 0; }
+  .cideas .cl{ font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; margin-bottom:4px; }
+  .ptag{ display:inline-block; font-size:10.5px; font-weight:800; color:#fff; background:#7a4cc2; border-radius:999px; padding:1px 8px; margin-left:6px; vertical-align:1px; }
+  .selbar .presschk{ display:inline-flex; align-items:center; gap:6px; font-size:12px; font-weight:600; cursor:pointer; white-space:nowrap; }
   td.wide.clickable{ cursor:pointer; }
   td.wide{ white-space:normal; padding-top:6px; padding-bottom:6px; }
   .clamp{ display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:3; overflow:hidden; line-height:1.4; overflow-wrap:anywhere; }
@@ -430,6 +444,7 @@
     <span id="selCount"></span>
     <span id="selTotals" class="seltot"></span>
     <input id="listName" placeholder="Name this list, e.g. Marvel pitch - Disney" maxlength="80">
+    <label class="presschk" id="pressNewWrap" title="A press package: no prices, typical campaign ideas for each creator instead"><input type="checkbox" id="pressNew"> Press package</label>
     <button class="btn" id="saveList">Save list</button>
     <button class="btn" id="saveAsNew" style="display:none">Save as new</button>
     <button class="btn" id="clearSel">Clear</button>
@@ -465,6 +480,8 @@ const BRAND_COLS=[
   // Saved lists only (Tom, 10 Oct 2026): Confirmed sits first after the handle.
   {key:"confirmed",head:"Stage", w:176, listOnly:true, tip:"Approached, the creator's response and Confirmed are set by Digital Fox Talent. Tick a creator to approve, tick again to reject. The speech bubble adds a note, or shows the creator's."},
   {key:"subs",   head:"Subscribers", w:112, fmt:"int"},
+  // Press packages (Tom, 16 Oct 2026): campaign ideas instead of prices.
+  {key:"ideas",  head:"Campaign ideas", w:420, pressOnly:true, cls:"ideas", tip:"The kind of content this creator typically makes for a press partner: early access, product, screenings or invitations."},
   {key:"rate",   head:"Rate",        w:92,  fmt:"money"},
   {key:"vg",     head:"View Guarantee", w:128, fmt:"int", longOnly:true},
   {key:"cpm",    head:"CPM",         w:64,  fmt:"money2", longOnly:true},
@@ -506,7 +523,10 @@ const TEAM_COLS=[
   {key:"lrate",  head:"Live Rate",   w:96,  t:1, fmt:"money"},
   {key:"lcpm",   head:"Live CPM",    w:92,  t:1, fmt:"money2"},
   {key:"basis",  head:"Brand basis", w:220, t:1, cls:"wide"},
+  {key:"ideas",  head:"Earned media ideas", w:360, t:1, cls:"ideas", tip:"Standard ideas shown on every press package. Click Edit to change them."},
 ];
+// Press packages (Tom, 16 Oct 2026): no prices or paid-media terms, ideas instead.
+const PRESS_HIDE=new Set(["rate","cpm","disc","fee","total","rights","minVideos","simulcast","adEx","hostRead","exclusive","adTypes","adLength"]);
 
 let PAYLOAD=null, TEAM=null, BRAND=null, mode="brand", activeTab="topics", query="";
 let sortKey=null, sortDir="desc";
@@ -568,6 +588,8 @@ function brandColsFor(){
   let cols=BRAND_COLS.filter(c=>{
     // Saved lists: the team's Stage column, which brands see as "Your feedback".
     if(c.listOnly) return !!(BRAND&&BRAND.list&&mode!=="team");
+    if(c.pressOnly) return isPress();
+    if(isPress()&&PRESS_HIDE.has(c.key)) return false;
     if(c.listEditOnly) return listEdit();
     if(c.shortOnly) return k!=="long";
     if(c.key==="vg") return true;
@@ -585,6 +607,7 @@ function brandColsFor(){
     if(c.key==="cpm") return Object.assign({},c,{t:1,tip:"DFT only, brands never see the CPM on this tab."});
     return c;
   });
+  if(isPress()) return finishCols(cols.map(c=>c.key==="vg"?Object.assign({},c,{head:"Typical views",w:120,tip:"Average views per video or post last quarter. For context only."}):c));
   if(k==="long"&&estLong()) cols=cols.map(c=>c.key==="vg"?Object.assign({},c,{head:"Estimated Views",tip:"Estimated views across the videos, based on each channel's recent averages. An estimate, not a guarantee."}):c);
   // Dedicated videos (Tom, 13 Oct 2026) are a flat price with no view guarantee: always
   // shown as Estimated Views, on the main rate card and on every saved list.
@@ -617,6 +640,9 @@ function brandColsFor(){
     return c;
   });
   if(activeTab==="dedicated") cols=cols.map(c=>c.key==="cpm"?Object.assign({},c,{t:1,head:c.edit?"CPM ✎ (DFT only)":"CPM (DFT only)",w:c.edit?130:112,tip:"Brands never see the CPM on dedicated videos. "+(c.tip||"")}):c);
+  return finishCols(cols);
+}
+function finishCols(cols){
   if(colOrder&&colOrder.length){
     const pos={}; colOrder.forEach((key,i)=>pos[key==="videos"?"adLength":key]=i);
     // A column added after an order was saved slots in beside its neighbour, not at the end.
@@ -674,6 +700,12 @@ function creatorRow(c,team){
   return `<span class="drow cr"><button class="tri cr ${state}${team?"":" ro"}" data-id="${c.id}" data-s="${state}" title="${tip}"${team?"":' tabindex="-1"'}><span class="bx"></span><span class="lb">${label}</span></button>${noteBtn}</span>`;
 }
 function fmtCell(c,col,isShow){
+  if(col.key==="ideas"&&!isShow){
+    const lines=String(c.ideas||"").split("\n").map(x=>x.trim()).filter(Boolean);
+    const canEdit=(listEdit()&&isPress())||(mode==="team"&&!baseLocked()&&!isDed(c));
+    const body=lines.length?`<ul class="idl">${lines.map(l=>`<li>${esc(l)}</li>`).join("")}</ul>`:(canEdit?`<span class="idnone">No ideas yet</span>`:"");
+    return body+(canEdit?`<div class="idact">${listEdit()&&c.ideaOwn?'<span class="idown">This list only</span>':""}<button class="ided" data-id="${c.id}" onclick="event.stopPropagation()">Edit</button></div>`:"");
+  }
   if(col.key==="status") return statusCell(c,isShow);
   if(col.key==="confirmed"){
     if(isShow) return "";
@@ -817,6 +849,7 @@ function currentList(){
 // summary in the banner (Tom, 6 Oct 2026). Show sub-rows are alternatives to the channel
 // package, so totals count channel rows only.
 const isPitch=()=>!!(BRAND&&BRAND.list&&mode!=="team");
+const isPress=()=>!!(isPitch()&&BRAND.list.press);
 // A list set to "Estimated Views" (Tom, 10 Oct 2026) says estimated, not guaranteed, for YouTube.
 const estLong=()=>!!(isPitch()&&BRAND.list.estViews);
 function sumBy(list,k){ return list.reduce((a,c)=>a+(typeof c[k]==="number"?c[k]:0),0); }
@@ -829,7 +862,7 @@ function totalsRow(list,cols){
       case "name": return `Total<span class="sub">${list.length} creator${list.length===1?"":"s"}</span>`;
       case "subs": return int(subs)+`<span class="sub">subscribers</span>`;
       case "rate": { const was=list.reduce((a,c)=>a+(c.wasRate||c.rate||0),0); return money(rate)+`<span class="sub">${long?"total rate":"publishing rate"}</span>`+(long&&was>rate?`<span class="sub">saves ${money(was-rate)}</span>`:""); }
-      case "vg": return vg?int(vg)+`<span class="sub">${long?(!estLong()&&activeTab!=="dedicated"?"guaranteed views":"estimated views"):"avg views"}</span>`:"";
+      case "vg": return vg?int(vg)+`<span class="sub">${isPress()?"typical views":long?(!estLong()&&activeTab!=="dedicated"?"guaranteed views":"estimated views"):"avg views"}</span>`:"";
       case "cpm": return long&&vg?money2(Math.round(rate*100000/vg)/100)+`<span class="sub">CPM</span>`:"";
       case "minVideos": return `${int(vids)}<span class="sub">video${vids===1?"":"s"}</span>`;
       case "fee": return money(fee)+`<span class="sub">production rate</span>`;
@@ -842,6 +875,10 @@ function totalsRow(list,cols){
 }
 function packageSummary(){
   const all=GROUPS.reduce((a,g)=>a.concat((BRAND.groups[g.id]||[]).map(c=>Object.assign({kind:g.kind,gid:g.id},c))),[]);
+  if(isPress()){ // no prices on a press package
+    const bok=all.filter(c=>c.fb&&c.fb.ok).length, bno=all.filter(c=>c.fb&&c.fb.no).length, conf=all.filter(c=>c.confirmed).length, cok=all.filter(c=>c.cr&&c.cr.ok).length;
+    return `<span class="pkg"><span><b>${all.length}</b> creator${all.length===1?"":"s"}</span><span><b>${int(sumBy(all,"subs"))}</b> combined audience</span><span><b>${int(sumBy(all,"vg"))}</b> typical views per post, combined</span>${cok?`<span><b>${cok}</b> creator${cok===1?"":"s"} interested</span>`:""}${bok?`<span><b>${bok}</b> approved</span>`:""}${bno?`<span><b>${bno}</b> declined</span>`:""}${conf?`<span><b>${conf}</b> of ${all.length} confirmed</span>`:""}</span>`;
+  }
   const rate=all.reduce((a,c)=>a+(typeof c.total==="number"?c.total:(typeof c.rate==="number"?c.rate:0)),0), vg=sumBy(all.filter(c=>c.kind==="long"&&c.gid!=="dedicated"),"vg"), ded=sumBy(all.filter(c=>c.gid==="dedicated"),"vg"), est=sumBy(all.filter(c=>c.kind!=="long"),"vg");
   const vids=all.reduce((a,c)=>a+(c.kind==="long"?(c.minVideos||1):1),0);
   const saved=all.reduce((a,c)=>a+(c.wasTotal?(c.wasTotal-(typeof c.total==="number"?c.total:c.rate||0)):0),0);
@@ -873,9 +910,9 @@ function cardVal(c,col,isShow){
 const statHtml=(c,col,isShow)=>{ const v=cardVal(c,col,isShow); if(!String(v.inner).trim()&&!v.ed) return ""; return `<div class="cs"><div class="cl">${esc(col.head)}</div>${v.html}</div>`; };
 function cardsFor(list,cols){
   const get=k=>cols.find(c=>c.key===k);
-  const stage=get("confirmed"), about=get("about"), status=get("status");
+  const stage=get("confirmed"), about=get("about"), status=get("status"), ideas=get("ideas");
   const main=CARD_MAIN.map(get).filter(Boolean);
-  const skip=new Set(["name","sel","confirmed","about","status"].concat(CARD_MAIN));
+  const skip=new Set(["name","sel","confirmed","about","status","ideas"].concat(CARD_MAIN));
   const more=cols.filter(c=>!skip.has(c.key));
   const showCols=cols.filter(c=>SHOW_KEYS.has(c.key));
   return `<div class="cards">${list.map(c=>{
@@ -892,6 +929,7 @@ function cardsFor(list,cols){
       ${status?`<div class="cstatus">${fmtCell(c,status,false)}</div>`:""}
       ${stage?`<div class="cstage">${fmtCell(c,stage,false)}</div>`:""}
       <div class="cgrid">${main.map(col=>statHtml(c,col,false)).join("")}</div>
+      ${ideas&&String(fmtCell(c,ideas,false)).trim()?`<div class="cideas"><div class="cl">${esc(ideas.head)}</div>${fmtCell(c,ideas,false)}</div>`:""}
       ${ab?`<div class="cabout clamp" title="Tap to read more">${esc(ab)}</div>`:""}
       ${mrows?`<details class="cmore"><summary>More details</summary><dl>${mrows}</dl></details>`:""}
       ${showsHtml}
@@ -900,6 +938,8 @@ function cardsFor(list,cols){
 }
 function totalsCard(list){
   const long=kindOf()==="long";
+  if(isPress()){ const it=(l,v)=>`<div class="cs"><div class="cl">${l}</div><div class="cv">${v}</div></div>`;
+    return `<div class="card ctot"><div class="ctt">Total · ${list.length} creator${list.length===1?"":"s"}</div><div class="cgrid">${it(FOLLOWER_TABS.has(activeTab)?"Followers":"Subscribers",int(sumBy(list,"subs")))}${it("Typical views",int(sumBy(list,"vg")))}</div></div>`; }
   const rate=sumBy(list,"rate"), vg=sumBy(list,"vg"), fee=sumBy(list,"fee"), total=sumBy(list,"total");
   const vids=long?list.reduce((a,c)=>a+(c.minVideos||1),0):list.length;
   const was=list.reduce((a,c)=>a+(c.wasRate||c.rate||0),0);
@@ -952,6 +992,9 @@ function wire(){
   sc.querySelectorAll("td.wide").forEach(td=>{ if(!td.textContent.trim()) return; td.classList.add("clickable"); td.addEventListener("click",e=>{e.stopPropagation();td.classList.toggle("exp");}); });
   sc.querySelectorAll(".cshow-t").forEach(b=>b.addEventListener("click",()=>{ const id=b.dataset.id; openSet.has(id)?openSet.delete(id):openSet.add(id); render(); }));
   sc.querySelectorAll(".cabout").forEach(d=>d.addEventListener("click",()=>d.classList.toggle("exp")));
+  sc.querySelectorAll("button.ided").forEach(bt=>bt.addEventListener("click",e=>{ e.stopPropagation();
+    if(listEdit()){ const f=findListRow(bt.dataset.id); if(f) ideaPopup(bt,f.row,true); }
+    else { const f=findRow(bt.dataset.id); if(f) ideaPopup(bt,f.row,false); } }));
   wireRowDrag(sc);
   wireFeedback(sc);
   wireResize(sc);
@@ -1139,6 +1182,21 @@ function crPopup(anchor,r,team){
     const text=a==="del"?"":(ta?ta.value.trim():""), d=r.cr&&r.cr.ok?"yes":r.cr&&r.cr.no?"no":"";
     patchListRow(r.id,x=>{ x.cr=(d||text)?{ok:d==="yes",no:d==="no",note:text}:undefined; });
     listSave({op:"creator-response",slug:LIST_SLUG,id:r.id,decision:d,note:text},text?"Note saved. The brand sees it on this list":"Note removed").catch(()=>{});
+  });
+}
+// Ideas on a press package (Tom, 16 Oct 2026): for this list only, or saved as the creator's
+// standard ideas, which every press package uses. In the DFT view only the standard ones exist.
+function ideaPopup(anchor,r,inList){
+  fbPopup(anchor,{fb:{note:""}},true); const p=$("#fbpop"); p.classList.add("wide");
+  const txt=String(r.ideas||"");
+  p.innerHTML=`<b>Campaign ideas for ${esc(dispHandle(r))}</b><textarea maxlength="600" placeholder="One idea per line, e.g. First-look reaction to the trailer">${esc(txt)}</textarea>`
+    +`<div class="acts"><button class="btn" data-a="x">Cancel</button>${inList?'<button class="btn" data-a="list" title="Only this press package changes">Save for this list</button><button class="btn primary" data-a="std" title="Every press package with this creator uses these">Save for every press package</button>':'<button class="btn primary" data-a="std">Save</button>'}</div>`;
+  const ta=p.querySelector("textarea"); ta.focus(); ta.setSelectionRange(ta.value.length,ta.value.length);
+  p.querySelectorAll("button").forEach(bt=>bt.onclick=async()=>{
+    const a=bt.dataset.a; p.classList.remove("on"); p.classList.remove("wide"); if(a==="x") return;
+    const text=ta.value.trim(), std=a==="std";
+    if(inList){ listSave({op:"list-idea",slug:LIST_SLUG,id:r.id,text,standard:std},std?"Saved as the standard ideas for this creator":"Saved for this list only").catch(()=>{}); return; }
+    try{ const j=await post({op:"list-idea",id:r.id,text,standard:true}); r.ideas=j.ideas; render(); toast("Saved. Every press package with this creator uses these"); }catch(e){ toast(e.message,true); }
   });
 }
 function findRow(id){
@@ -1341,6 +1399,7 @@ function renderSelbar(){
   $("#selCount").textContent=picked.size+" selected"+(editingList?" · editing “"+editingList.title+"”":"");
   $("#saveList").textContent=editingList?"Update list":"Save list";
   $("#saveAsNew").style.display=editingList?"":"none";
+  $("#pressNewWrap").style.display=editingList?"none":"";
   queueTotals();
 }
 // Live package total while choosing creators (Tom, 12 Oct 2026): what the list would cost
@@ -1359,6 +1418,8 @@ function queueTotals(){
       const j=await post({op:"list-preview",slug:editingList?editingList.slug:null,ids});
       if(seq!==totSeq) return;
       const n=j.now, sv=j.saved, d=sv?n.total-sv.total:0;
+      const el=editingList&&((TEAM&&TEAM.lists)||[]).find(x=>x.slug===editingList.slug);
+      if((el&&el.press)||(!editingList&&$("#pressNew").checked)){ $("#selTotals").innerHTML=`<span>Press package: no prices</span><span><b>${n.profiles}</b> creators</span>`; return; }
       const views=[n.ytViews?`<span><b>${int(n.ytViews)}</b> ${j.estViews?"estimated":"guaranteed"} YouTube views</span>`:"",n.dedViews?`<span><b>${int(n.dedViews)}</b> estimated dedicated video views</span>`:"",n.shortViews?`<span><b>${int(n.shortViews)}</b> average short-form views</span>`:""].join("");
       $("#selTotals").innerHTML=`<span>Package total <b>${money(n.total)}</b></span>`
         +(sv&&d?`<span class="${d>0?"up":"dn"}" title="Compared with the saved list (${money(sv.total)})">${d>0?"+":"−"}${money(Math.abs(d))} vs saved</span>`:sv?`<span title="Same as the saved list">same as saved</span>`:"")
@@ -1375,7 +1436,8 @@ async function saveList(asNew){
   // Keep the on-screen order: tab by tab, as currently sorted.
   const ids=[]; GROUPS.forEach(g=>(TEAM.groups[g.id]||[]).forEach(c=>{ if(picked.has(c.id)) ids.push(c.id); }));
   try{
-    const j=await post({op:"save-list",title,ids,slug:asNew?null:(editingList&&editingList.slug)});
+    const press=(!editingList||asNew)&&$("#pressNew").checked;
+    const j=await post({op:"save-list",title,ids,slug:asNew?null:(editingList&&editingList.slug),press});
     try{ await navigator.clipboard.writeText(j.url); }catch(_){}
     $("#selMsg").innerHTML=`Saved. Link copied: <a href="${esc(j.url)}" target="_blank" style="text-decoration:underline">${esc(j.url.replace(/^https:\/\//,""))}</a>`;
     editingList={slug:j.slug,title};
@@ -1423,7 +1485,7 @@ function renderPanel(){
     $("#lsCount").textContent=shown.length===lists.length?String(lists.length):`${shown.length} of ${lists.length}`;
     $("#lsBody").innerHTML=(shown.length?shown.map(l=>{ const o=listOwner(l), pitch=/\(pitch\)/.test(String(l.by||"")), day=listDay(l);
       return `<div class="li">
-      <div class="tt">${esc(l.title)}</div>
+      <div class="tt">${esc(l.title)}${l.press?'<span class="ptag">Press</span>':""}</div>
       <div class="mm">${l.ids.length} creators · ${esc(o===me?"You":ownerName(o))}${pitch?" (from a pitch email)":""}${day?" · "+esc(fmtDate(day)):""}${l.locked?" · prices locked "+esc(fmtDate(l.locked)):""}${l.fb&&(l.fb.ok||l.fb.no||l.fb.notes)?` · <b style="color:#1a7f37" title="What the brand ticked on this list${l.fb.at?", last "+esc(fmtDate(l.fb.at.slice(0,10))):""}">Brand: ${l.fb.ok} approved, ${l.fb.no} declined${l.fb.notes?`, ${l.fb.notes} note${l.fb.notes===1?"":"s"}`:""}</b>`:""}</div>
       <div class="acts">
         <a class="btn primary" href="/r/${esc(l.slug)}" title="Change this list's videos, views and prices. Nothing else changes.">Open list</a>
@@ -1483,6 +1545,29 @@ function viewsButton(){
   const est=!!(BRAND&&BRAND.list&&BRAND.list.estViews);
   return `<span class="lseg" title="How brands see YouTube views on this list"><span>YouTube views</span><button id="viewsBtn" data-est="0" class="${est?"":"on"}">Guaranteed</button><button id="viewsBtn2" data-est="1" class="${est?"on":""}">Estimated</button></span>`;
 }
+// Paid or Press (Tom, 16 Oct 2026): the same link becomes a press package, with no prices
+// and a column of campaign ideas, or goes back to a priced pitch.
+function typeButton(){
+  const pr=!!(BRAND&&BRAND.list&&BRAND.list.press);
+  return `<span class="lseg" title="Paid shows prices. Press shows campaign ideas instead, with no prices."><span>Package</span><button data-press="0" class="ptype ${pr?"":"on"}">Paid</button><button data-press="1" class="ptype ${pr?"on":""}">Press</button></span>`;
+}
+function $$typeWire(){
+  document.querySelectorAll("#banner .ptype").forEach(bt=>bt.onclick=async()=>{
+    const press=bt.dataset.press==="1"; if(press===!!BRAND.list.press) return;
+    try{ applyBrand(await post({op:"list-type",slug:LIST_SLUG,press})); toast(press?"Now a press package: no prices, campaign ideas instead":"Now a paid pitch with prices"); loadTeam(true).catch(()=>{}); }catch(e){ toast(e.message,true); }
+  });
+}
+// Draft ideas (Tom, 16 Oct 2026): Claude writes typical ideas for creators on this list with none.
+async function draftIdeas(btn){
+  const ids=[]; GROUPS.forEach(g=>(BRAND.groups[g.id]||[]).forEach(c=>{ if(!String(c.ideas||"").trim()) ids.push(String(c.id)); }));
+  if(!ids.length) return;
+  btn.disabled=true; let made=0;
+  try{
+    for(let i=0;i<ids.length;i+=25){ btn.textContent=`Drafting ${Math.min(i+25,ids.length)} of ${ids.length}…`; const j=await post({op:"ideas-draft",ids:ids.slice(i,i+25)}); made+=j.done||0; }
+    toast(`Drafted ideas for ${made} creator${made===1?"":"s"}. Check them, then edit any that need it`);
+  }catch(e){ toast(e.message,true); }
+  await loadBrand(true);
+}
 // Accept changes (Tom, 13 Oct 2026): once the brand has answered, take every creator they did
 // not approve (a cross, or no answer) off the list in one go. Approved creators stay. Two
 // clicks, so it never happens by accident, and it never empties a list.
@@ -1534,7 +1619,10 @@ function renderBanner(){
   } else if(TEAM){
     if(listEdit()){
       b.className="banner listbar"; b.style.display="";
-      b.innerHTML=`<div class="lb-acts"><a class="btn" href="/?edit=${encodeURIComponent(LIST_SLUG)}">Add / remove creators</a>${lockButton()}${viewsButton()}${acceptButton()}</div>${packageSummary()}`;
+      const pr=isPress(), missing=pr?GROUPS.reduce((n,g)=>n+(BRAND.groups[g.id]||[]).filter(c=>!String(c.ideas||"").trim()).length,0):0;
+      b.innerHTML=`<div class="lb-acts"><a class="btn" href="/?edit=${encodeURIComponent(LIST_SLUG)}">Add / remove creators</a>${typeButton()}${pr?"":lockButton()+viewsButton()}${missing?`<button class="btn" id="draftIdeas" title="Claude drafts typical ideas for the ${missing} creator${missing===1?"":"s"} with none, from their channels. They become each creator's standard ideas.">Draft ideas for ${missing}</button>`:""}${acceptButton()}</div>${packageSummary()}`;
+      $$typeWire();
+      const di=$("#draftIdeas"); if(di) di.onclick=()=>draftIdeas(di);
       const lb=$("#lockBtn"); if(lb) lb.onclick=()=>toggleLock(lb.dataset.lock==="1");
       const ab=$("#acceptBtn"); if(ab) ab.onclick=()=>acceptChanges(ab);
       [$("#viewsBtn"),$("#viewsBtn2")].forEach(vb=>{ if(vb) vb.onclick=async()=>{ const est=vb.dataset.est==="1"; if(est===!!BRAND.list.estViews) return; try{ applyBrand(await post({op:"list-label",slug:LIST_SLUG,est})); toast(est?"Brands now see Estimated Views":"Brands now see View Guarantee"); }catch(e){ toast(e.message,true); } }; });
@@ -1601,7 +1689,9 @@ async function removeTabFromList(gid){
 }
 function applyBrand(p){
   BRAND=p; if(!TEAM) applyLayout(p);
-  $("#subtitle").textContent=p.list&&p.list.lock
+  $("#subtitle").textContent=p.list&&p.list.press
+    ?"A selection from our roster, with typical campaign ideas for each creator"
+    :p.list&&p.list.lock
     ?`Prices fixed for this campaign (set ${fmtDate(p.list.lock.on)}) · a selection from our roster`
     :`Rates valid for ${p.quarter} · ${p.list?"a selection from our roster":"updated once a quarter"} · click the arrow beside a channel to see its specific shows`;
   if(p.list) $("#title").textContent=p.list.title;
@@ -1652,6 +1742,7 @@ $("#vEdit").addEventListener("click",()=>setMode("edit"));
 $("#listsBtn").addEventListener("click",e=>{e.stopPropagation(); renderPanel(); $("#panel").classList.toggle("on"); const q=$("#lsq"); if(q&&$("#panel").classList.contains("on")&&!isMobile()) q.focus();});
 document.addEventListener("click",e=>{ if(!e.target.closest("#panel")&&!e.target.closest("#listsBtn")) $("#panel").classList.remove("on"); });
 $("#saveList").addEventListener("click",()=>saveList(false));
+$("#pressNew").addEventListener("change",()=>{ totKey=""; queueTotals(); });
 $("#saveAsNew").addEventListener("click",()=>saveList(true));
 $("#clearSel").addEventListener("click",()=>{picked.clear(); editingList=null; $("#listName").value=""; $("#selMsg").textContent=""; renderBanner(); render();});
 $("#resetLayout").addEventListener("click",()=>{
