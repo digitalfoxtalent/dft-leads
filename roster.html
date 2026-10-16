@@ -503,16 +503,17 @@ const BRAND_COLS=[
   {key:"adTypes",head:"Ad Types",    w:150, cls:"wide"},
   {key:"adLength", head:"Ad length", w:92},
   {key:"kit",    head:"Audience stats", w:130, tip:"The creator's audience: age, gender, countries and how they watch. Live from YouTube Analytics where the creator has connected their channel."},
-  {key:"male",   head:"Male %",      w:64},
-  {key:"female", head:"Female %",    w:70},
-  {key:"a1317",  head:"13-17",       w:56},
-  {key:"a1824",  head:"18-24",       w:56},
-  {key:"a2534",  head:"25-34",       w:56},
-  {key:"a3544",  head:"35-44",       w:56},
-  {key:"a4554",  head:"45-54",       w:56},
-  {key:"a5564",  head:"55-64",       w:56},
-  {key:"us",     head:"US %",        w:62},
-  {key:"uk",     head:"UK %",        w:62},
+  // Audience columns half a centimetre (19px) wider so the headings are not cut off (Alex, 16 Oct 2026).
+  {key:"male",   head:"Male %",      w:83},
+  {key:"female", head:"Female %",    w:89},
+  {key:"a1317",  head:"13-17",       w:75},
+  {key:"a1824",  head:"18-24",       w:75},
+  {key:"a2534",  head:"25-34",       w:75},
+  {key:"a3544",  head:"35-44",       w:75},
+  {key:"a4554",  head:"45-54",       w:75},
+  {key:"a5564",  head:"55-64",       w:75},
+  {key:"us",     head:"US %",        w:81},
+  {key:"uk",     head:"UK %",        w:81},
 ];
 // DFT-only columns (blue), read-only: what the live data says and why a row is shown or hidden.
 // Everything brands see is edited in the orange columns instead (View Guarantee, CPM).
