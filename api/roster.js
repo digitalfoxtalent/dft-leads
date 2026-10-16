@@ -1380,7 +1380,8 @@ async function listIdeasOn(b, email) {
 // the YouTube tab "really needs to say YouTube Integrated Ads and have the campaign idea tailored to that, or
 // Dedicated videos").
 const PAID_FMT = {
-  topics: "YouTube Integrated Ad: a 30 to 90 second sponsored segment inside one of the creator's regular long-form videos. Not a whole video.",
+  // About 60 seconds, so the idea must fit a 60 second ad read (Tom, 16 Oct 2026: ideas "might be tough to fit into a 60s ad").
+  topics: "YouTube Integrated Ad: an ad read of about 60 seconds inside one of the creator's regular long-form videos. It must fit 60 seconds: one hook, one beat, a call to action. Not a whole video and not a change to the video's topic.",
   dedicated: "YouTube Dedicated Video: a whole long-form video about the campaign, in the creator's own format and voice.",
   group_mm4av3kr: "YouTube Short: one vertical video under 60 seconds.",
   group_mm4a1fe0: "Instagram Reel: one vertical video on the creator's Instagram.",
@@ -1443,7 +1444,7 @@ async function campaignIdeas(list, data, opt = {}) {
     "RESEARCH ON THE CAMPAIGN: " + (body.research || "(none)"),
     known.length ? "IDEAS ALREADY ON THIS LIST (from the team or the creators; match their quality and do not repeat them):\n" + known.join("\n") : "",
     "For each creator write 2 ideas. Rules:",
-    "1. Fit the FORMAT exactly. A YouTube Integrated Ad is a 30 to 90 second segment inside a regular video: say what kind of regular video it sits in and how the segment ties the campaign to that video's topic; never describe it as a whole video. A Dedicated Video is a whole video. Short-form ideas are single vertical videos.",
+    "1. Fit the FORMAT exactly. A YouTube Integrated Ad is an ad read of about 60 seconds inside a regular video, so it must be deliverable in 60 seconds: the creator on camera with one hook (a trailer moment, a personal reason to watch, a quick comparison or a single pick), a natural segue from the video they are already making, and a call to action (release date, tickets, link). Never a ranking, tier list, breakdown or anything that changes or takes over the video; those big concepts belong on Dedicated Videos. A Dedicated Video is a whole video about the campaign. Short-form ideas are single vertical videos.",
     "2. Fit the creator: use what the channel actually makes (from 'about' and 'category'). If 'creator_said' is given, build on it first.",
     "3. Use real hooks from the research: cast, genre, comparable titles, release timing.",
     "4. Each idea is one plain sentence of at most 26 words, starting with the hook, not the host's name. Positive and brand safe. No promises of views, dates or results. No prices. Never use em dashes or en dashes.",
