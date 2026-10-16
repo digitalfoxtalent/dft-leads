@@ -173,7 +173,9 @@ const L = { slug: "text_mm7vgrr5", items: "long_text_mm7vtnkw", by: "text_mm7v2v
 // list back empty (Alex's "Avengers: Doomsday"). The JSON is now split across "Items" and
 // "Items 2" to "Items 8" (about 15,000 characters), a list that cannot be read is never
 // written over, a list is never saved without creators, and every write is read back.
-const ITEM_COLS = [L.items, "long_text_mm80t78r", "long_text_mm80ndjr", "long_text_mm80wpxt", "long_text_mm80gas0", "long_text_mm801cds", "long_text_mm80dann", "long_text_mm80qawp"];
+// Items 9 to 16 (16 Oct 2026): campaign ideas, research and briefs on big lists (Ghost Soldier) went past 15,000.
+const ITEM_COLS = [L.items, "long_text_mm80t78r", "long_text_mm80ndjr", "long_text_mm80wpxt", "long_text_mm80gas0", "long_text_mm801cds", "long_text_mm80dann", "long_text_mm80qawp",
+  "long_text_mm86jf1e", "long_text_mm862ksn", "long_text_mm86jxrd", "long_text_mm86njsy", "long_text_mm86wrfm", "long_text_mm86nd9s", "long_text_mm86ndpb", "long_text_mm8623cn"];
 const CHUNK = 1900;
 const LIST_READ_ERROR = "This list's saved data could not be read, so nothing was changed. Ask Tom to check it.";
 function bodyValues(obj) {
