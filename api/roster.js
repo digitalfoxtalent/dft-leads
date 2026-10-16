@@ -1932,7 +1932,8 @@ async function setListCpm(slug, cpm, by) {
   const set = (id, own) => {
     if (!own || !(own.vg > 0)) return;
     // Views at 1x the quarter's average, not the usual 1.5x guarantee (Tom, 16 Oct 2026).
-    const cur = prices[id] || {}, vg = Math.round(own.basis > 0 ? own.basis * LIBSYN_VIEWS : own.vg / PRICE.long.mult * LIBSYN_VIEWS);
+    // Never above the guarantee the team already set on the rate card (some are capped by hand, e.g. New Rockstars).
+    const cur = prices[id] || {}, vg = Math.round(Math.min(own.vg, own.basis > 0 ? own.basis * LIBSYN_VIEWS : own.vg / PRICE.long.mult * LIBSYN_VIEWS));
     prices[id] = Object.assign({ vg, cpm }, cur.videos ? { videos: cur.videos } : {}, cur.disc ? { disc: true, discFrom: cur.discFrom } : {});
   };
   data.rows.forEach(r => {
