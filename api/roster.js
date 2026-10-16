@@ -733,7 +733,7 @@ function brandPayload(data, list, team, noLock) {
     if (press && r.dedicated) return; // a paid format only
     const o = brandRow(r, !!ids, press ? {} : prices, team, list ? (list.body.showVis || {}) : null);
     if (o && press) pressRow(o, r, listIdeas, team);
-    if (o && ideasOn && !r.dedicated) { o.ideas = String(listIdeas[r.id] || ""); if (team && o.ideas) o.ideaOwn = true; }
+    if (o && ideasOn) { o.ideas = String(listIdeas[r.id] || ""); if (team && o.ideas) o.ideaOwn = true; }
     if (o && list) {
       // Brands see the whole Stage too (Tom, 10 Oct 2026), read only apart from Brand approved.
       o.confirmed = confirmed.has(r.id); o.stage = o.confirmed ? "confirmed" : approached.has(r.id) ? "approached" : "";
@@ -1374,16 +1374,57 @@ async function listIdeasOn(b, email) {
 // Paid campaign ideas with Claude for the creators on a list (Tom, 16 Oct 2026). Unlike the press ideas these are
 // sponsored content the creator would make for the brand: specific to this campaign and to the creator's channel.
 // Kept on the list only, so the team edits them there. Up to 20 creators a call; the page calls again until done.
-const PAID_FMT = { topics: "YouTube integration (30 to 90 seconds inside a long-form video)", group_mm4av3kr: "YouTube Short", group_mm4a1fe0: "Instagram Reel", group_mm4bd5tk: "TikTok", group_mm7yw8cy: "Snapchat" };
+// What each format is, so every idea fits what the brand is buying on that tab (Tom, 16 Oct 2026, Ghost Soldier:
+// the YouTube tab "really needs to say YouTube Integrated Ads and have the campaign idea tailored to that, or
+// Dedicated videos").
+const PAID_FMT = {
+  topics: "YouTube Integrated Ad: a 30 to 90 second sponsored segment inside one of the creator's regular long-form videos. Not a whole video.",
+  dedicated: "YouTube Dedicated Video: a whole long-form video about the campaign, in the creator's own format and voice.",
+  group_mm4av3kr: "YouTube Short: one vertical video under 60 seconds.",
+  group_mm4a1fe0: "Instagram Reel: one vertical video on the creator's Instagram.",
+  group_mm4bd5tk: "TikTok: one vertical video on the creator's TikTok.",
+  group_mm7yw8cy: "Snapchat: one vertical Story or Spotlight video.",
+};
+// The Campaign ideas playbook (Tom, 16 Oct 2026: "some kind of system to help us understand what typical campaign
+// ideas might be ... so other Claude's can access it"): a Pitch Requests item whose text the idea writer reads every
+// time. The team edits it on monday; good creator ideas get added there.
+const PLAYBOOK_ITEM = 13313762403;
+async function ideasPlaybook() {
+  const q = await monday(`query{items(ids:[${PLAYBOOK_ITEM}]){column_values(ids:["long_text_mm83jwpf"]){text}}}`).catch(() => null);
+  return String(((((q || {}).items || [])[0] || {}).column_values || [{}])[0].text || "").trim().slice(0, 2500);
+}
+// The campaign itself, researched once per list with web search and kept on the list (body.research).
+async function campaignResearch(list) {
+  const key = process.env.ANTHROPIC_API_KEY; if (!key) return "";
+  const prompt = [
+    "Research this campaign for a creator talent agency that will pitch creator content for it. Use web search (at most 4 searches). Be factual; leave out anything you cannot confirm.",
+    "CAMPAIGN: " + list.name,
+    "BRIEF FROM THE BRAND: " + String(list.body.brief || "").slice(0, 3000),
+    "Answer in at most 8 short plain lines: what it is (for a film: studio, genre, premise); release or launch date; key cast, director or makers; tone; 3 to 5 comparable titles or products fans would know; the 3 strongest hooks for creators. No em dashes."
+  ].join("\n");
+  for (const model of PITCH_MODELS) {
+    const r = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers: { "Content-Type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01" }, body: JSON.stringify({ model, max_tokens: 1500, tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 4 }], messages: [{ role: "user", content: prompt }] }) }).catch(() => null);
+    const d = r && await r.json().catch(() => ({}));
+    if (!r || !r.ok || !d || !d.content) continue;
+    return noDash(d.content.filter(x => x.type === "text").map(x => x.text).join("\n")).slice(0, 2000);
+  }
+  return "";
+}
 async function campaignIdeas(list, data, opt = {}) {
-  const body = list.body, ids = new Set((body.ids || []).map(String)), have = body.ideas || {};
+  let body = list.body;
+  const ids = new Set((body.ids || []).map(String)), have = body.ideas || {};
   const brief = String(opt.brief != null ? opt.brief : body.brief || "").slice(0, 4000);
-  const rows = data.rows.filter(r => ids.has(r.id) && !r.dedicated && (opt.redo || !String(have[r.id] || "").trim()));
-  const todo = rows.slice(0, 20);
-  if (!todo.length) return { done: 0, left: 0, body };
-  const known = Object.keys(have).filter(id => String(have[id] || "").trim()).slice(0, 8).map(id => { const r = data.rows.find(x => x.id === id); return r ? "- " + r.name + ": " + String(have[id]).replace(/\n/g, " / ") : ""; }).filter(Boolean);
-  const lines = todo.map(r => JSON.stringify({ id: r.id, name: r.name, platform: PAID_FMT[r.group] || "", category: r.cv[C.category] || "", host: r.cv[C.host] || "", about: String(r.cv[C.about] || r.cv[C.audience] || "").slice(0, 500) }));
   const press = !!body.press;
+  const rows = data.rows.filter(r => ids.has(r.id) && (press ? !r.dedicated : true) && (opt.redo || !String(have[r.id] || "").trim()));
+  const todo = rows.slice(0, press ? 20 : 12);
+  if (!todo.length) return { done: 0, left: 0, body };
+  const playbook = await ideasPlaybook();
+  if (!press && (!body.research || opt.redo === "all")) body = Object.assign({}, body, { research: await campaignResearch(Object.assign({}, list, { body: Object.assign({}, body, { brief }) })).catch(() => "") });
+  const seed = opt.seed || {};
+  const known = Object.keys(have).filter(id => String(have[id] || "").trim() && !todo.some(r => r.id === id)).slice(0, 8).map(id => { const r = data.rows.find(x => x.id === id); return r ? "- " + r.name + ": " + String(have[id]).replace(/\n/g, " / ") : ""; }).filter(Boolean);
+  const lines = todo.map(r => JSON.stringify(press
+    ? { id: r.id, name: r.name, platform: PAID_FMT[r.group] || "", category: r.cv[C.category] || "", host: r.cv[C.host] || "", about: String(r.cv[C.about] || r.cv[C.audience] || "").slice(0, 500) }
+    : { id: r.id, name: r.name, format: PAID_FMT[r.dedicated ? "dedicated" : r.group] || "", category: r.cv[C.category] || "", host: r.cv[C.host] || "", about: String(r.cv[C.about] || "").slice(0, 700), audience: String(r.cv[C.audience] || "").slice(0, 300), creator_said: seed[r.id] || undefined }));
   const prompt = press ? [
     "You write press opportunities for Digital Fox Talent, a creator management agency, for an EARNED MEDIA (press) campaign. The partner does not pay the creator; it offers access, and the creator decides what, if anything, to make from it.",
     "Campaign (title of the press package and the partner's brief):", "Title: " + list.name, brief ? "Brief: " + brief : "Brief: not given, work from the title.",
@@ -1392,12 +1433,19 @@ async function campaignIdeas(list, data, opt = {}) {
     "Answer with JSON only: {\"ideas\": {\"<id>\": [\"idea\", \"idea\", \"idea\"]}}",
     "Creators:", ...lines,
   ].filter(Boolean).join("\n") : [
-    "You write campaign ideas for Digital Fox Talent, a creator management agency, for a PAID brand campaign. The brand pays the creator to feature it in their own content.",
-    "Campaign (title of the pitch list and the brand's brief):", "Title: " + list.name, brief ? "Brief: " + brief : "Brief: not given, work from the title.",
-    known.length ? "Ideas the team or the creators have already suggested (match their spirit and level of detail):\n" + known.join("\n") : "",
-    "For each creator below write 2 ideas for how THIS creator would feature the campaign in their usual content, in the format given (a long-form integration, a Short, a Reel or a TikTok). Make them specific to the creator's channel and to the campaign (for a film: rankings, tier lists, comparisons with similar films or roles, trailer breakdowns, first reactions after a screening; for a product or game: how it fits a typical video). Each idea is one plain sentence of at most 22 words. Positive and brand safe: never mock or criticise the brand or its product. Do not promise views, dates or results. Do not invent facts about the creator. No prices. Never use em dashes or en dashes.",
+    "You are a senior creator campaign strategist at Digital Fox Talent, a creator management agency. Write campaign ideas for a PAID brand campaign: the brand pays each creator to feature it in their own content. The brand wants ideas it can approve, so each one must be concrete, fit the creator's real channel and fit the exact format being bought.",
+    playbook ? "DFT CAMPAIGN IDEAS PLAYBOOK (follow it):\n" + playbook : "",
+    "CAMPAIGN: " + list.name,
+    "BRIEF FROM THE BRAND: " + (brief || "(not given, work from the campaign name)"),
+    "RESEARCH ON THE CAMPAIGN: " + (body.research || "(none)"),
+    known.length ? "IDEAS ALREADY ON THIS LIST (from the team or the creators; match their quality and do not repeat them):\n" + known.join("\n") : "",
+    "For each creator write 2 ideas. Rules:",
+    "1. Fit the FORMAT exactly. A YouTube Integrated Ad is a 30 to 90 second segment inside a regular video: say what kind of regular video it sits in and how the segment ties the campaign to that video's topic; never describe it as a whole video. A Dedicated Video is a whole video. Short-form ideas are single vertical videos.",
+    "2. Fit the creator: use what the channel actually makes (from 'about' and 'category'). If 'creator_said' is given, build on it first.",
+    "3. Use real hooks from the research: cast, genre, comparable titles, release timing.",
+    "4. Each idea is one plain sentence of at most 26 words, starting with the hook, not the host's name. Positive and brand safe. No promises of views, dates or results. No prices. Never use em dashes or en dashes.",
     "Answer with JSON only: {\"ideas\": {\"<id>\": [\"idea\", \"idea\"]}}",
-    "Creators:", ...lines,
+    "CREATORS:", ...lines,
   ].filter(Boolean).join("\n");
   const out = await askClaude(prompt);
   const got = (out && out.ideas) || {}, ideas = Object.assign({}, have);
@@ -1414,7 +1462,7 @@ async function listCampaignIdeas(b, email) {
   const { data, list } = await freshList(b.slug);
   if (!list) throw new Error("list not found");
   if (list.bad) throw new Error(LIST_READ_ERROR);
-  const r = await campaignIdeas(Object.assign({}, list, { body: list.body.press ? list.body : Object.assign({}, list.body, { ideasOn: true }) }), data, { brief: b.brief, redo: !!b.redo, by: email });
+  const r = await campaignIdeas(Object.assign({}, list, { body: list.body.press ? list.body : Object.assign({}, list.body, { ideasOn: true }) }), data, { brief: b.brief, redo: b.redo === "all" ? "all" : !!b.redo, seed: b.seed || {}, by: email });
   return { done: r.done, left: r.left };
 }
 // Lists waiting for campaign ideas (set by the pitch pipeline when a brand asks for ideas): drafted by the
@@ -1446,7 +1494,7 @@ const cleanIdeas = t => String(t || "").replace(/\r/g, "").replace(/\s*[\u2014\u
 // ideas (the Earned Media Ideas column on the rates board, used by every press package).
 async function listIdea(b, email) {
   const id = String(b.id || "");
-  if (!ROW_ID.test(id) || isDedId(id)) throw new Error("bad id");
+  if (!ROW_ID.test(id) || (isDedId(id) && (b.standard || !b.slug))) throw new Error("bad id"); // dedicated rows: campaign ideas on a list only
   const text = cleanIdeas(b.text);
   if (b.standard) {
     const { row } = await freshRow(id, false);
@@ -1870,7 +1918,7 @@ async function pitchFromEmail(b) {
     // Tom's pointers (13 Oct 2026): the note above each forward is kept on the Pitch Requests board and fed into later pitches, so the system learns from them.
     if (f.note) await monday(`mutation{change_multiple_column_values(board_id:${PITCH_BOARD},item_id:${Number(b.item)},column_values:${JSON.stringify(JSON.stringify({ long_text_mm83jwpf: { text: f.note } }))}){id}}`).catch(() => null);
     const pastQ = await monday(`query{boards(ids:[${PITCH_BOARD}]){items_page(limit:200){items{id column_values(ids:["long_text_mm83jwpf"]){text}}}}}`).catch(() => null);
-    const pointers = (((((pastQ || {}).boards || [])[0] || {}).items_page || {}).items || []).filter(it => String(it.id) !== String(b.item) && String(it.id) !== String(FACTS_ITEM)).map(it => String(((it.column_values || [])[0] || {}).text || "").trim()).filter(p => p && !/^(warm|kind|best) regards/i.test(p) && !/^\s*(press|press (package|list|pitch|junket)|earned media)[\s.!]*$/i.test(p)).filter((p, i, a) => a.indexOf(p) === i).slice(-30);
+    const pointers = (((((pastQ || {}).boards || [])[0] || {}).items_page || {}).items || []).filter(it => String(it.id) !== String(b.item) && String(it.id) !== String(FACTS_ITEM) && String(it.id) !== String(PLAYBOOK_ITEM)).map(it => String(((it.column_values || [])[0] || {}).text || "").trim()).filter(p => p && !/^(warm|kind|best) regards/i.test(p) && !/^\s*(press|press (package|list|pitch|junket)|earned media)[\s.!]*$/i.test(p)).filter((p, i, a) => a.indexOf(p) === i).slice(-30);
     if (!f.contactEmail || f.body.length < 40) throw new Error("No forwarded enquiry found. Forward the brand's own email.");
     const factsQ = await monday(`query{items(ids:[${FACTS_ITEM}]){column_values(ids:["long_text_mm83jwpf"]){text}}}`).catch(() => null);
     const facts = String(((((factsQ || {}).items || [])[0] || {}).column_values || [{}])[0].text || "").trim();

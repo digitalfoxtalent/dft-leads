@@ -462,10 +462,10 @@
 
 <script>
 const GROUPS=[
-  {id:"topics",         label:"YouTube Channels", kind:"long"},
+  {id:"topics",         label:"YouTube Integrated Ads", kind:"long", tip:"A 30 to 90 second ad inside one of the creator's regular videos."}, // renamed from YouTube Channels (Tom, 16 Oct 2026)
   // YouTube Dedicated (Tom, 13 Oct 2026): a whole video about the brand, at 3x the channel's
   // YouTube rate. Each row follows its channel on the YouTube tab; prices change there.
-  {id:"dedicated",      label:"YouTube Dedicated", kind:"long", tip:"A whole video about the brand: 3x the YouTube integration rate, one video, $1,500 minimum. Views are an estimate, not a guarantee."},
+  {id:"dedicated",      label:"YouTube Dedicated Videos", kind:"long", tip:"A whole video about the brand: 3x the YouTube integration rate, one video, $1,500 minimum. Views are an estimate, not a guarantee."},
   {id:"group_mm4av3kr", label:"YouTube Shorts",   kind:"short"},
   {id:"group_mm4a1fe0", label:"Instagram",        kind:"short"},
   {id:"group_mm4bd5tk", label:"TikTok",           kind:"short"},
@@ -593,7 +593,7 @@ function brandColsFor(){
   let cols=BRAND_COLS.filter(c=>{
     // Saved lists: the team's Stage column, which brands see as "Your feedback".
     if(c.listOnly) return !!(BRAND&&BRAND.list&&mode!=="team");
-    if(c.pressOnly) return isPress()||(paidIdeas()&&activeTab!=="dedicated");
+    if(c.pressOnly) return isPress()||paidIdeas();
     if(isPress()&&PRESS_HIDE.has(c.key)) return false;
     if(c.listEditOnly) return listEdit();
     if(c.shortOnly) return k!=="long";
@@ -768,7 +768,7 @@ function eyeBtn(c,isShow){
   if(mode!=="team") return "";
   const o=c.override||"Auto", [t,col]=EYE[o]||EYE.Auto;
   const slash=o==="Hide"?'<line x1="3" y1="3" x2="21" y2="21"/>':"";
-  if(isDed(c)) return `<span class="eye" title="${t}. Follows the channel on the YouTube Channels tab: change it there." style="color:${col};cursor:default;opacity:.75"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>${slash}</svg></span>`;
+  if(isDed(c)) return `<span class="eye" title="${t}. Follows the channel on the YouTube Integrated Ads tab: change it there." style="color:${col};cursor:default;opacity:.75"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>${slash}</svg></span>`;
   return `<button class="eye" data-id="${c.id}" data-show="${isShow?1:0}" data-o="${o}" title="${t}. Click to change." style="color:${col}" onclick="event.stopPropagation()"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>${slash}</svg>${o==="Always show"?'<b>+</b>':o==="List only"?'<b>L</b>':""}</button>`;
 }
 function nameCell(c){
@@ -1656,7 +1656,7 @@ function renderBanner(){
   } else if(TEAM){
     if(listEdit()){
       b.className="banner listbar"; b.style.display="";
-      const pr=isPress(), pi=paidIdeas(), missing=(pr||pi)?GROUPS.reduce((n,g)=>n+(g.id==="dedicated"?0:(BRAND.groups[g.id]||[]).filter(c=>!String(c.ideas||"").trim()).length),0):0;
+      const pr=isPress(), pi=paidIdeas(), missing=(pr||pi)?GROUPS.reduce((n,g)=>n+(g.id==="dedicated"&&pr?0:(BRAND.groups[g.id]||[]).filter(c=>!String(c.ideas||"").trim()).length),0):0;
       b.innerHTML=`<div class="lb-acts"><a class="btn" href="/?edit=${encodeURIComponent(LIST_SLUG)}">Add / remove creators</a>${typeButton()}${pr?"":ideasButton()+lockButton()+viewsButton()}${missing?`<button class="btn" id="draftIdeas" title="${pi?`Claude drafts campaign ideas for the ${missing} creator${missing===1?"":"s"} with none, from the brief and their channels. For this list only.`:`Claude drafts typical ideas for the ${missing} creator${missing===1?"":"s"} with none, from their channels. They become each creator's standard ideas.`}">Draft ideas for ${missing}</button>`:""}${acceptButton()}</div>${packageSummary()}`;
       $$typeWire(); $$ideasWire();
       const di=$("#draftIdeas"); if(di) di.onclick=()=>pi?draftCampaignIdeas(di):draftIdeas(di);
