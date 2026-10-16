@@ -1989,7 +1989,9 @@ async function gmailToken(subject) {
 const subjectWords = s => String(s || "").replace(/^\s*((re|fwd?|fw|aw|wg|tr)\s*:\s*)+/i, "").replace(/[^\p{L}\p{N}]+/gu, " ").trim().slice(0, 200);
 function pitchSearch(f) {
   const w = subjectWords(f.subject);
-  return w ? "in:sent {to:pitch@digitalfoxtalent.com to:press@digitalfoxtalent.com} subject:\"" + w + "\" newer_than:7d" : "from:" + f.contactEmail + " newer_than:90d";
+  // subject:(...) matches all the words; the quoted phrase it replaced missed subjects with "&", "|" or a date
+  // such as 10/19 in them (Tom's Motrin forward, 16 Oct 2026), so the draft was saved outside the brand's thread.
+  return w ? "in:sent {to:pitch@digitalfoxtalent.com to:press@digitalfoxtalent.com} subject:(" + w + ") newer_than:7d" : "from:" + f.contactEmail + " newer_than:90d";
 }
 function brandMsgId(thread, fallbackId) {
   const ms = (thread && thread.messages) || [];
