@@ -1840,7 +1840,7 @@ async function pitchFromEmail(b) {
     // that creator, put that creator's rates in the email itself, then offer the wider list (the creator is on it too).
     const FMT = { topics: "YouTube integration", dedicated: "YouTube dedicated video", group_mm4av3kr: "YouTube Short", group_mm4a1fe0: "Instagram Reel", group_mm4bd5tk: "TikTok", group_mm7yw8cy: "Snapchat" };
     const usd = n => "$" + Number(n).toLocaleString("en-US");
-    const rateLine = id => { const c = cat.byId[id] || {}; const price = libsyn && c.gid === "topics" && c.vg ? Math.round(c.vg * LIBSYN_CPM / 1000) : typeof c.total === "number" ? c.total : c.rate; if (!price || !FMT[c.gid]) return ""; const lm = String(c.adLength || "").match(/^(\d+)\s*-\s*(\d+)\s*s/i); const len = c.gid === "topics" && lm ? " (" + lm[1] + " to " + lm[2] + " sec)" : ""; const vg = c.gid === "topics" && c.vg ? " with a " + Number(c.vg).toLocaleString("en-US") + " view guarantee" : ""; return FMT[c.gid] + len + ": " + usd(price) + vg; };
+    const rateLine = id => { const c = cat.byId[id] || {}; const lv = libsyn && c.gid === "topics" && c.vg ? Math.round(c.vg / PRICE.long.mult * LIBSYN_VIEWS) : 0; const price = lv ? Math.round(lv * LIBSYN_CPM / 1000) : typeof c.total === "number" ? c.total : c.rate; if (!price || !FMT[c.gid]) return ""; const lm = String(c.adLength || "").match(/^(\d+)\s*-\s*(\d+)\s*s/i); const len = c.gid === "topics" && lm ? " (" + lm[1] + " to " + lm[2] + " sec)" : ""; const vg = c.gid === "topics" && c.vg ? " with a " + Number(lv || c.vg).toLocaleString("en-US") + " view guarantee" : ""; return FMT[c.gid] + len + ": " + usd(price) + vg; };
     const askedFor = out.stage !== "shortlist" && !expanded && !shortOnly && solo.length > 1 ? listNames : [];
     const gOrder = Object.keys(FMT);
     const baseOf = id => base(cat.byId[id].name).replace(/^@/, "");
@@ -1914,9 +1914,10 @@ async function pitchFromEmail(b) {
   }
 }
 
-// Libsyn Ads (Tom, 16 Oct 2026): every pitch to Libsyn or AdvertiseCast prices YouTube integrations at $28 CPM on
+// Libsyn Ads (Tom, 16 Oct 2026): every pitch to Libsyn or AdvertiseCast prices YouTube integrations at 1x average views and $28 CPM on
 // the saved list (shows too), and the draft links Libsyn's own sub report. The link lives on the API Keys board.
 const LIBSYN_CPM = 28;
+const LIBSYN_VIEWS = 1; // x the quarter's average views, for Libsyn long-form integrations (Tom, 16 Oct 2026)
 const LIBSYN_REPORT_ITEM = 13312527118;
 const isLibsyn = f => /@(libsyn|advertisecast)\.com$/i.test(String(f.contactEmail || "")) || /libsyn ads/i.test(String(f.subject || ""));
 async function libsynReportUrl() {
@@ -1930,7 +1931,8 @@ async function setListCpm(slug, cpm, by) {
   const ids = new Set((list.body.ids || []).map(String)), prices = Object.assign({}, list.body.prices || {});
   const set = (id, own) => {
     if (!own || !(own.vg > 0)) return;
-    const cur = prices[id] || {}, vg = Math.round(cur.vg > 0 ? cur.vg : own.vg);
+    // Views at 1x the quarter's average, not the usual 1.5x guarantee (Tom, 16 Oct 2026).
+    const cur = prices[id] || {}, vg = Math.round(own.basis > 0 ? own.basis * LIBSYN_VIEWS : own.vg / PRICE.long.mult * LIBSYN_VIEWS);
     prices[id] = Object.assign({ vg, cpm }, cur.videos ? { videos: cur.videos } : {}, cur.disc ? { disc: true, discFrom: cur.discFrom } : {});
   };
   data.rows.forEach(r => {
