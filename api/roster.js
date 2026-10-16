@@ -1124,8 +1124,8 @@ async function feedbackAlerts() {
     const { list } = await freshList(l0.slug);
     if (!list || list.bad || !due(list.body)) continue;
     const { subject, html, seen } = feedbackEmail(data, list);
-    await sendInternal(ALERT_TO, subject, html);
-    await writeList(list.id, Object.assign({}, list.body, { fbAlerted: list.body.fbSeq, fbSeen: seen }), {});
+    const th = await sendAlert(list, subject, html);
+    await writeList(list.id, Object.assign({}, list.body, { fbAlerted: list.body.fbSeq, fbSeen: seen }, th ? { thread: th } : {}), {});
     sent.push(list.slug);
   }
   return sent;
@@ -1193,15 +1193,47 @@ async function brandSubmit(b) {
   if (!Object.values(fb).some(f => f && (f.ok || f.no || f.note))) throw new Error("Tick \u201cApprove?\u201d on the creators you would like to book first.");
   if (Date.now() - (Date.parse(body.fbSubmitted || "") || 0) < 10 * 60 * 1000) return { ok: true, sent: false };
   const { subject, html, seen } = feedbackEmail(data, list, true);
-  await sendInternal(ALERT_TO, subject, html);
-  await writeList(list.id, Object.assign({}, body, { fbAlerted: Number(body.fbSeq) || 0, fbSeen: seen, fbSubmitted: new Date().toISOString() }), {});
+  const th = await sendAlert(list, subject, html);
+  await writeList(list.id, Object.assign({}, body, { fbAlerted: Number(body.fbSeq) || 0, fbSeen: seen, fbSubmitted: new Date().toISOString() }, th ? { thread: th } : {}), {});
   await audit(list.id, "Brand pressed Send my picks on \u201c" + list.name + "\u201d").catch(() => null);
   return { ok: true, sent: true };
 }
-async function sendInternal(to, subject, html) {
+// Brand feedback in the brand's own email thread (Tom, 16 Oct 2026: "Is there a way for this to be sent to me as part
+// of the original thread?"). The thread is the one where the list's link was sent: found once in Tom's mailbox (his
+// sent mail, or a teammate's pitch he was copied on) and kept on the list as body.thread. The alert is then sent as a
+// reply in that thread (same subject, In-Reply-To and References), so it lands under the brand's emails for Tom, Alex
+// and Margot. Still internal only: To is Tom, Alex and Margot, never the brand. With no thread found it is sent on
+// its own, as before. The counts that were in the subject are in the email's own heading.
+async function listThread(list) {
+  const tok = await gmailToken("tom@digitalfoxtalent.com"); if (!tok) return null;
+  const G = path => fetch("https://gmail.googleapis.com/gmail/v1/users/me" + path, { headers: { Authorization: "Bearer " + tok } }).then(r => r.ok ? r.json() : {}).catch(() => ({}));
+  let id = list.body.thread && list.body.thread.id;
+  if (!id) {
+    const want = "/r/" + list.slug, name = subjectWords(list.name);
+    const q = "from:digitalfoxtalent.com -from:" + ALERT_FROM + " newer_than:60d {\"creator list\"" + (name ? " \"" + name + "\"" : "") + "}";
+    const ms = (await G("/messages?maxResults=40&q=" + encodeURIComponent(q))).messages || [];
+    const text = pl => { let out = ""; const walk = x => { if (!x) return; if (x.body && x.body.data) out += Buffer.from(x.body.data, "base64url").toString("utf8"); (x.parts || []).forEach(walk); }; walk(pl); return out; };
+    for (const m of ms) { const full = await G("/messages/" + m.id + "?format=full"); if (text(full.payload).includes(want)) { id = full.threadId; break; } }
+  }
+  if (!id) return null;
+  const t = await G("/threads/" + id + "?format=metadata&metadataHeaders=Message-ID&metadataHeaders=Subject");
+  const ms = t.messages || []; if (!ms.length) return null;
+  const hd = (m, n) => (((m.payload || {}).headers || []).find(h => h.name.toLowerCase() === n) || {}).value || "";
+  const ids = ms.map(m => hd(m, "message-id")).filter(Boolean);
+  const subj = hd(ms[0], "subject").replace(/^\s*((re|fwd?|fw)\s*:\s*)+/i, "").trim();
+  if (!ids.length || !subj) return null;
+  return { id, subject: "Re: " + subj, inReplyTo: ids[ids.length - 1], references: ids.slice(-20).join(" ") };
+}
+async function sendAlert(list, subject, html) {
+  const th = await listThread(list).catch(() => null);
+  if (th) { await sendInternal(ALERT_TO, th.subject, html, th); return { id: th.id }; }
+  await sendInternal(ALERT_TO, subject, html);
+  return null;
+}
+async function sendInternal(to, subject, html, reply) {
   const tok = await gmailToken(ALERT_FROM); if (!tok) throw new Error("GMAIL_DELEGATE_KEY not set");
   const enc = s => "=?UTF-8?B?" + Buffer.from(s).toString("base64") + "?=";
-  const mime = ["From: Digital Fox Talent <" + ALERT_FROM + ">", "To: " + to.join(", "), "Subject: " + enc(subject), "MIME-Version: 1.0", "Content-Type: text/html; charset=UTF-8", "Content-Transfer-Encoding: base64", "", Buffer.from(html).toString("base64")].join("\r\n");
+  const mime = ["From: Digital Fox Talent <" + ALERT_FROM + ">", "To: " + to.join(", "), "Subject: " + enc(subject)].concat(reply && reply.inReplyTo ? ["In-Reply-To: " + reply.inReplyTo, "References: " + reply.references] : []).concat(["MIME-Version: 1.0", "Content-Type: text/html; charset=UTF-8", "Content-Transfer-Encoding: base64", "", Buffer.from(html).toString("base64")]).join("\r\n");
   const r = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", { method: "POST", headers: { Authorization: "Bearer " + tok, "Content-Type": "application/json" }, body: JSON.stringify({ raw: Buffer.from(mime).toString("base64url") }) });
   if (!r.ok) throw new Error("Gmail send " + r.status + " " + (await r.text()).slice(0, 200));
 }
@@ -2132,6 +2164,8 @@ export default async function handler(req, res) {
         if (b.op === "list-type") return res.status(200).json(await listType(b, email));
         if (b.op === "list-libsyn") return res.status(200).json(await listLibsyn(b, email));
         if (b.op === "libsyn-report-url") return res.status(200).json({ url: await libsynReportUrl() });
+        // Which email thread a list's brand-feedback alert will go into (read only, for checking).
+        if (b.op === "list-thread") { const { list } = await freshList(b.slug); if (!list) throw new Error("list not found"); const t = await listThread(list); return res.status(200).json({ found: !!t, subject: t ? t.subject : "", thread: t ? t.id : "" }); }
         if (b.op === "list-idea") return res.status(200).json(await listIdea(b, email));
         if (b.op === "ideas-draft") return res.status(200).json(await ideasDraft(b, email));
         if (b.op === "list-show") return res.status(200).json(await listShow(b, email));
