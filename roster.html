@@ -1529,7 +1529,7 @@ function openPreview(id){
     const box=$("#pvvids"); if(!box) return;
     const vs=(j&&j.videos)||[]; if(!vs.length){ box.textContent=f.url?"Their latest videos are on their channel.":"No recent videos to show."; return; }
     const ago=t=>{ const d=Math.max(0,Math.round((Date.now()-Date.parse(t))/864e5)); return d<1?"today":d===1?"1 day ago":d<30?d+" days ago":d<365?Math.round(d/30)+" months ago":Math.round(d/365)+" years ago"; };
-    box.className="vids"; box.innerHTML=vs.map(v=>`<a href="${esc(v.url)}" target="_blank" rel="noopener"><img src="${esc(v.thumb)}" alt="" loading="lazy" referrerpolicy="no-referrer"><div class="vt">${esc(v.title)}</div><div class="vm">${int(v.views)} views · ${ago(v.at)}</div></a>`).join("");
+    box.className="vids"; box.innerHTML=vs.map(v=>`<a href="${esc(v.url)}" target="_blank" rel="noopener"><img src="${esc(v.thumb)}" alt="" loading="lazy" referrerpolicy="no-referrer"><div class="vt">${esc(v.title)}</div><div class="vm">${v.views?int(v.views)+" views · ":""}${ago(v.at)}</div></a>`).join("");
   }).catch(()=>{ const box=$("#pvvids"); if(box) box.textContent="Their latest videos are on their channel."; });
 }
 // ---------- lists ----------
