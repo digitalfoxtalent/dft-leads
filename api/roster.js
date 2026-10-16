@@ -1210,10 +1210,10 @@ async function listThread(list) {
   let id = list.body.thread && list.body.thread.id;
   if (!id) {
     const want = "/r/" + list.slug, name = subjectWords(list.name);
-    const q = "from:digitalfoxtalent.com -from:" + ALERT_FROM + " newer_than:60d {\"creator list\"" + (name ? " \"" + name + "\"" : "") + "}";
+    const q = "from:digitalfoxtalent.com -from:" + ALERT_FROM + " -subject:\"Brand feedback\" -subject:\"Brand sent their picks\" newer_than:60d {\"creator list\"" + (name ? " \"" + name + "\"" : "") + "}";
     const ms = (await G("/messages?maxResults=40&q=" + encodeURIComponent(q))).messages || [];
     const text = pl => { let out = ""; const walk = x => { if (!x) return; if (x.body && x.body.data) out += Buffer.from(x.body.data, "base64url").toString("utf8"); (x.parts || []).forEach(walk); }; walk(pl); return out; };
-    for (const m of ms) { const full = await G("/messages/" + m.id + "?format=full"); if (text(full.payload).includes(want)) { id = full.threadId; break; } }
+    for (const m of ms) { const full = await G("/messages/" + m.id + "?format=full"); const sj = (((full.payload || {}).headers || []).find(h => h.name.toLowerCase() === "subject") || {}).value || ""; if (!/brand feedback|brand sent their picks/i.test(sj) && text(full.payload).includes(want)) { id = full.threadId; break; } }
   }
   if (!id) return null;
   const t = await G("/threads/" + id + "?format=metadata&metadataHeaders=Message-ID&metadataHeaders=Subject");
@@ -1221,7 +1221,7 @@ async function listThread(list) {
   const hd = (m, n) => (((m.payload || {}).headers || []).find(h => h.name.toLowerCase() === n) || {}).value || "";
   const ids = ms.map(m => hd(m, "message-id")).filter(Boolean);
   const subj = hd(ms[0], "subject").replace(/^\s*((re|fwd?|fw)\s*:\s*)+/i, "").trim();
-  if (!ids.length || !subj) return null;
+  if (!ids.length || !subj || /^(brand feedback|brand sent their picks)/i.test(subj)) return null; // never an alert's own thread
   return { id, subject: "Re: " + subj, inReplyTo: ids[ids.length - 1], references: ids.slice(-20).join(" ") };
 }
 async function sendAlert(list, subject, html) {
