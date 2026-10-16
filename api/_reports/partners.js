@@ -45,9 +45,11 @@ export async function loadPartners(token) {
     const next = {};
     for (const it of items) {
       const v = {}; for (const c of it.column_values || []) v[c.id] = c.text || "";
-      const slug = v[COLS.slug].trim().toLowerCase(), sha = v[COLS.sha].trim().toLowerCase(), match = matcher(v[COLS.match]);
-      if (v[COLS.live] !== "v" || !/^[a-z0-9-]+$/.test(slug) || !/^[0-9a-f]{64}$/.test(sha) || !match) continue;
-      next[slug] = { name: it.name.trim(), match, keySha: sha };
+      // Several keys per partner (16 Oct 2026): hashes separated by | or spaces, so a new link (e.g. the one
+      // pitch drafts carry) can be added without breaking a link already shared.
+      const slug = v[COLS.slug].trim().toLowerCase(), shas = v[COLS.sha].toLowerCase().split(/[|,\s]+/).filter(x => /^[0-9a-f]{64}$/.test(x)), match = matcher(v[COLS.match]);
+      if (v[COLS.live] !== "v" || !/^[a-z0-9-]+$/.test(slug) || !shas.length || !match) continue;
+      next[slug] = { name: it.name.trim(), match, keySha: shas[0], keyShas: shas };
     }
     // A read that drops every partner counts as a fault, never the truth: keep the last list.
     if (!Object.keys(next).length && items.length) throw new Error("no valid partner rows");

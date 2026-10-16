@@ -85,7 +85,7 @@ const psign = (v, secret) => crypto.createHmac("sha256", secret + "|partner-v1")
 export function partnerKey(k) {
   if (!k) return null;
   const h = crypto.createHash("sha256").update(String(k)).digest("hex");
-  for (const id in PARTNERS) if (crypto.timingSafeEqual(Buffer.from(h), Buffer.from(PARTNERS[id].keySha))) return id;
+  for (const id in PARTNERS) for (const sha of (PARTNERS[id].keyShas || [PARTNERS[id].keySha])) if (crypto.timingSafeEqual(Buffer.from(h), Buffer.from(sha))) return id;
   return null;
 }
 export function setPartnerCookie(res, secret, id) {
