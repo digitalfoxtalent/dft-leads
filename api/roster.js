@@ -167,7 +167,7 @@ const SC = {
   bq: "text_mm7v1hhz", bnote: "text_mm7vjp1y", vis: "color_mm7vvvfz",
   bvideos: "numeric_mm7z2dv1",
 };
-const L = { slug: "text_mm7vgrr5", items: "long_text_mm7vtnkw", by: "text_mm7v2v06", link: "link_mm7vwxw0", updated: "text_mm7vj42p" };
+const L = { slug: "text_mm7vgrr5", items: "long_text_mm7vtnkw", by: "text_mm7v2v06", link: "link_mm7vwxw0", updated: "text_mm7vj42p", opened: "date_mm867kmd" };
 // List storage (Tom, 10 Oct 2026). monday cuts a long text at 2,000 characters. Locking a
 // big list went past that, the cut-off JSON could not be read, and the next save wrote the
 // list back empty (Alex's "Avengers: Doomsday"). The JSON is now split across "Items" and
@@ -507,7 +507,7 @@ async function loadBoard() {
   const listItems = ((((lists || {}).boards || [])[0] || {}).items_page || { items: [] }).items.map(it => {
     const cv = {}; (it.column_values || []).forEach(c => { cv[c.id] = c.text || ""; });
     const { body, bad } = readListBody(cv);
-    return { id: String(it.id), name: it.name, slug: cv[L.slug], body, bad, by: cv[L.by], updated: cv[L.updated] };
+    return { id: String(it.id), name: it.name, slug: cv[L.slug], body, bad, by: cv[L.by], updated: cv[L.updated], opened: cv[L.opened] || "" };
   });
   const settings = listItems.find(x => x.name === "__settings");
   const data = { rows, lists: listItems.filter(x => x.name !== "__settings" && x.slug), columns: (settings && settings.body.columns) || null,
@@ -529,7 +529,7 @@ async function freshList(slug) {
   if (!it || it.state === "archived" || it.state === "deleted") { data.lists = data.lists.filter(x => x !== l); return { data, list: null }; }
   const cv = {}; (it.column_values || []).forEach(c => { cv[c.id] = c.text || ""; });
   const { body, bad } = readListBody(cv);
-  Object.assign(l, { name: it.name, slug: cv[L.slug] || l.slug, body, bad, by: cv[L.by], updated: cv[L.updated] });
+  Object.assign(l, { name: it.name, slug: cv[L.slug] || l.slug, body, bad, by: cv[L.by], updated: cv[L.updated], opened: cv[L.opened] || "" });
   return { data, list: l };
 }
 
@@ -1408,6 +1408,31 @@ async function listClaim(b) {
   const { list: again } = await freshList(list.slug);
   if (again && !again.bad) await writeList(again.id, Object.assign({}, again.body, { forks: Object.assign({}, again.body.forks || {}, { [org]: made.slug }) }), {});
   return { ok: true, slug: made.slug };
+}
+// Old lists tidy themselves away (Tom, 16 Oct 2026: "if a list hasn't been opened or touched for 90 days, let's have it
+// automatically deleted"). A brand opening a list stamps Last opened once a day; the cron archives (monday's archive,
+// restorable for 30 days) any list with no open, edit, brand tick or creation in 90 days. The AI campaigns list stays.
+async function listSeen(b) {
+  const data = await loadBoard(); const l = data.lists.find(x => x.slug === String(b.slug || ""));
+  const today = new Date().toISOString().slice(0, 10);
+  if (!l || l.opened === today) return { ok: true };
+  l.opened = today;
+  await monday(`mutation{change_simple_column_value(board_id:${LISTS_BOARD},item_id:${Number(l.id)},column_id:"${L.opened}",value:"${today}"){id}}`).catch(() => null);
+  return { ok: true };
+}
+async function archiveStaleLists() {
+  const data = await loadBoard(), cutoff = Date.now() - 90 * 864e5, gone = [];
+  for (const l of data.lists) {
+    if (!l.slug || l.slug === AI_LIST || l.bad) continue;
+    const days = (String(l.by || "") + " " + String(l.updated || "") + " " + String(l.opened || "") + " " + String((l.body && l.body.fbAt) || "")).match(/\d{4}-\d\d-\d\d/g) || [];
+    if (!days.length) continue;
+    const last = Math.max(...days.map(d => Date.parse(d)).filter(Number.isFinite));
+    if (!(last < cutoff)) continue;
+    await monday("mutation($i:ID!){archive_item(item_id:$i){id}}", { i: l.id }).then(() => gone.push(l.name)).catch(() => null);
+    if (gone.length >= 25) break;
+  }
+  if (gone.length) cache = null;
+  return gone.length ? "archived " + gone.length + ": " + gone.join(", ").slice(0, 300) : "none";
 }
 async function listThread(list) {
   const tok = await gmailToken("tom@digitalfoxtalent.com"); if (!tok) return null;
@@ -2558,6 +2583,11 @@ export default async function handler(req, res) {
         try { return res.status(200).json(await brandFeedback(b, email)); }
         catch (e) { return res.status(400).json({ error: String(e && e.message || e) }); }
       }
+      if (b && b.op === "list-seen") {
+        if (!origin) return res.status(403).json({ error: "Bad origin" });
+        try { return res.status(200).json(await listSeen(b)); }
+        catch (e) { return res.status(400).json({ error: String(e && e.message || e) }); }
+      }
       if (b && b.op === "list-claim") {
         if (!origin) return res.status(403).json({ error: "Bad origin" });
         try { return res.status(200).json(await listClaim(b)); }
@@ -2623,7 +2653,7 @@ export default async function handler(req, res) {
 
     // Warm-up (roster-warm cron): loads the board into this server copy so the first list
     // page or signed-in view after a quiet spell does not wait for a cold start.
-    if (q.warm) { res.setHeader("Cache-Control", "no-store"); await loadBoard(); const alerts = await feedbackAlerts().catch(e => "failed: " + String((e && e.message) || e).slice(0, 200)); const ideas = await pendingIdeas().catch(e => "failed: " + String((e && e.message) || e).slice(0, 200)); const nw = new Date(); const audit = nw.getUTCHours() % 6 === 0 && nw.getUTCMinutes() < 5 ? await pitchAudit({ days: 3, write: true }).then(r => r.flagged + " shared").catch(e => "failed: " + String((e && e.message) || e).slice(0, 200)) : ""; return res.status(200).json({ ok: true, alerts, ideas, audit }); }
+    if (q.warm) { res.setHeader("Cache-Control", "no-store"); await loadBoard(); const alerts = await feedbackAlerts().catch(e => "failed: " + String((e && e.message) || e).slice(0, 200)); const ideas = await pendingIdeas().catch(e => "failed: " + String((e && e.message) || e).slice(0, 200)); const nw = new Date(); const audit = nw.getUTCHours() % 6 === 0 && nw.getUTCMinutes() < 5 ? await pitchAudit({ days: 3, write: true }).then(r => r.flagged + " shared").catch(e => "failed: " + String((e && e.message) || e).slice(0, 200)) : ""; const stale = nw.getUTCHours() === 10 && nw.getUTCMinutes() < 5 ? await archiveStaleLists().catch(e => "failed: " + String((e && e.message) || e).slice(0, 200)) : ""; return res.status(200).json({ ok: true, alerts, ideas, audit, stale }); }
     if (q.list) {
       // The list itself is read fresh every time (one small call), so a page never shows, or
       // later saves over, an older copy of it.

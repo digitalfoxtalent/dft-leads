@@ -1937,6 +1937,8 @@ async function load(){
   catch(e){ if(!(await team)){ $("#scroll").innerHTML=`<div class="state"><div>${esc(e.message)}</div></div>`; $("#count").textContent=""; } }
   const signedIn=await team;
   if(!signedIn&&LIST_SLUG&&BRAND&&BRAND.list&&BRAND.list.gate) claimGate();
+  // Last opened, once a day per list (Tom, 16 Oct 2026): lists nobody opens or touches for 90 days are archived.
+  if(!signedIn&&LIST_SLUG&&BRAND&&BRAND.list) fetch("/api/roster",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({op:"list-seen",slug:BRAND.list.slug||LIST_SLUG})}).catch(()=>{});
   if(!signedIn&&!LIST_SLUG) $("#signin").style.display="";
   const editSlug=new URLSearchParams(location.search).get("edit");
   if(signedIn&&editSlug&&!LIST_SLUG){ const l=((TEAM&&TEAM.lists)||[]).find(x=>x.slug===editSlug); if(l) chooseCreatorsFor(l); history.replaceState(null,"","/"); }
