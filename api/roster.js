@@ -1278,6 +1278,7 @@ async function creatorVideos(b) {
   const hit = ytPreviewCache.get(ck); if (hit && Date.now() - hit.at < 6 * 3600e3) return hit.v;
   const yt = (ep, q) => fetch("https://www.googleapis.com/youtube/v3/" + ep + "?" + q + "&key=" + key).then(x => x.json());
   const ch = await yt("channels", "part=contentDetails&" + (m[1] ? "id=" + m[1] : "forHandle=" + encodeURIComponent("@" + m[2])));
+  if (ch.error) throw new Error("YouTube: " + ((ch.error.errors || [])[0] || {}).reason + " " + String(ch.error.message || "").slice(0, 120));
   const up = (((ch.items || [])[0] || {}).contentDetails || {}).relatedPlaylists; const upl = up && up.uploads;
   if (!upl) return { ok: true, videos: [], channel: url };
   const pl = await yt("playlistItems", "part=contentDetails&maxResults=25&playlistId=" + upl);
