@@ -1854,7 +1854,7 @@ async function pitchFromEmail(b) {
     // that creator, put that creator's rates in the email itself, then offer the wider list (the creator is on it too).
     const FMT = { topics: "YouTube integration", dedicated: "YouTube dedicated video", group_mm4av3kr: "YouTube Short", group_mm4a1fe0: "Instagram Reel", group_mm4bd5tk: "TikTok", group_mm7yw8cy: "Snapchat" };
     const usd = n => "$" + Number(n).toLocaleString("en-US");
-    const rateLine = id => { const c = cat.byId[id] || {}; const ll = libsyn && c.gid === "topics" ? (data.rows.find(x => x.id === id) || {}).libsyn : null; const lv = ll ? ll.reach : libsyn && c.gid === "topics" && c.vg ? Math.round(c.vg / PRICE.long.mult * LIBSYN_VIEWS) : 0; const price = ll ? ll.price : lv ? Math.round(lv * LIBSYN_CPM / 1000) : typeof c.total === "number" ? c.total : c.rate; if (!price || !FMT[c.gid]) return ""; const lm = String(c.adLength || "").match(/^(\d+)\s*-\s*(\d+)\s*s/i); const len = c.gid === "topics" && lm ? " (" + lm[1] + " to " + lm[2] + " sec)" : ""; const vg = c.gid === "topics" && c.vg ? " with a " + Number(lv || c.vg).toLocaleString("en-US") + " view guarantee" : ""; return FMT[c.gid] + len + ": " + usd(price) + vg; };
+    const rateLine = id => { const c = cat.byId[id] || {}; const ll = libsyn && c.gid === "topics" ? (data.rows.find(x => x.id === id) || {}).libsyn : null; const lv = ll ? ll.reach : libsyn && c.gid === "topics" && c.vg ? Math.round(c.vg / PRICE.long.mult * LIBSYN_VIEWS) : 0; const price = lv ? Math.round(lv * LIBSYN_CPM / 1000) : typeof c.total === "number" ? c.total : c.rate; if (!price || !FMT[c.gid]) return ""; const lm = String(c.adLength || "").match(/^(\d+)\s*-\s*(\d+)\s*s/i); const len = c.gid === "topics" && lm ? " (" + lm[1] + " to " + lm[2] + " sec)" : ""; const vg = c.gid === "topics" && c.vg ? " with a " + Number(lv || c.vg).toLocaleString("en-US") + " view guarantee" : ""; return FMT[c.gid] + len + ": " + usd(price) + vg; };
     const askedFor = out.stage !== "shortlist" && !expanded && !shortOnly && solo.length > 1 ? listNames : [];
     const gOrder = Object.keys(FMT);
     const baseOf = id => base(cat.byId[id].name).replace(/^@/, "");
@@ -1952,10 +1952,10 @@ async function setListCpm(slug, cpm, by) {
   };
   data.rows.forEach(r => {
     if (r.group !== "topics" || !ids.has(r.id)) return;
-    // A creator with a Libsyn Ads listing is priced exactly as the listing (Tom, 16 Oct 2026, "so every Libsyn rep
-    // sees one number"): its reach as the views, its price as the rate for one video. Kept on the Supplier register
-    // (Listed reach, Listed price). The CPM is stored to 4 decimals so views x CPM gives the listed price.
-    if (r.libsyn) prices[r.id] = { vg: Math.round(r.libsyn.reach), cpm: Math.round(r.libsyn.price * 1000 / r.libsyn.reach * 1e4) / 1e4, videos: 1 };
+    // A creator with a Libsyn Ads listing uses the listing's reach as the views, for one video (Tom, 16 Oct 2026,
+    // "so every Libsyn rep sees one number"), at the Libsyn CPM of $28 for every creator (Tom, same day: "all
+    // Libsyn plans ... the CPM is $28"), not the listing's own price. Reach lives on the Supplier register.
+    if (r.libsyn) prices[r.id] = { vg: Math.round(r.libsyn.reach), cpm, videos: 1 };
     else set(r.id, brandNumbers(r.cv, C, "long"));
     r.shows.forEach(s => set(s.id, brandNumbers(s.cv, SC, "long")));
   });
