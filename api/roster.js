@@ -120,8 +120,10 @@ function roundNums(b, fine, kind = "long") {
   // same answer (116,000 views at $25 is $2,900, not the $2,911 of the unrounded 116,420).
   // Never below the $1,500 minimum.
   if (kind === "long" && b.listCpm > 0) { // a list's own CPM: exactly views x CPM, no minimum
-    if (o.vg > 0) o.rate = Math.round(o.vg * o.cpm / 1000);
-    if (o.vgPer != null) o.ratePer = Math.round(o.vgPer * o.cpm / 1000);
+    // The unrounded list CPM (a rate typed on a list is stored as a CPM to 4 decimals), so the
+    // rate shown is exactly the rate typed (Tom, 15 Oct 2026).
+    if (o.vg > 0) o.rate = Math.round(o.vg * b.listCpm / 1000);
+    if (o.vgPer != null) o.ratePer = Math.round(o.vgPer * b.listCpm / 1000);
   }
   else if (kind === "long" && Math.abs((b.rate || 0) - FLOOR) <= 1) { // held at the minimum
     o.rate = FLOOR;
@@ -580,11 +582,19 @@ function priced(own, p, kind, isShow) {
   return isShow ? roundNums(x) : addFee(x, kind);
 }
 const isDisc = p => !!(p && p.disc && p.discFrom > 0);
+// Discount by rate as well as CPM, on every tab (Tom, 15 Oct 2026). Short form has been priced
+// by its production fee since 13 Oct, so a lower fee never moved the CPM the discount started
+// from and brands saw no old price. The price compared against is now the price at the CPM the
+// discount started from, or, when that is no higher (short form, or a rate lowered before the
+// box was ticked), the rate card price for the row. The order of ticking and lowering no longer
+// matters. Short form compares Total Rates; YouTube compares Rates.
 function discountFor(own, p, kind, now, isShow) {
   if (!isDisc(p) || !now) return null;
-  const was = priced(own, Object.assign({}, p, { cpm: p.discFrom }), kind, isShow);
-  if (!was || !(was.rate > now.rate)) return null;
-  return { wasRate: was.rate, wasTotal: isShow ? was.rate : was.total, discPct: Math.round((1 - now.rate / was.rate) * 100) };
+  const amt = x => (isShow || kind === "long" ? x.rate : x.total) || 0;
+  let was = priced(own, Object.assign({}, p, { cpm: p.discFrom }), kind, isShow);
+  if (!was || !(amt(was) > amt(now))) was = priced(own, p.videos > 0 ? { videos: p.videos } : null, kind, isShow);
+  if (!was || !(amt(was) > amt(now))) return null;
+  return { wasRate: was.rate, wasTotal: isShow ? was.rate : was.total, discPct: Math.round((1 - amt(now) / amt(was)) * 100) };
 }
 function brandRow(r, includeHiddenByRule, prices, team, showVis) {
   prices = prices || {};
@@ -966,14 +976,35 @@ async function listPrice(b, email) {
     prices[id] = Object.assign({}, prices[id] || {}, { videos: n });
   } else if (kind === "long") {
     const cur = prices[id] || {};
-    const vg = Math.round(num(b.vg != null ? b.vg : (cur.vg || b.curVg)) || 0), cpm = num(b.cpm != null ? b.cpm : (cur.cpm || b.curCpm)) || 0;
+    const vg = Math.round(num(b.vg != null ? b.vg : (cur.vg || b.curVg)) || 0);
+    // A Rate typed on a list (Tom, 15 Oct 2026, "offer discounts by adjusting the rate too"):
+    // kept as the CPM that gives exactly that rate for the videos shown, which are pinned so
+    // the automatic bundle size cannot change under it.
+    let cpm, videos = cur.videos;
+    if (b.rate != null) {
+      const rate = num(b.rate), n = Math.round(num(cur.videos || b.curVideos) || 1);
+      if (!(rate > 0) || rate > 1e7) throw new Error("Rate must be a positive number");
+      if (!(vg > 0) || !(n >= 1)) throw new Error("This row has no views to price from yet");
+      cpm = Math.round(rate * 1000 / (vg * n) * 1e4) / 1e4;
+      if (n > 1 || cur.videos) videos = n;
+    } else cpm = r2(num(b.cpm != null ? b.cpm : (cur.cpm || b.curCpm)) || 0);
     if (!(vg > 0) || !(cpm > 0) || cpm > 10000 || vg > 1e9) throw new Error("View guarantee and CPM must be positive numbers");
-    prices[id] = Object.assign({ vg, cpm: r2(cpm) }, cur.videos ? { videos: cur.videos } : {}, cur.disc ? { disc: true, discFrom: cur.discFrom } : {});
+    prices[id] = Object.assign({ vg, cpm }, videos ? { videos } : {}, cur.disc ? { disc: true, discFrom: cur.discFrom } : {});
   } else {
     // Short form on a list: View Estimate, CPM and the content production fee.
     const cur = prices[id] || {};
     const pick = (k, curK) => num(b[k] != null ? b[k] : (cur[k] != null ? cur[k] : b[curK]));
-    const vg = Math.round(pick("vg", "curVg") || 0), cpm = pick("cpm", "curCpm") || 0, fee = pick("fee", "curFee");
+    const vg = Math.round(pick("vg", "curVg") || 0), cpm = pick("cpm", "curCpm") || 0;
+    let fee = pick("fee", "curFee");
+    // A Total Rate typed on a list (Tom, 15 Oct 2026): the production fee that gives exactly
+    // that total once the Publishing Rate (POST_SHARE of the fee) is added.
+    if (b.total != null) {
+      const t = num(b.total);
+      if (!(t > 0) || t > 1e7) throw new Error("Total Rate must be a positive number");
+      const f0 = Math.round(t / (1 + POST_SHARE));
+      fee = [0, -1, 1, -2, 2].map(d => f0 + d).find(f => f + Math.round(f * POST_SHARE) === Math.round(t));
+      if (fee == null) fee = f0;
+    }
     if (!(vg > 0) || !(cpm > 0) || cpm > 10000 || vg > 1e9) throw new Error("View estimate and CPM must be positive numbers");
     if (fee == null || fee < 0 || fee > 1e6) throw new Error("Production fee must be zero or more");
     prices[id] = Object.assign({ vg, cpm: r2(cpm), fee: Math.round(fee) }, cur.disc ? { disc: true, discFrom: cur.discFrom } : {});

@@ -59,6 +59,13 @@
   .banner b{ font-weight:700; }
   .banner .pkg{ margin-left:auto; display:flex; gap:14px; flex-wrap:wrap; font-weight:600; }
   .banner .pkg span b{ font-weight:800; color:#5a3000; }
+  .banner.brandbar{ display:block; padding:18px 28px 20px; font-size:12.5px; line-height:1.5; }
+  .brandbar .bb-title{ display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; font-size:13px; color:#8a4a00; }
+  .brandbar .bb-title b{ font-size:15px; font-weight:800; color:#5a3000; }
+  .brandbar .bb-hint{ margin-top:4px; font-weight:500; }
+  .brandbar .bb-foot{ display:flex; align-items:center; justify-content:space-between; gap:12px 28px; flex-wrap:wrap; margin-top:14px; padding-top:14px; border-top:1px solid #f0dcc2; }
+  .brandbar .pkg{ margin-left:0; gap:6px 24px; font-size:12.5px; }
+  .brandbar .btn.sendpicks{ margin:0; align-self:center; font-size:13px; padding:10px 18px; border-radius:9px; }
 
   /* Pitch-list totals (saved lists only) */
   tfoot td{ position:sticky; bottom:0; z-index:2; background:#1a1a1a; color:#fff; font-weight:700; border-color:#333; }
@@ -359,6 +366,9 @@
     .banner .shorthint{ display:inline; }
     .banner .bbtn, .banner .btn{ padding:8px 11px; }
     .banner .pkg{ margin-left:0; display:grid; grid-template-columns:1fr 1fr; gap:8px 16px; }
+    .banner.brandbar{ padding:16px 16px 18px; }
+    .brandbar .bb-foot{ display:block; }
+    .brandbar .btn.sendpicks{ display:block; width:100%; margin:16px 0 0; }
     .scroll{ flex:none; overflow:visible; background:var(--bg); }
     .state{ min-height:50vh; }
     .tabbar{ position:sticky; bottom:0; z-index:15; padding:0 8px env(safe-area-inset-bottom); min-height:50px; box-shadow:0 -4px 14px rgba(0,0,0,.06); }
@@ -450,7 +460,7 @@ const BRAND_COLS=[
   {key:"rate",   head:"Rate",        w:92,  fmt:"money"},
   {key:"vg",     head:"View Guarantee", w:128, fmt:"int", longOnly:true},
   {key:"cpm",    head:"CPM",         w:64,  fmt:"money2", longOnly:true},
-  {key:"disc",   head:"Discount",    w:96,  listEditOnly:true, tip:"Tick, then type a lower CPM. Brands see the old rate crossed out and the % off. Untick to put the CPM back."},
+  {key:"disc",   head:"Discount",    w:96,  listEditOnly:true, tip:"Tick, then lower the Rate, Total Rate, Production Rate or CPM (either order). Brands see the old price crossed out and the % off."},
   {key:"fee",    head:"Production Rate", w:140, fmt:"money", shortOnly:true, tip:"Production rate for the post."},
   {key:"total",  head:"Total Rate",  w:112, fmt:"money", shortOnly:true, tip:"Publishing Rate plus Production Rate."},
   {key:"rights", head:"Usage Rights", w:340, shortOnly:true, tip:"12 months of digital usage rights and boosting rights are included in the total."},
@@ -588,6 +598,11 @@ function brandColsFor(){
     if(c.key==="vg") return Object.assign({},c,{w:146,edit:"vg",head:k==="long"?(estLong()||activeTab==="dedicated"?"Estimated Views ✎":"View Guarantee ✎"):"Avg Views ✎",tip});
     if(c.key==="cpm") return Object.assign({},c,{edit:"cpm",head:k==="long"?"CPM ✎":"CPM ✎ (DFT only)",w:k==="long"?84:130,tip:k==="long"?tip:"Brands do not see this column. "+tip});
     if(c.key==="fee") return Object.assign({},c,{edit:"fee",head:"Production Rate ✎",w:160,tip});
+    // Discount by rate on every tab (Tom, 15 Oct 2026): type the price itself, not only the CPM.
+    // YouTube: the Rate (kept as the CPM that gives it). Short form: the Total Rate (kept as the
+    // production fee that gives it).
+    if(c.key==="rate"&&k==="long") return Object.assign({},c,{edit:"rate",head:"Rate ✎",w:Math.max(c.w||0,112),tip});
+    if(c.key==="total"&&k!=="long") return Object.assign({},c,{edit:"total",head:"Total Rate ✎",w:Math.max(c.w||0,124),tip});
     // Number of videos (Tom, 9 Oct 2026): the view guarantee and rate follow it. Fewer
     // videos than the $1,500 minimum needs are still priced at $1,500.
     if(c.key==="minVideos"&&k==="long") return Object.assign({},c,{edit:"videos",head:"Videos ✎",w:112,tip:"Number of videos for this list only. View Guarantee = views per video x videos, Rate = that x CPM, minimum $1,500. Clear the box to go back to the automatic count."});
@@ -666,8 +681,8 @@ function fmtCell(c,col,isShow){
     const st=c.stage||(c.confirmed?"confirmed":"");
     return `<span class="stg" onclick="event.stopPropagation()">${decisionRow(c,false)}<label class="dft" title="Digital Fox Talent has reached out to this creator"><input type="checkbox" tabindex="-1" onclick="return false" ${st?"checked":""}>Approached</label>${creatorRow(c,false)}<label class="dft" title="Locked in by Digital Fox Talent"><input type="checkbox" tabindex="-1" onclick="return false" ${st==="confirmed"?"checked":""}>Confirmed</label></span>`;
   }
-  if(col.key==="disc") return `<label class="ckc disc" onclick="event.stopPropagation()"><input type="checkbox" class="dsc" data-id="${c.id}"${isShow?' data-show="1"':""} ${c.disc?"checked":""} title="Discount: tick, then type a lower CPM"></label>`;
-  if((col.key==="rate"||col.key==="total")&&c.wasRate&&(col.key==="rate"||c.kind!=="long")){
+  if(col.key==="disc") return `<label class="ckc disc" onclick="event.stopPropagation()"><input type="checkbox" class="dsc" data-id="${c.id}"${isShow?' data-show="1"':""} ${c.disc?"checked":""} title="Discount: tick, then lower the rate or CPM"></label>`;
+  if(c.wasRate&&((col.key==="rate"&&(c.kind==="long"||isShow))||(col.key==="total"&&c.kind!=="long"&&!isShow))){
     const was=col.key==="rate"?c.wasRate:c.wasTotal;
     return `${money(cellVal(c,col))}<span class="was"><s>${money(was)}</s>${c.discPct}% off</span>`;
   }
@@ -979,7 +994,7 @@ function wire(){
       const f=findListRow(cb.dataset.id); if(!f){ render(); return; } const r=f.row;
       const body={op:"list-price",slug:LIST_SLUG,id:cb.dataset.id,disc:cb.checked,curCpm:r.askCpm||r.cpm,curVg:r.vgPer!=null?r.vgPer:r.vg};
       patchListRow(cb.dataset.id,x=>{ x.disc=cb.checked||undefined; });
-      listSave(body,cb.checked?"Discount on: now type the lower CPM":"Discount off: CPM put back").catch(()=>{});
+      listSave(body,cb.checked?"Discount on: lower the rate or CPM and brands see the old price crossed out":"Discount off").catch(()=>{});
     }));
   }
   // Column drag (the orange columns; the blue DFT columns stay first).
@@ -1144,9 +1159,9 @@ function startListEdit(td){
     const body={op:"list-price",slug:LIST_SLUG,id:td.dataset.id};
     if(raw===""){ body.clear=true; if(isVid) body.field="videos"; }
     else if(isVid) body.videos=v;
-    else { body[field]=v; body.curVg=r.vgPer!=null?r.vgPer:r.vg; body.curCpm=r.askCpm||r.cpm; if(f.kind!=="long") body.curFee=r.fee!=null?r.fee:(r.vg>=250000?7500:r.vg>=100000?5000:3000); }
+    else { body[field]=v; body.curVg=r.vgPer!=null?r.vgPer:r.vg; body.curCpm=r.askCpm||r.cpm; body.curVideos=r.minVideos||1; if(f.kind!=="long") body.curFee=r.fee!=null?r.fee:(r.vg>=250000?7500:r.vg>=100000?5000:3000); }
     // The typed number shows at once; the totals follow when the save comes back.
-    td.textContent=raw===""?"…":field==="cpm"?money2(v):int(v);
+    td.textContent=raw===""?"…":field==="cpm"?money2(v):(field==="rate"||field==="total"||field==="fee")?money(v):int(v);
     const note=raw===""||isVid?"":listMinNote(f,r,field,v);
     // YouTube rows: the new rate and any discount show straight away too (Tom, 12 Oct 2026),
     // worked out the same way the server does: views x CPM, crossed out against the CPM the
@@ -1496,8 +1511,8 @@ function renderBanner(){
     b.innerHTML=`<span>Choosing creators for <b>“${esc(editingList.title)}”</b>: tick or untick, then press <b>Update list</b>. Prices are locked while you do this.</span> <a class="bbtn" href="/r/${esc(editingList.slug)}">Change “${esc(editingList.title)}”'s numbers</a> <button class="bbtn" id="doneList">Done</button><span class="spacer"></span><a href="/auth/signout" style="text-decoration:underline">Sign out</a>`;
     $("#doneList").onclick=()=>{ picked.clear(); editingList=null; $("#listName").value=""; $("#selMsg").textContent=""; renderBanner(); render(); };
   } else if(TEAM&&asBrand&&BRAND&&BRAND.list&&mode!=="team"){
-    b.className="banner list"; b.style.display="";
-    b.innerHTML=`<b>Brand preview:</b>&nbsp;exactly what the brand sees. Their buttons do not save here.<span class="hint">Tick \u201cApprove?\u201d on any creator you would like to book, tick again for a no. The speech bubble adds a note.</span>${packageSummary()}<button class="btn sendpicks" id="sendPicks">Send my picks to Digital Fox Talent</button>`;
+    b.className="banner list brandbar"; b.style.display="";
+    b.innerHTML=brandBar(`<b>Brand preview</b><span>Exactly what the brand sees. Their buttons do not save here.</span>`);
     const sp=$("#sendPicks"); if(sp) sp.onclick=()=>toast("Preview only: the brand presses this when they have finished, and we get the feedback email straight away.");
   } else if(TEAM){
     b.className="banner"; b.style.display="";
@@ -1508,10 +1523,15 @@ function renderBanner(){
     const ab=$("#acceptBtn"); if(ab) ab.onclick=()=>acceptChanges(ab);
     const vb=$("#viewsBtn"); if(vb) vb.onclick=async()=>{ const est=vb.dataset.est==="1"; try{ applyBrand(await post({op:"list-label",slug:LIST_SLUG,est})); toast(est?"Brands now see Estimated Views":"Brands now see View Guarantee"); }catch(e){ toast(e.message,true); } };
   } else if(BRAND&&BRAND.list){
-    b.className="banner list"; b.style.display="";
-    b.innerHTML=`Prepared for you by Digital Fox Talent: <b>${esc(BRAND.list.title)}</b><span class="hint">Tick \u201cApprove?\u201d on any creator you would like to book, tick again for a no. The speech bubble adds a note.</span>${packageSummary()}<button class="btn sendpicks" id="sendPicks">Send my picks to Digital Fox Talent</button>`;
+    b.className="banner list brandbar"; b.style.display="";
+    b.innerHTML=brandBar(`<span>Prepared for you by Digital Fox Talent</span><b>${esc(BRAND.list.title)}</b>`);
     const sp=$("#sendPicks"); if(sp) sp.onclick=()=>sendPicks(sp);
   } else b.style.display="none";
+}
+// The brand-facing bar (Tom, 15 Oct 2026, "very untidy"): title and how-to on top, then the
+// package totals and the Send button on one aligned row, with room around the edges.
+function brandBar(title){
+  return `<div class="bb-title">${title}</div><div class="bb-hint">Tick \u201cApprove?\u201d on any creator you would like to book, tick again for a no. The speech bubble adds a note.</div><div class="bb-foot">${packageSummary()}<button class="btn sendpicks" id="sendPicks">Send my picks to Digital Fox Talent</button></div>`;
 }
 // Send my picks (Tom, 15 Oct 2026): a clear way for a brand to finish. Waits for any tick still saving, then
 // tells our team straight away (op brand-submit) and thanks the brand.
