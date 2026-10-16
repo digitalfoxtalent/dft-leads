@@ -1559,6 +1559,9 @@ function setMode(m){
   $("#vTeam").classList.toggle("on",mode==="team");
   $("#vEdit").classList.toggle("on",mode!=="team"&&onList&&!asBrand);
   $("#vBrand").classList.toggle("on",mode!=="team"&&(asBrand||!onList));
+  // Brand preview shows only what a brand sees (Tom, 16 Oct 2026): no Saved lists or Save list, which brands never get.
+  const preview=mode!=="team"&&(asBrand||!onList);
+  $("#listsBtn").style.display=preview?"none":""; if(preview){ $("#saveCols").style.display="none"; $("#panel").classList.remove("on"); }
   renderBanner(); renderTabs(); render();
 }
 // Campaign lock: a list follows the quarter unless it is locked for a campaign.
