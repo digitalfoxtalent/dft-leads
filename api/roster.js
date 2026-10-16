@@ -1912,7 +1912,8 @@ async function pitchFromEmail(b) {
     // to the sender in a separate internal email (Make route "Before you send") and onto the monday row.
     qs.forEach(q => { const a = noDash(String(q.answer || "").replace(/\[[^\]]*\]/g, "").trim()); if (a) ans.push(a); });
     const todo = qs.filter(q => !noDash(String(q.answer || "").replace(/\[[^\]]*\]/g, "").trim())).map(q => noDash(String(q.q).trim().replace(/[.?\s]+$/, "")));
-    if (todo.length) ans.push(pick(["I'll come back to you on your other questions shortly.", "I'll come back to you on the rest of your questions shortly.", "On your other questions, I'll come back to you shortly."]));
+    // No holding line for unanswered questions (Tom, 16 Oct 2026: "Can we stop putting this in the email drafts please?").
+    // They still reach the sender in the separate internal email and on the monday row.
     const answer = ans.join(" ");
     const ask = press ? pick(["Could you let me know who you'd like to work with?", "Who would you like to go ahead with?", "Could you confirm who you'd like to work with on this?"]) : pick(["Could you confirm who you would like to book?", "Could you confirm who you would like to book please?", "Who would you like to book?", "Could you confirm who you'd like to book for this?"]);
     const options = /option\s*\d|both options|\boptions\b/i.test(f.body);
