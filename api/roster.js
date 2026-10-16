@@ -179,8 +179,13 @@ const LIST_READ_ERROR = "This list's saved data could not be read, so nothing wa
 function bodyValues(obj) {
   const s = JSON.stringify(obj);
   if (s.length > CHUNK * ITEM_COLS.length) throw new Error("This list is too big to save (" + s.length + " characters). Take some creators or list prices off and try again.");
+  // Never cut next to a space: monday trims a long text's edges, which dropped spaces from the joined
+  // JSON (God of War Laufey list, 16 Oct 2026). Each piece ends and starts on a non-space character.
+  const parts = []; let pos = 0;
+  while (pos < s.length) { let end = Math.min(pos + CHUNK, s.length); while (end < s.length && end > pos + 1 && (/\s/.test(s[end - 1]) || /\s/.test(s[end]))) end--; parts.push(s.slice(pos, end)); pos = end; }
+  if (parts.length > ITEM_COLS.length) throw new Error("This list is too big to save (" + s.length + " characters). Take some creators or list prices off and try again.");
   const v = {};
-  ITEM_COLS.forEach((c, i) => { v[c] = { text: s.slice(i * CHUNK, (i + 1) * CHUNK) }; });
+  ITEM_COLS.forEach((c, i) => { v[c] = { text: parts[i] || "" }; });
   return { values: v, text: s };
 }
 function readListBody(cv) {
@@ -1378,7 +1383,15 @@ async function campaignIdeas(list, data, opt = {}) {
   if (!todo.length) return { done: 0, left: 0, body };
   const known = Object.keys(have).filter(id => String(have[id] || "").trim()).slice(0, 8).map(id => { const r = data.rows.find(x => x.id === id); return r ? "- " + r.name + ": " + String(have[id]).replace(/\n/g, " / ") : ""; }).filter(Boolean);
   const lines = todo.map(r => JSON.stringify({ id: r.id, name: r.name, platform: PAID_FMT[r.group] || "", category: r.cv[C.category] || "", host: r.cv[C.host] || "", about: String(r.cv[C.about] || r.cv[C.audience] || "").slice(0, 500) }));
-  const prompt = [
+  const press = !!body.press;
+  const prompt = press ? [
+    "You write press opportunities for Digital Fox Talent, a creator management agency, for an EARNED MEDIA (press) campaign. The partner does not pay the creator; it offers access, and the creator decides what, if anything, to make from it.",
+    "Campaign (title of the press package and the partner's brief):", "Title: " + list.name, brief ? "Brief: " + brief : "Brief: not given, work from the title.",
+    known.length ? "Ideas already on this package (match their spirit and level of detail):\n" + known.join("\n") : "",
+    "For each creator below write 3 press opportunities for THIS campaign that would genuinely excite this creator and suit their channel. Each one is the ACCESS the partner gives, named specifically for the campaign: an interview with named talent, cast or developers from the brief; an early screening, screener or hands-on play of this title; an exclusive early trailer, clip or cinematic to react to; a premiere, launch event, junket or convention invite; a studio, set or HQ visit; a press mailer or review copy; a talent guest spot on the creator's own show, podcast or livestream. Use the names, dates and offers in the brief; never invent talent or events the brief does not support (general ones like a launch event invite are fine). Never propose a dedicated, sponsored or integrated video, an ad read or anything the creator must publish. Each idea is one plain sentence of at most 20 words. No prices. Never use em dashes or en dashes.",
+    "Answer with JSON only: {\"ideas\": {\"<id>\": [\"idea\", \"idea\", \"idea\"]}}",
+    "Creators:", ...lines,
+  ].filter(Boolean).join("\n") : [
     "You write campaign ideas for Digital Fox Talent, a creator management agency, for a PAID brand campaign. The brand pays the creator to feature it in their own content.",
     "Campaign (title of the pitch list and the brand's brief):", "Title: " + list.name, brief ? "Brief: " + brief : "Brief: not given, work from the title.",
     known.length ? "Ideas the team or the creators have already suggested (match their spirit and level of detail):\n" + known.join("\n") : "",
@@ -1401,8 +1414,7 @@ async function listCampaignIdeas(b, email) {
   const { data, list } = await freshList(b.slug);
   if (!list) throw new Error("list not found");
   if (list.bad) throw new Error(LIST_READ_ERROR);
-  if (list.body.press) throw new Error("Press packages use press ideas");
-  const r = await campaignIdeas(Object.assign({}, list, { body: Object.assign({}, list.body, { ideasOn: true }) }), data, { brief: b.brief, redo: !!b.redo, by: email });
+  const r = await campaignIdeas(Object.assign({}, list, { body: list.body.press ? list.body : Object.assign({}, list.body, { ideasOn: true }) }), data, { brief: b.brief, redo: !!b.redo, by: email });
   return { done: r.done, left: r.left };
 }
 // Lists waiting for campaign ideas (set by the pitch pipeline when a brand asks for ideas): drafted by the
@@ -1410,7 +1422,7 @@ async function listCampaignIdeas(b, email) {
 async function pendingIdeas() {
   const data = await loadBoard(), done = [];
   for (const l0 of data.lists) {
-    if (!l0.body || !l0.body.ideasPending || l0.body.press) continue;
+    if (!l0.body || !l0.body.ideasPending) continue;
     const { list } = await freshList(l0.slug);
     if (!list || list.bad || !list.body.ideasPending) continue;
     const r = await campaignIdeas(list, data, {}).catch(() => null);
@@ -1777,7 +1789,7 @@ function reviewPrompt(f, lines, pointers, researchTxt) {
 function pitchPrompt(f, lines, fwdName, aiNames, namedNames, pointers, facts, researchTxt, press) {
   return [
     "You help Digital Fox Talent (DFT), a creator management agency, answer a brand enquiry with a shortlist from its creator roster.",
-    press ? "THIS IS A PRESS PITCH (earned media): " + fwdName + " marked it press. The partner offers creators something other than a fee, such as product, early access, screenings, events or interviews, and the list shows the press access that suits each creator (interviews, events, screenings, early play, mailers, clips, visits) instead of prices. Pick creators who would genuinely make content about this for their own audience. There are no prices and no dedicated videos; integration simply means the creator's YouTube channel. Never mention money, rates, fees or guarantees anywhere in your answer." : "",
+    press ? "THIS IS A PRESS PITCH (earned media): " + fwdName + " marked it press. The partner offers creators something other than a fee, such as product, early access, screenings, events or interviews, and the list shows the press access that suits each creator (interviews, events, screenings, early play, mailers, clips, visits) instead of prices. Pick creators who would genuinely make content about this for their own audience. Press costs the partner nothing per creator, so go wide: aim for 40 or more placements across every creator whose audience would care, in each requested format. There are no prices and no dedicated videos; integration simply means the creator's YouTube channel. Never mention money, rates, fees or guarantees anywhere in your answer." : "",
     "",
     "THE ENQUIRY (forwarded by " + fwdName + " at DFT. Original sender: " + (f.contactName || "unknown") + " <" + f.contactEmail + ">. Sent to: " + (f.to || "unknown") + ")",
     f.note ? "POINTER FROM " + fwdName.toUpperCase() + " FOR THIS ENQUIRY (top priority, follow it exactly: creators to add or leave out, formats, angle, list size): " + f.note : "",
@@ -1988,8 +2000,8 @@ async function pitchFromEmail(b) {
     if (libsyn) await setListCpm(saved.slug, LIBSYN_CPM, fromEmail + " (pitch)").catch(() => null);
     // The brand asks for ideas (Tom, 16 Oct 2026, Ghost Soldier): the list gets a Campaign ideas column, drafted for
     // each creator by the roster-warm cron within a few minutes, from the brief.
-    const wantsIdeas = !press && /\b(ideas?|concepts?|creative (?:direction|angles?|treatments?)|how (?:\w+ ){0,4}(?:promote|feature|integrate))\b/i.test(String(f.note || "") + " " + String(f.body || ""));
-    if (wantsIdeas) { const { list: il } = await freshList(saved.slug).catch(() => ({})); if (il && !il.bad) await writeList(il.id, Object.assign({}, il.body, { ideasOn: true, ideasPending: true, brief: (String(f.note || "") + "\n" + String(f.body || "")).trim().slice(0, 4000) }), {}).catch(() => null); }
+    const wantsIdeas = press || /\b(ideas?|concepts?|creative (?:direction|angles?|treatments?)|how (?:\w+ ){0,4}(?:promote|feature|integrate))\b/i.test(String(f.note || "") + " " + String(f.body || ""));
+    if (wantsIdeas) { const { list: il } = await freshList(saved.slug).catch(() => ({})); if (il && !il.bad) await writeList(il.id, Object.assign({}, il.body, press ? {} : { ideasOn: true }, { ideasPending: true, brief: (String(f.note || "") + "\n" + String(f.body || "")).trim().slice(0, 4000) }), {}).catch(() => null); }
     const reportUrl = libsyn ? await libsynReportUrl().catch(() => "") : "";
     const first = noDash(out.contact_first_name || String(f.contactName).split(/\s+/)[0] || "there");
     const product = noDash(out.product || out.brand || f.subject || "your campaign").replace(/[.\s]+$/, "");
@@ -2021,7 +2033,7 @@ async function pitchFromEmail(b) {
     const details = press ? [] : (askedFor.length ? askedFor : solo.length === 1 ? solo : []).map(nm => [nm].concat(ids.filter(id => nameOf(id) === nm || baseOf(id) === nm).sort((x, y) => gOrder.indexOf(cat.byId[x].gid) - gOrder.indexOf(cat.byId[y].gid)).map(rateLine).filter(Boolean)).join("\n")).filter(d => d.indexOf("\n") > 0);
     const withRates = !press && /\b(rates?|pric\w*|cost|budget)\b/i.test(f.body) ? " with current rates." : ".";
     const ans = [];
-    if (wantsIdeas) ans.push(pick(["I've added campaign ideas for each creator to the list.", "You'll find campaign ideas for each creator on the list.", "Each creator on the list has a couple of campaign ideas next to them."]));
+    if (wantsIdeas && !press) ans.push(pick(["I've added campaign ideas for each creator to the list.", "You'll find campaign ideas for each creator on the list.", "Each creator on the list has a couple of campaign ideas next to them."]));
     const qs = Array.isArray(out.questions) ? out.questions.filter(q => q && q.q) : [];
     if (aiDeclined.length) ans.push("Sadly, " + joinN(aiDeclined) + " won't take on AI projects, but these creators would.");
     if (out.stage !== "shortlist" && solo.length > 1 && listNames.length && !details.length && (/\?/.test(f.body) || withRates !== ".")) ans.push(pick([joinN(listNames) + (listNames.length > 1 ? " are" : " is") + " on the list" + withRates, "You'll find " + joinN(listNames) + " on there" + withRates]));
