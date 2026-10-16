@@ -1507,7 +1507,7 @@ function openPreview(id){
   const c=me.c, key=creatorKey(c), sib=rows.filter(x=>creatorKey(x.c)===key);
   const full=sib.find(x=>x.g.id==="topics")||me, f=full.c;
   const real=dispName(f.name).replace(/\s*[-\u2013]\s*shorts\s*$/i,""), pctN=v=>{ const n=parseFloat(String(v||"")); return isNaN(n)?null:n; };
-  const facts=[f.host?`Hosted by <b>${esc(f.host)}</b>`:"",f.category?`<b>${esc(f.category)}</b>`:"",f.location?esc(f.location):"",f.subs?`<b>${int(f.subs)}</b> subscribers`:""].filter(Boolean).join("<span>·</span>");
+  const facts=[f.host?`Hosted by <b>${esc(f.host)}</b>`:"",f.category?`<b>${esc(f.category)}</b>`:"",f.location?esc(f.location):"",f.subs?`<b>${int(f.subs)}</b> subscribers`:""].filter(Boolean).map(x=>`<span>${x}</span>`).join("");
   const place=BRAND&&BRAND.list&&!isPress()?`<h3>On this list</h3><div class="pvpl">${sib.map(x=>{ const pr=typeof x.c.total==="number"?x.c.total:x.c.rate; return `<div><span>${esc(x.g.label)}</span><b>${pr?money(pr):""}${x.c.vg?` · ${int(x.c.vg)} views`:""}</b></div>`; }).join("")}</div>`:"";
   const male=pctN(f.male), female=pctN(f.female);
   const ages=[["13-17","a1317"],["18-24","a1824"],["25-34","a2534"],["35-44","a3544"],["45-54","a4554"],["55-64","a5564"]].map(([l,k])=>[l,pctN(f[k])]).filter(x=>x[1]!=null);
