@@ -1415,7 +1415,8 @@ async function campaignIdeas(list, data, opt = {}) {
   const ids = new Set((body.ids || []).map(String)), have = body.ideas || {};
   const brief = String(opt.brief != null ? opt.brief : body.brief || "").slice(0, 4000);
   const press = !!body.press;
-  const rows = data.rows.filter(r => ids.has(r.id) && (press ? !r.dedicated : true) && (opt.redo || !String(have[r.id] || "").trim()));
+  const only = Array.isArray(opt.ids) && opt.ids.length ? new Set(opt.ids.map(String)) : null; // a redo goes a batch of ids at a time
+  const rows = data.rows.filter(r => ids.has(r.id) && (!only || only.has(r.id)) && (press ? !r.dedicated : true) && (opt.redo || !String(have[r.id] || "").trim()));
   const todo = rows.slice(0, press ? 20 : 12);
   if (!todo.length) return { done: 0, left: 0, body };
   const playbook = await ideasPlaybook();
@@ -1462,7 +1463,7 @@ async function listCampaignIdeas(b, email) {
   const { data, list } = await freshList(b.slug);
   if (!list) throw new Error("list not found");
   if (list.bad) throw new Error(LIST_READ_ERROR);
-  const r = await campaignIdeas(Object.assign({}, list, { body: list.body.press ? list.body : Object.assign({}, list.body, { ideasOn: true }) }), data, { brief: b.brief, redo: b.redo === "all" ? "all" : !!b.redo, seed: b.seed || {}, by: email });
+  const r = await campaignIdeas(Object.assign({}, list, { body: list.body.press ? list.body : Object.assign({}, list.body, { ideasOn: true }) }), data, { brief: b.brief, redo: b.redo === "all" ? "all" : !!b.redo, seed: b.seed || {}, ids: b.ids, by: email });
   return { done: r.done, left: r.left };
 }
 // Lists waiting for campaign ideas (set by the pitch pipeline when a brand asks for ideas): drafted by the
