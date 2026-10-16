@@ -311,6 +311,11 @@
   .cbar .ct{ line-height:1.4; } .cbar .ct b{ font-weight:700; } .cbar .cs{ display:block; color:#cfc6bb; font-size:11px; } .cbar .cwarn{ color:#ffc56b; font-size:12px; font-weight:600; }
   .cbar button{ font-family:var(--font); font-size:12px; font-weight:700; border-radius:8px; padding:7px 12px; cursor:pointer; border:1px solid #5a524a; background:transparent; color:#fff; white-space:nowrap; }
   .cbar button.go{ background:var(--orange); border-color:var(--orange); color:var(--charcoal); }
+  /* "Done? Send your picks" nudge (Tom, 16 Oct 2026): appears after a brand's first approval, bottom right, above the tabs. */
+  .nudge{ position:fixed; right:24px; bottom:58px; z-index:40; display:none; align-items:center; gap:12px; background:#fff; border:1px solid #f0d9bd; border-radius:12px; padding:10px 10px 10px 16px; box-shadow:0 8px 24px rgba(0,0,0,.12); font-size:12.5px; font-weight:600; color:#5a3000; }
+  .nudge.on{ display:flex; }
+  .nudge .btn.sendpicks{ margin:0; padding:8px 14px; }
+  .nudge .nx{ border:0; background:none; color:#a39587; font-size:13px; cursor:pointer; padding:4px 6px; }
   .toast{ position:fixed; left:50%; bottom:64px; transform:translateX(-50%); background:var(--charcoal); color:#fff; font-size:12.5px; font-weight:600; padding:10px 16px; border-radius:10px; box-shadow:0 10px 30px rgba(0,0,0,.25); z-index:30; opacity:0; transition:opacity .2s; pointer-events:none; }
   .toast.on{ opacity:1; }
   .toast.err{ background:var(--hide); }
@@ -416,6 +421,7 @@
     #fbpop{ width:auto; left:12px !important; right:12px; }
     #fbpop textarea{ font-size:16px; }
     .cbar{ bottom:66px; flex-wrap:wrap; }
+    .nudge{ left:16px; right:16px; bottom:64px; justify-content:space-between; }
     .toast{ bottom:74px; max-width:calc(100vw - 32px); text-align:center; }
   }
   @media (max-width:640px){
@@ -1207,7 +1213,7 @@ function wireFeedback(sc){
     e.stopPropagation(); const f=findListRow(bt.dataset.id); if(!f) return; const r=f.row;
     const s0=bt.dataset.s||"", d=bt.classList.contains("rej")?(s0==="no"?"":"no"):(s0==="yes"?"":"yes"), note=(r.fb&&r.fb.note)||"";
     holdOrder(); patchListRow(r.id,x=>{ x.fb=(d||note)?{ok:d==="yes",no:d==="no",note}:undefined; });
-    listSave({op:"brand-feedback",slug:LIST_SLUG,id:r.id,decision:d,note},d==="yes"?"Approved":d==="no"?"Rejected. Add a note to tell us why":"Cleared").catch(()=>{});
+    listSave({op:"brand-feedback",slug:LIST_SLUG,id:r.id,decision:d,note},d==="yes"?"Approved":d==="no"?"Rejected. Add a note to tell us why":"Cleared").catch(()=>{}); nudge.sent=false; { const sb=$("#sendPicks"); if(sb){ sb.disabled=false; sb.textContent="Send my picks to Digital Fox Talent"; } } showNudge();
   }));
   sc.querySelectorAll(".drow:not(.cr) button.nt").forEach(bt=>bt.addEventListener("click",e=>{ e.stopPropagation(); const f=findListRow(bt.dataset.id); if(f) fbPopup(bt,f.row,false); }));
 }
@@ -1729,12 +1735,24 @@ function brandBar(){
 }
 // Send my picks (Tom, 15 Oct 2026): a clear way for a brand to finish. Waits for any tick still saving, then
 // tells our team straight away (op brand-submit) and thanks the brand.
+// The nudge: shown once the brand has approved someone and not yet sent; hidden after Send or the x. A change after
+// sending brings it back, so updated picks are not missed. The 15 minute email still covers anyone who ignores it.
+const nudge={sent:false,closed:false};
+function showNudge(){
+  let n=$("#nudge");
+  if(!n){ n=document.createElement("div"); n.id="nudge"; n.className="nudge"; n.innerHTML=`<span id="nudgeTx">Done choosing?</span><button class="btn sendpicks" id="nudgeSend">Send my picks</button><button class="nx" id="nudgeX" title="Hide">✕</button>`; document.body.appendChild(n);
+    $("#nudgeSend").onclick=()=>{ const b=$("#sendPicks"); sendPicks(b||$("#nudgeSend")); };
+    $("#nudgeX").onclick=()=>{ nudge.closed=true; showNudge(); }; }
+  const all=GROUPS.reduce((a,g)=>a.concat((BRAND&&BRAND.groups[g.id])||[]),[]);
+  const on=!TEAM&&!!(BRAND&&BRAND.list)&&!nudge.sent&&!nudge.closed&&all.some(c=>c.fb&&c.fb.ok);
+  n.classList.toggle("on",on);
+}
 async function sendPicks(btn){
   const all=GROUPS.reduce((a,g)=>a.concat((BRAND&&BRAND.groups[g.id])||[]),[]);
   const ok=all.filter(c=>c.fb&&c.fb.ok).length;
   if(!all.some(c=>c.fb&&(c.fb.ok||c.fb.no||c.fb.note))){ toast("Tick \u201cApprove?\u201d on the creators you would like to book first.",true); return; }
   btn.disabled=true; btn.textContent="Sending...";
-  try{ await listQ; await post({op:"brand-submit",slug:LIST_SLUG}); btn.textContent="Sent. Thank you!";
+  try{ await listQ; await post({op:"brand-submit",slug:LIST_SLUG}); btn.textContent="Sent. Thank you!"; nudge.sent=true; showNudge();
     toast(ok?`Thank you! We have your ${ok} pick${ok===1?"":"s"} and will confirm with ${ok===1?"the creator":"the creators"} shortly.`:"Thank you! We have your feedback and will be in touch shortly."); }
   catch(e){ btn.disabled=false; btn.textContent="Send my picks to Digital Fox Talent"; toast(e.message,true); }
 }
