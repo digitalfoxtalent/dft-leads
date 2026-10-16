@@ -1262,6 +1262,35 @@ async function pitchAudit(b) {
   out.sort((x, y) => (y.flagged - x.flagged) || x.title.localeCompare(y.title));
   return { ok: true, days, lists: out.length, flagged: out.filter(x => x.flagged).length, errors, out };
 }
+// Creator preview (Tom, 16 Oct 2026): a brand clicks a creator's name and sees their latest videos without leaving the
+// list. Read only, from the YouTube Data API (YOUTUBE_API_KEY, already used by the sync jobs), for a roster row's own
+// channel link. Cached for six hours per channel, so a busy list costs a handful of API units, not one per click.
+const ytPreviewCache = new Map();
+async function creatorVideos(b) {
+  const key = process.env.YOUTUBE_API_KEY; if (!key) throw new Error("Videos are not available right now");
+  const data = await loadBoard();
+  const r = data.rows.find(x => x.id === String(b.id || "")); if (!r) throw new Error("creator not found");
+  const url = String(r.cv[C.url] || "");
+  const m = url.match(/youtube\.com\/(?:channel\/(UC[\w-]{22})|@([\w.\-]+))/i);
+  if (!m) return { ok: true, videos: [], channel: url };
+  const shorts = /shorts/i.test(String(r.name)) || r.group === "group_mm4av3kr";
+  const ck = (m[1] || "@" + m[2].toLowerCase()) + (shorts ? "|s" : "|l");
+  const hit = ytPreviewCache.get(ck); if (hit && Date.now() - hit.at < 6 * 3600e3) return hit.v;
+  const yt = (ep, q) => fetch("https://www.googleapis.com/youtube/v3/" + ep + "?" + q + "&key=" + key).then(x => x.json());
+  const ch = await yt("channels", "part=contentDetails&" + (m[1] ? "id=" + m[1] : "forHandle=" + encodeURIComponent("@" + m[2])));
+  const up = (((ch.items || [])[0] || {}).contentDetails || {}).relatedPlaylists; const upl = up && up.uploads;
+  if (!upl) return { ok: true, videos: [], channel: url };
+  const pl = await yt("playlistItems", "part=contentDetails&maxResults=25&playlistId=" + upl);
+  const ids = (pl.items || []).map(i => i.contentDetails && i.contentDetails.videoId).filter(Boolean);
+  if (!ids.length) return { ok: true, videos: [], channel: url };
+  const vs = await yt("videos", "part=snippet,statistics,contentDetails&id=" + ids.join(","));
+  const secs = d => { const t = String(d || "").match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/) || []; return (+t[1] || 0) * 3600 + (+t[2] || 0) * 60 + (+t[3] || 0); };
+  const all = (vs.items || []).filter(v => v.snippet && v.snippet.liveBroadcastContent === "none").map(v => ({ id: v.id, title: v.snippet.title, at: v.snippet.publishedAt, views: +((v.statistics || {}).viewCount || 0), short: secs((v.contentDetails || {}).duration) <= 180, thumb: ((v.snippet.thumbnails || {}).medium || (v.snippet.thumbnails || {}).default || {}).url || "" }));
+  const want = all.filter(v => v.short === shorts);
+  const out = { ok: true, channel: url, videos: (want.length >= 3 ? want : all).slice(0, 6).map(v => ({ id: v.id, title: v.title, at: v.at, views: v.views, thumb: v.thumb, url: v.short && shorts ? "https://www.youtube.com/shorts/" + v.id : "https://www.youtube.com/watch?v=" + v.id })) };
+  ytPreviewCache.set(ck, { at: Date.now(), v: out });
+  return out;
+}
 async function listThread(list) {
   const tok = await gmailToken("tom@digitalfoxtalent.com"); if (!tok) return null;
   const G = path => fetch("https://gmail.googleapis.com/gmail/v1/users/me" + path, { headers: { Authorization: "Bearer " + tok } }).then(r => r.ok ? r.json() : {}).catch(() => ({}));
@@ -2395,6 +2424,10 @@ export default async function handler(req, res) {
       if (b && b.op === "brand-feedback") {
         if (!origin) return res.status(403).json({ error: "Bad origin" });
         try { return res.status(200).json(await brandFeedback(b, email)); }
+        catch (e) { return res.status(400).json({ error: String(e && e.message || e) }); }
+      }
+      if (b && b.op === "creator-videos") {
+        try { return res.status(200).json(await creatorVideos(b)); }
         catch (e) { return res.status(400).json({ error: String(e && e.message || e) }); }
       }
       if (b && b.op === "brand-submit") {

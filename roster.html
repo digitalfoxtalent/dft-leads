@@ -316,6 +316,39 @@
   .nudge.on{ display:flex; }
   .nudge .btn.sendpicks{ margin:0; padding:8px 14px; }
   .nudge .nx{ border:0; background:none; color:#a39587; font-size:13px; cursor:pointer; padding:4px 6px; }
+  /* Creator preview (Tom, 16 Oct 2026): click a creator's name for a side panel with their show, audience and latest videos. */
+  .pvback{ position:fixed; inset:0; background:rgba(20,16,12,.28); z-index:60; opacity:0; pointer-events:none; transition:opacity .18s; }
+  .pvback.on{ opacity:1; pointer-events:auto; }
+  .pv{ position:fixed; top:0; right:0; bottom:0; width:440px; max-width:100vw; background:#fff; z-index:61; box-shadow:-12px 0 40px rgba(0,0,0,.14); transform:translateX(104%); transition:transform .22s ease; overflow-y:auto; font-size:13px; color:#2b2420; }
+  .pv.on{ transform:none; }
+  .pv .pvin{ padding:28px 32px 40px; }
+  .pv .pvx{ position:absolute; top:16px; right:16px; border:0; background:#f4f1ed; width:30px; height:30px; border-radius:50%; cursor:pointer; color:#6b5f55; font-size:13px; }
+  .pv .pvhd{ display:flex; align-items:center; gap:14px; margin:4px 40px 6px 0; }
+  .pv .pvhd .av, .pv .pvhd .avx{ width:52px; height:52px; border-radius:50%; flex:0 0 auto; font-size:20px; }
+  .pv h2{ margin:0; font-size:19px; line-height:1.2; }
+  .pv .pvsub{ color:var(--muted); font-size:12.5px; margin-top:3px; }
+  .pv .pvsub a{ color:var(--orange); text-decoration:none; font-weight:600; }
+  .pv h3{ font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); margin:26px 0 10px; }
+  .pv .pvabout{ line-height:1.55; white-space:pre-line; }
+  .pv .pvfacts{ display:flex; flex-wrap:wrap; gap:6px 18px; margin-top:12px; color:#5b5048; font-size:12.5px; }
+  .pv .pvfacts b{ color:#2b2420; }
+  .pv .pvpl{ display:grid; gap:8px; }
+  .pv .pvpl div{ display:flex; justify-content:space-between; gap:12px; padding:10px 12px; border:1px solid #efe7de; border-radius:9px; }
+  .pv .pvpl span{ color:var(--muted); }
+  .pv .gbar{ display:flex; height:10px; border-radius:6px; overflow:hidden; background:#f1ece6; }
+  .pv .gbar i{ display:block; height:100%; }
+  .pv .glab{ display:flex; justify-content:space-between; font-size:12px; color:#5b5048; margin-top:6px; }
+  .pv .ages{ display:grid; grid-template-columns:52px 1fr 40px; gap:6px 10px; align-items:center; font-size:12px; color:#5b5048; }
+  .pv .ages .bar{ height:8px; border-radius:5px; background:#f1ece6; overflow:hidden; } .pv .ages .bar i{ display:block; height:100%; background:var(--orange); }
+  .pv .vids{ display:grid; grid-template-columns:1fr 1fr; gap:16px 14px; }
+  .pv .vids a{ color:inherit; text-decoration:none; }
+  .pv .vids img{ width:100%; aspect-ratio:16/9; object-fit:cover; border-radius:8px; background:#f1ece6; display:block; }
+  .pv .vids .vt{ font-size:12px; font-weight:600; line-height:1.3; margin-top:6px; display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; overflow:hidden; }
+  .pv .vids .vm{ font-size:11px; color:var(--muted); margin-top:2px; }
+  .pv .vids a:hover .vt{ color:var(--orange); }
+  .pv .pvwait{ color:var(--muted); font-size:12.5px; }
+  .pv ul.idl{ margin:0; padding-left:18px; line-height:1.5; }
+  @media (max-width:640px){ .pv{ width:100vw; } .pv .pvin{ padding:24px 20px 40px; } }
   .toast{ position:fixed; left:50%; bottom:64px; transform:translateX(-50%); background:var(--charcoal); color:#fff; font-size:12.5px; font-weight:600; padding:10px 16px; border-radius:10px; box-shadow:0 10px 30px rgba(0,0,0,.25); z-index:30; opacity:0; transition:opacity .2s; pointer-events:none; }
   .toast.on{ opacity:1; }
   .toast.err{ background:var(--hide); }
@@ -801,7 +834,7 @@ function nameCell(c){
   const chev=`<span class="chev ${has?"":"spacer-ic"}"${has?` title="${openSet.has(c.id)?"Hide":"Show"} this channel's ${has} show${has===1?"":"s"}, each with its own price"`:""}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg></span>`;
   const dn=dispHandle(c), real=dispName(c.name);
   const ttl=(real&&real!==dn)?` title="${esc(real)}"`:"";
-  const nm=c.url?`<a href="${esc(c.url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${esc(dn)}</a>`:esc(dn);
+  const nm=mode!=="team"?`<a href="${esc(c.url||"#")}" data-pv="${c.id}" title="See ${esc(real||dn)}'s show, audience and latest videos">${esc(dn)}</a>`:c.url?`<a href="${esc(c.url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${esc(dn)}</a>`:esc(dn);
   // On a saved list only the team can reorder (the order is saved to the list); brands get no handle.
   const grip=(isPitch()&&!listEdit())?"":`<span class="grip" title="${listEdit()?"Drag to move this creator. Brands see the list in this order":"Drag to move this row"}">⠿</span>`;
   return `<div class="nmwrap">${grip}${chev}${logoHtml(c)}<span class="nmtext"${ttl}>${nm}</span>${eyeBtn(c,false)}</div>`;
@@ -984,7 +1017,7 @@ function cardsFor(list,cols){
     const open=openSet.has(c.id), shows=visShows(c);
     const cls=["card",mode==="team"&&!c.show?"hidden":"",picked.has(c.id)?"picked":""].join(" ");
     const pick=mode==="team"?`<input type="checkbox" class="pick" data-id="${c.id}" ${picked.has(c.id)?"checked":""} title="Add to a list">`:"";
-    const dn=dispHandle(c), nm=c.url?`<a href="${esc(c.url)}" target="_blank" rel="noopener">${esc(dn)}</a>`:esc(dn);
+    const dn=dispHandle(c), nm=mode!=="team"?`<a href="${esc(c.url||"#")}" data-pv="${c.id}">${esc(dn)}</a>`:c.url?`<a href="${esc(c.url)}" target="_blank" rel="noopener">${esc(dn)}</a>`:esc(dn);
     const sub=[c.category,c.location].filter(Boolean).map(esc).join(" · ");
     const ab=about?String(cellVal(c,about)||""):"";
     const mrows=more.map(col=>{ const v=cardVal(c,col,false); if(!String(v.inner).replace(/<[^>]*>/g,"").trim()&&!v.ed) return ""; return `<div class="mr"><dt>${esc(col.head)}</dt><dd>${v.html}</dd></div>`; }).join("");
@@ -1456,6 +1489,49 @@ async function save(body){
   }catch(e){ toast(e.message,true); render(); }
 }
 
+// ---------- creator preview ----------
+// Click a creator's name (brand-facing views): a side panel with the show, where they appear on this list, their
+// audience and their latest YouTube videos (fetched once, cached on the server). Esc, the cross or the shade closes it.
+document.addEventListener("click",e=>{
+  const a=e.target.closest&&e.target.closest("[data-pv]"); if(!a||e.metaKey||e.ctrlKey||e.shiftKey) return;
+  e.preventDefault(); e.stopPropagation(); openPreview(a.dataset.pv);
+},true);
+document.addEventListener("keydown",e=>{ if(e.key==="Escape") closePreview(); });
+function closePreview(){ const p=$("#pv"), b=$("#pvback"); if(p) p.classList.remove("on"); if(b) b.classList.remove("on"); }
+function openPreview(id){
+  let p=$("#pv");
+  if(!p){ const b=document.createElement("div"); b.id="pvback"; b.className="pvback"; b.onclick=closePreview; document.body.appendChild(b);
+    p=document.createElement("aside"); p.id="pv"; p.className="pv"; p.setAttribute("aria-label","Creator preview"); document.body.appendChild(p); }
+  const rows=GROUPS.reduce((a,g)=>a.concat(((PAYLOAD&&PAYLOAD.groups[g.id])||[]).map(c=>({c,g}))),[]);
+  const me=rows.find(x=>String(x.c.id)===String(id)); if(!me) return;
+  const c=me.c, key=creatorKey(c), sib=rows.filter(x=>creatorKey(x.c)===key);
+  const full=sib.find(x=>x.g.id==="topics")||me, f=full.c;
+  const real=dispName(f.name).replace(/\s*[-\u2013]\s*shorts\s*$/i,""), pctN=v=>{ const n=parseFloat(String(v||"")); return isNaN(n)?null:n; };
+  const facts=[f.host?`Hosted by <b>${esc(f.host)}</b>`:"",f.category?`<b>${esc(f.category)}</b>`:"",f.location?esc(f.location):"",f.subs?`<b>${int(f.subs)}</b> subscribers`:""].filter(Boolean).join("<span>·</span>");
+  const place=BRAND&&BRAND.list&&!isPress()?`<h3>On this list</h3><div class="pvpl">${sib.map(x=>{ const pr=typeof x.c.total==="number"?x.c.total:x.c.rate; return `<div><span>${esc(x.g.label)}</span><b>${pr?money(pr):""}${x.c.vg?` · ${int(x.c.vg)} views`:""}</b></div>`; }).join("")}</div>`:"";
+  const male=pctN(f.male), female=pctN(f.female);
+  const ages=[["13-17","a1317"],["18-24","a1824"],["25-34","a2534"],["35-44","a3544"],["45-54","a4554"],["55-64","a5564"]].map(([l,k])=>[l,pctN(f[k])]).filter(x=>x[1]!=null);
+  const geo=[["US",pctN(f.us)],["UK",pctN(f.uk)]].filter(x=>x[1]!=null);
+  const aud=(male!=null||ages.length||geo.length)?`<h3>Audience</h3>${male!=null&&female!=null?`<div class="gbar"><i style="width:${male}%;background:#3d6fa8"></i><i style="width:${female}%;background:#e0739b"></i></div><div class="glab"><span>Male ${male}%</span><span>Female ${female}%</span></div>`:""}${ages.length?`<div class="ages" style="margin-top:16px">${ages.map(([l,v])=>`<span>${l}</span><span class="bar"><i style="width:${Math.min(100,v*2)}%"></i></span><span>${v}%</span>`).join("")}</div>`:""}${geo.length?`<div class="pvfacts" style="margin-top:14px">${geo.map(([l,v])=>`<span>${l} <b>${v}%</b></span>`).join("")}</div>`:""}`:"";
+  const ideas=String(c.ideas||f.ideas||"").split("\n").map(x=>x.trim()).filter(Boolean);
+  p.innerHTML=`<button class="pvx" onclick="closePreview()" title="Close">✕</button><div class="pvin">
+    <div class="pvhd">${logoHtml(f)}<div><h2>${esc(real||dispHandle(f))}</h2><div class="pvsub">${esc(dispHandle(f))}${f.url?` · <a href="${esc(f.url)}" target="_blank" rel="noopener">Open channel ↗</a>`:""}</div></div></div>
+    ${facts?`<div class="pvfacts">${facts}</div>`:""}
+    ${f.about?`<h3>About the Show</h3><div class="pvabout">${esc(f.about)}</div>`:""}
+    ${place}
+    ${ideas.length?`<h3>Campaign ideas</h3><ul class="idl">${ideas.map(l=>`<li>${esc(l)}</li>`).join("")}</ul>`:""}
+    ${aud}
+    <h3>Latest videos</h3><div id="pvvids" class="pvwait">Loading their latest videos…</div>
+  </div>`;
+  p.scrollTop=0; $("#pvback").classList.add("on"); requestAnimationFrame(()=>p.classList.add("on"));
+  const want=me.g.id===SHORTS_GROUP?me.c:f;
+  fetch("/api/roster",{method:"POST",headers:{"content-type":"application/json"},credentials:"same-origin",body:JSON.stringify({op:"creator-videos",id:want.id})}).then(r=>r.json()).then(j=>{
+    const box=$("#pvvids"); if(!box) return;
+    const vs=(j&&j.videos)||[]; if(!vs.length){ box.textContent=f.url?"Their latest videos are on their channel.":"No recent videos to show."; return; }
+    const ago=t=>{ const d=Math.max(0,Math.round((Date.now()-Date.parse(t))/864e5)); return d<1?"today":d===1?"1 day ago":d<30?d+" days ago":d<365?Math.round(d/30)+" months ago":Math.round(d/365)+" years ago"; };
+    box.className="vids"; box.innerHTML=vs.map(v=>`<a href="${esc(v.url)}" target="_blank" rel="noopener"><img src="${esc(v.thumb)}" alt="" loading="lazy" referrerpolicy="no-referrer"><div class="vt">${esc(v.title)}</div><div class="vm">${int(v.views)} views · ${ago(v.at)}</div></a>`).join("");
+  }).catch(()=>{ const box=$("#pvvids"); if(box) box.textContent="Their latest videos are on their channel."; });
+}
 // ---------- lists ----------
 function renderSelbar(){
   const on=mode==="team"&&picked.size>0;
