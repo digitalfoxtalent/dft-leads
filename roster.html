@@ -60,7 +60,7 @@
   .banner .pkg{ margin-left:auto; display:flex; gap:14px; flex-wrap:wrap; font-weight:600; }
   .banner .pkg span b{ font-weight:800; color:#5a3000; }
   .banner.brandbar{ display:block; padding:18px 28px 20px; font-size:12.5px; line-height:1.5; }
-  .brandbar .bb-foot{ display:flex; align-items:center; justify-content:space-between; gap:12px 28px; flex-wrap:wrap; }
+  .brandbar .bb-foot{ display:flex; align-items:center; justify-content:flex-start; gap:12px 32px; flex-wrap:wrap; }
   .banner.listbar{ display:flex; align-items:center; justify-content:space-between; gap:12px 28px; flex-wrap:wrap; padding:14px 28px; font-size:12.5px; }
   .listbar .lb-acts{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
   .listbar .btn{ text-decoration:none; color:var(--team); border-color:#c9d8e8; }
@@ -398,7 +398,7 @@
     .banner.listbar{ display:block; }
     .listbar .pkg{ margin-top:14px; }
     .brandbar .bb-foot{ display:block; }
-    .brandbar .btn.sendpicks{ display:block; width:100%; margin:16px 0 0; }
+    .brandbar .btn.sendpicks{ display:block; width:100%; margin:0 0 6px; }
     .scroll{ flex:none; overflow:visible; background:var(--bg); }
     .state{ min-height:50vh; }
     .tabbar{ position:sticky; bottom:0; z-index:15; padding:0 8px env(safe-area-inset-bottom); min-height:50px; box-shadow:0 -4px 14px rgba(0,0,0,.06); }
@@ -1706,7 +1706,8 @@ function renderBanner(){
 // that"): just the package totals and the Send button on one aligned row, with room around it.
 // The list title is already in the header and the how-to is in the email.
 function brandBar(){
-  return `<div class="bb-foot">${packageSummary()}<button class="btn sendpicks" id="sendPicks">Send my picks to Digital Fox Talent</button></div>`;
+  // The Send button sits first, on the left (Tom, 16 Oct 2026), with the package totals beside it.
+  return `<div class="bb-foot"><button class="btn sendpicks" id="sendPicks">Send my picks to Digital Fox Talent</button>${packageSummary()}</div>`;
 }
 // Send my picks (Tom, 15 Oct 2026): a clear way for a brand to finish. Waits for any tick still saving, then
 // tells our team straight away (op brand-submit) and thanks the brand.
