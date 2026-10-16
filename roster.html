@@ -607,7 +607,13 @@ function brandColsFor(){
     if(c.key==="cpm") return Object.assign({},c,{t:1,tip:"DFT only, brands never see the CPM on this tab."});
     return c;
   });
-  if(isPress()) return finishCols(cols.map(c=>c.key==="vg"?Object.assign({},c,{head:"Typical views",w:120,tip:"Average views per video or post last quarter. For context only."}):c));
+  if(isPress()){
+    // Press packages lead with the ideas: Stage, Campaign ideas, audience, then the rest.
+    let pc=finishCols(cols.map(c=>c.key==="vg"?Object.assign({},c,{head:"Typical views",w:120,tip:"Average views per video or post last quarter. For context only."}):c));
+    const take=k=>{ const i=pc.findIndex(c=>c.key===k); return i<0?[]:pc.splice(i,1); };
+    const lead=[...take("confirmed"),...take("ideas"),...take("subs"),...take("vg")];
+    return lead.concat(pc);
+  }
   if(k==="long"&&estLong()) cols=cols.map(c=>c.key==="vg"?Object.assign({},c,{head:"Estimated Views",tip:"Estimated views across the videos, based on each channel's recent averages. An estimate, not a guarantee."}):c);
   // Dedicated videos (Tom, 13 Oct 2026) are a flat price with no view guarantee: always
   // shown as Estimated Views, on the main rate card and on every saved list.
