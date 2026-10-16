@@ -960,6 +960,7 @@ function totalsRow(list0,cols){
 // Counts are of creators, not placements (Tom, 16 Oct 2026, Ghost Soldier: "6 creators interested" was 2 creators
 // across YouTube, Dedicated and Shorts). A creator's rows on every platform count once; placements are shown beside it.
 const creatorKey=c=>String(c.name||"").replace(/\s*[-\u2013]\s*(shorts?|instagram|reels?|tiktok|snapchat|dedicated|ig|tt|youtube)\b.*$/i,"").trim().toLowerCase()||String(c.id);
+// No approached or interested counts in the bar (Tom, 16 Oct 2026); those show in the Stage column.
 function countLine(l,what){
   if(!l.length) return "";
   const n=new Set(l.map(creatorKey)).size;
@@ -974,14 +975,14 @@ function packageSummary(){
   const nConf=new Set(conf.map(creatorKey)).size;
   const confLine=conf.length?`<span><b>${nConf}</b> of ${nAll} creator${nAll===1?"":"s"} confirmed${conf.length>nConf?` (${conf.length} placements)`:""}</span>`:"";
   if(isPress()){ // no prices on a press package
-    return `<span class="pkg">${sizeLine}<span><b>${int(sumBy(all,"subs"))}</b> combined audience</span><span><b>${int(sumBy(all,"vg"))}</b> typical views per post, combined</span>${countLine(cok,"interested")}${countLine(ok,"approved")}${countLine(rej,"declined")}${confLine}</span>`;
+    return `<span class="pkg">${sizeLine}<span><b>${int(sumBy(all,"subs"))}</b> combined audience</span><span><b>${int(sumBy(all,"vg"))}</b> typical views per post, combined</span>${countLine(ok,"approved")}${countLine(rej,"declined")}${confLine}</span>`;
   }
   const rate=all.reduce((a,c)=>a+(typeof c.total==="number"?c.total:(typeof c.rate==="number"?c.rate:0)),0), vg=sumBy(all.filter(c=>c.kind==="long"&&c.gid!=="dedicated"),"vg"), ded=sumBy(all.filter(c=>c.gid==="dedicated"),"vg"), est=sumBy(all.filter(c=>c.kind!=="long"),"vg");
   const vids=all.reduce((a,c)=>a+(c.kind==="long"?(c.minVideos||1):1),0);
   const saved=all.reduce((a,c)=>a+(c.wasTotal?(c.wasTotal-(typeof c.total==="number"?c.total:c.rate||0)):0),0);
   const appr=listEdit()?all.filter(c=>c.stage==="approached"):[], bnotes=listEdit()?every.filter(c=>c.fb&&c.fb.note).length:0;
   const okRate=ok.reduce((a,c)=>a+(typeof c.total==="number"?c.total:(typeof c.rate==="number"?c.rate:0)),0);
-  return `<span class="pkg"><span>Package total <b>${money(rate)}</b></span>${okRate?`<span>Approved <b>${money(okRate)}</b></span>`:""}${saved>0?`<span>Discount <b>${money(saved)}</b></span>`:""}${countLine(appr,"approached")}${countLine(cok,"interested")}${countLine(cno,"declined")}${countLine(ok,listEdit()?"approved by brand":"approved")}${countLine(rej,listEdit()?"rejected by brand":"rejected")}${bnotes?`<span><b>${bnotes}</b> brand note${bnotes===1?"":"s"}</span>`:""}${confLine}${sizeLine}<span><b>${vids}</b> video${vids===1?"":"s"}</span>${vg?`<span><b>${int(vg)}</b> ${estLong()?"estimated":"guaranteed"} YouTube views</span>`:""}${ded?`<span><b>${int(ded)}</b> estimated dedicated video views</span>`:""}${est?`<span><b>${int(est)}</b> average short-form views</span>`:""}</span>`;
+  return `<span class="pkg"><span>Package total <b>${money(rate)}</b></span>${okRate?`<span>Approved <b>${money(okRate)}</b></span>`:""}${saved>0?`<span>Discount <b>${money(saved)}</b></span>`:""}${countLine(cno,"declined")}${countLine(ok,listEdit()?"approved by brand":"approved")}${countLine(rej,listEdit()?"rejected by brand":"rejected")}${bnotes?`<span><b>${bnotes}</b> brand note${bnotes===1?"":"s"}</span>`:""}${confLine}${sizeLine}<span><b>${vids}</b> video${vids===1?"":"s"}</span>${vg?`<span><b>${int(vg)}</b> ${estLong()?"estimated":"guaranteed"} YouTube views</span>`:""}${ded?`<span><b>${int(ded)}</b> estimated dedicated video views</span>`:""}${est?`<span><b>${int(est)}</b> average short-form views</span>`:""}</span>`;
 }
 
 // Never redraw the table under someone typing (Tom, 12 Oct 2026): a save coming back while a
