@@ -967,6 +967,13 @@ function countLine(l,what){
   const n=new Set(l.map(creatorKey)).size;
   return `<span><b>${n}</b> creator${n===1?"":"s"} ${what}${l.length>n?` (${l.length} placements)`:""}</span>`;
 }
+// Views in the bar are for the tab you are on (Tom, 16 Oct 2026: "It's one or the other").
+function tabViews(){
+  const g=GROUPS.find(x=>x.id===activeTab)||{}, l=((BRAND&&BRAND.groups[activeTab])||[]).filter(c=>!(c.fb&&c.fb.no)), v=sumBy(l,"vg");
+  if(!v) return "";
+  const what=activeTab==="dedicated"?"estimated dedicated video views":g.kind==="long"?(estLong()?"estimated":"guaranteed")+" YouTube views":"average "+(g.label||"short-form")+" views";
+  return `<span><b>${int(v)}</b> ${what}</span>`;
+}
 function packageSummary(){
   const every=GROUPS.reduce((a,g)=>a.concat((BRAND.groups[g.id]||[]).map(c=>Object.assign({kind:g.kind,gid:g.id},c))),[]);
   const rej=every.filter(c=>c.fb&&c.fb.no), all=every.filter(c=>!(c.fb&&c.fb.no)); // rejected placements are out of the package
@@ -983,7 +990,7 @@ function packageSummary(){
   const saved=all.reduce((a,c)=>a+(c.wasTotal?(c.wasTotal-(typeof c.total==="number"?c.total:c.rate||0)):0),0);
   const appr=listEdit()?all.filter(c=>c.stage==="approached"):[], bnotes=listEdit()?every.filter(c=>c.fb&&c.fb.note).length:0;
   const okRate=ok.reduce((a,c)=>a+(typeof c.total==="number"?c.total:(typeof c.rate==="number"?c.rate:0)),0);
-  return `<span class="pkg"><span>Package total <b>${money(rate)}</b></span>${okRate?`<span>Approved <b>${money(okRate)}</b></span>`:""}${saved>0?`<span>Discount <b>${money(saved)}</b></span>`:""}${countLine(cno,"declined")}${countLine(ok,listEdit()?"approved by brand":"approved")}${countLine(rej,listEdit()?"rejected by brand":"rejected")}${bnotes?`<span><b>${bnotes}</b> brand note${bnotes===1?"":"s"}</span>`:""}${confLine}${sizeLine}<span><b>${vids}</b> video${vids===1?"":"s"}</span>${vg?`<span><b>${int(vg)}</b> ${estLong()?"estimated":"guaranteed"} YouTube views</span>`:""}${ded?`<span><b>${int(ded)}</b> estimated dedicated video views</span>`:""}${est?`<span><b>${int(est)}</b> average short-form views</span>`:""}</span>`;
+  return `<span class="pkg"><span>Package total <b>${money(rate)}</b></span>${okRate?`<span>Approved <b>${money(okRate)}</b></span>`:""}${saved>0?`<span>Discount <b>${money(saved)}</b></span>`:""}${countLine(cno,"declined")}${countLine(ok,listEdit()?"approved by brand":"approved")}${countLine(rej,listEdit()?"rejected by brand":"rejected")}${bnotes?`<span><b>${bnotes}</b> brand note${bnotes===1?"":"s"}</span>`:""}${confLine}${sizeLine}<span><b>${vids}</b> video${vids===1?"":"s"}</span>${tabViews()}</span>`;
 }
 
 // Never redraw the table under someone typing (Tom, 12 Oct 2026): a save coming back while a
@@ -1844,7 +1851,7 @@ function renderTabs(){
   $("#tabs").style.display=""; // always show the platform tab, even on a one-platform list, so brands know where the posts go (George, 13 Oct 2026)
   const canRemove=listEdit()&&vis.length>1;
   $("#tabs").innerHTML=vis.map(g=>`<button class="tab ${g.id===activeTab?"active":""}" data-g="${g.id}"${g.tip?` title="${esc(g.tip)}"`:""}>${esc(g.label)}<span class="n">${(PAYLOAD.groups[g.id]||[]).length}</span>${canRemove?`<span class="x" data-g="${g.id}" title="Take ${esc(g.label)} off this list">&times;</span>`:""}</button>`).join("");
-  $("#tabs").querySelectorAll(".tab").forEach(b=>b.onclick=()=>{activeTab=b.dataset.g; sortKey=null; renderTabs(); render(); $("#scroll").scrollTop=0; if(isMobile()) window.scrollTo(0,0);});
+  $("#tabs").querySelectorAll(".tab").forEach(b=>b.onclick=()=>{activeTab=b.dataset.g; sortKey=null; renderTabs(); renderBanner(); render(); $("#scroll").scrollTop=0; if(isMobile()) window.scrollTo(0,0);});
   $("#tabs").querySelectorAll(".x").forEach(x=>x.onclick=e=>{
     e.stopPropagation();
     if(!x.classList.contains("confirm")){ x.classList.add("confirm"); x.textContent="Remove?"; setTimeout(()=>{ if(x.isConnected){ x.classList.remove("confirm"); x.innerHTML="&times;"; } },4000); return; }
