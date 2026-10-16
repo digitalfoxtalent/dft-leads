@@ -349,6 +349,14 @@
   .pv .pvwait{ color:var(--muted); font-size:12.5px; }
   .pv ul.idl{ margin:0; padding-left:18px; line-height:1.5; }
   @media (max-width:640px){ .pv{ width:100vw; } .pv .pvin{ padding:24px 20px 40px; } }
+  /* One list per agency (Tom, 16 Oct 2026): a link that went to several companies asks once for a work email. */
+  .claim{ position:fixed; inset:0; z-index:80; background:rgba(245,243,239,.9); backdrop-filter:blur(6px); display:grid; place-items:center; padding:24px; }
+  .claim .cb{ background:#fff; border:1px solid #ece9e4; border-radius:16px; box-shadow:0 18px 50px rgba(0,0,0,.12); padding:40px 44px; max-width:440px; width:100%; text-align:center; }
+  .claim h2{ margin:0 0 10px; font-size:20px; }
+  .claim p{ margin:0 0 22px; color:var(--muted); font-size:13.5px; line-height:1.55; }
+  .claim input{ width:100%; box-sizing:border-box; font:inherit; font-size:15px; padding:12px 14px; border:1px solid #d9d5ce; border-radius:10px; margin-bottom:12px; }
+  .claim button{ width:100%; font:inherit; font-weight:700; font-size:14px; padding:12px; border:0; border-radius:10px; background:var(--orange); color:#fff; cursor:pointer; }
+  .claim .ce{ color:#b23a2a; font-size:12.5px; margin-top:10px; min-height:1em; }
   .toast{ position:fixed; left:50%; bottom:64px; transform:translateX(-50%); background:var(--charcoal); color:#fff; font-size:12.5px; font-weight:600; padding:10px 16px; border-radius:10px; box-shadow:0 10px 30px rgba(0,0,0,.25); z-index:30; opacity:0; transition:opacity .2s; pointer-events:none; }
   .toast.on{ opacity:1; }
   .toast.err{ background:var(--hide); }
@@ -1497,6 +1505,24 @@ async function save(body){
   }catch(e){ toast(e.message,true); render(); }
 }
 
+// ---------- one list per agency ----------
+// A list our sent mail shows went to more than one company asks the brand for their work email once, then opens their
+// own copy (same creators and prices; their own ticks, comments and email thread). Remembered in this browser.
+function claimGate(){
+  const key="dftclaim:"+LIST_SLUG; let mine=""; try{ mine=localStorage.getItem(key)||""; }catch(_){}
+  if(mine&&mine!==LIST_SLUG){ location.replace("/r/"+encodeURIComponent(mine)); return; }
+  if(mine===LIST_SLUG) return;
+  const d=document.createElement("div"); d.className="claim";
+  d.innerHTML=`<form class="cb"><h2>Open your creator list</h2><p>Enter your work email so your picks and comments stay private to your team.</p><input type="email" required placeholder="you@company.com" autocomplete="email"><button type="submit">Open my list</button><div class="ce"></div></form>`;
+  document.body.appendChild(d);
+  const f=d.querySelector("form"), inp=d.querySelector("input"), err=d.querySelector(".ce"), btn=d.querySelector("button");
+  setTimeout(()=>inp.focus(),50);
+  f.onsubmit=async e=>{ e.preventDefault(); btn.disabled=true; btn.textContent="Opening…"; err.textContent="";
+    try{ const r=await fetch("/api/roster",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({op:"list-claim",slug:LIST_SLUG,email:inp.value})}); const j=await r.json(); if(!r.ok||!j.slug) throw new Error(j.error||"Something went wrong");
+      try{ localStorage.setItem(key,j.slug); localStorage.setItem("dftclaim:"+j.slug,j.slug); }catch(_){}
+      if(j.slug!==LIST_SLUG) location.replace("/r/"+encodeURIComponent(j.slug)); else d.remove();
+    }catch(x){ err.textContent=x.message; btn.disabled=false; btn.textContent="Open my list"; } };
+}
 // ---------- creator preview ----------
 // Click a creator's name (brand-facing views): a side panel with the show, where they appear on this list, their
 // audience and their latest YouTube videos (fetched once, cached on the server). Esc, the cross or the shade closes it.
@@ -1910,6 +1936,7 @@ async function load(){
   try{ await loadBrand(); }
   catch(e){ if(!(await team)){ $("#scroll").innerHTML=`<div class="state"><div>${esc(e.message)}</div></div>`; $("#count").textContent=""; } }
   const signedIn=await team;
+  if(!signedIn&&LIST_SLUG&&BRAND&&BRAND.list&&BRAND.list.gate) claimGate();
   if(!signedIn&&!LIST_SLUG) $("#signin").style.display="";
   const editSlug=new URLSearchParams(location.search).get("edit");
   if(signedIn&&editSlug&&!LIST_SLUG){ const l=((TEAM&&TEAM.lists)||[]).find(x=>x.slug===editSlug); if(l) chooseCreatorsFor(l); history.replaceState(null,"","/"); }

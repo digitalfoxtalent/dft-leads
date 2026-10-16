@@ -407,13 +407,21 @@ async function loadBoard() {
   // is empty on every row, so State/Region showed blank for everyone. Rows are matched on
   // handle (YouTube, Instagram or TikTok), then on name. Audit 6 Oct 2026.
   const stateQ = `query{boards(ids:[${CREATOR_BOARD}]){items_page(limit:500){items{id name group{title} column_values(ids:${JSON.stringify(Object.values(GTR))}){id text value}}}}}`;
-  const listsQ = `query{boards(ids:[${LISTS_BOARD}]){items_page(limit:500){items{id name column_values(ids:${JSON.stringify([...new Set(Object.values(L).concat(ITEM_COLS))])}){id text}}}}}`;
+  // Every saved list, page by page (16 Oct 2026): a single page stopped at 500, and lists past it would have stopped opening.
+  const listCols = `{id name column_values(ids:${JSON.stringify([...new Set(Object.values(L).concat(ITEM_COLS))])}){id text}}`;
+  const allLists = async () => {
+    const first = await monday(`query{boards(ids:[${LISTS_BOARD}]){items_page(limit:250){cursor items${listCols}}}}`);
+    const pg = ((((first || {}).boards || [])[0] || {}).items_page) || { items: [] };
+    let items = pg.items || [], cur = pg.cursor;
+    for (let n = 0; cur && n < 40; n++) { const nx = await monday(`query($c:String!){next_items_page(limit:250,cursor:$c){cursor items${listCols}}}`, { c: cur }); const p2 = (nx || {}).next_items_page || {}; items = items.concat(p2.items || []); cur = p2.cursor; }
+    return { boards: [{ items_page: { items } }] };
+  };
   const regQ = `query{boards(ids:[${REGISTER_BOARD}]){items_page(limit:500){items{column_values(ids:${JSON.stringify(Object.values(REG))}){id text}}}}}`;
   const megaQ = `query{boards(ids:[${MEGA_BOARD}]){items_page(limit:500){items{column_values(ids:${JSON.stringify(Object.values(MEGA))}){id text}}}}}`;
   const [groups, state, lists, register, mega] = await Promise.all([
     Promise.all(REAL_GROUPS().map(g => monday(groupQ(g.id)))),
     monday(stateQ).catch(() => null),
-    monday(listsQ).catch(() => null),
+    allLists().catch(() => null),
     monday(regQ).catch(() => null),
     monday(megaQ).catch(() => null),
   ]);
@@ -752,7 +760,7 @@ function brandPayload(data, list, team, noLock) {
     const order = {}; (list.body.ids || []).forEach((id, i) => { order[String(id)] = i; });
     Object.values(groups).forEach(a => a.sort((x, y) => order[x.id] - order[y.id]));
   } else Object.values(groups).forEach(a => a.sort((x, y) => (y.vgPer || y.vg || y.rate || 0) - (x.vgPer || x.vg || x.rate || 0)));
-  return { view: "brand", quarter: quarterLabel(), columns: data.columns, widths: data.widths, rows: ids ? {} : data.rowOrder, list: list ? { title: list.name, slug: list.slug, manual: !!list.body.manual,
+  return { view: "brand", quarter: quarterLabel(), columns: data.columns, widths: data.widths, rows: ids ? {} : data.rowOrder, list: list ? { title: list.name, slug: list.slug, manual: !!list.body.manual, gate: !team && listShared(list.body),
     ids: team ? (list.body.ids || []).map(String) : undefined, // the team's copy: every creator, shown or not
     lock: list.body.lock ? { on: list.body.lock.on, quarter: list.body.lock.quarter } : null,
     // Estimated Views (Tom, 10 Oct 2026): a list can call YouTube's View Guarantee
@@ -1253,10 +1261,14 @@ async function pitchAudit(b) {
   for (const sl of Object.keys(sent)) {
     const l = bySlug[sl]; const rows = sent[sl].filter((x, i, a) => a.findIndex(y => y.id === x.id) === i).sort((x, y) => x.at.localeCompare(y.at));
     const orgs = []; rows.forEach(r => r.orgs.forEach(o => { if (!orgs.includes(o)) orgs.push(o); }));
-    out.push({ slug: sl, title: l ? l.name : "(list deleted)", orgs, flagged: orgs.length > 1, sends: rows.map(r => ({ at: r.at.slice(0, 16), from: r.from.split("@")[0], to: r.to.join(", "), subject: r.subject.slice(0, 90), thread: r.thread })) });
-    if (b.write && l && l.id && orgs.length && !(Array.isArray(l.body.for) && l.body.for.length)) {
-      const fresh = (await freshList(sl).catch(() => ({}))).list;
-      if (fresh && !fresh.bad) await writeList(fresh.id, Object.assign({}, fresh.body, { for: [orgs[0]] }), {});
+    out.push({ slug: sl, title: l ? l.name : "(list deleted)", orgs, flagged: companies(orgs).length > 1, sends: rows.map(r => ({ at: r.at.slice(0, 16), from: r.from.split("@")[0], to: r.to.join(", "), subject: r.subject.slice(0, 90), thread: r.thread })) });
+    if (b.write && l && l.id && orgs.length) {
+      const sentNow = {}; rows.forEach(r => r.orgs.forEach(o => { if (!sentNow[o]) sentNow[o] = { thread: r.thread, at: r.at.slice(0, 10) }; }));
+      const had = l.body.sent || {}, needFor = !(Array.isArray(l.body.for) && l.body.for.length), newOrgs = Object.keys(sentNow).filter(o => !had[o]);
+      if (needFor || newOrgs.length) {
+        const fresh = (await freshList(sl).catch(() => ({}))).list;
+        if (fresh && !fresh.bad) { const sent = Object.assign({}, sentNow, fresh.body.sent || {}); await writeList(fresh.id, Object.assign({}, fresh.body, { sent }, needFor && !(fresh.body.for || []).length ? { for: [orgs[0]] } : {}), {}); }
+      }
     }
   }
   out.sort((x, y) => (y.flagged - x.flagged) || x.title.localeCompare(y.title));
@@ -1360,6 +1372,38 @@ function outreachPage(q) {
 <style>body{margin:0;background:#f5f3ef;font:15px/1.55 Poppins,Arial,sans-serif;color:#1a1a1a;display:grid;place-items:center;min-height:100vh}.c{background:#fff;border:1px solid #ece9e4;border-radius:16px;padding:40px 44px;max-width:460px;margin:24px;text-align:center}.sp{width:34px;height:34px;border:3px solid #f2dcc6;border-top-color:#f58220;border-radius:50%;animation:s 1s linear infinite;margin:0 auto 22px}@keyframes s{to{transform:rotate(360deg)}}h1{font-size:20px;margin:0 0 8px}p{color:#6b6b76;margin:0}a{color:#f58220;font-weight:600}.err .sp{display:none}</style></head>
 <body><div class="c" id="c"><div class="sp"></div><h1>Building your pitch${q.brand ? " for " + e(q.brand) : ""}…</h1><p id="m">Picking the right creators and writing the email. This takes up to a minute, then your draft opens in Gmail.</p></div>
 <script>fetch("/api/roster",{method:"POST",headers:{"content-type":"application/json"},credentials:"same-origin",body:${JSON.stringify(args)}}).then(r=>r.json()).then(j=>{ if(j&&j.url){ document.getElementById("m").textContent="Done. Opening your draft…"; location.href=j.url; } else throw new Error((j&&j.error)||"Something went wrong"); }).catch(err=>{ const c=document.getElementById("c"); c.className="c err"; c.querySelector("h1").textContent="The pitch could not be built"; document.getElementById("m").innerHTML=String(err.message).replace(/[<>&]/g,"")+${plain ? JSON.stringify('<br><br><a href="' + e(plain) + '">Write a plain email instead</a>') : '""'}; });</script></body></html>`;
+}
+// One list per agency, even after a link went to several (Tom, 16 Oct 2026: "ensure that a unique one is made per contact").
+// A list our sent mail shows went to more than one company is "shared": a brand opening it is asked for their work
+// email once, and gets their own copy (same creators and prices, their own ticks, comments and email thread). The
+// company it was first made for keeps the original. The team never sees the question.
+// One company, several domains: Libsyn sells ads as AdvertiseCast, and some agencies run two (givoolink/givoolinking,
+// noxinfluencer/noxinfluencergroup). Domains whose names start the same are treated as one company.
+const ORG_ALIAS = { "advertisecast.com": "libsyn.com" };
+const coStem = o => { const d = ORG_ALIAS[o] || o; return /@/.test(d) ? d : d.split(".")[0]; };
+const sameCo = (a, b) => { const x = coStem(String(a || "")), y = coStem(String(b || "")); return !!x && !!y && (x === y || (Math.min(x.length, y.length) >= 7 && (x.startsWith(y) || y.startsWith(x)))); };
+const companies = orgs => orgs.reduce((acc, o) => (acc.some(a => sameCo(a, o)) ? acc : acc.concat([o])), []);
+const listShared = body => !!body && !body.forkOf && companies(Object.keys(body.sent || {})).length > 1;
+const FORK_SKIP = ["feedback", "fbSeq", "fbAt", "fbAlerted", "fbSeen", "fbSubmitted", "thread", "confirm", "forks", "sent", "for", "forkOf"];
+async function listClaim(b) {
+  const em = String(b.email || "").trim().toLowerCase();
+  if (!/^[^@\s]+@[^@\s]+\.[a-z]{2,}$/i.test(em)) throw new Error("Please enter your work email");
+  const { list } = await freshList(String(b.slug || ""));
+  if (!list || list.bad) throw new Error("list not found");
+  const org = DFT_DOMAIN.test(em) ? "" : orgOf(em);
+  const body = list.body || {};
+  if (!org || !listShared(body) || sameCo((body.for || [])[0], org)) return { ok: true, slug: list.slug };
+  const known = (body.forks || {})[Object.keys(body.forks || {}).find(k => sameCo(k, org)) || ""];
+  if (known) { const k = await freshList(known).catch(() => ({})); if (k && k.list && !k.list.bad) return { ok: true, slug: known }; }
+  const by = String(list.by || "").replace(/\s+\d{4}-\d\d-\d\d.*$/, "").trim() || "tom@digitalfoxtalent.com (pitch)";
+  const made = await saveList({ title: list.name, ids: body.ids || [], press: !!body.press }, by);
+  const { list: nl } = await freshList(made.slug);
+  const copy = {}; Object.keys(body).forEach(k => { if (!FORK_SKIP.includes(k)) copy[k] = body[k]; });
+  const th = (body.sent || {})[Object.keys(body.sent || {}).find(k => sameCo(k, org)) || ""];
+  await writeList(nl.id, Object.assign({}, nl.body, copy, { for: [org], forkOf: list.slug }, th && th.thread ? { thread: { id: th.thread } } : {}), {});
+  const { list: again } = await freshList(list.slug);
+  if (again && !again.bad) await writeList(again.id, Object.assign({}, again.body, { forks: Object.assign({}, again.body.forks || {}, { [org]: made.slug }) }), {});
+  return { ok: true, slug: made.slug };
 }
 async function listThread(list) {
   const tok = await gmailToken("tom@digitalfoxtalent.com"); if (!tok) return null;
@@ -2164,7 +2208,7 @@ async function pitchFromEmail(b) {
     // Only ever a list made for the same company (Tom, 16 Oct 2026): StarAce's Transformers list went to Dorun Media and
     // Blossom & Wood because the product matched. A list with no record of who it was made for is never reused.
     const org = orgOf(f.contactEmail);
-    const prevL = data.lists.filter(l => l.slug && l.slug !== AI_LIST && /\(pitch\)/.test(String(l.by || "")) && recent(l) && !!(l.body && l.body.press) === press && !!org && Array.isArray(l.body && l.body.for) && l.body.for.includes(org)).map(l => ({ l, k: ckey(l.name) })).filter(x => x.k.length >= 5 && (pKeys.some(k => k === x.k || (k.length >= 7 && (k.startsWith(x.k) || x.k.startsWith(k)))) || (x.k.length >= 7 && mailKey.includes(x.k))))
+    const prevL = data.lists.filter(l => l.slug && l.slug !== AI_LIST && /\(pitch\)/.test(String(l.by || "")) && recent(l) && !!(l.body && l.body.press) === press && !!org && Array.isArray(l.body && l.body.for) && l.body.for.some(o => sameCo(o, org))).map(l => ({ l, k: ckey(l.name) })).filter(x => x.k.length >= 5 && (pKeys.some(k => k === x.k || (k.length >= 7 && (k.startsWith(x.k) || x.k.startsWith(k)))) || (x.k.length >= 7 && mailKey.includes(x.k))))
       .sort((a, b) => lastDay(b.l).localeCompare(lastDay(a.l)))[0];
     let reuse = null;
     // One list per campaign (Tom, 15 Oct 2026: "update the one we had rather than creating a new version").
@@ -2508,6 +2552,11 @@ export default async function handler(req, res) {
         try { return res.status(200).json(await brandFeedback(b, email)); }
         catch (e) { return res.status(400).json({ error: String(e && e.message || e) }); }
       }
+      if (b && b.op === "list-claim") {
+        if (!origin) return res.status(403).json({ error: "Bad origin" });
+        try { return res.status(200).json(await listClaim(b)); }
+        catch (e) { return res.status(400).json({ error: String(e && e.message || e) }); }
+      }
       if (b && b.op === "creator-videos") {
         try { return res.status(200).json(await creatorVideos(b)); }
         catch (e) { return res.status(400).json({ error: String(e && e.message || e) }); }
@@ -2568,7 +2617,7 @@ export default async function handler(req, res) {
 
     // Warm-up (roster-warm cron): loads the board into this server copy so the first list
     // page or signed-in view after a quiet spell does not wait for a cold start.
-    if (q.warm) { res.setHeader("Cache-Control", "no-store"); await loadBoard(); const alerts = await feedbackAlerts().catch(e => "failed: " + String((e && e.message) || e).slice(0, 200)); const ideas = await pendingIdeas().catch(e => "failed: " + String((e && e.message) || e).slice(0, 200)); return res.status(200).json({ ok: true, alerts, ideas }); }
+    if (q.warm) { res.setHeader("Cache-Control", "no-store"); await loadBoard(); const alerts = await feedbackAlerts().catch(e => "failed: " + String((e && e.message) || e).slice(0, 200)); const ideas = await pendingIdeas().catch(e => "failed: " + String((e && e.message) || e).slice(0, 200)); const nw = new Date(); const audit = nw.getUTCHours() % 6 === 0 && nw.getUTCMinutes() < 5 ? await pitchAudit({ days: 3, write: true }).then(r => r.flagged + " shared").catch(e => "failed: " + String((e && e.message) || e).slice(0, 200)) : ""; return res.status(200).json({ ok: true, alerts, ideas, audit }); }
     if (q.list) {
       // The list itself is read fresh every time (one small call), so a page never shows, or
       // later saves over, an older copy of it.
