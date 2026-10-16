@@ -1944,7 +1944,7 @@ function pitchPrompt(f, lines, fwdName, aiNames, namedNames, pointers, facts, re
     "- If the email does not call for creators at all (for example an ongoing booking about dates, contracts, payment or edits, or the brand has already said it wants no more names), return no picks and put one short plain sentence in no_pitch_reason saying why, for the DFT teammate who forwarded it. Otherwise leave no_pitch_reason empty.",
     "",
     "Return ONLY JSON, no prose:",
-    "{\"brand\":\"\",\"ai_product\":false,\"product\":\"\",\"title\":\"short list name, e.g. EXT (Exterminauts)\",\"contact_first_name\":\"the sender's first name if known, else empty\",\"angles\":[\"\"],\"mix\":\"\",\"answer\":\"\",\"stage\":\"new\",\"closing\":false,\"formats\":[],\"questions\":[{\"q\":\"short paraphrase\",\"answer\":\"\"}],\"picks\":[{\"id\":\"\",\"named\":false,\"fit\":4,\"why\":\"max 6 words\"}],\"no_pitch_reason\":\"\"}"
+    "{\"brand\":\"\",\"ai_product\":false,\"product\":\"\",\"title\":\"short list name naming the IP, game, film, show or product being promoted (and the release or season if there is one), e.g. Transformers: Eternal War, Ghost Soldier, EXT (Exterminauts). NEVER the agency, network or the sender's company\",\"contact_first_name\":\"the sender's first name if known, else empty\",\"angles\":[\"\"],\"mix\":\"\",\"answer\":\"\",\"stage\":\"new\",\"closing\":false,\"formats\":[],\"questions\":[{\"q\":\"short paraphrase\",\"answer\":\"\"}],\"picks\":[{\"id\":\"\",\"named\":false,\"fit\":4,\"why\":\"max 6 words\"}],\"no_pitch_reason\":\"\"}"
   ].join("\n");
 }
 
@@ -2102,7 +2102,11 @@ async function pitchFromEmail(b) {
     if (!ids.length) throw new Error("No list made: " + (whyNone ? whyNone + "." : "the email does not ask for creators.") + " To get a list anyway, forward it again with a note above it saying what you want, e.g. 'pitch more creators for this'.");
     if (update && !update.replace) { const keep = update.ids.filter(id => !leftOut(base(cat.byId[id].name))); const had = new Set(keep); ids.splice(0, ids.length, ...keep, ...ids.filter(id => !had.has(id))); }
     if (!reuse) ids.sort((x, y) => order.indexOf(cat.byId[x].gid) - order.indexOf(cat.byId[y].gid));
-    const title = reuse ? reuse.title : update ? update.title : noDash(out.title || f.subject || "Pitch").slice(0, 70);
+    // List names focus on the IP or release, never the agency (Tom, 16 Oct 2026, after "Transformers (StarAce)" went to
+    // other agencies: "focus on the IP / release"). A bracket naming the sender's company is dropped as a backstop.
+    const orgStem = String(org.split("@").pop() || "").split(".")[0].replace(/[^a-z0-9]/g, "");
+    const noAgency = t => String(t || "").replace(/\s*\(([^)]*)\)/g, (m, x) => { const k = x.toLowerCase().replace(/[^a-z0-9]/g, ""); return k.length >= 4 && orgStem.length >= 4 && (orgStem.includes(k) || k.includes(orgStem)) ? "" : m; }).trim();
+    const title = reuse ? reuse.title : update ? update.title : noDash(noAgency(out.title) || out.product || f.subject || "Pitch").slice(0, 70);
     // Libsyn Ads pitches (Tom, 16 Oct 2026): YouTube integrations at a $28 CPM, and the Libsyn sub report in the draft.
     const libsyn = isLibsyn(f) && !press;
     const saved = reuse ? { ok: true, slug: reuse.slug, url: "https://" + HOST + "/r/" + reuse.slug } : await saveList(update ? { title, ids, slug: update.slug } : { title, ids, press, for: org ? [org] : [] }, fromEmail + " (pitch)");
