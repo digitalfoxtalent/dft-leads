@@ -1698,7 +1698,8 @@ async function pitchFromEmail(b) {
     const f = parseForward(b);
     // Press packages from the pipeline (Tom, 16 Oct 2026): a note above the forward that says "press"
     // (or "earned media") makes a press package, with no prices, and a draft worded for one.
-    const press = /\bpress\b|earned media/i.test(f.note || "");
+    // Or forwarded to press@ (Tom, 16 Oct 2026: "Press and Pitch are different"): Make passes the To and Cc addresses as sentTo.
+    const press = /\bpress\b|earned media/i.test(f.note || "") || /(^|[\s,<])press@digitalfoxtalent\.com/i.test(String(b.sentTo || ""));
     // Tom's pointers (13 Oct 2026): the note above each forward is kept on the Pitch Requests board and fed into later pitches, so the system learns from them.
     if (f.note) await monday(`mutation{change_multiple_column_values(board_id:${PITCH_BOARD},item_id:${Number(b.item)},column_values:${JSON.stringify(JSON.stringify({ long_text_mm83jwpf: { text: f.note } }))}){id}}`).catch(() => null);
     const pastQ = await monday(`query{boards(ids:[${PITCH_BOARD}]){items_page(limit:200){items{id column_values(ids:["long_text_mm83jwpf"]){text}}}}}`).catch(() => null);
@@ -1988,7 +1989,7 @@ async function gmailToken(subject) {
 const subjectWords = s => String(s || "").replace(/^\s*((re|fwd?|fw|aw|wg|tr)\s*:\s*)+/i, "").replace(/[^\p{L}\p{N}]+/gu, " ").trim().slice(0, 200);
 function pitchSearch(f) {
   const w = subjectWords(f.subject);
-  return w ? "in:sent to:pitch@digitalfoxtalent.com subject:\"" + w + "\" newer_than:7d" : "from:" + f.contactEmail + " newer_than:90d";
+  return w ? "in:sent {to:pitch@digitalfoxtalent.com to:press@digitalfoxtalent.com} subject:\"" + w + "\" newer_than:7d" : "from:" + f.contactEmail + " newer_than:90d";
 }
 function brandMsgId(thread, fallbackId) {
   const ms = (thread && thread.messages) || [];
@@ -2020,7 +2021,7 @@ async function teamDraft(fromEmail, o) {
   const draft = pitchMime({ to: o.to, cc: o.cc, subject: o.subject, html: o.html, text: o.text, threadId, inReplyTo: msgId, references: msgId }).draft;
   await G("/drafts", { method: "POST", headers: { "Content-Type": "application/json" }, body: draft });
   // Their forward to pitch@ leaves the brand thread (Tom, 13 Oct 2026).
-  if (threadId) { const sent = (await G("/messages?maxResults=25&q=" + q("in:sent to:pitch@digitalfoxtalent.com newer_than:7d")).catch(() => ({}))).messages || []; for (const m of sent) if (m.threadId === threadId) await G("/messages/" + m.id + "/trash", { method: "POST" }).catch(() => null); }
+  if (threadId) { const sent = (await G("/messages?maxResults=25&q=" + q("in:sent {to:pitch@digitalfoxtalent.com to:press@digitalfoxtalent.com} newer_than:7d")).catch(() => ({}))).messages || []; for (const m of sent) if (m.threadId === threadId) await G("/messages/" + m.id + "/trash", { method: "POST" }).catch(() => null); }
   return true;
 }
 
