@@ -1260,10 +1260,10 @@ async function pitchAudit(b) {
   const out = [];
   for (const sl of Object.keys(sent)) {
     const l = bySlug[sl]; const rows = sent[sl].filter((x, i, a) => a.findIndex(y => y.id === x.id) === i).sort((x, y) => x.at.localeCompare(y.at));
-    const orgs = []; rows.forEach(r => r.orgs.forEach(o => { if (!orgs.includes(o)) orgs.push(o); }));
+    const orgs = []; rows.forEach(r => r.orgs.forEach(o => { if (!orgs.includes(o) && !TEST_ADDRESSES.has(o)) orgs.push(o); }));
     out.push({ slug: sl, title: l ? l.name : "(list deleted)", orgs, flagged: companies(orgs).length > 1, sends: rows.map(r => ({ at: r.at.slice(0, 16), from: r.from.split("@")[0], to: r.to.join(", "), subject: r.subject.slice(0, 90), thread: r.thread })) });
     if (b.write && l && l.id && orgs.length) {
-      const sentNow = {}; rows.forEach(r => r.orgs.forEach(o => { if (!sentNow[o]) sentNow[o] = { thread: r.thread, at: r.at.slice(0, 10) }; }));
+      const sentNow = {}; rows.forEach(r => r.orgs.forEach(o => { if (!sentNow[o] && !TEST_ADDRESSES.has(o)) sentNow[o] = { thread: r.thread, at: r.at.slice(0, 10) }; }));
       const had = l.body.sent || {}, needFor = !(Array.isArray(l.body.for) && l.body.for.length), newOrgs = Object.keys(sentNow).filter(o => !had[o]);
       if (needFor || newOrgs.length) {
         const fresh = (await freshList(sl).catch(() => ({}))).list;
@@ -1383,7 +1383,11 @@ const ORG_ALIAS = { "advertisecast.com": "libsyn.com" };
 const coStem = o => { const d = ORG_ALIAS[o] || o; return /@/.test(d) ? d : d.split(".")[0]; };
 const sameCo = (a, b) => { const x = coStem(String(a || "")), y = coStem(String(b || "")); return !!x && !!y && (x === y || (Math.min(x.length, y.length) >= 7 && (x.startsWith(y) || y.startsWith(x)))); };
 const companies = orgs => orgs.reduce((acc, o) => (acc.some(a => sameCo(a, o)) ? acc : acc.concat([o])), []);
-const listShared = body => !!body && !body.forkOf && companies(Object.keys(body.sent || {})).length > 1;
+// Addresses the team uses for tests (Tom, 16 Oct 2026: the Ghost Soldier send to beccaalpine@ "was just a test"). Sends
+// to them never make a list count as shared.
+const TEST_ADDRESSES = new Set(["beccaalpine@gmail.com"]);
+const realOrgs = orgs => orgs.filter(o => !TEST_ADDRESSES.has(o));
+const listShared = body => !!body && !body.forkOf && companies(realOrgs(Object.keys(body.sent || {}))).length > 1;
 const FORK_SKIP = ["feedback", "fbSeq", "fbAt", "fbAlerted", "fbSeen", "fbSubmitted", "thread", "confirm", "forks", "sent", "for", "forkOf"];
 async function listClaim(b) {
   const em = String(b.email || "").trim().toLowerCase();
