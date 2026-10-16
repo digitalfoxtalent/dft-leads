@@ -1263,11 +1263,9 @@ async function pitchAudit(b) {
   return { ok: true, days, lists: out.length, flagged: out.filter(x => x.flagged).length, errors, out };
 }
 // Creator preview (Tom, 16 Oct 2026): a brand clicks a creator's name and sees their latest videos without leaving the
-// list. Read only, from the YouTube Data API (YOUTUBE_API_KEY, already used by the sync jobs), for a roster row's own
-// channel link. Cached for six hours per channel, so a busy list costs a handful of API units, not one per click.
+// list. Read only, from the channel's public YouTube feed, for a roster row's own channel link. Cached for six hours per channel, so a busy list costs a handful of API units, not one per click.
 const ytPreviewCache = new Map();
 async function creatorVideos(b) {
-  const key = process.env.YOUTUBE_API_KEY; if (!key) throw new Error("Videos are not available right now");
   const data = await loadBoard();
   const r = data.rows.find(x => x.id === String(b.id || "")); if (!r) throw new Error("creator not found");
   const url = String(r.cv[C.url] || "");
@@ -1276,22 +1274,23 @@ async function creatorVideos(b) {
   const shorts = /shorts/i.test(String(r.name)) || r.group === "group_mm4av3kr";
   const ck = (m[1] || "@" + m[2].toLowerCase()) + (shorts ? "|s" : "|l");
   const hit = ytPreviewCache.get(ck); if (hit && Date.now() - hit.at < 6 * 3600e3) return hit.v;
-  const yt = (ep, q) => fetch("https://www.googleapis.com/youtube/v3/" + ep + "?" + q + "&key=" + key).then(x => x.json());
-  const ch = await yt("channels", "part=contentDetails&" + (m[1] ? "id=" + m[1] : "forHandle=" + encodeURIComponent("@" + m[2])));
-  if (ch.error) throw new Error("YouTube: " + ((ch.error.errors || [])[0] || {}).reason + " " + String(ch.error.message || "").slice(0, 120));
-  const up = (((ch.items || [])[0] || {}).contentDetails || {}).relatedPlaylists; const upl = up && up.uploads;
-  if (!upl) return { ok: true, videos: [], channel: url };
-  const pl = await yt("playlistItems", "part=contentDetails&maxResults=25&playlistId=" + upl);
-  const ids = (pl.items || []).map(i => i.contentDetails && i.contentDetails.videoId).filter(Boolean);
-  if (!ids.length) return { ok: true, videos: [], channel: url };
-  const vs = await yt("videos", "part=snippet,statistics,contentDetails&id=" + ids.join(","));
-  const secs = d => { const t = String(d || "").match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/) || []; return (+t[1] || 0) * 3600 + (+t[2] || 0) * 60 + (+t[3] || 0); };
-  const all = (vs.items || []).filter(v => v.snippet && v.snippet.liveBroadcastContent === "none").map(v => ({ id: v.id, title: v.snippet.title, at: v.snippet.publishedAt, views: +((v.statistics || {}).viewCount || 0), short: secs((v.contentDetails || {}).duration) <= 180, thumb: ((v.snippet.thumbnails || {}).medium || (v.snippet.thumbnails || {}).default || {}).url || "" }));
+  // YouTube's public channel feed: no API key and no daily quota (the Data API quota is used up by the sync jobs).
+  const UA = { "User-Agent": "Mozilla/5.0 (compatible; DFT roster)", "Accept-Language": "en" };
+  let cid = m[1];
+  if (!cid) { const hk = "@" + m[2].toLowerCase(); cid = (ytPreviewCache.get(hk) || {}).v;
+    if (!cid) { const h = await fetch("https://www.youtube.com/@" + encodeURIComponent(m[2]), { headers: UA }).then(x => x.text()).catch(() => "");
+      cid = ((h.match(/"externalId":"(UC[\w-]{22})"/) || h.match(/<link rel="canonical" href="https:\/\/www\.youtube\.com\/channel\/(UC[\w-]{22})"/) || h.match(/"channelId":"(UC[\w-]{22})"/) || [])[1]) || "";
+      if (cid) ytPreviewCache.set(hk, { at: Date.now(), v: cid }); } }
+  if (!cid) return { ok: true, videos: [], channel: url };
+  const xml = await fetch("https://www.youtube.com/feeds/videos.xml?channel_id=" + cid, { headers: UA }).then(x => x.ok ? x.text() : "").catch(() => "");
+  const un = t => String(t || "").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+  const all = (xml.split("<entry>").slice(1)).map(e => { const g = re => (e.match(re) || [])[1] || ""; const href = g(/<link rel="alternate" href="([^"]+)"/); return { id: g(/<yt:videoId>([^<]+)</), title: un(g(/<title>([^<]*)</)), at: g(/<published>([^<]+)</), views: +g(/<media:statistics views="(\d+)"/) || 0, thumb: g(/<media:thumbnail url="([^"]+)"/), url: href, short: /\/shorts\//.test(href) }; }).filter(v => v.id);
   const want = all.filter(v => v.short === shorts);
-  const out = { ok: true, channel: url, videos: (want.length >= 3 ? want : all).slice(0, 6).map(v => ({ id: v.id, title: v.title, at: v.at, views: v.views, thumb: v.thumb, url: v.short && shorts ? "https://www.youtube.com/shorts/" + v.id : "https://www.youtube.com/watch?v=" + v.id })) };
-  ytPreviewCache.set(ck, { at: Date.now(), v: out });
+  const out = { ok: true, channel: url, videos: (want.length >= 2 ? want : all).slice(0, 6).map(v => ({ id: v.id, title: v.title, at: v.at, views: v.views, thumb: v.thumb, url: v.url || "https://www.youtube.com/watch?v=" + v.id })) };
+  if (out.videos.length) ytPreviewCache.set(ck, { at: Date.now(), v: out });
   return out;
 }
+
 async function listThread(list) {
   const tok = await gmailToken("tom@digitalfoxtalent.com"); if (!tok) return null;
   const G = path => fetch("https://gmail.googleapis.com/gmail/v1/users/me" + path, { headers: { Authorization: "Bearer " + tok } }).then(r => r.ok ? r.json() : {}).catch(() => ({}));
