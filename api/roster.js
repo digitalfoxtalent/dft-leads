@@ -1538,12 +1538,15 @@ function parseForward(b) {
 }
 
 // What brands can see today, one line per placement, for Claude to choose from.
-function pitchCatalogue(data) {
+// Press pitches (Tom, 16 Oct 2026) see no prices and no dedicated videos, and views as typical views.
+function pitchCatalogue(data, press) {
   const p = brandPayload(data, null, false), lines = [], byId = {};
   GROUPS.forEach(g => (p.groups[g.id] || []).forEach(c => {
+    if (press && g.id === "dedicated") return;
     byId[String(c.id)] = Object.assign({ gid: g.id }, c);
-    const price = typeof c.total === "number" ? c.total : c.rate;
-    const views = c.vg ? kfmt(c.vg) + (g.kind !== "long" ? " avg views" : g.id === "dedicated" ? " est views" : " guaranteed views") : "";
+    const price = press ? 0 : typeof c.total === "number" ? c.total : c.rate;
+    const typical = g.kind === "long" ? (c.vgPer || c.vg || 0) / PRICE.long.mult : c.vg;
+    const views = press ? (typical ? kfmt(Math.round(typical)) + " typical views" : "") : c.vg ? kfmt(c.vg) + (g.kind !== "long" ? " avg views" : g.id === "dedicated" ? " est views" : " guaranteed views") : "";
     lines.push([c.id, PITCH_LABEL[g.id], c.name, c.handle, c.category || "", c.subs ? kfmt(c.subs) + " subs" : "", views, price ? "$" + price : "", c.location ? "based in " + c.location : "", c.us ? "US audience " + c.us : "", c.uk ? "UK audience " + c.uk : "", c.male ? "male " + c.male : "", String(c.about || "").replace(/\s+/g, " ").slice(0, 140)].join(" | "));
   }));
   return { lines, byId };
@@ -1612,9 +1615,10 @@ function reviewPrompt(f, lines, pointers, researchTxt) {
   ].join("\n");
 }
 
-function pitchPrompt(f, lines, fwdName, aiNames, namedNames, pointers, facts, researchTxt) {
+function pitchPrompt(f, lines, fwdName, aiNames, namedNames, pointers, facts, researchTxt, press) {
   return [
     "You help Digital Fox Talent (DFT), a creator management agency, answer a brand enquiry with a shortlist from its creator roster.",
+    press ? "THIS IS A PRESS PITCH (earned media): " + fwdName + " marked it press. The partner offers creators something other than a fee, such as product, early access, screenings, events or interviews, and the list shows each creator's typical content ideas instead of prices. Pick creators who would genuinely make content about this for their own audience. There are no prices and no dedicated videos; integration simply means the creator's YouTube channel. Never mention money, rates, fees or guarantees anywhere in your answer." : "",
     "",
     "THE ENQUIRY (forwarded by " + fwdName + " at DFT. Original sender: " + (f.contactName || "unknown") + " <" + f.contactEmail + ">. Sent to: " + (f.to || "unknown") + ")",
     f.note ? "POINTER FROM " + fwdName.toUpperCase() + " FOR THIS ENQUIRY (top priority, follow it exactly: creators to add or leave out, formats, angle, list size): " + f.note : "",
@@ -1658,7 +1662,7 @@ function pitchPrompt(f, lines, fwdName, aiNames, namedNames, pointers, facts, re
     "- Never invent ids.",
     "",
     "THE REPLY",
-    "Do not write the email (it is built from a fixed template). Give only: product, the short brand or product name exactly as people would say it (e.g. Catch Flex, Higgsfield), never a description; mix, a short phrase for the kinds of channels on your list (e.g. gaming, reaction, and personality channels); and answer, one or two short plain sentences that directly answer any practical question the enquiry asks, otherwise empty. answer may only use these facts: the current rates are on the list; availability and posting dates are confirmed with each creator as soon as they approve, and we can move quickly; which of the named creators are on the list (only those given above as named and on the roster). Never say a creator is not on the roster, has left, or is unavailable: simply leave other names out. Never invent availability, dates, prices or numbers, never mention creators who left, and never refer to anything below or attached. No em dashes, no slashes.",
+    "Do not write the email (it is built from a fixed template). Give only: product, the short brand or product name exactly as people would say it (e.g. Catch Flex, Higgsfield), never a description; mix, a short phrase for the kinds of channels on your list (e.g. gaming, reaction, and personality channels); and answer, one or two short plain sentences that directly answer any practical question the enquiry asks, otherwise empty. answer may only use these facts: " + (press ? "each creator's typical content ideas are on the list; " : "the current rates are on the list; ") + "availability and posting dates are confirmed with each creator as soon as they approve, and we can move quickly; which of the named creators are on the list (only those given above as named and on the roster). Never say a creator is not on the roster, has left, or is unavailable: simply leave other names out. Never invent availability, dates, prices or numbers, never mention creators who left, and never refer to anything below or attached. No em dashes, no slashes.",
     "",
     "- If the email does not call for creators at all (for example an ongoing booking about dates, contracts, payment or edits, or the brand has already said it wants no more names), return no picks and put one short plain sentence in no_pitch_reason saying why, for the DFT teammate who forwarded it. Otherwise leave no_pitch_reason empty.",
     "",
@@ -1688,15 +1692,18 @@ async function pitchFromEmail(b) {
   await pitchItem(b.item, fromEmail);
   try {
     const f = parseForward(b);
+    // Press packages from the pipeline (Tom, 16 Oct 2026): a note above the forward that says "press"
+    // (or "earned media") makes a press package, with no prices, and a draft worded for one.
+    const press = /\bpress\b|earned media/i.test(f.note || "");
     // Tom's pointers (13 Oct 2026): the note above each forward is kept on the Pitch Requests board and fed into later pitches, so the system learns from them.
     if (f.note) await monday(`mutation{change_multiple_column_values(board_id:${PITCH_BOARD},item_id:${Number(b.item)},column_values:${JSON.stringify(JSON.stringify({ long_text_mm83jwpf: { text: f.note } }))}){id}}`).catch(() => null);
     const pastQ = await monday(`query{boards(ids:[${PITCH_BOARD}]){items_page(limit:200){items{id column_values(ids:["long_text_mm83jwpf"]){text}}}}}`).catch(() => null);
-    const pointers = (((((pastQ || {}).boards || [])[0] || {}).items_page || {}).items || []).filter(it => String(it.id) !== String(b.item) && String(it.id) !== String(FACTS_ITEM)).map(it => String(((it.column_values || [])[0] || {}).text || "").trim()).filter(p => p && !/^(warm|kind|best) regards/i.test(p)).filter((p, i, a) => a.indexOf(p) === i).slice(-30);
+    const pointers = (((((pastQ || {}).boards || [])[0] || {}).items_page || {}).items || []).filter(it => String(it.id) !== String(b.item) && String(it.id) !== String(FACTS_ITEM)).map(it => String(((it.column_values || [])[0] || {}).text || "").trim()).filter(p => p && !/^(warm|kind|best) regards/i.test(p) && !/^\s*(press|press (package|list|pitch|junket)|earned media)[\s.!]*$/i.test(p)).filter((p, i, a) => a.indexOf(p) === i).slice(-30);
     if (!f.contactEmail || f.body.length < 40) throw new Error("No forwarded enquiry found. Forward the brand's own email.");
     const factsQ = await monday(`query{items(ids:[${FACTS_ITEM}]){column_values(ids:["long_text_mm83jwpf"]){text}}}`).catch(() => null);
     const facts = String(((((factsQ || {}).items || [])[0] || {}).column_values || [{}])[0].text || "").trim();
     const data = await loadBoard();
-    const cat = pitchCatalogue(data);
+    const cat = pitchCatalogue(data, press);
     // Brand fit notes (Rates board column, Tom 14 Oct 2026): DFT's own judgement on who each creator suits, applied to all of that creator's formats.
     const fitQ = await monday(`query{boards(ids:[${BOARD}]){items_page(limit:500){items{id name column_values(ids:["long_text_mm84rm3j","text_mm49w81b"]){id text}}}}}`).catch(() => null);
     const fitKey = k => String(k || "").replace(/\s*-\s*(Shorts|Instagram|TikTok|Snapchat|Dedicated)\b.*$/i, "").replace(/^@/, "").toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -1725,7 +1732,7 @@ async function pitchFromEmail(b) {
     // Brand research first (Tom, 14 Oct 2026): the brand's own site and the creators it has partnered with before.
     const research = await brandResearch(f, latest).catch(() => null);
     const researchTxt = research ? JSON.stringify(research).slice(0, 2500) : "";
-    const out = await askClaude(pitchPrompt(f, fitLines, fwdName, aiNames, namedNames, pointers, facts, researchTxt));
+    const out = await askClaude(pitchPrompt(f, fitLines, fwdName, aiNames, namedNames, pointers, facts, researchTxt, press));
     const order = GROUPS.map(g => g.id);
     // AI campaigns are the model's call on the product, not any mention of "AI" in the email (Tom, 15 Oct 2026: RayNeo AR glasses
     // "touches on AI but isn't a completely AI focussed product", and got an AI-only list).
@@ -1737,6 +1744,7 @@ async function pitchFromEmail(b) {
     // Formats strictly as the brand states them; nothing stated means YouTube, integration plus Shorts (Tom, 14 Oct 2026).
     const FMAP = { integration: "topics", youtube: "topics", youtubeintegration: "topics", dedicated: "dedicated", shorts: "group_mm4av3kr", youtubeshorts: "group_mm4av3kr", instagram: "group_mm4a1fe0", reels: "group_mm4a1fe0", ig: "group_mm4a1fe0", tiktok: "group_mm4bd5tk", snapchat: "group_mm7yw8cy" };
     const askedG = new Set((Array.isArray(out.formats) ? out.formats : []).map(x => FMAP[String(x || "").toLowerCase().replace(/[^a-z]/g, "")]).filter(Boolean));
+    if (press && askedG.delete("dedicated")) askedG.add("topics"); // press packages have no dedicated videos: the channel itself stands in
     if (!askedG.size) { askedG.add("topics"); askedG.add("group_mm4av3kr"); }
     for (let k = ids.length - 1; k >= 0; k--) if (!askedG.has(cat.byId[ids[k]].gid)) ids.splice(k, 1);
     const bt = (f.body + " " + f.note).replace(/https?:\/\/\S+|<[^>\s]+>/g, " "), socialOnly = [wantF.group_mm4a1fe0, wantF.group_mm4bd5tk, wantF.group_mm7yw8cy].some(re => re.test(bt)) && !/youtube|\byt\b|integration|\bshorts?\b|dedicated/i.test(bt);
@@ -1776,7 +1784,7 @@ async function pitchFromEmail(b) {
     const mailKey = ckey(f.subject + " " + latest).slice(0, 4000);
     const lastDay = l => ((String(l.by || "") + " " + String(l.updated || "")).match(/\d{4}-\d\d-\d\d/g) || [""]).sort().pop();
     const recent = l => { const d = (String(l.by || "") + " " + String(l.updated || "")).match(/\d{4}-\d\d-\d\d/g) || []; return d.some(x => Date.now() - Date.parse(x) < 120 * 864e5); };
-    const prevL = data.lists.filter(l => l.slug && l.slug !== AI_LIST && /\(pitch\)/.test(String(l.by || "")) && recent(l)).map(l => ({ l, k: ckey(l.name) })).filter(x => x.k.length >= 5 && (pKeys.some(k => k === x.k || (k.length >= 7 && (k.startsWith(x.k) || x.k.startsWith(k)))) || (x.k.length >= 7 && mailKey.includes(x.k))))
+    const prevL = data.lists.filter(l => l.slug && l.slug !== AI_LIST && /\(pitch\)/.test(String(l.by || "")) && recent(l) && !!(l.body && l.body.press) === press).map(l => ({ l, k: ckey(l.name) })).filter(x => x.k.length >= 5 && (pKeys.some(k => k === x.k || (k.length >= 7 && (k.startsWith(x.k) || x.k.startsWith(k)))) || (x.k.length >= 7 && mailKey.includes(x.k))))
       .sort((a, b) => lastDay(b.l).localeCompare(lastDay(a.l)))[0];
     let reuse = null;
     // One list per campaign (Tom, 15 Oct 2026: "update the one we had rather than creating a new version").
@@ -1815,8 +1823,8 @@ async function pitchFromEmail(b) {
     if (!reuse) ids.sort((x, y) => order.indexOf(cat.byId[x].gid) - order.indexOf(cat.byId[y].gid));
     const title = reuse ? reuse.title : update ? update.title : noDash(out.title || f.subject || "Pitch").slice(0, 70);
     // Libsyn Ads pitches (Tom, 16 Oct 2026): YouTube integrations at a $28 CPM, and the Libsyn sub report in the draft.
-    const libsyn = isLibsyn(f);
-    const saved = reuse ? { ok: true, slug: reuse.slug, url: "https://" + HOST + "/r/" + reuse.slug } : await saveList(update ? { title, ids, slug: update.slug } : { title, ids }, fromEmail + " (pitch)");
+    const libsyn = isLibsyn(f) && !press;
+    const saved = reuse ? { ok: true, slug: reuse.slug, url: "https://" + HOST + "/r/" + reuse.slug } : await saveList(update ? { title, ids, slug: update.slug } : { title, ids, press }, fromEmail + " (pitch)");
     if (libsyn) await setListCpm(saved.slug, LIBSYN_CPM, fromEmail + " (pitch)").catch(() => null);
     const reportUrl = libsyn ? await libsynReportUrl().catch(() => "") : "";
     const first = noDash(out.contact_first_name || String(f.contactName).split(/\s+/)[0] || "there");
@@ -1834,8 +1842,9 @@ async function pitchFromEmail(b) {
     const intro = pick(["I've put together a shortlist of creators" + across + (who || " for you") + ".", "Here's a shortlist of creators" + across + (who || " who'd be happy to take this on") + ".", "Please find below a list of creators" + across + (who || " who would be happy to promote " + product) + ".", "I've pulled together some creators" + across + (who || " who'd be a great fit") + "."]);
     const solo = [...new Set(ids.map(id => base(cat.byId[id].name).replace(/^@/, "")))]; // one creator: say so plainly
     const soloFirst = solo.length === 1 ? solo[0] : ""; // full name: first word alone gave "Mr.'s rates" (Mr. Know-It-All, 15 Oct 2026)
-    const lead = expanded ? pick(["I've put the creators you shortlisted on one list, along with some others" + (who ? who + " and would suit " : " who'd suit ") + product + " really well.", "Here are the creators you shortlisted, plus a few more" + (who ? who + " and would be great for " : " who I think would be great for ") + product + "."]) : shortOnly && solo.length > 1 ? pick(["I've put the creators you shortlisted together on one list.", "Here are the creators you shortlisted, all on one list."]) : solo.length === 1 ? pick(["Please find " + soloFirst + "'s rates below.", "Here are " + soloFirst + "'s rates for this.", "I've put " + soloFirst + "'s rates together for you below."]) : intro;
-    const howTo = pick(["You can tick \u201cApprove?\u201d next to a creator to book them, tick again to mark a 'no', or use the speech bubble to comment or ask questions.", "Just tick \u201cApprove?\u201d next to anyone you'd like to go ahead with (tick again for a no), and use the speech bubble for any questions.", "Tick \u201cApprove?\u201d next to the creators you'd like to book, tick again for a no, and leave any questions in the speech bubble."]);
+    const pressLine = press ? " For each one you'll see their audience and a few ideas for the kind of content they'd make." : "";
+    const lead = press && solo.length === 1 ? "I've put " + soloFirst + " on a list for you, with their audience and a few ideas for the kind of content they'd make." : (expanded ? pick(["I've put the creators you shortlisted on one list, along with some others" + (who ? who + " and would suit " : " who'd suit ") + product + " really well.", "Here are the creators you shortlisted, plus a few more" + (who ? who + " and would be great for " : " who I think would be great for ") + product + "."]) : shortOnly && solo.length > 1 ? pick(["I've put the creators you shortlisted together on one list.", "Here are the creators you shortlisted, all on one list."]) : solo.length === 1 ? pick(["Please find " + soloFirst + "'s rates below.", "Here are " + soloFirst + "'s rates for this.", "I've put " + soloFirst + "'s rates together for you below."]) : intro) + (solo.length === 1 ? "" : pressLine);
+    const howTo = press ? pick(["You can tick “Approve?” next to anyone you'd like to work with, tick again for a no, or use the speech bubble to comment or ask questions.", "Just tick “Approve?” next to anyone you'd like to go ahead with (tick again for a no), and use the speech bubble for any questions."]) : pick(["You can tick \u201cApprove?\u201d next to a creator to book them, tick again to mark a 'no', or use the speech bubble to comment or ask questions.", "Just tick \u201cApprove?\u201d next to anyone you'd like to go ahead with (tick again for a no), and use the speech bubble for any questions.", "Tick \u201cApprove?\u201d next to the creators you'd like to book, tick again for a no, and leave any questions in the speech bubble."]);
     // A brand asking about a specific creator (Tom, 15 Oct 2026, Gidues and CyberGhost): thank them for reaching out to
     // that creator, put that creator's rates in the email itself, then offer the wider list (the creator is on it too).
     const FMT = { topics: "YouTube integration", dedicated: "YouTube dedicated video", group_mm4av3kr: "YouTube Short", group_mm4a1fe0: "Instagram Reel", group_mm4bd5tk: "TikTok", group_mm7yw8cy: "Snapchat" };
@@ -1845,8 +1854,8 @@ async function pitchFromEmail(b) {
     const gOrder = Object.keys(FMT);
     const baseOf = id => base(cat.byId[id].name).replace(/^@/, "");
     // One creator on the list: the draft says "Please find X's rates below", so the rates must actually be there.
-    const details = (askedFor.length ? askedFor : solo.length === 1 ? solo : []).map(nm => [nm].concat(ids.filter(id => nameOf(id) === nm || baseOf(id) === nm).sort((x, y) => gOrder.indexOf(cat.byId[x].gid) - gOrder.indexOf(cat.byId[y].gid)).map(rateLine).filter(Boolean)).join("\n")).filter(d => d.indexOf("\n") > 0);
-    const withRates = /\b(rates?|pric\w*|cost|budget)\b/i.test(f.body) ? " with current rates." : ".";
+    const details = press ? [] : (askedFor.length ? askedFor : solo.length === 1 ? solo : []).map(nm => [nm].concat(ids.filter(id => nameOf(id) === nm || baseOf(id) === nm).sort((x, y) => gOrder.indexOf(cat.byId[x].gid) - gOrder.indexOf(cat.byId[y].gid)).map(rateLine).filter(Boolean)).join("\n")).filter(d => d.indexOf("\n") > 0);
+    const withRates = !press && /\b(rates?|pric\w*|cost|budget)\b/i.test(f.body) ? " with current rates." : ".";
     const ans = [];
     const qs = Array.isArray(out.questions) ? out.questions.filter(q => q && q.q) : [];
     if (aiDeclined.length) ans.push("Sadly, " + joinN(aiDeclined) + " won't take on AI projects, but these creators would.");
@@ -1861,7 +1870,7 @@ async function pitchFromEmail(b) {
     const todo = qs.filter(q => !noDash(String(q.answer || "").replace(/\[[^\]]*\]/g, "").trim())).map(q => noDash(String(q.q).trim().replace(/[.?\s]+$/, "")));
     if (todo.length) ans.push(pick(["I'll come back to you on your other questions shortly.", "I'll come back to you on the rest of your questions shortly.", "On your other questions, I'll come back to you shortly."]));
     const answer = ans.join(" ");
-    const ask = pick(["Could you confirm who you would like to book?", "Could you confirm who you would like to book please?", "Who would you like to book?", "Could you confirm who you'd like to book for this?"]);
+    const ask = press ? pick(["Could you let me know who you'd like to work with?", "Who would you like to go ahead with?", "Could you confirm who you'd like to work with on this?"]) : pick(["Could you confirm who you would like to book?", "Could you confirm who you would like to book please?", "Who would you like to book?", "Could you confirm who you'd like to book for this?"]);
     const options = /option\s*\d|both options|\boptions\b/i.test(f.body);
     const how = solo.length === 1 ? "" : " " + howTo;
     const ask2 = solo.length === 1 ? pick(["Could you confirm if you'd like to go ahead?", "Let me know if you'd like to go ahead and we'll get it booked in.", "Could you confirm if you'd like to book " + soloFirst + "?"]) : ask; // one placement: never "which option" (Tom, 13 Oct 2026)
@@ -1891,7 +1900,7 @@ async function pitchFromEmail(b) {
     const quoteHtml = '<br><div class="gmail_quote"><div dir="ltr" class="gmail_attr">' + escH(attr) + '<br></div><blockquote class="gmail_quote" style="margin:0px 0px 0px 0.8ex;border-left:1px solid rgb(204,204,204);padding-left:1ex">' + origHtml + "</blockquote></div>";
     const quoteText = "\n\n" + attr + "\n\n" + origText.split("\n").map(l => "> " + l).join("\n");
     const subject = /^re:/i.test(f.subject) ? f.subject : "Re: " + f.subject;
-    await pitchMark(b.item, (reuse ? "Ready: same list as before, " : "Ready: ") + ids.length + " placements (" + out.model + ")" + (todo.length ? ". Brand also asked (not answered in the draft): " + todo.join("; ") : ""), saved.url);
+    await pitchMark(b.item, (press ? "Press package. " : "") + (reuse ? "Ready: same list as before, " : "Ready: ") + ids.length + " placements (" + out.model + ")" + (todo.length ? ". Brand also asked (not answered in the draft): " + todo.join("; ") : ""), saved.url);
     // Who gets copied (Tom, 14 Oct 2026, after a creator's personal email was copied on Margot's Base44 draft):
     // never a creator. Besides Tom, Alex and Margot, the only addresses kept from the forwarded email are
     // colleagues of the brand contact at the same company domain. A free mail domain (gmail, icloud...) is
@@ -1901,7 +1910,7 @@ async function pitchFromEmail(b) {
     const cDom = domOf(f.contactEmail);
     const brandSide = x => !!cDom && !FREE_MAIL.test(cDom) && domOf(x) === cDom;
     const cc = [...new Set((f.others || []).filter(x => x !== f.contactEmail && (brandSide(x) || /^(alex|margot|george)@digitalfoxtalent\.com$/i.test(x))).concat(["tom@digitalfoxtalent.com", "alex@digitalfoxtalent.com", "margot@digitalfoxtalent.com"]))].filter(x => x !== fromEmail).join(", ");
-    const resultObj = { ok: true, listUrl: saved.url, title, placements: ids.length, to: f.contactEmail, cc, subject, search: pitchSearch(f), html: html + quoteHtml, text: text + quoteText, model: out.model, picks: out.picks, research, stage: out.stage || "new", closing: out.closing === true, questions: out.questions || [], reviewed, reused: reuse ? reuse.slug : "" };
+    const resultObj = { ok: true, listUrl: saved.url, title, placements: ids.length, to: f.contactEmail, cc, subject, search: pitchSearch(f), html: html + quoteHtml, text: text + quoteText, model: out.model, picks: out.picks, research, stage: out.stage || "new", closing: out.closing === true, questions: out.questions || [], reviewed, reused: reuse ? reuse.slug : "", press };
     // For the sender only, never the brand: the questions the draft holds over (Make route "Before you send").
     resultObj.unanswered = todo;
     resultObj.unansweredHtml = todo.length ? "<p>Your pitch draft to " + escH(f.contactEmail) + " is ready (subject: " + escH(subject) + ").</p><p>The brand also asked these, which the standing facts do not cover. The draft tells them you will come back to them shortly, so it is safe to send as it is. Reply on these yourself, or add your answers to the draft before you send:</p><ul>" + todo.map(q => "<li>" + escH(q) + "</li>").join("") + "</ul><p>To have the system answer a question like this next time, add the answer to the Standing facts item on the Roster - Pitch Requests board.</p>" : "";
