@@ -1291,6 +1291,66 @@ async function creatorVideos(b) {
   return out;
 }
 
+// Sales Desk outreach (Tom, 16 Oct 2026: "when it nudges Margot, and she presses 'draft email', it drafts a Pitch email
+// instead", and the same for George's press opportunities). The alert's Draft button opens /api/roster?op=outreach. The
+// page asks for outreach-draft, which reads the monday row, runs the pitch engine in outreach mode (a list made for that
+// brand, wording that opens the conversation rather than thanking them) and saves the email as a fresh draft in the
+// clicker's own Gmail, with Tom and Alex copied. No thread: these are first emails. Nothing is ever sent.
+const OUTREACH_BOARDS = { "18415192682": "spend", "18421619922": "winback", "18415007170": "studio" };
+async function outreachDraft(b, email) {
+  const board = String(b.board || ""), kind = OUTREACH_BOARDS[board];
+  if (!kind) throw new Error("This alert type cannot make a pitch yet");
+  const to = String(b.to || "").trim().toLowerCase();
+  if (!/^[^@\s]+@[^@\s]+\.[a-z]{2,}$/i.test(to) || DFT_DOMAIN.test(to)) throw new Error("No brand email on this alert");
+  const d = await monday(`query{items(ids:[${Number(b.item) || 0}]){id name board{id} column_values{text column{title}}}}`);
+  const it = d && d.items && d.items[0];
+  if (!it || String(it.board && it.board.id) !== board) throw new Error("monday row not found");
+  const facts = (it.column_values || []).map(c => [String((c.column || {}).title || ""), String(c.text || "").replace(/\s+/g, " ").trim()]).filter(([k, v]) => k && v && v.length < 600 && !/send via gmail|alert sent|status|draft|link|verified|contacts?$|notes?$/i.test(k)).map(([k, v]) => k + ": " + v).join("\n").slice(0, 3000);
+  const brand = String(it.name || "").trim();
+  const first = String(b.name || "").trim().split(/\s+/)[0] || "";
+  // The sender's own display name, for the signature (Gmail's Send As setting).
+  const tok = await gmailToken(email); if (!tok) throw new Error("Gmail is not connected for " + email);
+  const G = (path, opt = {}) => fetch("https://gmail.googleapis.com/gmail/v1/users/me" + path, Object.assign({}, opt, { headers: Object.assign({ Authorization: "Bearer " + tok }, opt.headers || {}) })).then(async r => { const t = await r.text(); let j = {}; try { j = t ? JSON.parse(t) : {}; } catch (_) {} return r.ok ? j : Object.assign(j, { _status: r.status }); });
+  const sa = await G("/settings/sendAs").catch(() => ({}));
+  const fromName = String((((sa.sendAs || []).find(x => String(x.sendAsEmail).toLowerCase() === email) || (sa.sendAs || [])[0] || {}).displayName) || "").trim() || email.split("@")[0].replace(/^./, c => c.toUpperCase());
+  const me = fromName.split(/\s+/)[0];
+  const pick = a => a[Math.floor(Math.random() * a.length)];
+  const lastCampaign = String(b.last || "").replace(/[<>]/g, "").slice(0, 80);
+  const opener = kind === "studio"
+    ? pick(["I'm " + me + " from Digital Fox Talent. We manage creators across film, gaming and pop culture, and with " + brand + " coming up we'd love to support it.", "I'm " + me + " at Digital Fox Talent, where we look after film, gaming and pop culture creators. We'd love to help get " + brand + " in front of their audiences.", "I'm reaching out from Digital Fox Talent: our creators cover film, gaming and pop culture, and " + brand + " is right in their wheelhouse."])
+    : kind === "winback"
+    ? pick(["Hope you're well! It's been a little while since we last worked together" + (lastCampaign ? " on " + lastCampaign : "") + ", and I wanted to reconnect.", "It's been a while since we last worked together, so I wanted to say hello and share what's new on our side.", "Hope all's well with you. We loved working with you before and wanted to reconnect."])
+    : pick(["I'm " + me + " from Digital Fox Talent. We manage YouTube creators across film, gaming and tech, and I've seen " + brand + " working with creators in our space.", "I'm " + me + " at Digital Fox Talent, where we look after YouTube creators in film, gaming and tech. " + brand + " looks like a great fit for our audience.", "I'm reaching out from Digital Fox Talent: we manage YouTube creators across film, gaming and tech, and I think " + brand + " would be a strong fit with our roster."]);
+  const note = (kind === "studio"
+    ? "OUTREACH, not an enquiry: a press package. Digital Fox Talent is writing first to the studio behind " + brand + " to offer press coverage and interviews from our creators around its release. Pick creators whose audiences suit " + brand + ". They have not asked any questions."
+    : kind === "winback"
+    ? "OUTREACH, not an enquiry. Digital Fox Talent is writing first to " + brand + ", a former client we want to win back. Build a shortlist that fits what " + brand + " has booked with us before and what they promote now. They have not asked any questions."
+    : "OUTREACH, not an enquiry. Digital Fox Talent is writing first to " + brand + ", which is spending on creator campaigns in our niche. Build a shortlist that fits " + brand + "'s product and audience. They have not asked any questions.")
+    + " Name the list after " + brand + " (and its product if clear), never after an agency.";
+  const subject = kind === "studio" ? "Creator partnerships for " + brand : "Digital Fox Talent × " + brand;
+  // Logged on Roster - Pitch Requests like any forward, so the pitch engine's checks and the monday trail are the same.
+  const cr = await monday("mutation($b:ID!,$n:String!,$v:JSON!){create_item(board_id:$b,item_name:$n,column_values:$v){id}}", { b: String(PITCH_BOARD), n: "Outreach: " + brand, v: JSON.stringify({ [PB.by]: email, [PB.contact]: to }) });
+  const item = cr && cr.create_item && cr.create_item.id; if (!item) throw new Error("Could not log the outreach on monday");
+  const text = note + "\n\n---------- Forwarded message ---------\nFrom: " + (b.name ? String(b.name).replace(/[<>"]/g, "") + " " : "") + "<" + to + ">\nSubject: " + subject + "\nTo: " + email + "\n\nWHAT WE KNOW ABOUT " + brand.toUpperCase() + " (from our monday row, not from them):\n" + facts;
+  const r = await pitchFromEmail({ item, fromEmail: email, fromName, text, subject, outreach: { kind, opener, subject }, sentTo: kind === "studio" ? "press@digitalfoxtalent.com" : "" });
+  const html = String(r.html || "").replace(/Hi [^,<]{1,60},/, "Hi " + escH(first || "there") + ",");
+  const plain = String(r.text || "").replace(/^Hi [^,\n]{1,60},/, "Hi " + (first || "there") + ",");
+  const cc = ["tom@digitalfoxtalent.com", "alex@digitalfoxtalent.com"].filter(x => x !== email).join(", ");
+  const mime = pitchMime({ to, cc, subject, html, text: plain }).draft;
+  const dr = await G("/drafts", { method: "POST", headers: { "Content-Type": "application/json" }, body: mime });
+  if (!dr.id) throw new Error("Gmail did not save the draft" + (dr.error ? ": " + (dr.error.message || "") : ""));
+  const mid = (dr.message || {}).id || "";
+  return { ok: true, list: r.listUrl, title: r.title, placements: r.placements, draft: dr.id, url: "https://mail.google.com/mail/?authuser=" + encodeURIComponent(email) + "#drafts?compose=" + mid };
+}
+function outreachPage(q) {
+  const e = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const args = JSON.stringify({ op: "outreach-draft", board: String(q.board || ""), item: String(q.item || ""), to: String(q.to || ""), name: String(q.name || ""), last: String(q.last || "") });
+  const plain = String(q.plain || "");
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Building your pitch</title>
+<style>body{margin:0;background:#f5f3ef;font:15px/1.55 Poppins,Arial,sans-serif;color:#1a1a1a;display:grid;place-items:center;min-height:100vh}.c{background:#fff;border:1px solid #ece9e4;border-radius:16px;padding:40px 44px;max-width:460px;margin:24px;text-align:center}.sp{width:34px;height:34px;border:3px solid #f2dcc6;border-top-color:#f58220;border-radius:50%;animation:s 1s linear infinite;margin:0 auto 22px}@keyframes s{to{transform:rotate(360deg)}}h1{font-size:20px;margin:0 0 8px}p{color:#6b6b76;margin:0}a{color:#f58220;font-weight:600}.err .sp{display:none}</style></head>
+<body><div class="c" id="c"><div class="sp"></div><h1>Building your pitch${q.brand ? " for " + e(q.brand) : ""}…</h1><p id="m">Picking the right creators and writing the email. This takes up to a minute, then your draft opens in Gmail.</p></div>
+<script>fetch("/api/roster",{method:"POST",headers:{"content-type":"application/json"},credentials:"same-origin",body:${JSON.stringify(args)}}).then(r=>r.json()).then(j=>{ if(j&&j.url){ document.getElementById("m").textContent="Done. Opening your draft…"; location.href=j.url; } else throw new Error((j&&j.error)||"Something went wrong"); }).catch(err=>{ const c=document.getElementById("c"); c.className="c err"; c.querySelector("h1").textContent="The pitch could not be built"; document.getElementById("m").innerHTML=String(err.message).replace(/[<>&]/g,"")+${plain ? JSON.stringify('<br><br><a href="' + e(plain) + '">Write a plain email instead</a>') : '""'}; });</script></body></html>`;
+}
 async function listThread(list) {
   const tok = await gmailToken("tom@digitalfoxtalent.com"); if (!tok) return null;
   const G = path => fetch("https://gmail.googleapis.com/gmail/v1/users/me" + path, { headers: { Authorization: "Bearer " + tok } }).then(r => r.ok ? r.json() : {}).catch(() => ({}));
@@ -2003,7 +2063,7 @@ async function pitchFromEmail(b) {
     // Or forwarded to press@ (Tom, 16 Oct 2026: "Press and Pitch are different"): Make passes the To and Cc addresses as sentTo.
     const press = /\bpress\b|earned media/i.test(f.note || "") || /(^|[\s,<])press@digitalfoxtalent\.com/i.test(String(b.sentTo || ""));
     // Tom's pointers (13 Oct 2026): the note above each forward is kept on the Pitch Requests board and fed into later pitches, so the system learns from them.
-    if (f.note) await monday(`mutation{change_multiple_column_values(board_id:${PITCH_BOARD},item_id:${Number(b.item)},column_values:${JSON.stringify(JSON.stringify({ long_text_mm83jwpf: { text: f.note } }))}){id}}`).catch(() => null);
+    if (f.note && !b.outreach) await monday(`mutation{change_multiple_column_values(board_id:${PITCH_BOARD},item_id:${Number(b.item)},column_values:${JSON.stringify(JSON.stringify({ long_text_mm83jwpf: { text: f.note } }))}){id}}`).catch(() => null);
     const pastQ = await monday(`query{boards(ids:[${PITCH_BOARD}]){items_page(limit:200){items{id column_values(ids:["long_text_mm83jwpf"]){text}}}}}`).catch(() => null);
     const pointers = (((((pastQ || {}).boards || [])[0] || {}).items_page || {}).items || []).filter(it => String(it.id) !== String(b.item) && String(it.id) !== String(FACTS_ITEM) && String(it.id) !== String(PLAYBOOK_ITEM)).map(it => String(((it.column_values || [])[0] || {}).text || "").trim()).filter(p => p && !/^(warm|kind|best) regards/i.test(p) && !/^\s*(press|press (package|list|pitch|junket)|earned media)[\s.!]*$/i.test(p)).filter((p, i, a) => a.indexOf(p) === i).slice(-30);
     if (!f.contactEmail || f.body.length < 40) throw new Error("No forwarded enquiry found. Forward the brand's own email.");
@@ -2153,9 +2213,9 @@ async function pitchFromEmail(b) {
     const pick = a => a[Math.floor(Math.random() * a.length)];
     const joinN = a => a.length > 1 ? a.slice(0, -1).join(", ") + " and " + a[a.length - 1] : a[0];
     const listNames = namedNames.filter(nm => ids.some(id => nameOf(id) === nm));
-    const followUp = /following up|thanks again|thank you again|coming back|earlier conversation|as discussed/i.test(f.body);
+    const followUp = !b.outreach && /following up|thanks again|thank you again|coming back|earlier conversation|as discussed/i.test(f.body);
     const across = mix ? " across " + mix : "", who = aiCamp ? " who are open to working with brands on AI campaigns" : "";
-    const thanks = followUp ? pick(["Thanks for coming back to me. :)", "Thanks for following up on " + product + ".", "Thanks for coming back to me on " + product + "."])
+    let thanks = followUp ? pick(["Thanks for coming back to me. :)", "Thanks for following up on " + product + ".", "Thanks for coming back to me on " + product + "."])
       : pick(["Thanks for reaching out about " + product + ".", "Thanks for getting in touch about " + product + ".", "Great to hear from you about " + product + ".", "Thanks for reaching out, " + product + " looks like a fun one.", "Thanks so much for thinking of us for " + product + ".", "Lovely to hear from you, and thanks for sending over " + product + ".", "Thanks for the details on " + product + ", this sounds like a great one."]);
     const intro = pick(["I've put together a shortlist of creators" + across + (who || " for you") + ".", "Here's a shortlist of creators" + across + (who || " who'd be happy to take this on") + ".", "Please find below a list of creators" + across + (who || " who would be happy to promote " + product) + ".", "I've pulled together some creators" + across + (who || " who'd be a great fit") + ".", "We've got some great creators" + across + (who || " for this") + ", so I've put them together for you below.", "I've lined up a few creators" + across + (who || " who I think would really suit " + product) + "."]);
     const solo = [...new Set(ids.map(id => base(cat.byId[id].name).replace(/^@/, "")))]; // one creator: say so plainly
@@ -2169,7 +2229,7 @@ async function pitchFromEmail(b) {
     const FMT = { topics: "YouTube integration", dedicated: "YouTube dedicated video", group_mm4av3kr: "YouTube Short", group_mm4a1fe0: "Instagram Reel", group_mm4bd5tk: "TikTok", group_mm7yw8cy: "Snapchat" };
     const usd = n => "$" + Number(n).toLocaleString("en-US");
     const rateLine = id => { const c = cat.byId[id] || {}; const ll = libsyn && c.gid === "topics" ? (data.rows.find(x => x.id === id) || {}).libsyn : null; const lv = ll ? ll.reach : libsyn && c.gid === "topics" && c.vg ? Math.round(c.vg / PRICE.long.mult * LIBSYN_VIEWS) : 0; const price = lv ? Math.round(lv * LIBSYN_CPM / 1000) : typeof c.total === "number" ? c.total : c.rate; if (!price || !FMT[c.gid]) return ""; const lm = String(c.adLength || "").match(/^(\d+)\s*-\s*(\d+)\s*s/i); const len = c.gid === "topics" && lm ? " (" + lm[1] + " to " + lm[2] + " sec)" : ""; const vg = c.gid === "topics" && c.vg ? " with a " + Number(lv || c.vg).toLocaleString("en-US") + " view guarantee" : ""; return FMT[c.gid] + len + ": " + usd(price) + vg; };
-    const askedFor = out.stage !== "shortlist" && !expanded && !shortOnly && solo.length > 1 ? listNames : [];
+    const askedFor = !b.outreach && out.stage !== "shortlist" && !expanded && !shortOnly && solo.length > 1 ? listNames : [];
     const gOrder = Object.keys(FMT);
     const baseOf = id => base(cat.byId[id].name).replace(/^@/, "");
     // One creator on the list: the draft says "Please find X's rates below", so the rates must actually be there.
@@ -2177,7 +2237,7 @@ async function pitchFromEmail(b) {
     const withRates = !press && /\b(rates?|pric\w*|cost|budget)\b/i.test(f.body) ? " with current rates." : ".";
     const ans = [];
     if (wantsIdeas && !press) ans.push(pick(["I've added campaign ideas for each creator to the list.", "You'll find campaign ideas for each creator on the list.", "Each creator on the list has a couple of campaign ideas next to them."]));
-    const qs = Array.isArray(out.questions) ? out.questions.filter(q => q && q.q) : [];
+    const qs = !b.outreach && Array.isArray(out.questions) ? out.questions.filter(q => q && q.q) : [];
     if (aiDeclined.length) ans.push("Sadly, " + joinN(aiDeclined) + " won't take on AI projects, but these creators would.");
     if (out.stage !== "shortlist" && solo.length > 1 && listNames.length && !details.length && (/\?/.test(f.body) || withRates !== ".")) ans.push(pick([joinN(listNames) + (listNames.length > 1 ? " are" : " is") + " on the list" + withRates, "You'll find " + joinN(listNames) + " on there" + withRates]));
     if (/availab|posting date|\bdates\b|schedule|timeline|timing|turnaround/i.test(f.body) && !qs.some(q => /availab|posting|\bdates?\b|timeline|timing/i.test(String(q.q)))) ans.push(pick(["We confirm availability and posting dates with each creator as soon as you approve, and can move quickly.", "Once you've picked, we'll confirm availability and posting dates with each creator straight away."]));
@@ -2194,15 +2254,18 @@ async function pitchFromEmail(b) {
     const ask = press ? pick(["Could you let me know who you'd like to work with?", "Who would you like to go ahead with?", "Could you confirm who you'd like to work with on this?"]) : pick(["Could you confirm who you would like to book?", "Could you confirm who you would like to book please?", "Who would you like to book?", "Could you confirm who you'd like to book for this?", "Let me know who you'd like to go ahead with and we'll get it booked in.", "Have a look and let me know who stands out."]);
     const options = /option\s*\d|both options|\boptions\b/i.test(f.body);
     const how = solo.length === 1 ? "" : " " + howTo;
-    const ask2 = solo.length === 1 ? pick(["Could you confirm if you'd like to go ahead?", "Let me know if you'd like to go ahead and we'll get it booked in.", "Could you confirm if you'd like to book " + soloFirst + "?"]) : ask; // one placement: never "which option" (Tom, 13 Oct 2026)
+    let ask2 = solo.length === 1 ? pick(["Could you confirm if you'd like to go ahead?", "Let me know if you'd like to go ahead and we'll get it booked in.", "Could you confirm if you'd like to book " + soloFirst + "?"]) : ask; // one placement: never "which option" (Tom, 13 Oct 2026)
     // Last line of defence: nothing in square brackets ever reaches a brand (placeholders, notes to DFT).
     const named = askedFor.length > 0 && details.length > 0;
     // A touch of variety so drafts read naturally (Tom, 16 Oct 2026), keeping the shape of his template.
+    // Outreach from a Sales Desk alert (Tom, 16 Oct 2026): DFT writes first, so the opener comes from the alert, not a thank-you.
+    if (b.outreach) thanks = String(b.outreach.opener || thanks);
     const thanksN = named ? pick(["Thanks for reaching out to " + joinN(askedFor) + " about " + product + ". We'd be very keen to explore this.", "Thanks for getting in touch with " + joinN(askedFor) + " about " + product + ". We'd love to explore this with you.", "Thanks for thinking of " + joinN(askedFor) + " for " + product + ". This sounds like a great fit and we'd be keen to explore it.", "Great to hear you're interested in " + joinN(askedFor) + " for " + product + ". We'd be really keen to make this happen."]) : thanks;
     const leadN = named ? pick(["Also, here's a shortlist of creators" + across + (who || " who'd be happy to take this on") + ".", "I've also put together a shortlist of other creators" + across + (who || " who'd suit this well") + ".", "If you'd like to widen it, here are some more creators" + across + (who || " who'd be a great fit") + ".", "Alongside " + joinN(askedFor) + ", here are a few other creators" + across + (who || " who I think would work really well") + "."]) : lead;
     // The tick instruction is its own paragraph (Tom, 15 Oct 2026, Mucinex: "It just makes the email a bit clearer").
     // The tick instruction was dropped on 16 Oct 2026 (Tom: the list page explains it).
     const howN = "";
+    if (b.outreach) ask2 = pick(press ? ["Would any of them be a good fit for your coverage? Happy to set up interviews or early access.", "Let me know who you'd like to work with and I'll set it up.", "Would you like to work with any of them on this?"] : ["Would you be open to a quick chat about a campaign with any of them?", "Is there anything coming up where these creators could help?", "Let me know who stands out and I'll put together the details.", "Would any of them suit your next campaign?"]);
     const askN = named ? pick(["Could you confirm who you would like to book please?", "Let me know who you'd like to book and we'll get things moving.", "Who would you like to go ahead with?", "Could you let me know who you'd like to book?"]) : ask2;
     const paras = [thanksN].concat(named ? details : [], [leadN], howN ? [howN] : [], !named && solo.length === 1 ? details : [], ["[[LIST_LINK]]"]).concat(answer ? [answer] : [], [askN]).map(p => p === "[[LIST_LINK]]" ? p : p.replace(/\s*\[[^\]]*\]/g, "").trim()).filter(Boolean);
     if (!paras.some(p => p.indexOf("[[LIST_LINK]]") >= 0)) paras.splice(Math.min(2, paras.length), 0, "[[LIST_LINK]]");
@@ -2222,7 +2285,7 @@ async function pitchFromEmail(b) {
     if (!origHtml) origHtml = escH(origText).replace(/\n/g, "<br>");
     const quoteHtml = '<br><div class="gmail_quote"><div dir="ltr" class="gmail_attr">' + escH(attr) + '<br></div><blockquote class="gmail_quote" style="margin:0px 0px 0px 0.8ex;border-left:1px solid rgb(204,204,204);padding-left:1ex">' + origHtml + "</blockquote></div>";
     const quoteText = "\n\n" + attr + "\n\n" + origText.split("\n").map(l => "> " + l).join("\n");
-    const subject = /^re:/i.test(f.subject) ? f.subject : "Re: " + f.subject;
+    const subject = b.outreach ? String(b.outreach.subject || f.subject) : /^re:/i.test(f.subject) ? f.subject : "Re: " + f.subject;
     await pitchMark(b.item, (press ? "Press package. " : "") + (reuse ? "Ready: same list as before, " : "Ready: ") + ids.length + " placements (" + out.model + ")" + (todo.length ? ". Brand also asked (not answered in the draft): " + todo.join("; ") : ""), saved.url);
     // Who gets copied (Tom, 14 Oct 2026, after a creator's personal email was copied on Margot's Base44 draft):
     // never a creator. Besides Tom, Alex and Margot, the only addresses kept from the forwarded email are
@@ -2233,7 +2296,7 @@ async function pitchFromEmail(b) {
     const cDom = domOf(f.contactEmail);
     const brandSide = x => !!cDom && !FREE_MAIL.test(cDom) && domOf(x) === cDom;
     const cc = [...new Set((f.others || []).filter(x => x !== f.contactEmail && (brandSide(x) || /^(alex|margot|george)@digitalfoxtalent\.com$/i.test(x))).concat(["tom@digitalfoxtalent.com", "alex@digitalfoxtalent.com", "margot@digitalfoxtalent.com"]))].filter(x => x !== fromEmail).join(", ");
-    const resultObj = { ok: true, listUrl: saved.url, title, placements: ids.length, to: f.contactEmail, cc, subject, search: pitchSearch(f), html: html + quoteHtml, text: text + quoteText, model: out.model, picks: out.picks, research, stage: out.stage || "new", closing: out.closing === true, questions: out.questions || [], reviewed, reused: reuse ? reuse.slug : "", press };
+    const resultObj = { ok: true, listUrl: saved.url, title, placements: ids.length, to: f.contactEmail, cc, subject, search: pitchSearch(f), html: b.outreach ? html : html + quoteHtml, text: b.outreach ? text : text + quoteText, model: out.model, picks: out.picks, research, stage: out.stage || "new", closing: out.closing === true, questions: out.questions || [], reviewed, reused: reuse ? reuse.slug : "", press };
     // For the sender only, never the brand: the questions the draft holds over (Make route "Before you send").
     resultObj.unanswered = todo;
     resultObj.unansweredHtml = todo.length ? "<p>Your pitch draft to " + escH(f.contactEmail) + " is ready (subject: " + escH(subject) + ").</p><p>The brand also asked these, which the standing facts do not cover. The draft tells them you will come back to them shortly, so it is safe to send as it is. Reply on these yourself, or add your answers to the draft before you send:</p><ul>" + todo.map(q => "<li>" + escH(q) + "</li>").join("") + "</ul><p>To have the system answer a question like this next time, add the answer to the Standing facts item on the Roster - Pitch Requests board.</p>" : "";
@@ -2404,9 +2467,17 @@ export default async function handler(req, res) {
       res.setHeader("Cache-Control", "private, no-store");
       const who = handoffEmail(q.t, secret);
       if (!who) { res.setHeader("Location", "/?signin=failed"); return res.status(302).end(); }
-      res.setHeader("Set-Cookie", setTeamCookie(res, secret, who));
-      res.setHeader("Location", "/");
+      const nx = decodeURIComponent((String(req.headers.cookie || "").match(/(?:^|;\s*)dft_next=([^;]+)/) || [])[1] || "");
+      res.setHeader("Set-Cookie", [setTeamCookie(res, secret, who), "dft_next=; Path=/; Max-Age=0; Secure; SameSite=Lax"]);
+      res.setHeader("Location", /^\/api\/roster\?op=outreach&/.test(nx) ? nx : "/");
       return res.status(302).end();
+    }
+    // The Sales Desk Draft button (Tom, 16 Oct 2026). Signed out, it goes to sign in first and comes back here.
+    if (q.op === "outreach") {
+      res.setHeader("Cache-Control", "private, no-store");
+      if (!email) { res.setHeader("Set-Cookie", "dft_next=" + encodeURIComponent(req.url) + "; Path=/; Max-Age=900; Secure; SameSite=Lax"); res.setHeader("Location", "/signin"); return res.status(302).end(); }
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      return res.status(200).send(outreachPage(q));
     }
     if (q.op === "signout") {
       res.setHeader("Cache-Control", "private, no-store");
@@ -2460,6 +2531,7 @@ export default async function handler(req, res) {
         if (b.op === "confirm-draft") { const { data, list } = await freshList(b.slug); if (!list || list.bad) throw new Error("list not found"); const th = await listThread(list); if (!th) throw new Error("No email thread found for this list"); const { ok } = feedbackEmail(data, list); const c = await confirmDraft(list, ok, th); if (c) await writeList(list.id, Object.assign({}, list.body, { thread: { id: th.id }, confirm: c }), {}); return res.status(200).json({ made: !!c, to: c ? c.to : "", approved: ok.length, subject: th.subject }); }
         // Which email thread a list's brand-feedback alert will go into (read only, for checking).
         if (b.op === "list-thread") { const { list } = await freshList(b.slug); if (!list) throw new Error("list not found"); const t = await listThread(list); return res.status(200).json({ found: !!t, subject: t ? t.subject : "", thread: t ? t.id : "" }); }
+        if (b.op === "outreach-draft") return res.status(200).json(await outreachDraft(b, email));
         if (b.op === "pitch-audit") return res.status(200).json(await pitchAudit(b));
         if (b.op === "list-idea") return res.status(200).json(await listIdea(b, email));
         if (b.op === "ideas-draft") return res.status(200).json(await ideasDraft(b, email));
