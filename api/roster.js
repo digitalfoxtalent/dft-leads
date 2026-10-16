@@ -1446,8 +1446,9 @@ async function campaignIdeas(list, data, opt = {}) {
     "For each creator write 2 ideas. Rules:",
     "1. Fit the FORMAT exactly. A YouTube Integrated Ad is an ad read of about 60 seconds inside a regular video, so it must be deliverable in 60 seconds: the creator on camera with one hook (a trailer moment, a personal reason to watch, a quick comparison or a single pick), a natural segue from the video they are already making, and a call to action (release date, tickets, link). Never a ranking, tier list, breakdown or anything that changes or takes over the video; those big concepts belong on Dedicated Videos. A Dedicated Video is a whole video about the campaign. Short-form ideas are single vertical videos.",
     "2. Fit the creator: use what the channel actually makes (from 'about' and 'category'). If 'creator_said' is given, build on it first.",
-    "3. Use real hooks from the research: cast, genre, comparable titles, release timing.",
-    "4. Each idea is one plain sentence of at most 26 words, starting with the hook, not the host's name. Positive and brand safe. No promises of views, dates or results. No prices. Never use em dashes or en dashes.",
+    // Top-line only (Tom, 16 Oct 2026: "be careful about getting too detailed. These should be top line ideas at this point").
+    "3. TOP-LINE IDEAS ONLY. Use the research to understand the campaign's genre and tone, never to state facts: no release dates, places, plot details, character names, directors, crew, past films of the makers, or any detail that would need checking. Name only the campaign title and anything the brand's brief itself states.",
+    "4. Each idea is one plain sentence of at most 18 words, starting with the hook, not the host's name. Positive and brand safe. No promises of views, dates or results. No prices. Never use em dashes or en dashes.",
     "Answer with JSON only: {\"ideas\": {\"<id>\": [\"idea\", \"idea\"]}}",
     "CREATORS:", ...lines,
   ].filter(Boolean).join("\n");
