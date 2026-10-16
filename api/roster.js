@@ -1409,6 +1409,8 @@ async function listThread(list) {
   const tok = await gmailToken("tom@digitalfoxtalent.com"); if (!tok) return null;
   const G = path => fetch("https://gmail.googleapis.com/gmail/v1/users/me" + path, { headers: { Authorization: "Bearer " + tok } }).then(r => r.ok ? r.json() : {}).catch(() => ({}));
   let id = list.body.thread && list.body.thread.id;
+  // The sent-mail check already knows which thread the list went out in, per company: use the owner's.
+  if (!id && list.body.sent) { const own = (list.body.for || [])[0]; const k = Object.keys(list.body.sent).find(o => own ? sameCo(o, own) : true); if (k && list.body.sent[k].thread) id = list.body.sent[k].thread; }
   if (!id) {
     const want = "/r/" + list.slug, name = subjectWords(list.name);
     const q = "from:digitalfoxtalent.com -from:" + ALERT_FROM + " -subject:\"Brand feedback\" -subject:\"Brand sent their picks\" newer_than:60d {\"creator list\"" + (name ? " \"" + name + "\"" : "") + "}";
