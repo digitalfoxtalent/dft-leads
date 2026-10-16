@@ -63,7 +63,6 @@
   .brandbar .bb-foot{ display:flex; align-items:center; justify-content:flex-start; gap:12px 32px; flex-wrap:wrap; }
   .banner.listbar{ display:flex; align-items:center; justify-content:space-between; gap:12px 28px; flex-wrap:wrap; padding:14px 28px; font-size:12.5px; }
   .listbar .lb-acts{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; flex:1 1 100%; }
-  .listbar .lockend{ display:inline-flex; } /* Lock prices is the last button in the row, straight after YouTube views (Tom, 16 Oct 2026) */
   .listbar .btn{ text-decoration:none; color:var(--team); border-color:#c9d8e8; }
   .listbar .pkg{ margin-left:0; gap:6px 22px; }
   .listbar .pkg span b{ color:var(--team); }
@@ -1790,7 +1789,7 @@ function renderBanner(){
     if(listEdit()){
       b.className="banner listbar"; b.style.display="";
       const pr=isPress(), pi=paidIdeas(), missing=(pr||pi)?GROUPS.reduce((n,g)=>n+(g.id==="dedicated"&&pr?0:(BRAND.groups[g.id]||[]).filter(c=>!String(c.ideas||"").trim()).length),0):0;
-      b.innerHTML=`<div class="lb-acts"><a class="btn" href="/?edit=${encodeURIComponent(LIST_SLUG)}">Add / remove creators</a>${typeButton()}${pr?"":ideasButton()+viewsButton()}${missing?`<button class="btn" id="draftIdeas" title="${pi?`Claude drafts campaign ideas for the ${missing} creator${missing===1?"":"s"} with none, from the brief and their channels. For this list only.`:`Claude drafts typical ideas for the ${missing} creator${missing===1?"":"s"} with none, from their channels. They become each creator's standard ideas.`}">Draft ideas for ${missing}</button>`:""}${acceptButton()}${pr?"":`<span class="lockend">${lockButton()}</span>`}</div>${packageSummary()}`;
+      b.innerHTML=`<div class="lb-acts"><a class="btn" href="/?edit=${encodeURIComponent(LIST_SLUG)}">Add / remove creators</a>${typeButton()}${pr?"":ideasButton()+viewsButton()+lockButton()}${missing?`<button class="btn" id="draftIdeas" title="${pi?`Claude drafts campaign ideas for the ${missing} creator${missing===1?"":"s"} with none, from the brief and their channels. For this list only.`:`Claude drafts typical ideas for the ${missing} creator${missing===1?"":"s"} with none, from their channels. They become each creator's standard ideas.`}">Draft ideas for ${missing}</button>`:""}${acceptButton()}</div>${packageSummary()}`;
       $$typeWire(); $$ideasWire();
       const di=$("#draftIdeas"); if(di) di.onclick=()=>pi?draftCampaignIdeas(di):draftIdeas(di);
       const lb=$("#lockBtn"); if(lb) lb.onclick=()=>toggleLock(lb.dataset.lock==="1");
