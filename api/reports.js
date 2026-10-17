@@ -169,7 +169,8 @@ export default async function handler(req, res) {
     if (pid) return html(res, 401, partnerGate(PARTNERS[pid].name, "/campaigns/" + pid));
     if (route !== "home" && !/^(campaigns|platforms|distribution|coverage|engaged|refresh|ecosystem)$/.test(route)) return res.status(401).json({ error: "Sign in required" });
     const next = eco ? "/" + (rawPath === "home" ? "" : rawPath) : "/" + (route === "home" ? "" : route) + (req.query && req.query.tier ? "?tier=" + encodeURIComponent(String(req.query.tier)) : "");
-    return html(res, 401, gatePage(next));
+    const gate = gatePage(next);
+    return html(res, 401, eco ? gate.replace(/DFT Reports/g, "DFT Ecosystem").replace("These reports are for the Digital Fox Talent team.", "The Ecosystem is for the Digital Fox Talent team.") : gate);
   }
 
   if (route === "ecosystem") return html(res, 200, ECOSYSTEM_PAGE);
