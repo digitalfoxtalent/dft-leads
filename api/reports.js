@@ -3,6 +3,7 @@
 // THE ECOSYSTEM - ecosystem.digitalfoxtalent.com is the team's home and is served by this same handler.
 //   /  and /<department> (talent, sales, content, platforms, data, finance, marketing) -> the ecosystem map
 //   /reports, /reports/platforms, /reports/distribution ... -> the reports below, linked back to the ecosystem
+//   /marketing/earnings -> the creator earnings calculator (internal preview), reading /earnings-data
 //   every other path (data routes the report pages fetch) works as it does on the reports host.
 // Partner pages stay on reports.digitalfoxtalent.com, where their links were sent.
 // Sign-in: the ecosystem sends people to reports.digitalfoxtalent.com/eco-signin, which hands back a
@@ -51,6 +52,8 @@ import { REFRESH_PAGE } from "./_reports/refresh-page.js";
 import { socialScan, socialSync } from "./_reports/social.js";
 import { ECOSYSTEM_PAGE } from "./_reports/ecosystem/page.js";
 import { ecosystemWithLive, ecoLive } from "./_reports/ecosystem/live.js";
+import { EARNINGS_PAGE } from "./_reports/ecosystem/earnings-page.js";
+import { earningsLookup } from "./_reports/ecosystem/earnings.js";
 
 export const config = { maxDuration: 300 }; // the Reporting refresh write step can take over a minute
 
@@ -160,7 +163,7 @@ export default async function handler(req, res) {
   }
   const partner = authed ? null : partnerCookie(req, token);
   // Keep access alive: every page visit renews the visitor's cookie to its full length.
-  const isPage = route === "home" || route === "campaigns" || route === "platforms" || route === "distribution" || route === "coverage" || route === "engaged" || route === "ecosystem" || !!pid;
+  const isPage = route === "home" || route === "campaigns" || route === "platforms" || route === "distribution" || route === "coverage" || route === "engaged" || route === "ecosystem" || route === "marketing/earnings" || !!pid;
   if (isPage && authed) res.setHeader("Set-Cookie", setTeamCookie(res, token, teamEmail(req, token)));
   else if (isPage && partner) setPartnerCookie(res, token, partner);
   if (pid && (authed || partner === pid)) return html(res, 200, await renderPartner(token, pid));
@@ -168,13 +171,18 @@ export default async function handler(req, res) {
   if (partner) { res.setHeader("Location", "/campaigns/" + partner); return res.status(302).end(); } // a partner link only opens its own page
   if (!authed) {
     if (pid) return html(res, 401, partnerGate(PARTNERS[pid].name, "/campaigns/" + pid));
-    if (route !== "home" && !/^(campaigns|platforms|distribution|coverage|engaged|refresh|ecosystem)$/.test(route)) return res.status(401).json({ error: "Sign in required" });
+    if (route !== "home" && !/^(campaigns|platforms|distribution|coverage|engaged|refresh|ecosystem|marketing\/earnings)$/.test(route)) return res.status(401).json({ error: "Sign in required" });
     const next = eco ? "/" + (rawPath === "home" ? "" : rawPath) : "/" + (route === "home" ? "" : route) + (req.query && req.query.tier ? "?tier=" + encodeURIComponent(String(req.query.tier)) : "");
     const gate = gatePage(next);
     return html(res, 401, eco ? gate.replace(/DFT Reports/g, "DFT Ecosystem").replace("These reports are for the Digital Fox Talent team.", "The Ecosystem is for the Digital Fox Talent team.") : gate);
   }
 
   if (route === "ecosystem") return html(res, 200, await ecosystemWithLive(ECOSYSTEM_PAGE, token));
+  if (route === "marketing/earnings" && eco) return html(res, 200, EARNINGS_PAGE); // creator earnings calculator, internal preview
+  if (route === "earnings-data" && eco) { // team only: one channel's numbers for the calculator
+    try { return res.status(200).json(await earningsLookup(String(req.query && req.query.ch || ""))); }
+    catch (e) { return res.status(400).json({ error: String(e && e.message || e).slice(0, 300) }); }
+  }
   if (route === "ecosystem-data") { // team only: the Ecosystem Register rows the map is reading
     try { return res.status(200).json(await ecoLive(token)); }
     catch (e) { return res.status(500).json({ error: String(e && e.message || e).slice(0, 300) }); }
