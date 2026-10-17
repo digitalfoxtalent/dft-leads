@@ -60,7 +60,7 @@ const HOSTS = new Set([
   "ecosystem.digitalfoxtalent.com", // the team home, see the note at the top
 ]);
 const ECO_HOST = "ecosystem.digitalfoxtalent.com";
-const ECO_DEPTS = new Set(["talent", "sales", "content", "platforms", "data", "finance", "marketing"]);
+const ECO_DEPTS = new Set(["talent", "shows", "sales", "content", "platforms", "data", "finance", "marketing"]);
 // A report page shown on the ecosystem host: its tabs point under /reports, with a way back to the ecosystem.
 const ecoWrap = body => String(body)
   .replace(/href="\/(campaigns|platforms|distribution|coverage|engaged|refresh)?(?=["?#])/g, (m, p) => 'href="/reports' + (p && p !== "campaigns" ? "/" + p : ""))
