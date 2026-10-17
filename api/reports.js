@@ -50,6 +50,7 @@ import { reachApply, reachApplyEpisodes } from "./_reports/reach-apply.js";
 import { REFRESH_PAGE } from "./_reports/refresh-page.js";
 import { socialScan, socialSync } from "./_reports/social.js";
 import { ECOSYSTEM_PAGE } from "./_reports/ecosystem/page.js";
+import { ecosystemWithLive, ecoLive } from "./_reports/ecosystem/live.js";
 
 export const config = { maxDuration: 300 }; // the Reporting refresh write step can take over a minute
 
@@ -173,7 +174,11 @@ export default async function handler(req, res) {
     return html(res, 401, eco ? gate.replace(/DFT Reports/g, "DFT Ecosystem").replace("These reports are for the Digital Fox Talent team.", "The Ecosystem is for the Digital Fox Talent team.") : gate);
   }
 
-  if (route === "ecosystem") return html(res, 200, ECOSYSTEM_PAGE);
+  if (route === "ecosystem") return html(res, 200, await ecosystemWithLive(ECOSYSTEM_PAGE, token));
+  if (route === "ecosystem-data") { // team only: the Ecosystem Register rows the map is reading
+    try { return res.status(200).json(await ecoLive(token)); }
+    catch (e) { return res.status(500).json({ error: String(e && e.message || e).slice(0, 300) }); }
+  }
   if (route === "campaigns") return send(200, await renderCampaigns(token));
   if (route === "platforms") return send(200, await renderPlatforms(token));
   if (route === "distribution") return send(200, await renderDistribution(token));
