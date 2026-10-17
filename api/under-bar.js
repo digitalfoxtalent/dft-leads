@@ -3,10 +3,10 @@
 // WHY (Tom, 15 Oct 2026): "Can we just be pinged a notification at the time who applied but
 // was rejected?" dft-connect's /api/signup-check answers "not yet" to channels under the bar
 // and revokes our access. Before it answers, it posts the channel id and its average here;
-// we look up the public channel name and handle and email Tom (creator alerts are Tom only,
-// 6 Oct 2026) from theteam@. Nothing is written anywhere else, and the sent copy in
+// we look up the public channel name and handle and email Tom and Alex (Tom asked for Alex
+// to get these too, 17 Oct 2026) from theteam@. Nothing is written anywhere else, and the sent copy in
 // theteam@ is trashed straight away. The not-yet page still says "We haven't kept any of
-// your details": Tom deletes each alert on receipt (15 Oct 2026), so nothing is kept.
+// your details": Tom and Alex delete each alert on receipt (15 Oct 2026), so nothing is kept.
 //
 // AUTH. dft-connect has no monday token, so the call is signed with Channel Connect's
 // STATS_SECRET (purpose "underbar"), the same secret kit-sync reads from the API Keys
@@ -15,7 +15,7 @@ import crypto from "node:crypto";
 import { monday, mondayToken } from "./_reports/monday.js";
 
 const ALERT_FROM = "theteam@digitalfoxtalent.com";
-const ALERT_TO = "tom@digitalfoxtalent.com";
+const ALERT_TO = ["tom@digitalfoxtalent.com", "alex@digitalfoxtalent.com"];
 
 // Same delegated Gmail service account roster.js uses for its internal alerts.
 async function gmailToken(subject) {
@@ -34,7 +34,7 @@ async function gmailToken(subject) {
 async function sendAlert(subject, html) {
   const tok = await gmailToken(ALERT_FROM);
   const enc = (x) => "=?UTF-8?B?" + Buffer.from(x).toString("base64") + "?=";
-  const mime = ["From: Digital Fox Talent <" + ALERT_FROM + ">", "To: " + ALERT_TO, "Subject: " + enc(subject), "MIME-Version: 1.0", "Content-Type: text/html; charset=UTF-8", "Content-Transfer-Encoding: base64", "", Buffer.from(html).toString("base64")].join("\r\n");
+  const mime = ["From: Digital Fox Talent <" + ALERT_FROM + ">", "To: " + ALERT_TO.join(", "), "Subject: " + enc(subject), "MIME-Version: 1.0", "Content-Type: text/html; charset=UTF-8", "Content-Transfer-Encoding: base64", "", Buffer.from(html).toString("base64")].join("\r\n");
   const r = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", { method: "POST", headers: { Authorization: "Bearer " + tok, "Content-Type": "application/json" }, body: JSON.stringify({ raw: Buffer.from(mime).toString("base64url") }) });
   if (!r.ok) throw new Error("Gmail send " + r.status);
   // Don't leave a copy in theteam@'s Sent folder.
