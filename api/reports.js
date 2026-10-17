@@ -1,5 +1,11 @@
 // DFT Reports - reports.digitalfoxtalent.com. One entry point for every team report.
 //
+// THE ECOSYSTEM - ecosystem.digitalfoxtalent.com is the team's home and is served by this same handler.
+//   /  and /<department> (talent, sales, content, platforms, data, finance, marketing) -> the ecosystem map
+//   /reports, /reports/platforms, /reports/distribution ... -> the reports below, linked back to the ecosystem
+//   every other path (data routes the report pages fetch) works as it does on the reports host.
+// Partner pages stay on reports.digitalfoxtalent.com, where their links were sent.
+//
 // STRUCTURE (api/_reports/)
 //   access.js         team link + 90-day cookie, shared by every report
 //   monday.js         read-only monday helper
@@ -41,6 +47,7 @@ import { scanUploads } from "./_reports/scan.js";
 import { reachApply, reachApplyEpisodes } from "./_reports/reach-apply.js";
 import { REFRESH_PAGE } from "./_reports/refresh-page.js";
 import { socialScan, socialSync } from "./_reports/social.js";
+import { ECOSYSTEM_PAGE } from "./_reports/ecosystem/page.js";
 
 export const config = { maxDuration: 300 }; // the Reporting refresh write step can take over a minute
 
@@ -48,7 +55,14 @@ const HOSTS = new Set([
   "reports.digitalfoxtalent.com",
   "roster-viewguarantee.digitalfoxtalent.com", // first home of /campaigns, now redirects here
   "dft-leads.vercel.app",
+  "ecosystem.digitalfoxtalent.com", // the team home, see the note at the top
 ]);
+const ECO_HOST = "ecosystem.digitalfoxtalent.com";
+const ECO_DEPTS = new Set(["talent", "sales", "content", "platforms", "data", "finance", "marketing"]);
+// A report page shown on the ecosystem host: its tabs point under /reports, with a way back to the ecosystem.
+const ecoWrap = body => String(body)
+  .replace(/href="\/(campaigns|platforms|distribution|coverage|engaged|refresh)?(?=["?#])/g, (m, p) => 'href="/reports' + (p && p !== "campaigns" ? "/" + p : ""))
+  .replace(/<body([^>]*)>/, '<body$1><a href="/" style="display:inline-block;margin:14px 0 0 max(16px,env(safe-area-inset-left,0px));font:500 13px system-ui,sans-serif;color:inherit;opacity:.7;text-decoration:none">Back to the Ecosystem</a>');
 let probeCache = null;
 
 const html = (res, code, body) => { res.setHeader("Content-Type", "text/html; charset=utf-8"); return res.status(code).send(body); };
@@ -71,7 +85,16 @@ export default async function handler(req, res) {
   const token = mondayToken();
   if (!token) return res.status(500).send("Setup error: monday token missing.");
   await loadPartners(token); // partner pages come from the monday "Report Partners" board
-  const route = String((req.query && req.query.r) || "home");
+  const eco = host === ECO_HOST;
+  const rawPath = String((req.query && req.query.r) || "").replace(/\/+$/, "");
+  let route = String((req.query && req.query.r) || "home");
+  if (eco) {
+    if (rawPath === "" || rawPath === "home" || ECO_DEPTS.has(rawPath)) route = "ecosystem";
+    else if (rawPath === "reports") route = "campaigns";
+    else if (rawPath.startsWith("reports/")) route = rawPath.slice(8);
+    else route = rawPath;
+  }
+  const send = (code, body) => html(res, code, eco ? ecoWrap(body) : body);
 
   // The first home of Campaign reach. Send visitors to the reports address, carrying the
   // team key if the link had one, so old links keep working and sign people in there.
@@ -114,7 +137,7 @@ export default async function handler(req, res) {
   }
   const partner = authed ? null : partnerCookie(req, token);
   // Keep access alive: every page visit renews the visitor's cookie to its full length.
-  const isPage = route === "home" || route === "campaigns" || route === "platforms" || route === "distribution" || route === "coverage" || route === "engaged" || !!pid;
+  const isPage = route === "home" || route === "campaigns" || route === "platforms" || route === "distribution" || route === "coverage" || route === "engaged" || route === "ecosystem" || !!pid;
   if (isPage && authed) res.setHeader("Set-Cookie", setTeamCookie(res, token, teamEmail(req, token)));
   else if (isPage && partner) setPartnerCookie(res, token, partner);
   if (pid && (authed || partner === pid)) return html(res, 200, await renderPartner(token, pid));
@@ -122,16 +145,17 @@ export default async function handler(req, res) {
   if (partner) { res.setHeader("Location", "/campaigns/" + partner); return res.status(302).end(); } // a partner link only opens its own page
   if (!authed) {
     if (pid) return html(res, 401, partnerGate(PARTNERS[pid].name, "/campaigns/" + pid));
-    if (route !== "home" && !/^(campaigns|platforms|distribution|coverage|engaged|refresh)$/.test(route)) return res.status(401).json({ error: "Sign in required" });
-    const next = "/" + (route === "home" ? "" : route) + (req.query && req.query.tier ? "?tier=" + encodeURIComponent(String(req.query.tier)) : "");
+    if (route !== "home" && !/^(campaigns|platforms|distribution|coverage|engaged|refresh|ecosystem)$/.test(route)) return res.status(401).json({ error: "Sign in required" });
+    const next = eco ? "/" + (rawPath === "home" ? "" : rawPath) : "/" + (route === "home" ? "" : route) + (req.query && req.query.tier ? "?tier=" + encodeURIComponent(String(req.query.tier)) : "");
     return html(res, 401, gatePage(next));
   }
 
-  if (route === "campaigns") return html(res, 200, await renderCampaigns(token));
-  if (route === "platforms") return html(res, 200, await renderPlatforms(token));
-  if (route === "distribution") return html(res, 200, await renderDistribution(token));
-  if (route === "coverage") return html(res, 200, await renderCoverage(token));
-  if (route === "engaged") return html(res, 200, await renderEngaged(token));
+  if (route === "ecosystem") return html(res, 200, ECOSYSTEM_PAGE);
+  if (route === "campaigns") return send(200, await renderCampaigns(token));
+  if (route === "platforms") return send(200, await renderPlatforms(token));
+  if (route === "distribution") return send(200, await renderDistribution(token));
+  if (route === "coverage") return send(200, await renderCoverage(token));
+  if (route === "engaged") return send(200, await renderEngaged(token));
   if (route === "engaged-data") { // team only: one creator's engaged views for the Engaged views panel
     try { return res.status(200).json(await engagedData(token, String(req.query && req.query.ch || ""))); }
     catch (e) { return res.status(500).json({ error: String(e && e.message || e).slice(0, 300) }); }
@@ -149,7 +173,7 @@ export default async function handler(req, res) {
     try { const b = typeof req.body === "string" ? JSON.parse(req.body) : req.body; return res.status(200).json(await applyLinks(token, b, String(req.query && req.query.dry || "") === "1")); }
     catch (e) { return res.status(500).json({ error: String(e && e.message || e).slice(0, 300) }); }
   }
-  if (route === "refresh") return html(res, 200, REFRESH_PAGE); // team only: Reporting refresh page (see _reports/refresh-page.js)
+  if (route === "refresh") return send(200, REFRESH_PAGE); // team only: Reporting refresh page (see _reports/refresh-page.js)
   if (route === "reach-apply-file") { // team only: the refresh page posts one line per episode from an uploaded platform report
     if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
     try { const b = typeof req.body === "string" ? JSON.parse(req.body) : req.body; return res.status(200).json(await reachApplyEpisodes(token, b, String(req.query && req.query.dry || "") === "1")); }
@@ -202,7 +226,7 @@ export default async function handler(req, res) {
   }
   if (route === "home") {
     // The front door is Campaign reach; tabs at the top of every report switch between them.
-    return html(res, 200, await renderCampaigns(token));
+    return send(200, await renderCampaigns(token));
   }
   return res.status(404).json({ error: "Not found" });
 }

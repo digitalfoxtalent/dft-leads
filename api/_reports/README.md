@@ -2,6 +2,8 @@
 
 reports.digitalfoxtalent.com - the team's reporting home. Entry point: `api/reports.js`.
 
+The same handler serves ecosystem.digitalfoxtalent.com, the team's home: the ecosystem map at `/` and `/<department>`, and these reports under `/reports/...`. The map lives in `ecosystem/page.js`.
+
 | File | Job |
 |---|---|
 | `access.js` | Team link and 90-day cookie, shared by every report |

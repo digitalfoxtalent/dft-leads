@@ -9,13 +9,14 @@
 // Google client: "DFT Channel Connect (web)" in Google Cloud project dft-creator-access, with
 // https://reports.digitalfoxtalent.com as an authorised JavaScript origin and
 // https://reports.digitalfoxtalent.com/auth/google as an authorised redirect URI (added 26 Sep 2026).
+// ecosystem.digitalfoxtalent.com signs in the same way, so it needs the same two entries for its own address.
 //
 //   /auth/login?next=/path            -> Google's sign-in page
 //   POST /auth/google   {id_token}    -> sets the team cookie
 //   /auth/logout                      -> signs out
 
 import crypto from "node:crypto";
-import { TEAM_DOMAIN, setTeamCookie, clearTeamCookie, gatePage } from "./access.js";
+import { TEAM_DOMAIN, setTeamCookie, clearTeamCookie, gatePage, hostOf } from "./access.js";
 
 export const GOOGLE_CLIENT_ID = "488652876117-tn5bghe93loqvqcapulvvdb41t8a9oug.apps.googleusercontent.com";
 const NONCE_COOKIE = "dft_nonce";
@@ -39,7 +40,7 @@ export async function handleAuth(req, res, route, secret) {
   if (route === "auth/login") {
     const n = newNonce(req.query && req.query.next);
     const u = new URL("https://accounts.google.com/o/oauth2/v2/auth");
-    u.search = new URLSearchParams({ client_id: GOOGLE_CLIENT_ID, redirect_uri: "https://reports.digitalfoxtalent.com/auth/google",
+    u.search = new URLSearchParams({ client_id: GOOGLE_CLIENT_ID, redirect_uri: (hostOf(req) === "ecosystem.digitalfoxtalent.com" ? "https://ecosystem.digitalfoxtalent.com" : "https://reports.digitalfoxtalent.com") + "/auth/google",
       response_type: "id_token", response_mode: "form_post", scope: "openid email", nonce: n.nonce, state: n.nonce,
       hd: TEAM_DOMAIN, prompt: "select_account" }).toString();
     res.setHeader("Set-Cookie", n.cookie);

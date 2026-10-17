@@ -185,6 +185,16 @@
       "has": [
         {
           "type": "host",
+          "value": "ecosystem.digitalfoxtalent.com"
+        }
+      ],
+      "destination": "/api/reports?r=:path"
+    },
+    {
+      "source": "/:path((?!api/|_vercel/).*)",
+      "has": [
+        {
+          "type": "host",
           "value": "reports.digitalfoxtalent.com"
         }
       ],
