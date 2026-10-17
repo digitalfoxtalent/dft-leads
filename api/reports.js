@@ -5,6 +5,8 @@
 //   /reports, /reports/platforms, /reports/distribution ... -> the reports below, linked back to the ecosystem
 //   every other path (data routes the report pages fetch) works as it does on the reports host.
 // Partner pages stay on reports.digitalfoxtalent.com, where their links were sent.
+// Sign-in: the ecosystem sends people to reports.digitalfoxtalent.com/eco-signin, which hands back a
+// 60-second signed token (the roster site's handoff), so the Google client needs no new address.
 //
 // STRUCTURE (api/_reports/)
 //   access.js         team link + 90-day cookie, shared by every report
@@ -28,7 +30,7 @@
 //
 // READ ONLY. Nothing here writes to monday or Megaphone.
 
-import { hostOf, isPreview, cookieOk, teamEmail, setTeamCookie, cleanUrl, gatePage, partnerKey, setPartnerCookie, partnerCookie, partnerGate, handoffToken, ROSTER_ORIGIN } from "./_reports/access.js";
+import { hostOf, isPreview, cookieOk, teamEmail, setTeamCookie, cleanUrl, gatePage, partnerKey, setPartnerCookie, partnerCookie, partnerGate, handoffToken, handoffEmail, ROSTER_ORIGIN } from "./_reports/access.js";
 import { handleAuth } from "./_reports/auth.js";
 import { PARTNERS, loadPartners } from "./_reports/partners.js";
 import { mondayToken } from "./_reports/monday.js";
@@ -108,6 +110,20 @@ export default async function handler(req, res) {
   const pm = route.match(/^campaigns\/([a-z0-9-]+)$/);
   const pid = pm && PARTNERS[pm[1]] ? pm[1] : null;
 
+  // Ecosystem sign-in. Google only returns to reports.digitalfoxtalent.com, so the ecosystem signs people in
+  // there and gets a 60-second signed handoff back, exactly as the roster site does.
+  const safePath = p => (typeof p === "string" && /^\/(?!\/)[^\s]*$/.test(p) && !p.startsWith("/auth/")) ? p : "/";
+  if (eco && route === "auth/login") {
+    res.setHeader("Location", "https://reports.digitalfoxtalent.com/eco-signin?next=" + encodeURIComponent(safePath(String(req.query && req.query.next || "/"))));
+    return res.status(302).end();
+  }
+  if (eco && route === "auth/handoff") {
+    const who = handoffEmail(req.query && req.query.t, token);
+    if (!who) { res.setHeader("Location", "/"); return res.status(302).end(); }
+    res.setHeader("Set-Cookie", setTeamCookie(res, token, who));
+    res.setHeader("Location", safePath(String(req.query && req.query.next || "/")));
+    return res.status(302).end();
+  }
   // Team sign-in (Google, @digitalfoxtalent.com only).
   if (route.startsWith("auth/")) { const done = await handleAuth(req, res, route, token); if (done !== null) return done; }
 
@@ -130,6 +146,12 @@ export default async function handler(req, res) {
   }
   // Sign-in for the roster site (see handoffToken in access.js). Signed in here already ->
   // straight back to the roster, signed in there too. Not yet -> Google first, then back here.
+  if (!eco && route === "eco-signin") {
+    const nx = safePath(String(req.query && req.query.next || "/"));
+    if (!authed) { res.setHeader("Location", "/auth/login?next=" + encodeURIComponent("/eco-signin?next=" + encodeURIComponent(nx))); return res.status(302).end(); }
+    res.setHeader("Location", "https://" + ECO_HOST + "/auth/handoff?t=" + encodeURIComponent(handoffToken(token, teamEmail(req, token))) + "&next=" + encodeURIComponent(nx));
+    return res.status(302).end();
+  }
   if (route === "roster-signin") {
     if (!authed) { res.setHeader("Location", "/auth/login?next=" + encodeURIComponent("/roster-signin")); return res.status(302).end(); }
     res.setHeader("Location", ROSTER_ORIGIN + "/auth/handoff?t=" + encodeURIComponent(handoffToken(token, teamEmail(req, token))));
