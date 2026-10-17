@@ -5,7 +5,7 @@
 import { monday } from "../monday.js";
 
 const BOARD = 18435883510;
-const COL = { dept: "text_mm871vcw", line: "long_text_mm873s76", build: "long_text_mm87x8dd", runs: "text_mm87tf8z", cad: "text_mm87e6sv", url: "link_mm8772qr", impact: "text_mm87r1qk", status: "color_mm87rzb5", id: "text_mm8784jf" };
+const COL = { dept: "text_mm871vcw", line: "long_text_mm873s76", build: "long_text_mm87x8dd", runs: "text_mm87tf8z", cad: "text_mm87e6sv", url: "link_mm8772qr", impact: "text_mm87r1qk", status: "color_mm87rzb5", id: "text_mm8784jf", pri: "numeric_mm87926e" };
 let cache = null;
 
 export async function ecoLive(token) {
