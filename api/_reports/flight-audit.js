@@ -243,13 +243,14 @@ export async function runAudit(token, opts) {
     }
     if (!empty) for (const id of r.vids.slice(-3)) want.push({ v: id, t: f.core[1], p: 3 });
   }
-  const ids = [...new Map(want.sort((a, b) => a.p - b.p || b.t - a.t).map(x => [x.v, x])).keys()].slice(0, MAX_TRANSCRIPTS);
+  // Named ask, not ids: ids() is the link parser used below (12 Oct 2026 run failed with "ids is not a function").
+  const ask = [...new Map(want.sort((a, b) => a.p - b.p || b.t - a.t).map(x => [x.v, x])).keys()].slice(0, MAX_TRANSCRIPTS);
   let heard = new Map();
-  if (ids.length && !opts.noTranscripts) {
-    try { const tr = await transcripts(ids, { waitMs: 110000, memory: 2048 }); heard = new Map(Object.entries(tr)); }
+  if (ask.length && !opts.noTranscripts) {
+    try { const tr = await transcripts(ask, { waitMs: 110000, memory: 2048 }); heard = new Map(Object.entries(tr)); }
     catch (e) { summary.errors.push("transcripts: " + String(e.message || e).slice(0, 160)); }
   }
-  summary.transcripts = { asked: ids.length, got: heard.size, more: Math.max(0, new Set(want.map(x => x.v)).size - ids.length) };
+  summary.transcripts = { asked: ask.length, got: heard.size, more: Math.max(0, new Set(want.map(x => x.v)).size - ask.length) };
   const flags = [];
   for (const { mine, vids } of scans) {
     for (const m of makegoodFlags(mine, vids, now, heard)) if (due.includes(m.r)) flags.push({ r: m.r, v: m.v, kind: "possible make-good", why: "brand read out " + m.days + " days after this flight (\"" + m.quote + "\"), on no row" });
