@@ -180,7 +180,7 @@ export default async function handler(req, res) {
   if (route === "ecosystem") return html(res, 200, await ecosystemWithLive(ECOSYSTEM_PAGE, token));
   if (route === "marketing/earnings" && eco) return html(res, 200, EARNINGS_PAGE); // creator earnings calculator, internal preview
   if (route === "earnings-data" && eco) { // team only: one channel's numbers for the calculator
-    try { return res.status(200).json(await earningsLookup(String(req.query && req.query.ch || ""))); }
+    try { return res.status(200).json(await earningsLookup(String(req.query && req.query.ch || ""), token)); }
     catch (e) { return res.status(400).json({ error: String(e && e.message || e).slice(0, 300) }); }
   }
   if (route === "ecosystem-data") { // team only: the Ecosystem Register rows the map is reading

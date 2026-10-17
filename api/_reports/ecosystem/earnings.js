@@ -11,8 +11,11 @@
 // What it measures, matching the roster's view guarantee model (renewal-sync):
 //   avg      mean views of the last 10 long-form videos (over 3 minutes, at least 3 days old)
 //   perMonth long-form uploads a month, from the last 90 days
-// Uses the YOUTUBE_API_KEY already set on this Vercel project. Each lookup costs about 3 quota units,
-// or about 103 when a name has to be searched for.
+// Keys: YOUTUBE_API_KEY_CALC first (a key for this page alone, so the scans cannot use up its allowance),
+// then the project's shared YOUTUBE_API_KEY. Each lookup costs about 3 quota units, or about 103 when a
+// name has to be searched for.
+// When every key is out of quota, a roster channel still gets an answer from the Rates board
+// (18417663127, synced daily by renewal-sync); the result says so (source: "roster").
 
 const YT = "https://www.googleapis.com/youtube/v3/";
 
@@ -21,8 +24,9 @@ async function yt(path, key) {
   const j = await r.json();
   if (j.error) {
     const msg = String(j.error.message || "error").replace(/<[^>]+>/g, "");
-    if (/quota/i.test(msg)) throw new Error("YouTube's daily lookup allowance for this project is used up. It resets at midnight Pacific time.");
-    throw new Error("YouTube: " + msg);
+    const e = new Error(/quota/i.test(msg) ? "QUOTA" : "YouTube: " + msg);
+    e.quota = /quota/i.test(msg);
+    throw e;
   }
   return j;
 }
@@ -50,9 +54,44 @@ async function resolve(q, key) {
   throw new Error("No YouTube channel found for that");
 }
 
-export async function earningsLookup(q) {
-  const key = process.env.YOUTUBE_API_KEY;
-  if (!key) throw new Error("YOUTUBE_API_KEY missing");
+export async function earningsLookup(q, mondayToken) {
+  const keys = [...new Set([process.env.YOUTUBE_API_KEY_CALC, process.env.YOUTUBE_API_KEY].filter(Boolean))];
+  for (const key of keys) {
+    try { return await ytLookup(q, key); }
+    catch (e) { if (!e.quota) throw e; }
+  }
+  const r = await rosterLookup(q, mondayToken);
+  if (r) return r;
+  throw new Error("YouTube's daily lookup allowance is used up, and this channel is not on the roster's Rates board. Lookups reset at midnight Pacific time.");
+}
+
+// Rates board fallback: roster YouTube channels only, matched on handle, channel id or name.
+async function rosterLookup(q, token) {
+  if (!token) return null;
+  const norm = x => String(x || "").toLowerCase().replace(/^https?:\/\/(www\.|m\.)?youtube\.com\/?/, "").replace(/[?#].*$/, "").replace(/^channel\//, "").replace(/^@/, "").replace(/\/.*$/, "").replace(/[^a-z0-9_.-]/g, "");
+  const want = norm(q);
+  if (!want) return null;
+  const cols = ["text_mm49w81b", "text_mm499xez", "text_mm49b3x7", "numeric_mm49b3y2", "numeric_mm5nn2wj", "numeric_mm49cx8f"];
+  const query = "{boards(ids:[18417663127]){groups(ids:[\"topics\"]){items_page(limit:500){items{name column_values(ids:" + JSON.stringify(cols) + "){id text}}}}}}";
+  const r = await fetch("https://api.monday.com/v2", { method: "POST", headers: { "Content-Type": "application/json", Authorization: token, "API-Version": "2024-10" }, body: JSON.stringify({ query }) });
+  const j = await r.json();
+  const items = (((((j.data || {}).boards || [])[0] || {}).groups || [])[0] || {}).items_page;
+  for (const it of (items && items.items) || []) {
+    const c = Object.fromEntries(it.column_values.map(x => [x.id, x.text || ""]));
+    const keys = [c.text_mm49w81b, c.text_mm499xez, c.text_mm49b3x7, it.name].map(norm);
+    if (!keys.includes(want)) continue;
+    const id = (c.text_mm499xez.match(/UC[\w-]{22}/) || c.text_mm49b3x7.match(/UC[\w-]{22}/) || [""])[0];
+    return {
+      id, source: "roster", title: it.name, handle: c.text_mm49w81b, thumb: "",
+      subs: +c.numeric_mm49cx8f || 0, hiddenSubs: false,
+      avg: Math.round(+c.numeric_mm49b3y2 || 0), basis: 10,
+      perMonth: +c.numeric_mm5nn2wj || 0, shortsPerMonth: 0, lastUpload: null, recent: [],
+    };
+  }
+  return null;
+}
+
+async function ytLookup(q, key) {
   const { id, searched } = await resolve(q, key);
   const cj = await yt("channels?part=snippet,statistics,contentDetails&id=" + id, key);
   const ch = cj.items && cj.items[0];
