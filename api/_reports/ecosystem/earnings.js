@@ -19,7 +19,11 @@ const YT = "https://www.googleapis.com/youtube/v3/";
 async function yt(path, key) {
   const r = await fetch(YT + path + (path.includes("?") ? "&" : "?") + "key=" + key);
   const j = await r.json();
-  if (j.error) throw new Error("YouTube: " + (j.error.message || "error"));
+  if (j.error) {
+    const msg = String(j.error.message || "error").replace(/<[^>]+>/g, "");
+    if (/quota/i.test(msg)) throw new Error("YouTube's daily lookup allowance for this project is used up. It resets at midnight Pacific time.");
+    throw new Error("YouTube: " + msg);
+  }
   return j;
 }
 
