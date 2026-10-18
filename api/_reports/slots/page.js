@@ -59,7 +59,6 @@ td.c{position:sticky;left:0;background:var(--surface);z-index:1;padding:10px 12p
 .slots .pen{background:var(--accent-fill);border-color:var(--accent-fill);color:#14161B;cursor:default}
 #tip{position:fixed;z-index:50;pointer-events:none;background:var(--ink);color:var(--surface);font-size:12.5px;line-height:1.35;padding:6px 9px;border-radius:7px;max-width:280px;box-shadow:var(--shadow);display:none}#tip b{display:block;font-size:13px}
 .cap{font-size:12px;color:var(--muted);line-height:1.2}.cap b{font-size:14px;color:var(--ink)}
-.cell.full .cap b{color:var(--good-text)}
 .cell.none{background:transparent;color:var(--muted);text-align:center;opacity:.6}
 td.tot b{display:block;font-size:17px;color:var(--ink)}td.tot span{display:block;font-size:12.5px;color:var(--muted);white-space:nowrap}
 tr.paused td.c .who,tr.paused .cell{opacity:.5}
@@ -100,8 +99,7 @@ function cell(c,w,k){
     w.pencilled.map(s=>'<i class="pen" aria-label="Pending: '+esc(s.brand)+'" data-tip="'+esc(s.brand)+'" data-sub="'+esc("Pending, not sold yet \\u00b7 "+s.deal+(s.group?" \\u00b7 "+s.group:"")+(s.start?" \\u00b7 "+day(s.start):""))+'">'+ltr(s)+'</i>').join("");
   for(let i=w.booked.length+w.pencilled.length;i<n;i++)sq+='<i></i>';
   const val=c.rate&&w.open?", "+money(w.open*c.rate)+" open":"";
-  const cap=(w.open?'<b>'+w.open+'</b> of '+w.expected+' left':'<b>Sold out</b>')+(w.pencilled.length?' \\u00b7 '+w.pencilled.length+' pending':'');
-  return '<div class="cell'+(w.open?'':' full')+'" title="'+label+w.expected+' video'+(w.expected===1?'':'s')+' expected, '+w.booked.length+' sold, '+w.open+' left'+val+'"><div class="slots">'+sq+'</div><span class="cap">'+cap+'</span></div>';
+  return '<div class="cell'+(w.open?'':' full')+'" title="'+label+w.expected+' video'+(w.expected===1?'':'s')+' expected, '+w.booked.length+' sold, '+w.open+' left'+val+'"><div class="slots">'+sq+'</div></div>';
 }
 function foot(rows,W){
   const sum=f=>rows.reduce((n,c)=>n+f(c),0);
