@@ -119,6 +119,10 @@
     {
       "path": "/api/tom-sent-sync",
       "schedule": "20 13 * * *"
+    },
+    {
+      "path": "/api/recruit-learn",
+      "schedule": "50 13 * * *"
     }
   ],
   "rewrites": [
