@@ -13,7 +13,7 @@ export async function slotsData(token) {
   let data;
   if (snap && !snap.error && snap.weeks) { data = Object.assign({ source: "store" }, snap); lastGood = data; }
   else if (lastGood) data = Object.assign({}, lastGood, { stale: snap && snap.error ? "The saved copy could not be read just now (" + snap.error + "). Showing the last copy this server read." : "Showing the last copy this server read." });
-  else data = { empty: true, error: snap && snap.error ? snap.error : "No copy has been built yet. The first build runs tonight at 05:40 UTC." };
+  else data = { empty: true, error: snap && snap.error ? snap.error : "No copy has been built yet. The first build runs tonight at 08:20 UTC." };
   cache = { at: Date.now(), data };
   return data;
 }

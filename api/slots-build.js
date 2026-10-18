@@ -1,5 +1,5 @@
 // Nightly build of the Slot board (ecosystem.digitalfoxtalent.com/partnerships/slot-board).
-// Runs on Vercel (cron in vercel.json, 05:40 UTC daily): reads the rates board, the campaign rows, the
+// Runs on Vercel (cron in vercel.json, 08:20 UTC daily, just after YouTube's quota resets at midnight Pacific): reads the rates board, the campaign rows, the
 // release list and each channel's uploads from YouTube, works out the next eight weeks of expected uploads,
 // sold slots and open slots, and saves one JSON copy (_reports/slots/store.js). The page only reads that copy.
 // See _reports/slots/build.js for the rules. Nothing on monday is written.

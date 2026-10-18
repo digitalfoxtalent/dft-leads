@@ -98,7 +98,7 @@
     },
     {
       "path": "/api/slots-build",
-      "schedule": "40 5 * * *"
+      "schedule": "20 8 * * *"
     }
   ],
   "rewrites": [

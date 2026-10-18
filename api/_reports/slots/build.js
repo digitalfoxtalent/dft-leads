@@ -263,7 +263,10 @@ export async function buildSnapshot(token, ytKey, opts = {}) {
   await Promise.all(Array.from({ length: limit }, run));
   const snap = assemble({ creators, rows, handles, releases, now });
   const unread = snap.creators.filter(c => c.uploadsError).length;
-  if (snap.creators.length && unread > snap.creators.length / 2) throw new Error("YouTube could not be read for " + unread + " of " + snap.creators.length + " channels");
+  if (snap.creators.length && unread > snap.creators.length / 2) {
+    const first = snap.creators.find(c => c.uploadsError);
+    throw new Error("YouTube could not be read for " + unread + " of " + snap.creators.length + " channels (first: " + first.uploadsError + ")");
+  }
   snap.youtubeUnits = units;
   return snap;
 }
