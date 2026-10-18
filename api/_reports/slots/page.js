@@ -66,7 +66,7 @@ tr.paused td.c .who,tr.paused .cell{opacity:.5}
 tbody tr:hover td{background:var(--line-soft)}tbody tr:hover td.c{background:var(--line-soft)}
 tfoot td{position:sticky;bottom:0;z-index:2;background:var(--surface);border-top:2px solid var(--line);border-bottom:0;padding:10px 8px;box-shadow:0 -6px 12px -10px rgba(0,0,0,.25)}
 tfoot td.c{z-index:4;font-size:12.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;font-weight:600}
-tfoot .cap{display:block}tfoot .sub{display:block;font-size:12px;color:var(--muted);margin-top:2px;white-space:nowrap}
+tfoot .cap{display:block}
 
 /* bottom cards */
 .note{font-size:13px;color:var(--muted)}.err{background:var(--accent-soft);color:var(--accent);border-radius:12px;padding:12px 14px;margin:0}
@@ -102,13 +102,13 @@ function cell(c,w,k){
   const val=c.rate&&w.open?", "+money(w.open*c.rate)+" open":"";
   return '<div class="cell'+(w.open?'':' full')+'" title="'+label+w.expected+' video'+(w.expected===1?'':'s')+' expected, '+w.booked.length+' sold, '+w.open+' left'+val+'"><div class="slots">'+sq+'</div></div>';
 }
-function mbar(sold,left,total,fmt){const f=total?Math.min(100,sold/total*100):0;
-  return '<div class="mb"><div class="ml"><span class="s">'+fmt(sold)+' sold</span><span><b>'+fmt(left)+'</b> of '+fmt(total)+' left</span></div><div class="bar" role="img" aria-label="'+fmt(sold)+' sold, '+fmt(left)+' left"><i style="width:'+f+'%"></i></div></div>';}
-function tot(booked,open,bookedVal,openVal){return mbar(booked,open,booked+open,nf)+mbar(bookedVal,openVal,bookedVal+openVal,smoney);}
+function mbar(sold,left,total,fmt,showLeft){const f=total?Math.min(100,sold/total*100):0;
+  return '<div class="mb"><div class="ml"><span class="s">'+fmt(sold)+' sold</span>'+(showLeft?'<span><b>'+fmt(left)+'</b> of '+fmt(total)+' left</span>':'')+'</div><div class="bar" role="img" aria-label="'+fmt(sold)+' sold, '+fmt(left)+' left"><i style="width:'+f+'%"></i></div></div>';}
+function tot(booked,open,bookedVal,openVal){return mbar(booked,open,booked+open,nf,false)+mbar(bookedVal,openVal,bookedVal+openVal,smoney,true);}
 function foot(rows,W){
   const sum=f=>rows.reduce((n,c)=>n+f(c),0);
-  const wk=W.map((w,k)=>{const e=sum(c=>c.weeks[k].expected),o=sum(c=>c.weeks[k].open),b=sum(c=>c.weeks[k].booked.length),p=sum(c=>(c.weeks[k].pencilled||[]).length);
-    return '<td><span class="cap"><b>'+nf(o)+'</b> of '+nf(e)+' left</span><span class="sub">'+nf(b)+' sold'+(p?' \\u00b7 '+nf(p)+' pending':'')+'</span></td>';}).join("");
+  const wk=W.map((w,k)=>{const e=sum(c=>c.weeks[k].expected),o=sum(c=>c.weeks[k].open);
+    return '<td><span class="cap"><b>'+nf(o)+'</b> of '+nf(e)+' left</span></td>';}).join("");
   return '<tfoot><tr><td class="c">Total</td>'+wk+'<td class="tot">'+tot(sum(c=>c.bookedSlots),sum(c=>c.openSlots),sum(c=>c.bookedSlots*(c.rate||0)),sum(c=>c.openValue))+'</td></tr></tfoot>';
 }
 function render(){
