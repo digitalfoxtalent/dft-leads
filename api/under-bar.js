@@ -1,12 +1,14 @@
 // Alert for sign-up checks under the bar.
 //
 // WHY (Tom, 15 Oct 2026): "Can we just be pinged a notification at the time who applied but
-// was rejected?" dft-connect's /api/signup-check answers "not yet" to channels under the bar
-// and revokes our access. Before it answers, it posts the channel id and its average here;
+// was rejected?" dft-connect's /api/signup-check answers "not yet" to channels under the bar.
+// Before it answers, it posts the channel id, its average and its signed stats link here;
 // we look up the public channel name and handle and email Tom and Alex (Tom asked for Alex
-// to get these too, 17 Oct 2026) from theteam@. Nothing is written anywhere else, and the sent copy in
-// theteam@ is trashed straight away. The not-yet page still says "We haven't kept any of
-// your details": Tom and Alex delete each alert on receipt (15 Oct 2026), so nothing is kept.
+// to get these too, 17 Oct 2026) from theteam@.
+//
+// KEPT, NOT DELETED (Tom, 18 Oct 2026: "I'd like not to delete the data if they are
+// rejected"). dft-connect keeps our read-only access, the alert carries the stats link, and
+// the sent copy stays in theteam@ as the record. The not-yet page says we kept the access.
 //
 // AUTH. dft-connect has no monday token, so the call is signed with Channel Connect's
 // STATS_SECRET (purpose "underbar"), the same secret kit-sync reads from the API Keys
@@ -37,9 +39,7 @@ async function sendAlert(subject, html) {
   const mime = ["From: Digital Fox Talent <" + ALERT_FROM + ">", "To: " + ALERT_TO.join(", "), "Subject: " + enc(subject), "MIME-Version: 1.0", "Content-Type: text/html; charset=UTF-8", "Content-Transfer-Encoding: base64", "", Buffer.from(html).toString("base64")].join("\r\n");
   const r = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", { method: "POST", headers: { Authorization: "Bearer " + tok, "Content-Type": "application/json" }, body: JSON.stringify({ raw: Buffer.from(mime).toString("base64url") }) });
   if (!r.ok) throw new Error("Gmail send " + r.status);
-  // Don't leave a copy in theteam@'s Sent folder.
-  const sent = await r.json().catch(() => ({}));
-  if (sent.id) await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${sent.id}/trash`, { method: "POST", headers: { Authorization: "Bearer " + tok } }).catch(() => {});
+  // The sent copy stays in theteam@ as the record (Tom, 18 Oct 2026).
 }
 
 const esc = (x) => String(x).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
@@ -49,6 +49,7 @@ export const config = { maxDuration: 30 };
 const KEY_ITEM = 13197661446; // API Keys: "Channel Connect STATS_SECRET (dft-connect Vercel)"
 const KEY_COL = "text_mm5bcxe7";
 const CHANNEL_RE = /^UC[A-Za-z0-9_-]{22}$/;
+const STATS_PREFIX = "https://connect.digitalfoxtalent.com/api/stats?";
 
 function readBody(req) {
   if (req.body && typeof req.body === "object") return req.body;
@@ -93,10 +94,13 @@ export default async function handler(req, res) {
     const n = (x) => (x == null ? "n/a" : Math.round(x).toLocaleString("en-US"));
     const name = info.title || info.handle || channel;
     const url = /^@[A-Za-z0-9._-]+$/.test(info.handle) ? `https://www.youtube.com/${info.handle}` : `https://www.youtube.com/channel/${channel}`;
+    // Only Channel Connect's own signed stats links go in the email.
+    const stats = String(body.statsUrl || "");
+    const statsLink = stats.startsWith(STATS_PREFIX) && stats.length < 400 ? stats : "";
     const subject = `Sign-up check under the bar: ${name} (${n(avg)} avg views)`;
     const html = `<p><a href="${esc(url)}">${esc(name)}</a>${info.handle ? " (" + esc(info.handle) + ")" : ""} checked their channel on the sign-up page and was under the bar.</p>
 <p>Average views per long-form video: ${n(avg)}<br>Subscribers: ${n(info.subs)}</p>
-<p>We removed their YouTube access, as the page promises. No contact details are captured at this step. Please delete this email once read: the page tells them we keep nothing.</p>`;
+<p>We've kept their read-only YouTube access${statsLink ? `, so their live stats stay here: <a href="${esc(statsLink)}">Open the stats page</a>` : ""}. No contact details are captured at this step.</p>`;
     await sendAlert(subject, html);
     return res.status(200).json({ ok: true, sent: true });
   } catch (e) {

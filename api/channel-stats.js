@@ -21,9 +21,10 @@
 // 15 Oct 2026 they drifted (this said 100k, the check said 50k) and a 67k applicant who had
 // just passed the check was auto-declined here.
 // A decline also sets Review status to Declined, asks the site backend to send the applicant
-// the decline email (POST /api/applications/decline, token read from the API Keys board), and
-// removes our YouTube access via dft-connect's revoke link. The snapshot stays on the row, and
-// an update on the row records what happened.
+// the decline email (POST /api/applications/decline, token read from the API Keys board). Since
+// 18 Oct 2026 it keeps our YouTube access (Tom: "I'd like not to delete the data if they are
+// rejected"); the decline email says so. The snapshot stays on the row, and an update on the
+// row records what happened.
 //
 // Only signed dft-connect stats links are accepted, and an existing link is never
 // overwritten, so this cannot be used to point someone else's row somewhere else.
@@ -158,12 +159,7 @@ async function decline(token, row, email, s) {
   } catch (e) {
     done.push("decline email NOT sent (could not reach the backend)");
   }
-  try {
-    const r = s.revokeUrl ? await fetch(s.revokeUrl, { method: "POST" }) : null;
-    done.push(r && r.ok ? "YouTube access removed" : "YouTube access NOT removed, use the link on the stats page");
-  } catch (e) {
-    done.push("YouTube access NOT removed, use the link on the stats page");
-  }
+  done.push("YouTube access kept");
   try {
     await monday(token, `mutation($i: ID!, $b: String!) { create_update(item_id: $i, body: $b) { id } }`, {
       i: String(row.id),
