@@ -30,7 +30,8 @@ export const RC = { handle: "text_mm49w81b", url: "text_mm499xez", src: "text_mm
   bvg: "numeric_mm7vxae8", brate: "numeric_mm7vx77g", vis: "color_mm7vb4nb", lastPub: "date_mm4an586", logo: "text_mm7v2qns" };
 export const GTR_BOARD = 6160485039;       // Global Talent Roster: campaign rows name the creator by this row's name
 export const SUB_BOARD = 6162879732;       // US Campaigns creator rows
-export const RELEASE_BOARD = 18415007170;  // Studio/Dev Upcoming Releases
+export const RELEASE_BOARD = 18415007170;  // Studio/Dev Upcoming Releases (George, films)
+export const RELEASE_BOARDS = [18415007170, 18435939296];  // plus Tom's Games, TV & Tech board (split off 17 Oct 2026)
 export const REL = { date: "date_mm3rpkm4", creators: "long_text_mm5cfcfd" };
 
 export const WEEKS = 8;
@@ -148,9 +149,9 @@ export async function loadCampaignRows(token) {
 }
 
 export async function loadReleases(token) {
-  const d = await monday(token, `query { boards(ids:[${RELEASE_BOARD}]) { items_page(limit:300) { items { id name column_values(ids:["${REL.date}","${REL.creators}"]) { id text } } } } }`);
+  const d = await monday(token, `query { boards(ids:[${RELEASE_BOARDS.join(",")}]) { items_page(limit:500) { items { id name column_values(ids:["${REL.date}","${REL.creators}"]) { id text } } } } }`);
   const out = [];
-  for (const it of (((d.boards || [])[0] || {}).items_page || {}).items || []) {
+  for (const it of (d.boards || []).flatMap(b => ((b || {}).items_page || {}).items || [])) {
     const c = {}; for (const v of it.column_values || []) c[v.id] = v.text || "";
     if (!/^\d{4}-\d\d-\d\d/.test(c[REL.date] || "")) continue;
     out.push({ id: it.id, name: it.name, date: c[REL.date].slice(0, 10), creators: String(c[REL.creators] || "") });

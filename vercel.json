@@ -99,6 +99,22 @@
     {
       "path": "/api/slots-build",
       "schedule": "40 5 * * *"
+    },
+    {
+      "path": "/api/release-finder?niche=game",
+      "schedule": "0 14 * * 1"
+    },
+    {
+      "path": "/api/release-finder?niche=series",
+      "schedule": "10 14 * * 1"
+    },
+    {
+      "path": "/api/release-finder?niche=tech",
+      "schedule": "20 14 * * 1"
+    },
+    {
+      "path": "/api/release-finder?niche=film",
+      "schedule": "30 14 * * 1"
     }
   ],
   "rewrites": [
