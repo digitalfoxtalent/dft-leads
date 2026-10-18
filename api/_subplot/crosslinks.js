@@ -35,6 +35,7 @@ export const DFT_SLUG_BY_HANDLE = {
   "@variant": "variant-comics",
   "@vettedpodcast": "vetted",
   "@everythingalways": "everything-always",
+  "@everythingalways_snippets": "everything-always",
   "@thecosmicwonder": "the-cosmic-wonder",
   "@thegoldman25": "the-gold-man",
   "@thekristianharloff": "kristian-harloff",
