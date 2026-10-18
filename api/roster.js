@@ -1308,7 +1308,7 @@ async function creatorVideos(b) {
 // page asks for outreach-draft, which reads the monday row, runs the pitch engine in outreach mode (a list made for that
 // brand, wording that opens the conversation rather than thanking them) and saves the email as a fresh draft in the
 // clicker's own Gmail, with Tom and Alex copied. No thread: these are first emails. Nothing is ever sent.
-const OUTREACH_BOARDS = { "18415192682": "spend", "18421619922": "winback", "18415007170": "studio" };
+const OUTREACH_BOARDS = { "18415192682": "spend", "18421619922": "winback", "18415007170": "studio", "18435939296": "studio" }; // 18435939296: Tom's Games, TV & Tech release board (17 Oct 2026)
 async function outreachDraft(b, email) {
   const board = String(b.board || ""), kind = OUTREACH_BOARDS[board];
   if (!kind) throw new Error("This alert type cannot make a pitch yet");
