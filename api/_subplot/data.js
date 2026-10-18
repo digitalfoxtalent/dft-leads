@@ -505,9 +505,9 @@ async function load() {
   // sweep (build 82, feed store record launch_date_sweep) read every article and found these still presenting a date as
   // upcoming when it has passed ("the Lanterns finale airs October 4th"). They are not rendered until fixed; nothing is
   // deleted from the store. Remove an id once its article is corrected.
-  { const hold = new Set(STALE_HOLD); const kept = arts.filter(a => !hold.has(a.id)); arts.length = 0; arts.push(...kept); }
+  { const hold = new Set([...STALE_HOLD, ...EDITORIAL_HOLD]); const kept = arts.filter(a => !hold.has(a.id)); arts.length = 0; arts.push(...kept); }
   {
-    const byId = new Map(); for (const [id, from, to] of DATE_FIXES) { if (!byId.has(id)) byId.set(id, []); byId.get(id).push([from, to]); }
+    const byId = new Map(); for (const [id, from, to] of [...DATE_FIXES, ...EDITORIAL_FIXES]) { if (!byId.has(id)) byId.set(id, []); byId.get(id).push([from, to]); }
     const dated = new Set(DATED_IDS);
     const longDate = d => { const t = new Date(d); return isNaN(t) ? "" : t.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" }); };
     for (const a of arts) {
@@ -632,6 +632,96 @@ export const REVIEW_SET_ON = false;
 // 18 Oct 2026 (Tom: "fix these and publish"): the passed-date sentences in all 63 were rewritten (DATE_FIXES)
 // and the list emptied. Ids are kept in DATED_IDS, which puts a "published on" line at the top of each.
 export const STALE_HOLD = [];
+// EDITORIAL REVIEW, 19 Oct 2026 (Tom: "Can you do an analysis on them and approve them ... edit them ... reject them").
+// Claude reviewed the 34 live pages that had no person's approval on record; Tom approved the verdicts.
+// EDITORIAL_HOLD: 14 pages taken off the site (thin, out of date, or headline not delivered). Nothing is
+// deleted from the store; remove an id to bring a page back. EDITORIAL_FIXES: transcript slips and wrong
+// names corrected at load, same mechanism as DATE_FIXES (headline, standfirst and body; store untouched).
+export const EDITORIAL_HOLD = ["75sW8Npstxc", "FSZsnOIf2r0", "Jol89_DwTyw", "LHBA2P-FMoM", "LcQCpRj9sPw", "Q8ShFZsqxG0", "SkfxNLTD-pw", "YfVO94fNq5k", "cCISra9NEe0", "clZ_l78kh3A", "ioVELS95be4", "nrOx3-1C2Tg", "uZRcRqIN3EY", "vD0BmUziPhg"];
+export const EDITORIAL_FIXES = [
+  ["PYMMYiTzLBo", "Vanguard's Launch Map, New Town and Three Black Ops 2 Maps Bottom Out the List", "Vanguard's Launch Map, Nuketown and Die Rise Bottom Out the List"],
+  ["PYMMYiTzLBo", "Number 49 was New Town from Black Ops 2", "Number 49 was Nuketown from Black Ops 2"],
+  ["PYMMYiTzLBo", "Shangri-La, Alpha Omega and Blood of the Dead Show Their Flaws in the Middle", "Shangri-La, Carrier and The Giant Show Their Flaws in the Middle"],
+  ["PYMMYiTzLBo", "introducing the Blundergat and an underwater facility hunting the villain Oz", "set in an underwater facility where players hunt the villain Oz"],
+  ["PYMMYiTzLBo", "Number seven was Nuketown from Black Ops 4, set in a gladiatorial arena", "Number seven was IX from Black Ops 4, set in a gladiatorial arena"],
+  ["PYMMYiTzLBo", "Looking back four years later, I got absolutely cooked for this list. In my words, \"I got", "Looking back four years later, in my words, \"I got"],
+  ["sF8PSYnWsdw", "Flooded in Ghost is based", "Flooded in Ghosts is based"],
+  ["sF8PSYnWsdw", "arguably the worst map in Ghost,", "arguably the worst map in Ghosts,"],
+  ["sF8PSYnWsdw", "Broadcast, sorry, Bog in COD 4 recreates", "Bog in COD 4 recreates"],
+  ["sF8PSYnWsdw", "Bream in Modern Warfare 2 is based", "Breenbergh Hotel in Modern Warfare II (2022) is based"],
+  ["sF8PSYnWsdw", "Bream, arguably the best map in Modern Warfare 2 even though", "Breenbergh Hotel, arguably the best map in 2022's Modern Warfare II even though"],
+  ["sF8PSYnWsdw", "Favela in Modern Warfare 2 recreates", "Favela in Modern Warfare 2 (2009) recreates"],
+  ["sF8PSYnWsdw", "Terminal, sorry, Crown Raceway in Modern Warfare 2 is", "Crown Raceway in Modern Warfare II (2022) is"],
+  ["sF8PSYnWsdw", "Stonehaven in Ghost is set", "Stonehaven in Ghosts is set"],
+  ["sF8PSYnWsdw", "maps in Call of Duty Ghost,", "maps in Call of Duty: Ghosts,"],
+  ["EJ5gG68-a8w", "Forespoken", "Forspoken"],
+  ["EJ5gG68-a8w", "With a sequel officially announced, reinstalling the first game and forcing through the initial hours reveals what others found compelling.", "Reinstalling it and forcing through the initial hours reveals what others found compelling."],
+  ["BTPDlHY785Q", "The IDKFA code, which granted unlimited ammo, armor, and health in Doom, would strip all health and armor in Heretic and label the player as a cheater.", "The IDKFA code, which granted every weapon, full ammo, all keys and armor in Doom, would strip the player's weapons in Heretic and label them a cheater."],
+  ["BTPDlHY785Q", "When detected, the game would permanently break the cartridge, removing", "When detected, the game would deliberately sabotage itself, removing"],
+  ["BTPDlHY785Q", "or withstand any damage. The damage could not be reversed.", "or withstand any damage."],
+  ["BTPDlHY785Q", "trigger character Gruntalda to warn", "trigger the witch Gruntilda to warn"],
+  ["BTPDlHY785Q", "combining punishment with the game's Star Wars theme", "a nod to LucasArts' best-known franchise"],
+  ["Zjyf1zimNc0", "the film privately began filming over the weekend", "the film privately began filming in late August"],
+  ["Zjyf1zimNc0", "and reshoots for Avengers: Doomsday are happening right now, confirmed separately", "and reshoots for Avengers: Doomsday were under way at the same time, confirmed separately"],
+  ["Zjyf1zimNc0", "privately started filming over the weekend", "privately started filming in late August"],
+  ["Zjyf1zimNc0", "seemingly filmed some scenes privately over the weekend", "seemingly filmed some scenes privately in late August"],
+  ["Zjyf1zimNc0", "Magneto's casting has already been separately confirmed by Deadline, with Lee Pace", "Deadline has separately reported on the search for Magneto, with Lee Pace"],
+  ["Zjyf1zimNc0", "the cable and Mr. Sinister arc", "the Cable and Mr. Sinister arc"],
+  ["Zjyf1zimNc0", "Phantom X", "Fantomex"],
+  ["Zjyf1zimNc0", "asking the X-Men to help destroy Weapon 12, who turns out to be Weapon 13, a figure who escaped in a manner similar to Wolverine", "asking the X-Men to help destroy Weapon XII, and is later revealed to be Weapon XIII himself, a living weapon who escaped the program much as Wolverine did"],
+  ["pjM2XRyF9UA", "Now that this reaction and review are out, what did you think", "What did you think"],
+  ["03P20R_Z5Dg", "Shuri 2", "Shang-Chi 2"],
+  ["03P20R_Z5Dg", "The Cosmic Wonder breaks down which confirmed and rumored Marvel projects", "Which confirmed and rumored Marvel projects"],
+  ["03P20R_Z5Dg", "The plan originally had director Destin Daniel Cretton attached before Avengers: Kang Dynasty, but those plans shifted and he ended up directing Spider-Man instead.", "Director Destin Daniel Cretton was attached before he moved to Avengers: Kang Dynasty, but those plans shifted and he ended up directing Spider-Man: Brand New Day instead."],
+  ["03P20R_Z5Dg", "Even though Shang-Chi 2 is not coming before the other announced films, Shuri is expected", "Even though Shang-Chi 2 is not coming before the other announced films, Shang-Chi is expected"],
+  ["ybiqoaMJrjc", "When the Romulans finally return in the 2260s", "When the Romulans finally return in the 2360s"],
+  ["ybiqoaMJrjc", "We are not claiming Q built the collective, the record will not carry that, but the record does show a being with a hostile history against exactly one species that could expose him, destroyed in his lifetime by the one enemy purpose fit to destroy them while he watched and said nothing.", "I am not claiming Q built the collective, the record will not carry that, but it does show a being with a hostile history with exactly one species that could expose him, and that species destroyed in his lifetime by the one enemy best suited to the job while he watched and said nothing."],
+  ["ybiqoaMJrjc", "Vger", "V'Ger"],
+  ["zyN527oP580", "Before episode two makes any of this easier, I'm putting some calls on the record.", "Based on episode one alone, I'm putting some calls on the record."],
+  ["zyN527oP580", "an 1988 series", "a 1988 series"],
+  ["zyN527oP580", "his history was later revised to make him a Marine before the character was given both, a Marine who becomes an architect", "his history was later revised to make him a Marine, and eventually he was given both: a Marine who becomes an architect"],
+  ["zyN527oP580", "Lanterns is not the Green Lantern is true if", "\"Lanterns is not the Green Lantern\" is true if"],
+  ["zyN527oP580", "Lanterns is going to be great can still be true", "\"Lanterns is going to be great\" can still be true"],
+  ["zyN527oP580", "Jon ", "John "],
+  ["zyN527oP580", "Jon'", "John'"],
+  ["SWwsCuPQFP0", "Knights of the Sentinels", "Night of the Sentinels"],
+  ["SWwsCuPQFP0", "Stanley narrated", "Stan Lee narrated"],
+  ["SWwsCuPQFP0", "Sidney Yu An Tung", "Sidney Iwanter"],
+  ["zRi_vIXe3hc", "She cut Spellbound and most of Taika Waititi's filmography, including What We Do in the Shadows, Hunt for the Wilderpeople, Thor: Ragnarok and Jojo Rabbit.", "She cut Spellbound and Taika Waititi's What We Do in the Shadows and Hunt for the Wilderpeople."],
+  ["zRi_vIXe3hc", "there is a version of this video where", "there is a version of this review where"],
+  ["GEukusP-kKs", "at the hour 22 mark", "at the 1 hour 22 minute mark"],
+  ["GEukusP-kKs", "about a real-life antivirus, which the government claims is what the Texas site is quarantining", "about hantavirus, the real-life virus the government claims the Texas site is quarantining"],
+  ["GEukusP-kKs", "becoming digestation for a new alien race", "becoming hosts for the gestation of a new alien race"],
+  ["GEukusP-kKs", "the 1978 film Swarm", "the 1978 film The Swarm"],
+  ["GEukusP-kKs", "a fake-out the creator felt was well scored musically", "a fake-out I felt was well scored musically"],
+  ["GEukusP-kKs", "The Black-Haired Man Is Shot as Scully Is Taken", "Mulder Is Shot as Scully Is Taken"],
+  ["GEukusP-kKs", "Mulder recognizes the driver of the ambulance as the black-haired man and shoots him, echoing", "Mulder recognizes the ambulance driver as the black-haired man, who shoots him at close range, echoing"],
+  ["9gJ4Lj08UKY", "As I put it, \"that's the point is we knew what it was.\" ", ""],
+  ["tAvJuZcRyrw", "A countdown through every mainline Star Wars film picks out the single decision in each one that did the most damage, ending with a tie for the number one spot.", "A run through every theatrical Star Wars film picks out the single decision in each one that did the most damage."],
+  ["tAvJuZcRyrw", "That is the centerpiece of a full countdown through every Star Wars movie", "That is the centerpiece of a run through every Star Wars movie"],
+  ["tAvJuZcRyrw", "ChaosCinema Ranks the Biggest Mistake", "ChaosCinema Picks the Biggest Mistake"],
+  ["uJiFqHxjppk", "\"It was raw.\"", "It was raw."],
+  ["uJiFqHxjppk", "\"He could have become Enterprise's version of Worf,\"", "He could have become Enterprise's version of Worf,"],
+  ["uJiFqHxjppk", "\"That was a pitch. It was not a completed episode ready to end production, but it was a pitch.\"", "That was only a pitch, not a completed episode ready to enter production."],
+  ["XWxP5cWojV4", "My Time to Shine Hello", "MyTimeToShineHello"],
+  ["XWxP5cWojV4", "Cavill is already 42", "Cavill is already 43"],
+  ["nh0Y0kfrHs4", "Season 1 communicated that, not great at times.", "Season 1 communicated that, if not always well."],
+  ["nh0Y0kfrHs4", "That is, as I put it, \"way stronger than spending another season asking which twin is standing in the room.\"", "That is way stronger than spending another season asking which twin is standing in the room."],
+  ["cOFfbgW5vN0", "her half brother Nightcrawler", "her adoptive brother Nightcrawler"],
+  ["cOFfbgW5vN0", "zapped by the wild Sentinel in episode 6", "zapped by the wild Sentinel in episode 5"],
+  ["cOFfbgW5vN0", "unaired Pride of the X-Men pilot", "1989 Pryde of the X-Men pilot"],
+  ["cOFfbgW5vN0", "Uncanny X-Men number one from 1963", "X-Men number one from 1963"],
+  ["cOFfbgW5vN0", "severed heads and limbs could be refused", "severed heads and limbs could be re-fused"],
+  ["cOFfbgW5vN0", "\"in space no one can hear you snark oh how I've waited to say these two words to you old friend shut up\"", "\"In space, no one can hear you snark. Oh, how I've waited to say these two words to you, old friend: shut up.\""],
+  ["8THUXFI59jo", "That is one of 50 additional details and Easter eggs I left out of my massive breakdown of the film, and I am sharing all of them here.", "That is one of the extra details and Easter eggs I left out of my main breakdown of the film, and here are the rest."],
+  ["8THUXFI59jo", "Detail number two: if you listen closely", "If you listen closely"],
+  ["8THUXFI59jo", "Detail 11: yes, Ganke Lee", "Yes, Ganke Lee"],
+  ["8THUXFI59jo", "decided to give Rio Morales's surname of Morales", "decided to give Miles his mother's surname of Morales"],
+  ["8THUXFI59jo", ", which I apologise in advance for mispronouncing", ""],
+  ["8THUXFI59jo", "Composer Metro Boomin", "Soundtrack producer Metro Boomin"],
+  ["8THUXFI59jo", "As I put it: \"how low is the life expectancy of this place\".", "Which makes me wonder how low the life expectancy of this place is."],
+  ["8THUXFI59jo", "\"I'm not telling you what to think,\" but these animators", "I'm not telling you what to think, but these animators"],
+];
 export const DATED_IDS = [
   "-4QU76wzWOM", "-ywzCKKPpOI", "2owGtFMcyR0", "3CtzjeYkMhw", "40ci88x8Cl8", "4RoCzA_INZ0",
   "75sW8Npstxc", "ASarfon5VHk", "AeHDhlQeMVI", "CPCDubI2GyA", "CniP8riFc88", "Crs8wmUMkw4",
