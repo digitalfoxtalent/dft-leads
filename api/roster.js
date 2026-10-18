@@ -1364,6 +1364,102 @@ async function outreachDraft(b, email) {
   const mid = (dr.message || {}).id || "";
   return { ok: true, list: r.listUrl, title: r.title, placements: r.placements, draft: dr.id, url: "https://mail.google.com/mail/?authuser=" + encodeURIComponent(email) + "#drafts?compose=" + (dr.message && dr.message.threadId ? "thread-f:" + BigInt("0x" + dr.message.threadId).toString() + "%2Bmsg-a:" + dr.id : mid) };
 }
+// Creator recruitment drafts (Tom, 18 Oct 2026: make the creator alerts work like the new business alerts, with a Draft
+// button that writes the email). The creator alert's Draft button opens /api/roster?op=recruit; the page asks for
+// recruit-draft, which reads the Target Creators row, the creator's latest videos (public feed, no API quota) and
+// 2 to 3 similar creators DFT already represents, has Claude write a short direct email offering a call, and saves it
+// as a fresh draft in the clicker's own Gmail with Alex copied. Nothing is ever sent.
+// What the email leans on (Tom, 18 Oct 2026): brand deals and content distribution, similar creators we represent,
+// "Since 2017". It offers a call (direct recruitment), never a sign-up link.
+const RECRUIT_BOARD = "18415381478";
+const RC = { url: "link_mm3t777s", email: "email_mm3t61sv", subs: "numeric_mm3tmrdz", avg: "numeric_mm3tr6gy", niche: "color_mm3tx56z", notes: "long_text_mm3tqaqs" };
+const NICHE_WORDS = { Film: /film|movie|cinema|horror|tv|series|review|trailer|marvel|dc|star wars|pop culture/i, Gaming: /gam|esport|nintendo|xbox|playstation|retro/i, Entertainment: /entertain|pop culture|anime|comic|story|commentary|reaction|animation|cartoon/i, Tech: /tech|gadget|phone|pc|hardware|review/i };
+async function recentUploads(url) {
+  const m = String(url || "").match(/youtube\.com\/(?:channel\/(UC[\w-]{22})|@([\w.\-]+))/i);
+  if (!m) return [];
+  const UA = { "User-Agent": "Mozilla/5.0 (compatible; DFT roster)", "Accept-Language": "en" };
+  let cid = m[1];
+  if (!cid) {
+    const h = await fetch("https://www.youtube.com/@" + encodeURIComponent(m[2]), { headers: UA }).then(x => x.text()).catch(() => "");
+    cid = ((h.match(/"externalId":"(UC[\w-]{22})"/) || h.match(/"channelId":"(UC[\w-]{22})"/) || [])[1]) || "";
+  }
+  if (!cid) return [];
+  const xml = await fetch("https://www.youtube.com/feeds/videos.xml?channel_id=" + cid, { headers: UA }).then(x => x.ok ? x.text() : "").catch(() => "");
+  const un = t => String(t || "").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+  return xml.split("<entry>").slice(1).map(e => ({ title: un((e.match(/<title>([^<]*)</) || [])[1]), short: /\/shorts\//.test((e.match(/<link rel="alternate" href="([^"]+)"/) || [])[1] || "") })).filter(v => v.title && !v.short).slice(0, 8).map(v => v.title);
+}
+async function recruitDraft(b, email) {
+  const item = Number(b.item) || 0;
+  const d = await monday(`query{items(ids:[${item}]){id name board{id} column_values(ids:${JSON.stringify(Object.values(RC))}){id text value}}}`);
+  const it = d && d.items && d.items[0];
+  if (!it || String((it.board || {}).id) !== RECRUIT_BOARD) throw new Error("Creator row not found");
+  const v = {}; (it.column_values || []).forEach(c => { v[c.id] = c; });
+  const t = id => String((v[id] || {}).text || "").trim();
+  const to = (String(b.to || "") || t(RC.email)).trim().toLowerCase();
+  if (!/^[^@\s]+@[^@\s]+\.[a-z]{2,}$/i.test(to) || DFT_DOMAIN.test(to)) throw new Error("No creator email on this row");
+  let url = ""; try { url = JSON.parse((v[RC.url] || {}).value || "{}").url || ""; } catch (e) {}
+  if (!url) { const tx = t(RC.url); const i = tx.indexOf("http"); url = i >= 0 ? tx.slice(i) : ""; }
+  const niche = t(RC.niche) || "Entertainment";
+  const name = String(it.name || "").trim();
+  const videos = await recentUploads(url).catch(() => []);
+  // Similar creators DFT represents: signed long-form rows whose category fits the niche, biggest first.
+  const data = await loadBoard();
+  const fit = NICHE_WORDS[niche] || NICHE_WORDS.Entertainment;
+  const similar = data.rows.filter(r => r.kind === "long" && !r.dedicated && r.group === "topics" && fit.test(String(r.cv[C.category] || "") + " " + String(r.cv[C.about] || "").slice(0, 300)))
+    .sort((a, b2) => (+b2.cv[C.avg] || 0) - (+a.cv[C.avg] || 0)).slice(0, 8)
+    .map(r => ({ name: r.name, category: String(r.cv[C.category] || ""), avgViews: +r.cv[C.avg] || 0 }));
+  const tok = await gmailToken(email); if (!tok) throw new Error("Gmail is not connected for " + email);
+  const NAMES = { "tom@digitalfoxtalent.com": "Tom James", "margot@digitalfoxtalent.com": "Margot Grant", "george@digitalfoxtalent.com": "George Roush", "alex@digitalfoxtalent.com": "Alex Mackenzie" };
+  const fromName = NAMES[email] || email.split("@")[0].replace(/^./, c => c.toUpperCase());
+  const prompt = [
+    "Write a short first email from " + fromName + " at Digital Fox Talent, a creator management agency, to the YouTube creator below. It is direct recruitment: we want to represent them.",
+    "Rules:",
+    "- Under 140 words in the body. Plain, warm, confident. No em dashes, no hype words, no bullet points, no exclamation-heavy tone.",
+    "- Open with one specific, genuine line about their channel, using one of their recent video titles if it helps. Never invent facts about them.",
+    "- Say Digital Fox Talent has represented creators since 2017.",
+    "- Lead with brand partnerships (our core offer: we bring them sponsorship deals), then content distribution (we put their existing videos on more platforms so the same content earns more).",
+    "- Name 2 or 3 creators from SIMILAR CREATORS WE REPRESENT who best fit their niche, as creators we work with. Use only names from that list, exactly as written.",
+    "- Close by offering a quick call this week or next. No sign-up link.",
+    "- Greet them by their channel or first name if obvious. Do not include a signature; it is added after.",
+    'Reply with ONLY JSON: {"subject":"short subject, no emojis","body":"plain text with \\n line breaks"}',
+    "",
+    "CREATOR: " + name + " (" + niche + ")",
+    "CHANNEL: " + url,
+    "SUBSCRIBERS: " + (t(RC.subs) || "unknown") + ", AVERAGE VIEWS: " + (t(RC.avg) || "unknown"),
+    "WHAT WE NOTED: " + t(RC.notes).split(" Measured ")[0].slice(0, 500),
+    "RECENT VIDEOS: " + (videos.length ? videos.join(" | ") : "not available"),
+    "SIMILAR CREATORS WE REPRESENT: " + JSON.stringify(similar)
+  ].join("\n");
+  const key = process.env.ANTHROPIC_API_KEY; if (!key) throw new Error("ANTHROPIC_API_KEY not set");
+  let out = null;
+  for (const model of PITCH_MODELS) {
+    const r = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers: { "Content-Type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01" }, body: JSON.stringify({ model, max_tokens: 1200, messages: [{ role: "user", content: prompt }] }) }).catch(() => null);
+    const j = r && await r.json().catch(() => null);
+    if (!r || !r.ok || !j || !j.content) continue;
+    const txt = j.content.filter(x => x.type === "text").map(x => x.text).join("\n");
+    try { const m = txt.match(/\{[\s\S]*\}/); out = m ? JSON.parse(m[0]) : null; } catch (e) { out = null; }
+    if (out && out.body) break;
+  }
+  if (!out || !out.body) throw new Error("Could not write the email, try again");
+  const subject = noDash(String(out.subject || "Working with Digital Fox Talent")).slice(0, 120);
+  const sig = fromName + "\nDigital Fox Talent\n\u{1F98A}";
+  const plain = noDash(String(out.body)).replace(/\r/g, "").trim() + "\n\nWarm regards\n" + sig;
+  const html = plain.split(/\n{2,}/).map(p => "<p>" + escH(p).replace(/\n/g, "<br>") + "</p>").join("");
+  const cc = ["tom@digitalfoxtalent.com", "alex@digitalfoxtalent.com"].filter(x => x !== email).join(", ");
+  const G = (path, opt = {}) => fetch("https://gmail.googleapis.com/gmail/v1/users/me" + path, Object.assign({}, opt, { headers: Object.assign({ Authorization: "Bearer " + tok }, opt.headers || {}) })).then(async r => { const tx = await r.text(); let j = {}; try { j = tx ? JSON.parse(tx) : {}; } catch (_) {} return r.ok ? j : Object.assign(j, { _status: r.status }); });
+  const dr = await G("/drafts", { method: "POST", headers: { "Content-Type": "application/json" }, body: pitchMime({ to, cc, subject, html, text: plain }).draft });
+  if (!dr.id) throw new Error("Gmail did not save the draft" + (dr.error ? ": " + (dr.error.message || "") : ""));
+  const mid = (dr.message || {}).id || "";
+  return { ok: true, draft: dr.id, similar: similar.slice(0, 3).map(x => x.name), url: "https://mail.google.com/mail/?authuser=" + encodeURIComponent(email) + "#drafts?compose=" + (dr.message && dr.message.threadId ? "thread-f:" + BigInt("0x" + dr.message.threadId).toString() + "%2Bmsg-a:" + dr.id : mid) };
+}
+function recruitPage(q) {
+  const e = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const args = JSON.stringify({ op: "recruit-draft", item: String(q.item || ""), to: String(q.to || "") });
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Writing your email</title>
+<style>body{margin:0;background:#f5f3ef;font:15px/1.55 Poppins,Arial,sans-serif;color:#1a1a1a;display:grid;place-items:center;min-height:100vh}.c{background:#fff;border:1px solid #ece9e4;border-radius:16px;padding:40px 44px;max-width:460px;margin:24px;text-align:center}.sp{width:34px;height:34px;border:3px solid #f2dcc6;border-top-color:#f58220;border-radius:50%;animation:s 1s linear infinite;margin:0 auto 18px}@keyframes s{to{transform:rotate(360deg)}}h1{font-size:20px;margin:0 0 8px}p{color:#6b6b76;margin:0}a{color:#0f085e;font-weight:600}</style></head>
+<body><div class="c" id="c"><div class="sp"></div><h1>Writing your email${q.name ? " to " + e(q.name) : ""}…</h1><p id="m">Reading their latest videos and picking similar creators we represent. This takes about 20 seconds, then your draft opens in Gmail.</p></div>
+<script>fetch("/api/roster",{method:"POST",headers:{"content-type":"application/json"},credentials:"same-origin",body:${JSON.stringify(args)}}).then(r=>r.json()).then(j=>{ if(j&&j.url){ document.getElementById("m").textContent="Done. Opening your draft…"; location.href=j.url; } else throw new Error((j&&j.error)||"Something went wrong"); }).catch(err=>{ const c=document.getElementById("c"); c.innerHTML="<h1>That didn’t work</h1><p>"+String(err.message||err).replace(/[<>&]/g,"")+"</p><p style=\\"margin-top:14px\\"><a href=\\"javascript:location.reload()\\">Try again</a></p>"; });</script></body></html>`;
+}
 function outreachPage(q) {
   const e = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const args = JSON.stringify({ op: "outreach-draft", board: String(q.board || ""), item: String(q.item || ""), to: String(q.to || ""), name: String(q.name || ""), last: String(q.last || "") });
@@ -2559,6 +2655,12 @@ export default async function handler(req, res) {
       return res.status(302).end();
     }
     // The Sales Desk Draft button (Tom, 16 Oct 2026). Signed out, it goes to sign in first and comes back here.
+    if (q.op === "recruit") {
+      res.setHeader("Cache-Control", "private, no-store");
+      if (!email) { res.setHeader("Set-Cookie", "dft_next=" + encodeURIComponent(req.url) + "; Path=/; Max-Age=900; Secure; SameSite=Lax"); res.setHeader("Location", "/signin"); return res.status(302).end(); }
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      return res.status(200).send(recruitPage(q));
+    }
     if (q.op === "outreach") {
       res.setHeader("Cache-Control", "private, no-store");
       if (!email) { res.setHeader("Set-Cookie", "dft_next=" + encodeURIComponent(req.url) + "; Path=/; Max-Age=900; Secure; SameSite=Lax"); res.setHeader("Location", "/signin"); return res.status(302).end(); }
@@ -2628,6 +2730,7 @@ export default async function handler(req, res) {
         // Which email thread a list's brand-feedback alert will go into (read only, for checking).
         if (b.op === "list-thread") { const { list } = await freshList(b.slug); if (!list) throw new Error("list not found"); const t = await listThread(list); return res.status(200).json({ found: !!t, subject: t ? t.subject : "", thread: t ? t.id : "" }); }
         if (b.op === "outreach-draft") return res.status(200).json(await outreachDraft(b, email));
+        if (b.op === "recruit-draft") return res.status(200).json(await recruitDraft(b, email));
         if (b.op === "pitch-audit") return res.status(200).json(await pitchAudit(b));
         if (b.op === "list-idea") return res.status(200).json(await listIdea(b, email));
         if (b.op === "ideas-draft") return res.status(200).json(await ideasDraft(b, email));
