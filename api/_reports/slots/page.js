@@ -35,7 +35,7 @@ h1{font-size:clamp(30px,4.2vw,42px);font-weight:800;line-height:1.02}h1 em{font-
 .built{font-size:13px;color:var(--muted)}
 /* grid */
 .card{background:var(--surface);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow)}
-.grid{overflow:auto;max-height:calc(100vh - 96px);border-radius:16px}
+.grid{border-radius:16px}
 table{border-collapse:separate;border-spacing:0;width:100%;min-width:1060px;table-layout:fixed;font-size:14px}
 col.cr{width:250px}col.tot{width:130px}
 th{text-align:left;font-weight:600;color:var(--ink);padding:12px 8px 10px;border-bottom:1px solid var(--line);vertical-align:bottom;background:var(--surface);position:sticky;top:0;z-index:2}
@@ -68,7 +68,7 @@ tbody tr:hover td{background:var(--line-soft)}tbody tr:hover td.c{background:var
 .note{font-size:13px;color:var(--muted)}.err{background:var(--accent-soft);color:var(--accent);border-radius:12px;padding:12px 14px;margin:0}
 .empty{padding:60px 20px;text-align:center;color:var(--muted)}
 @media(max-width:1100px){.tiles{grid-template-columns:1fr 1fr}}
-@media(max-width:820px){.wrap{padding:22px 16px 70px}col.cr{width:180px}.tile b{font-size:28px}.grid{max-height:none}}
+@media(max-width:820px){.wrap{padding:22px 16px 70px}col.cr{width:180px}.tile b{font-size:28px}.grid{overflow-x:auto}}
 </style></head><body><div class="wrap">
 <div class="topbar"><div class="brandline"><img class="wordmark" src="https://df-cdn.b-cdn.net/GeneralLendingConfigs/landing_logo/DigitalFoxTalent-TextLogoBLACK-VECTOR.svg" alt="Digital Fox Talent" width="216" height="72"></div>
 <nav class="tabs" aria-label="Brand Partnerships"><a href="https://roster-viewguarantee.digitalfoxtalent.com" target="_blank" rel="noopener">Roster</a><a href="/partnerships/slot-board" aria-current="page">Ad Inventory Slots Available</a><a href="/partnerships">All of Brand Partnerships</a></nav></div>
@@ -103,7 +103,8 @@ function render(){
   const app=$("#app");
   if(D.empty){app.innerHTML='<div class="card empty"><h3>Nothing to show yet</h3><p>'+esc(D.error)+'</p></div>';return;}
   const T=D.totals,W=D.weeks,today=new Date().toISOString().slice(0,10);
-  const rows=D.creators.filter(c=>!c.cadence.paused).sort((a,b)=>b.openValue-a.openValue||b.openSlots-a.openSlots); // most to sell first
+  const pend=c=>c.weeks.reduce((n,w)=>n+(w.pencilled||[]).length,0);
+  const rows=D.creators.filter(c=>!c.cadence.paused).sort((a,b)=>b.bookedSlots-a.bookedSlots||pend(b)-pend(a)||b.openValue-a.openValue); // most booked in these 8 weeks first
   app.innerHTML=
   (D.stale?'<p class="err">'+esc(D.stale)+'</p>':'')+
   '<div class="tiles">'+
