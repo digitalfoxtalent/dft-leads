@@ -25,7 +25,7 @@ a{color:inherit}
 h1{font-size:clamp(30px,4.2vw,42px);font-weight:800;line-height:1.02}h1 em{font-style:normal;color:var(--accent)}
 .sub{color:var(--muted);margin:8px 0 0;font-size:14.5px}
 /* headline tiles */
-.tiles{display:grid;grid-template-columns:1.25fr 1fr 1fr 1fr;gap:12px}
+.tiles{display:grid;grid-template-columns:1.25fr 1fr 1fr 1fr;gap:12px;margin-bottom:12px}
 .tile{border:1px solid var(--line);background:var(--surface);border-radius:14px;padding:16px 18px;box-shadow:var(--shadow);min-width:0}
 .tile .k{font-size:12.5px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
 .tile b{display:block;font-family:"Bricolage Grotesque",sans-serif;font-size:34px;line-height:1.1;color:var(--ink);font-weight:700;letter-spacing:-.02em;margin:6px 0 2px;white-space:nowrap}
@@ -41,7 +41,7 @@ col.cr{width:250px}col.tot{width:210px}
 th{text-align:left;font-weight:600;color:var(--ink);padding:12px 8px 10px;border-bottom:1px solid var(--line);vertical-align:bottom;background:var(--surface);position:sticky;top:0;z-index:2}
 th.corner{left:0;z-index:4;font-size:12.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;padding-left:16px;border-right:1px solid var(--line)}
 th.wk .d{display:block;font-size:14.5px;white-space:nowrap}
-th.wk .mo{display:block;margin:0 -8px 8px;font-size:11.5px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;white-space:nowrap;line-height:16px}th.wk .mo b{display:block;height:16px;padding-left:8px;font-weight:700}th.wk .mo i{display:block;height:6px;margin-top:3px;border-top:2px solid var(--slot)}th.wk .mo.f{margin-left:2px}th.wk .mo.f b{padding-left:6px}th.wk .mo.f i{border-left:2px solid var(--slot);border-top-left-radius:5px}th.wk .mo.l{margin-right:4px}th.wk .mo.l i{border-right:2px solid var(--slot);border-top-right-radius:5px}
+th.mo{height:36px;box-sizing:border-box;padding:8px 0 0;border-bottom:0;vertical-align:top;text-align:center;font-size:11.5px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;white-space:nowrap;line-height:16px}th.mo i{display:block;height:6px;margin:3px 6px 0;border:2px solid var(--slot);border-bottom:0;border-radius:5px 5px 0 0}th.wk{top:36px}
 th.tot{text-align:right;padding-right:16px}td.tot{padding:8px 16px 8px 12px}
 td{padding:6px 4px;border-bottom:1px solid var(--line-soft);vertical-align:middle}
 td.c{position:sticky;left:0;background:var(--surface);z-index:1;padding:10px 12px 10px 16px;border-right:1px solid var(--line)}
@@ -66,7 +66,7 @@ tr.paused td.c .who,tr.paused .cell{opacity:.5}
 tbody tr:hover td{background:var(--line-soft)}tbody tr:hover td.c{background:var(--line-soft)}
 tfoot td{position:sticky;bottom:0;z-index:2;background:var(--surface);border-top:2px solid var(--line);border-bottom:0;padding:10px 8px;box-shadow:0 -6px 12px -10px rgba(0,0,0,.25)}
 tfoot td.c{z-index:4;font-size:12.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;font-weight:600}
-tfoot .cap{display:block}tfoot .sub{display:block;font-size:12px;color:var(--muted);margin-top:2px;white-space:nowrap}
+tfoot .cap{display:block}
 
 /* bottom cards */
 .note{font-size:13px;color:var(--muted)}.err{background:var(--accent-soft);color:var(--accent);border-radius:12px;padding:12px 14px;margin:0}
@@ -102,13 +102,13 @@ function cell(c,w,k){
   const val=c.rate&&w.open?", "+money(w.open*c.rate)+" open":"";
   return '<div class="cell'+(w.open?'':' full')+'" title="'+label+w.expected+' video'+(w.expected===1?'':'s')+' expected, '+w.booked.length+' sold, '+w.open+' left'+val+'"><div class="slots">'+sq+'</div></div>';
 }
-function mbar(sold,left,total,fmt){const f=total?Math.min(100,sold/total*100):0;
-  return '<div class="mb"><div class="ml"><span class="s">'+fmt(sold)+' sold</span><span><b>'+fmt(left)+'</b> of '+fmt(total)+' left</span></div><div class="bar" role="img" aria-label="'+fmt(sold)+' sold, '+fmt(left)+' left"><i style="width:'+f+'%"></i></div></div>';}
-function tot(booked,open,bookedVal,openVal){return mbar(booked,open,booked+open,nf)+mbar(bookedVal,openVal,bookedVal+openVal,smoney);}
+function mbar(sold,left,total,fmt,showLeft){const f=total?Math.min(100,sold/total*100):0;
+  return '<div class="mb"><div class="ml"><span class="s">'+fmt(sold)+' sold</span>'+(showLeft?'<span><b>'+fmt(left)+'</b> of '+fmt(total)+' left</span>':'')+'</div><div class="bar" role="img" aria-label="'+fmt(sold)+' sold, '+fmt(left)+' left"><i style="width:'+f+'%"></i></div></div>';}
+function tot(booked,open,bookedVal,openVal){return mbar(booked,open,booked+open,nf,false)+mbar(bookedVal,openVal,bookedVal+openVal,smoney,true);}
 function foot(rows,W){
   const sum=f=>rows.reduce((n,c)=>n+f(c),0);
-  const wk=W.map((w,k)=>{const e=sum(c=>c.weeks[k].expected),o=sum(c=>c.weeks[k].open),b=sum(c=>c.weeks[k].booked.length),p=sum(c=>(c.weeks[k].pencilled||[]).length);
-    return '<td><span class="cap"><b>'+nf(o)+'</b> of '+nf(e)+' left</span><span class="sub">'+nf(b)+' sold'+(p?' \\u00b7 '+nf(p)+' pending':'')+'</span></td>';}).join("");
+  const wk=W.map((w,k)=>{const e=sum(c=>c.weeks[k].expected),o=sum(c=>c.weeks[k].open);
+    return '<td><span class="cap"><b>'+nf(o)+'</b> of '+nf(e)+' left</span></td>';}).join("");
   return '<tfoot><tr><td class="c">Total</td>'+wk+'<td class="tot">'+tot(sum(c=>c.bookedSlots),sum(c=>c.openSlots),sum(c=>c.bookedSlots*(c.rate||0)),sum(c=>c.openValue))+'</td></tr></tfoot>';
 }
 function render(){
@@ -116,6 +116,7 @@ function render(){
   if(D.empty){app.innerHTML='<div class="card empty"><h3>Nothing to show yet</h3><p>'+esc(D.error)+'</p></div>';return;}
   const T=D.totals,W=D.weeks;
   const mon=W.map(w=>new Date(Date.parse(w.start+"T00:00:00Z")+3*864e5).toLocaleString("en-US",{month:"long",timeZone:"UTC"})); // a week belongs to the month holding most of its days
+  const groups=[];mon.forEach(m=>{const g=groups[groups.length-1];if(g&&g.m===m)g.n++;else groups.push({m,n:1});});
   const pend=c=>c.weeks.reduce((n,w)=>n+(w.pencilled||[]).length,0);
   const rows=D.creators.filter(c=>!c.cadence.paused).sort((a,b)=>b.bookedSlots-a.bookedSlots||pend(b)-pend(a)||b.openValue-a.openValue); // most booked in these 8 weeks first
   app.innerHTML=
@@ -127,7 +128,7 @@ function render(){
   '<div class="tile"><div class="k">Sell-through</div><b>'+T.sellThrough+'%</b><div class="meter" role="img" aria-label="'+T.sellThrough+' percent sold"><i style="width:'+Math.min(100,Math.max(0,T.sellThrough))+'%"></i></div><div class="s" style="margin-top:6px">of '+nf(T.expected)+' expected uploads</div></div>'+
   '</div>'+
   '<div class="card"><div class="grid"><table><colgroup><col class="cr">'+W.map(()=>'<col>').join("")+'<col class="tot"></colgroup>'+
-  '<thead><tr><th class="corner">Creator</th>'+W.map((w,k)=>'<th class="wk"><span class="mo'+(k===0||mon[k]!==mon[k-1]?' f':'')+(k===W.length-1||mon[k]!==mon[k+1]?' l':'')+'"><b>'+(k===0||mon[k]!==mon[k-1]?mon[k]:'')+'</b><i></i></span><span class="d">'+range(w.start,w.end)+'</span></th>').join("")+'<th class="tot">8 weeks</th></tr></thead><tbody>'+
+  '<thead><tr><th class="corner" rowspan="2">Creator</th>'+groups.map(g=>'<th class="mo" colspan="'+g.n+'">'+esc(g.m)+'<i></i></th>').join("")+'<th class="tot" rowspan="2">8 weeks</th></tr><tr>'+W.map(w=>'<th class="wk"><span class="d">'+range(w.start,w.end)+'</span></th>').join("")+'</tr></thead><tbody>'+
   (rows.length?rows.map(c=>'<tr'+(c.cadence.paused?' class="paused"':'')+'><td class="c"><div class="who">'+(c.logo?'<img src="'+esc(c.logo)+'" alt="" loading="lazy" referrerpolicy="no-referrer">':'')+'<div class="t"><b title="'+esc(c.name+(c.handle?" "+c.handle:""))+'">'+esc(c.name)+'</b><span>'+(c.cadence.paused?'<i class="flag">Paused</i> last upload '+esc(c.cadence.last||"unknown"):pace(c.cadence.rate))+(c.uploadsError?'<i class="flag" title="'+esc(c.uploadsError)+'">YouTube not read</i>':'')+'</span></div></div></td>'+
     c.weeks.map((w,k)=>'<td>'+cell(c,w,k)+'</td>').join("")+
     '<td class="tot">'+tot(c.bookedSlots,c.openSlots,c.bookedSlots*(c.rate||0),c.openValue)+'</td></tr>').join(""):'<tr><td class="c" colspan="'+(W.length+2)+'"><span class="note">No creators match.</span></td></tr>')+
