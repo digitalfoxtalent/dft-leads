@@ -462,7 +462,9 @@ async function load() {
   // SUBPLOT_MIN_WORDS overrides it and 0 turns it off. At 400 this holds back 150 of 539
   // articles and no creator loses all of theirs. Thin pieces are meant to come back by being
   // rewritten longer, not by dropping the floor.
-  const MIN_WORDS = Number(process.env.SUBPLOT_MIN_WORDS ?? 400);
+  // 18 Oct 2026 (Tom): floor lowered from 400 to 300 words. The 400 floor was set for the AdSense re-review;
+  // at 300 about 135 published articles come back, and the thinnest pieces still stay off.
+  const MIN_WORDS = Number(process.env.SUBPLOT_MIN_WORDS ?? 300);
   await addDurations(arts, MIN_WORDS);
   // Snippets are exempt from the long-form floor by definition, but not from having words:
   // a Short that produced fewer than 25 is a failed generation, not a take.
