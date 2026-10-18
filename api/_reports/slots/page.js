@@ -64,6 +64,10 @@ td.c{position:sticky;left:0;background:var(--surface);z-index:1;padding:10px 12p
 td.tot b{display:block;font-size:17px;color:var(--ink)}td.tot span{display:block;font-size:12.5px;color:var(--muted);white-space:nowrap}
 tr.paused td.c .who,tr.paused .cell{opacity:.5}
 tbody tr:hover td{background:var(--line-soft)}tbody tr:hover td.c{background:var(--line-soft)}
+tfoot td{position:sticky;bottom:0;z-index:2;background:var(--surface);border-top:2px solid var(--line);border-bottom:0;padding:10px 8px;box-shadow:0 -6px 12px -10px rgba(0,0,0,.25)}
+tfoot td.c{z-index:4;font-size:12.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;font-weight:600}
+tfoot .cap{display:block}tfoot .sub{display:block;font-size:12px;color:var(--muted);margin-top:2px;white-space:nowrap}
+tfoot td.tot{padding-right:16px}
 /* bottom cards */
 .note{font-size:13px;color:var(--muted)}.err{background:var(--accent-soft);color:var(--accent);border-radius:12px;padding:12px 14px;margin:0}
 .empty{padding:60px 20px;text-align:center;color:var(--muted)}
@@ -99,6 +103,12 @@ function cell(c,w,k){
   const cap=(w.open?'<b>'+w.open+'</b> of '+w.expected+' left':'<b>Sold out</b>')+(w.pencilled.length?' \\u00b7 '+w.pencilled.length+' pending':'');
   return '<div class="cell'+(w.open?'':' full')+'" title="'+label+w.expected+' video'+(w.expected===1?'':'s')+' expected, '+w.booked.length+' sold, '+w.open+' left'+val+'"><div class="slots">'+sq+'</div><span class="cap">'+cap+'</span></div>';
 }
+function foot(rows,W){
+  const sum=f=>rows.reduce((n,c)=>n+f(c),0);
+  const wk=W.map((w,k)=>{const e=sum(c=>c.weeks[k].expected),o=sum(c=>c.weeks[k].open),b=sum(c=>c.weeks[k].booked.length),p=sum(c=>(c.weeks[k].pencilled||[]).length);
+    return '<td><span class="cap"><b>'+nf(o)+'</b> of '+nf(e)+' left</span><span class="sub">'+nf(b)+' sold'+(p?' \\u00b7 '+nf(p)+' pending':'')+'</span></td>';}).join("");
+  return '<tfoot><tr><td class="c">Total</td>'+wk+'<td class="tot"><b>'+nf(sum(c=>c.openSlots))+' left</b><span>'+smoney(sum(c=>c.openValue))+'</span><span>'+nf(sum(c=>c.bookedSlots))+' sold</span></td></tr></tfoot>';
+}
 function render(){
   const app=$("#app");
   if(D.empty){app.innerHTML='<div class="card empty"><h3>Nothing to show yet</h3><p>'+esc(D.error)+'</p></div>';return;}
@@ -118,7 +128,7 @@ function render(){
   (rows.length?rows.map(c=>'<tr'+(c.cadence.paused?' class="paused"':'')+'><td class="c"><div class="who">'+(c.logo?'<img src="'+esc(c.logo)+'" alt="" loading="lazy" referrerpolicy="no-referrer">':'')+'<div class="t"><b title="'+esc(c.name+(c.handle?" "+c.handle:""))+'">'+esc(c.name)+'</b><span>'+(c.cadence.paused?'<i class="flag">Paused</i> last upload '+esc(c.cadence.last||"unknown"):pace(c.cadence.rate))+(c.uploadsError?'<i class="flag" title="'+esc(c.uploadsError)+'">YouTube not read</i>':'')+'</span></div></div></td>'+
     c.weeks.map((w,k)=>'<td>'+cell(c,w,k)+'</td>').join("")+
     '<td class="tot"><b>'+nf(c.openSlots)+' left</b><span>'+smoney(c.openValue)+'</span><span>'+nf(c.bookedSlots)+' sold</span></td></tr>').join(""):'<tr><td class="c" colspan="'+(W.length+2)+'"><span class="note">No creators match.</span></td></tr>')+
-  '</tbody></table></div></div>';
+  '</tbody>'+foot(rows,W)+'</table></div></div>';
 }
 render();
 const tip=document.createElement("div");tip.id="tip";document.body.appendChild(tip);
