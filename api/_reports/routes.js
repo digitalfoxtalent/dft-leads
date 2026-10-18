@@ -65,7 +65,7 @@ export const REPORTS_HOST_MOVED = {
 export function carryQuery(query) {
   const q = new URLSearchParams();
   for (const [k, v] of Object.entries(query || {})) {
-    if (k === "r") continue;
+    if (k === "r" || k === "path" || k === "host") continue; // r, plus path and host that Vercel adds from the vercel.json rewrite, never the visitor's own query
     for (const one of [].concat(v)) q.append(k, String(one));
   }
   const s = q.toString();

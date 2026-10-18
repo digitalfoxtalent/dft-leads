@@ -95,4 +95,9 @@ await status(REP, "/gaps", 401);
 // The roster site's first home of Campaign reach still points at the reports host (which now forwards on).
 await redirects("roster-viewguarantee.digitalfoxtalent.com", "/campaigns", "https://reports.digitalfoxtalent.com/", 302);
 
+// Live, Vercel adds path (the rewrite's capture) and host (the host match) to the query. They must not ride along on a redirect.
+await redirects(ECO, "/reports/platforms?path=reports%2Fplatforms&host=" + ECO, "/reporting/platform-monetization", 301);
+await redirects(ECO, "/sales?path=sales&host=" + ECO + "&from=email", "/partnerships?from=email", 301);
+await redirects(REP, "/platforms?path=platforms&host=" + REP, "https://ecosystem.digitalfoxtalent.com/reporting/platform-monetization", 301, { cookie: team });
+
 console.log("ecosystem routes: " + n + " checks passed");
