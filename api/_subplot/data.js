@@ -377,18 +377,24 @@ async function load() {
   results.forEach((res, i) => {
     if (res.status !== "fulfilled" || !Array.isArray(res.value)) return;
     const evergreen = keys[i].includes("evergreen");
+    // 18 Oct 2026: 11 approved articles had an empty thumbnail field and 7 had no creator handle,
+    // so they never showed. The page builds its own thumbnail from the video id, so an empty field
+    // only matters when there is no video id; a missing handle is taken from the feed's name.
+    const feedHandle = "@" + keys[i].replace(/__items$/, "").replace(/_(article_feed.*|snippets.*|news.*)$/, "");
     for (const a of res.value) {
-      if (!a || !a.guid || !a.headline || !a.thumbnail || seen.has(a.guid)) continue;
+      if (!a || !a.guid || !a.headline || seen.has(a.guid)) continue;
       if (/^unable to generate/i.test(a.headline)) continue;
       const brand = cleanBrand(a.displayName);        // feeds without a displayName are old playlist experiments — skip
-      if (!brand || !a.creator) continue;
-      seen.add(a.guid);
+      const creator = a.creator || feedHandle;
+      if (!brand || !creator) continue;
       const v = (String(a.link || "").match(/v=([\w-]+)/) || [])[1] || String(a.guid).replace(/^yt-/, "");
+      if (!a.thumbnail && !/^[\w-]{11}$/.test(v)) continue;
+      seen.add(a.guid);
       arts.push({
         id: String(a.guid).replace(/^yt-/, ""),
         h: noDash(a.headline), s: noDash(a.subheadline), body: noDash(trimSignoff(a.body_html || "")),
         w: a.word_count || 0, rt: Math.max(1, Math.round((a.word_count || 0) / 220)),
-        t: (a.tags || []).slice(0, 8), b: brand, c: a.creator,
+        t: (a.tags || []).slice(0, 8), b: brand, c: creator,
         p: a.pubDate, u: a.uploadDate, v, evergreen,
         k: categorise(a.tags, a.headline),
         thumb: `https://i.ytimg.com/vi/${v}/hq720.jpg`,
