@@ -60,7 +60,7 @@ td.c{position:sticky;left:0;background:var(--surface);z-index:1;padding:10px 12p
 #tip{position:fixed;z-index:50;pointer-events:none;background:var(--ink);color:var(--surface);font-size:12.5px;line-height:1.35;padding:6px 9px;border-radius:7px;max-width:280px;box-shadow:var(--shadow);display:none}#tip b{display:block;font-size:13px}
 .cap{font-size:12px;color:var(--muted);line-height:1.2}.cap b{font-size:14px;color:var(--ink)}
 .cell.none{background:transparent;color:var(--muted);text-align:center;opacity:.6}
-.mb+.mb{margin-top:9px}.mb .ml{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:0 6px;font-size:12px;color:var(--muted);white-space:nowrap}.mb .ml b{color:var(--ink);font-size:13.5px}.mb .ml .s{color:var(--good-text);font-weight:600}.mb .ml span+span{margin-left:auto}
+.mb+.mb{margin-top:9px}.mb .ml{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:0 6px;font-size:12px;color:var(--muted);white-space:nowrap}.mb .ml b{color:var(--ink);font-size:13.5px}.mb .ml .s{color:var(--good-text);font-weight:600}.mb .ml .l{color:var(--muted);font-weight:600}.mb .ml span+span{margin-left:auto}
 .mb .bar{display:flex;height:7px;border-radius:9px;background:var(--sunk);overflow:hidden;margin-top:4px}.mb .bar i{display:block;height:100%;background:var(--good)}
 tr.paused td.c .who,tr.paused .cell{opacity:.5}
 tbody tr:hover td{background:var(--line-soft)}tbody tr:hover td.c{background:var(--line-soft)}
@@ -102,9 +102,9 @@ function cell(c,w,k){
   const val=c.rate&&w.open?", "+money(w.open*c.rate)+" open":"";
   return '<div class="cell'+(w.open?'':' full')+'" title="'+label+w.expected+' video'+(w.expected===1?'':'s')+' expected, '+w.booked.length+' sold, '+w.open+' left'+val+'"><div class="slots">'+sq+'</div></div>';
 }
-function mbar(sold,left,total,fmt,showLeft){const f=total?Math.min(100,sold/total*100):0;
-  return '<div class="mb"><div class="ml"><span class="s">'+fmt(sold)+' sold</span>'+(showLeft?'<span><b>'+fmt(left)+'</b> of '+fmt(total)+' left</span>':'')+'</div><div class="bar" role="img" aria-label="'+fmt(sold)+' sold, '+fmt(left)+' left"><i style="width:'+f+'%"></i></div></div>';}
-function tot(booked,open,bookedVal,openVal){return mbar(booked,open,booked+open,nf,false)+mbar(bookedVal,openVal,bookedVal+openVal,smoney,true);}
+function mbar(sold,left,total,fmt){const f=total?Math.min(100,sold/total*100):0;
+  return '<div class="mb"><div class="ml"><span class="s">'+fmt(sold)+' sold</span><span class="l">'+fmt(left)+' left</span></div><div class="bar" role="img" aria-label="'+fmt(sold)+' sold, '+fmt(left)+' left"><i style="width:'+f+'%"></i></div></div>';}
+function tot(booked,open,bookedVal,openVal){return mbar(booked,open,booked+open,nf)+mbar(bookedVal,openVal,bookedVal+openVal,smoney);}
 function foot(rows,W){
   const sum=f=>rows.reduce((n,c)=>n+f(c),0);
   const wk=W.map((w,k)=>{const e=sum(c=>c.weeks[k].expected),o=sum(c=>c.weeks[k].open);
