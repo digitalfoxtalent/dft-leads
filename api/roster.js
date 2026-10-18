@@ -1371,23 +1371,16 @@ async function outreachDraft(b, email) {
 // as a fresh draft in the clicker's own Gmail with Alex copied. Nothing is ever sent.
 // What the email leans on (Tom, 18 Oct 2026): brand deals and content distribution, similar creators we represent,
 // "Since 2017". It offers a call (direct recruitment), never a sign-up link.
+// Tom's first edits (18 Oct 2026): no opening line about their videos, and only name creators who are actually signed
+// (a Rates row linked to a Global Talent Roster creator in a signed group, so Markiplier/Corridor Crew style pitch rows
+// never count). The email as written is kept on the row (Draft as written / Draft thread) and api/recruit-learn.js
+// compares it with what was actually sent each night, turning the edits into the standing lessons read below.
 const RECRUIT_BOARD = "18415381478";
 const RC = { url: "link_mm3t777s", email: "email_mm3t61sv", subs: "numeric_mm3tmrdz", avg: "numeric_mm3tr6gy", niche: "color_mm3tx56z", notes: "long_text_mm3tqaqs" };
+const RC_DRAFT = { text: "long_text_mm88pfn1", thread: "text_mm886vha" };
+const RECRUIT_LESSONS_ITEM = 13320786518; // Pitch Requests item "Standing lessons for creator recruitment emails"
+const SIGNED_GROUPS = ["new_group__1", "group_mks8q6fd", "group_mkwg3f5r"]; // Global Talent Roster: Youtube Long Form, Short Form, Need to set up with Suppliers
 const NICHE_WORDS = { Film: /film|movie|cinema|horror|tv|series|review|trailer|marvel|dc|star wars|pop culture/i, Gaming: /gam|esport|nintendo|xbox|playstation|retro/i, Entertainment: /entertain|pop culture|anime|comic|story|commentary|reaction|animation|cartoon/i, Tech: /tech|gadget|phone|pc|hardware|review/i };
-async function recentUploads(url) {
-  const m = String(url || "").match(/youtube\.com\/(?:channel\/(UC[\w-]{22})|@([\w.\-]+))/i);
-  if (!m) return [];
-  const UA = { "User-Agent": "Mozilla/5.0 (compatible; DFT roster)", "Accept-Language": "en" };
-  let cid = m[1];
-  if (!cid) {
-    const h = await fetch("https://www.youtube.com/@" + encodeURIComponent(m[2]), { headers: UA }).then(x => x.text()).catch(() => "");
-    cid = ((h.match(/"externalId":"(UC[\w-]{22})"/) || h.match(/"channelId":"(UC[\w-]{22})"/) || [])[1]) || "";
-  }
-  if (!cid) return [];
-  const xml = await fetch("https://www.youtube.com/feeds/videos.xml?channel_id=" + cid, { headers: UA }).then(x => x.ok ? x.text() : "").catch(() => "");
-  const un = t => String(t || "").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'");
-  return xml.split("<entry>").slice(1).map(e => ({ title: un((e.match(/<title>([^<]*)</) || [])[1]), short: /\/shorts\//.test((e.match(/<link rel="alternate" href="([^"]+)"/) || [])[1] || "") })).filter(v => v.title && !v.short).slice(0, 8).map(v => v.title);
-}
 async function recruitDraft(b, email) {
   const item = Number(b.item) || 0;
   const d = await monday(`query{items(ids:[${item}]){id name board{id} column_values(ids:${JSON.stringify(Object.values(RC))}){id text value}}}`);
@@ -1401,11 +1394,17 @@ async function recruitDraft(b, email) {
   if (!url) { const tx = t(RC.url); const i = tx.indexOf("http"); url = i >= 0 ? tx.slice(i) : ""; }
   const niche = t(RC.niche) || "Entertainment";
   const name = String(it.name || "").trim();
-  const videos = await recentUploads(url).catch(() => []);
   // Similar creators DFT represents: signed long-form rows whose category fits the niche, biggest first.
-  const data = await loadBoard();
+  const [data, signedQ, lessonsQ] = await Promise.all([
+    loadBoard(),
+    monday(`query{boards(ids:[${CREATOR_BOARD}]){groups(ids:${JSON.stringify(SIGNED_GROUPS)}){items_page(limit:500){items{id}}}}}`).catch(() => null),
+    monday(`query{items(ids:[${RECRUIT_LESSONS_ITEM}]){column_values(ids:["long_text_mm83jwpf"]){text}}}`).catch(() => null)
+  ]);
+  const signed = new Set();
+  ((((signedQ || {}).boards || [])[0] || {}).groups || []).forEach(g => (((g || {}).items_page || {}).items || []).forEach(x => signed.add(String(x.id))));
+  const lessons = String((((((lessonsQ || {}).items || [])[0] || {}).column_values || [])[0] || {}).text || "").split("\n").map(x => x.replace(/^[-\s]+/, "").trim()).filter(Boolean).slice(0, 25);
   const fit = NICHE_WORDS[niche] || NICHE_WORDS.Entertainment;
-  const similar = data.rows.filter(r => r.kind === "long" && !r.dedicated && r.group === "topics" && fit.test(String(r.cv[C.category] || "") + " " + String(r.cv[C.about] || "").slice(0, 300)))
+  const similar = data.rows.filter(r => r.kind === "long" && !r.dedicated && r.group === "topics" && r.creator && signed.has(String(r.creator)) && fit.test(String(r.cv[C.category] || "") + " " + String(r.cv[C.about] || "").slice(0, 300)))
     .sort((a, b2) => (+b2.cv[C.avg] || 0) - (+a.cv[C.avg] || 0)).slice(0, 8)
     .map(r => ({ name: r.name, category: String(r.cv[C.category] || ""), avgViews: +r.cv[C.avg] || 0 }));
   const tok = await gmailToken(email); if (!tok) throw new Error("Gmail is not connected for " + email);
@@ -1415,21 +1414,21 @@ async function recruitDraft(b, email) {
     "Write a short first email from " + fromName + " at Digital Fox Talent, a creator management agency, to the YouTube creator below. It is direct recruitment: we want to represent them.",
     "Rules:",
     "- Under 140 words in the body. Plain, warm, confident. No em dashes, no hype words, no bullet points, no exclamation-heavy tone.",
-    "- Open with one specific, genuine line about their channel, using one of their recent video titles if it helps. Never invent facts about them.",
+    "- Do not open with a compliment or any comment on their channel or videos. Start straight in with who you are. Never invent facts about them.",
     "- Say Digital Fox Talent has represented creators since 2017.",
     "- Lead with brand partnerships (our core offer: we bring them sponsorship deals), then content distribution (we put their existing videos on more platforms so the same content earns more).",
-    "- Name 2 or 3 creators from SIMILAR CREATORS WE REPRESENT who best fit their niche, as creators we work with. Use only names from that list, exactly as written.",
+    similar.length ? "- Name 2 or 3 creators from SIGNED CREATORS WE REPRESENT who best fit their niche, as creators we work with. Use only names from that list, exactly as written; never name anyone else as a creator we work with." : "- Do not name any creators as ones we work with.",
     "- Close by offering a quick call this week or next. No sign-up link.",
     "- Greet them by their channel or first name if obvious. Do not include a signature; it is added after.",
+    lessons.length ? "STANDING LESSONS FROM " + fromName.toUpperCase() + "'S EDITS TO EARLIER EMAILS (follow every one; where one conflicts with a rule above, the lesson wins):\n- " + lessons.join("\n- ") : "",
     'Reply with ONLY JSON: {"subject":"short subject, no emojis","body":"plain text with \\n line breaks"}',
     "",
     "CREATOR: " + name + " (" + niche + ")",
     "CHANNEL: " + url,
     "SUBSCRIBERS: " + (t(RC.subs) || "unknown") + ", AVERAGE VIEWS: " + (t(RC.avg) || "unknown"),
     "WHAT WE NOTED: " + t(RC.notes).split(" Measured ")[0].slice(0, 500),
-    "RECENT VIDEOS: " + (videos.length ? videos.join(" | ") : "not available"),
-    "SIMILAR CREATORS WE REPRESENT: " + JSON.stringify(similar)
-  ].join("\n");
+    "SIGNED CREATORS WE REPRESENT: " + JSON.stringify(similar)
+  ].filter(x => x !== "").join("\n");
   const key = process.env.ANTHROPIC_API_KEY; if (!key) throw new Error("ANTHROPIC_API_KEY not set");
   let out = null;
   for (const model of PITCH_MODELS) {
@@ -1450,6 +1449,8 @@ async function recruitDraft(b, email) {
   const dr = await G("/drafts", { method: "POST", headers: { "Content-Type": "application/json" }, body: pitchMime({ to, cc, subject, html, text: plain }).draft });
   if (!dr.id) throw new Error("Gmail did not save the draft" + (dr.error ? ": " + (dr.error.message || "") : ""));
   const mid = (dr.message || {}).id || "";
+  // Keep the email as written, so the nightly learner can see what was changed before it went out.
+  if (dr.message && dr.message.threadId) await monday("mutation($b:ID!,$i:ID!,$v:JSON!){change_multiple_column_values(board_id:$b,item_id:$i,column_values:$v){id}}", { b: RECRUIT_BOARD, i: String(item), v: JSON.stringify({ [RC_DRAFT.text]: { text: plain }, [RC_DRAFT.thread]: email + "|" + dr.message.threadId + "|" + new Date().toISOString().slice(0, 10) }) }).catch(() => null);
   return { ok: true, draft: dr.id, similar: similar.slice(0, 3).map(x => x.name), url: "https://mail.google.com/mail/?authuser=" + encodeURIComponent(email) + "#drafts?compose=" + (dr.message && dr.message.threadId ? "thread-f:" + BigInt("0x" + dr.message.threadId).toString() + "%2Bmsg-a:" + dr.id : mid) };
 }
 function recruitPage(q) {
@@ -1457,7 +1458,7 @@ function recruitPage(q) {
   const args = JSON.stringify({ op: "recruit-draft", item: String(q.item || ""), to: String(q.to || "") });
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Writing your email</title>
 <style>body{margin:0;background:#f5f3ef;font:15px/1.55 Poppins,Arial,sans-serif;color:#1a1a1a;display:grid;place-items:center;min-height:100vh}.c{background:#fff;border:1px solid #ece9e4;border-radius:16px;padding:40px 44px;max-width:460px;margin:24px;text-align:center}.sp{width:34px;height:34px;border:3px solid #f2dcc6;border-top-color:#f58220;border-radius:50%;animation:s 1s linear infinite;margin:0 auto 18px}@keyframes s{to{transform:rotate(360deg)}}h1{font-size:20px;margin:0 0 8px}p{color:#6b6b76;margin:0}a{color:#0f085e;font-weight:600}</style></head>
-<body><div class="c" id="c"><div class="sp"></div><h1>Writing your email${q.name ? " to " + e(q.name) : ""}…</h1><p id="m">Reading their latest videos and picking similar creators we represent. This takes about 20 seconds, then your draft opens in Gmail.</p></div>
+<body><div class="c" id="c"><div class="sp"></div><h1>Writing your email${q.name ? " to " + e(q.name) : ""}…</h1><p id="m">Picking similar creators we represent and writing the email. This takes about 20 seconds, then your draft opens in Gmail.</p></div>
 <script>fetch("/api/roster",{method:"POST",headers:{"content-type":"application/json"},credentials:"same-origin",body:${JSON.stringify(args)}}).then(r=>r.json()).then(j=>{ if(j&&j.url){ document.getElementById("m").textContent="Done. Opening your draft…"; location.href=j.url; } else throw new Error((j&&j.error)||"Something went wrong"); }).catch(err=>{ const c=document.getElementById("c"); c.innerHTML="<h1>That didn’t work</h1><p>"+String(err.message||err).replace(/[<>&]/g,"")+"</p><p style=\\"margin-top:14px\\"><a href=\\"javascript:location.reload()\\">Try again</a></p>"; });</script></body></html>`;
 }
 function outreachPage(q) {
@@ -2246,7 +2247,7 @@ async function pitchFromEmail(b) {
     // Tom's pointers (13 Oct 2026): the note above each forward is kept on the Pitch Requests board and fed into later pitches, so the system learns from them.
     if (f.note && !b.outreach) await monday(`mutation{change_multiple_column_values(board_id:${PITCH_BOARD},item_id:${Number(b.item)},column_values:${JSON.stringify(JSON.stringify({ long_text_mm83jwpf: { text: f.note } }))}){id}}`).catch(() => null);
     const pastQ = await monday(`query{boards(ids:[${PITCH_BOARD}]){items_page(limit:200){items{id column_values(ids:["long_text_mm83jwpf"]){text}}}}}`).catch(() => null);
-    const pointers = (((((pastQ || {}).boards || [])[0] || {}).items_page || {}).items || []).filter(it => String(it.id) !== String(b.item) && String(it.id) !== String(FACTS_ITEM) && String(it.id) !== String(PLAYBOOK_ITEM)).map(it => String(((it.column_values || [])[0] || {}).text || "").trim()).filter(p => p && !/^(warm|kind|best) regards/i.test(p) && !/^\s*(press|press (package|list|pitch|junket)|earned media)[\s.!]*$/i.test(p)).filter((p, i, a) => a.indexOf(p) === i).slice(-30);
+    const pointers = (((((pastQ || {}).boards || [])[0] || {}).items_page || {}).items || []).filter(it => String(it.id) !== String(b.item) && String(it.id) !== String(FACTS_ITEM) && String(it.id) !== String(PLAYBOOK_ITEM) && String(it.id) !== String(RECRUIT_LESSONS_ITEM)).map(it => String(((it.column_values || [])[0] || {}).text || "").trim()).filter(p => p && !/^(warm|kind|best) regards/i.test(p) && !/^\s*(press|press (package|list|pitch|junket)|earned media)[\s.!]*$/i.test(p)).filter((p, i, a) => a.indexOf(p) === i).slice(-30);
     if (!f.contactEmail || f.body.length < 40) throw new Error("No forwarded enquiry found. Forward the brand's own email.");
     const factsQ = await monday(`query{items(ids:[${FACTS_ITEM}]){column_values(ids:["long_text_mm83jwpf"]){text}}}`).catch(() => null);
     const facts = String(((((factsQ || {}).items || [])[0] || {}).column_values || [{}])[0].text || "").trim();
