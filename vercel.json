@@ -95,6 +95,10 @@
     {
       "path": "/api/breaks-scan?part=2",
       "schedule": "12 22 * * *"
+    },
+    {
+      "path": "/api/slots-build",
+      "schedule": "40 5 * * *"
     }
   ],
   "rewrites": [

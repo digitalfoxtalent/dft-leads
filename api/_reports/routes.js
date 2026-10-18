@@ -29,6 +29,7 @@ export const PAGES = {
   "reporting/engaged-views":         { route: "engaged",            dept: "reporting", name: "Engaged views" },
   "reporting/refresh":               { route: "refresh",            dept: "reporting", name: "Refresh" },
   "marketing/earnings-calculator":   { route: "marketing/earnings", dept: "marketing", name: "Creator earnings calculator" },
+  "partnerships/slot-board":         { route: "slots",              dept: "partnerships", name: "Slot board" },
 };
 
 // Internal report route -> its Ecosystem address (used for tab bars and for the old reports host).
