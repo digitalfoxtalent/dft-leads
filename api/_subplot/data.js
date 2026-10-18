@@ -236,24 +236,47 @@ async function addViews(arts) {
 // key only the link-flagged ones count, which is safe: an unflagged Short simply stays below
 // the floor as it does today.
 const SHORT_MAX_S = 180;
+// SPEED, 18 Oct 2026 (launch). Live, a full reload made about 120 YouTube calls one after another
+// (mostly the dead-video check below, 25 ids a call over 2,000+ articles), took over 30 seconds
+// and could time out, and every five-minute refresh used YouTube quota again for answers that had
+// not changed. Now: a video's duration is remembered for good (it never changes), a video seen
+// alive is not asked about again for six hours, and the calls that are still needed run six at a
+// time instead of one by one.
+const durCache = new Map();                      // video id -> seconds
+const aliveAt = new Map();                       // video id -> when YouTube last said it is live
+const ALIVE_TTL = 6 * 3600 * 1000;
+async function inParallel(jobs, width = 6) {
+  let next = 0;
+  const worker = async () => { while (next < jobs.length) { const j = jobs[next++]; try { await j(); } catch { /* each job guards itself */ } } };
+  await Promise.all(Array.from({ length: Math.min(width, jobs.length) }, worker));
+}
 const isoSeconds = d => { const m = String(d || "").match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/); return m ? (+m[1] || 0) * 3600 + (+m[2] || 0) * 60 + (+m[3] || 0) : 0; };
 async function addDurations(arts, floor) {
   const key = process.env.YOUTUBE_API_KEY;
   if (!key) return;
   const maybe = arts.filter(a => a.short || a.w < floor);
-  for (let i = 0; i < maybe.length; i += 50) {
-    const batch = maybe.slice(i, i + 50);
-    try {
-      const r = await fetch(`https://www.googleapis.com/youtube/v3/videos?part=contentDetails&id=${batch.map(a => a.v).join(",")}&key=${key}`);
-      if (!r.ok) continue;
-      const j = await r.json();
-      for (const it of j.items || []) {
-        const a = batch.find(x => x.v === it.id); if (!a) continue;
-        a.dur = isoSeconds(it.contentDetails?.duration);
-        if (a.dur > 0 && a.dur <= SHORT_MAX_S) a.short = true;
-      }
-    } catch { /* leave the batch alone */ }
+  const ask = [];
+  for (const a of maybe) {
+    if (durCache.has(a.v)) { a.dur = durCache.get(a.v); if (a.dur > 0 && a.dur <= SHORT_MAX_S) a.short = true; }
+    else ask.push(a);
   }
+  const jobs = [];
+  for (let i = 0; i < ask.length; i += 50) {
+    const batch = ask.slice(i, i + 50);
+    jobs.push(async () => {
+      try {
+        const r = await fetch(`https://www.googleapis.com/youtube/v3/videos?part=contentDetails&id=${batch.map(a => a.v).join(",")}&key=${key}`);
+        if (!r.ok) return;
+        const j = await r.json();
+        for (const it of j.items || []) {
+          const d = isoSeconds(it.contentDetails?.duration);
+          if (d > 0) durCache.set(it.id, d);
+          for (const a of batch) if (a.v === it.id) { a.dur = d; if (d > 0 && d <= SHORT_MAX_S) a.short = true; }
+        }
+      } catch { /* leave the batch alone */ }
+    });
+  }
+  await inParallel(jobs);
 }
 
 // Articles whose source video has gone (deleted, made private, or pulled) must not stay on the
@@ -273,19 +296,27 @@ async function pruneMissing(arts) {
   // read as a dead video and pull a perfectly good article. An article is only removed when
   // NEITHER id comes back alive.
   const ids = a => [...new Set([a.v, a.id].filter(Boolean))];
-  for (let i = 0; i < arts.length; i += 25) {
-    const batch = arts.slice(i, i + 25).filter(a => ids(a).length);
-    if (!batch.length) continue;
-    try {
-      const ask = [...new Set(batch.flatMap(ids))];
-      const r = await fetch(`https://www.googleapis.com/youtube/v3/videos?part=id&id=${ask.join(",")}&key=${key}`);
-      if (!r.ok) continue;
-      const j = await r.json();
-      const live = new Set((j.items || []).map(it => it.id));
-      if (!live.size) continue;                 // whole batch missing = suspect the API, not the videos
-      for (const a of batch) if (!ids(a).some(id => live.has(id))) gone.push(a);
-    } catch { /* leave the batch alone */ }
+  // Only ask about pieces with no id seen alive in the last six hours.
+  const now = Date.now();
+  const fresh = id => now - (aliveAt.get(id) || 0) < ALIVE_TTL;
+  const toCheck = arts.filter(a => ids(a).length && !ids(a).some(fresh));
+  const jobs = [];
+  for (let i = 0; i < toCheck.length; i += 25) {
+    const batch = toCheck.slice(i, i + 25);
+    jobs.push(async () => {
+      try {
+        const ask = [...new Set(batch.flatMap(ids))];
+        const r = await fetch(`https://www.googleapis.com/youtube/v3/videos?part=id&id=${ask.join(",")}&key=${key}`);
+        if (!r.ok) return;
+        const j = await r.json();
+        const live = new Set((j.items || []).map(it => it.id));
+        if (!live.size) return;                 // whole batch missing = suspect the API, not the videos
+        const at = Date.now(); for (const id of live) aliveAt.set(id, at);
+        for (const a of batch) if (!ids(a).some(id => live.has(id))) gone.push(a);
+      } catch { /* leave the batch alone */ }
+    });
   }
+  await inParallel(jobs);
   if (gone.length) {
     const ids = new Set(gone.map(a => a.id));
     const kept = arts.filter(a => !ids.has(a.id));
