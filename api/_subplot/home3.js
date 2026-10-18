@@ -183,7 +183,10 @@ export function homePage3(data, base, section, page, ctx) {
 // ---------- /snippets: the whole column, and on a phone a deck you flick through.
 // Every sixth card in the deck is an ad card: paper, labelled, never first, never mid-read.
 export function snippetsPage(data, base) {
-  const list = data.snippets || [];
+  // 18 Oct 2026 (launch): with every _snippets feed counted there are hundreds of Snippets, and
+  // one deck of all of them was a 1.2 MB page. The deck shows the newest 60; every Snippet still
+  // has its own page and its sitemap entry.
+  const list = (data.snippets || []).slice(0, 60);
   if (!list.length) return null;
   let adN = 0;
   const cards = [];

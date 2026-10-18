@@ -22,11 +22,11 @@ const TTL_MS = 5 * 60 * 1000;
 // without seeing the slug their earnings are attributed to.
 export const CREATORS = [
   { slug: "breakdownsandblockbusters", name: "Breakdowns & Blockbusters",           handles: ["@breakdownsandblockbusters"] },  // Breakdowns & Blockbusters
-  { slug: "thekristianharloff", name: "Kristian Harloff",                           handles: ["@thekristianharloff"] },         // Kristian Harloff
+  { slug: "kristianharloff", name: "Kristian Harloff",                              handles: ["@kristianharloff", "@thekristianharloff"] }, // 18 Oct 2026: his articles arrive as @kristianharloff, so the old handle alone kept him off         // Kristian Harloff
   { slug: "chaosgaming", name: "Chaos",                                             handles: ["@chaosgaming"] },                // Chaos
   { slug: "chaostrektv", name: "ChaosTrek",                                         handles: ["@chaostrektv"] },                // ChaosTrek
   { slug: "wesnemo", name: "WesNemo",                                               handles: ["@wesnemo", "@wesnemotv"] },                    // WesNemo
-  { slug: "film_paradise", name: "Film Paradise",                                   handles: ["@film_paradise"] },              // Film Paradise
+  { slug: "filmparadise", name: "Film Paradise",                                    handles: ["@filmparadise", "@film_paradise"] },  // 18 Oct 2026: articles arrive as @filmparadise              // Film Paradise
   { slug: "lorereloaded", name: "Lore Reloaded",                                    handles: ["@lorereloaded"] },               // Lore Reloaded
   { slug: "arealknowitall", name: "Mr. Know-It-All",                                handles: ["@arealknowitall"] },             // Mr. Know-It-All (no articles yet; appears when his feed fills)
   { slug: "coltonogburnchannel", name: "Colton Ogburn",                             handles: ["@coltonogburnchannel"] },        // Colton Ogburn
@@ -73,7 +73,7 @@ export const CREATORS = [
   { slug: "themoviecouple", name: "The Movie Couple",                                 handles: ["@themoviecouple"] },         // rate card row 13260159637
   { slug: "thegoldman25", name: "The Gold Man",                                       handles: ["@thegoldman25"] },           // rate card row 13260176886
   { slug: "cinedesi", name: "CineDesi",                                               handles: ["@cinedesi"] },               // rate card row 13260159547
-  { slug: "moviefactsproyt", name: "Movie Facts Pro",                                 handles: ["@moviefactsproyt"] },        // rate card row 13260177181
+  { slug: "moviefactsproyt", name: "Movie Facts Pro",                                 handles: ["@moviefactsproyt", "@moviefactspro"] }, // 18 Oct 2026: most articles arrive as @moviefactspro        // rate card row 13260177181
   { slug: "vettedpodcast", name: "Vetted",                                            handles: ["@vettedpodcast"] },          // rate card row 13260159458
   { slug: "galaxygeeks", name: "Galaxy Geeks",                                        handles: ["@galaxygeeks"] },            // rate card row 13260159577
 ];
@@ -329,8 +329,16 @@ async function readAll(keys, width = 8) {
 }
 
 async function load() {
-  const keys = (await fetchJson(STORE + "/keys?limit=1000")).data.items
-    .map(i => i.key).filter(k => k.endsWith("__items"));
+  // 18 Oct 2026 (launch): the store now holds more than 1000 keys, and one page of the listing
+  // missed the feeds that sort last (WesNemo, Witching Hour, Better Gaming). Page through them all.
+  const all = []; let start = null;
+  for (let page = 0; page < 20; page++) {
+    const d = (await fetchJson(STORE + "/keys?limit=1000" + (start ? "&exclusiveStartKey=" + encodeURIComponent(start) : ""))).data;
+    all.push(...d.items.map(i => i.key));
+    if (!d.isTruncated || !d.nextExclusiveStartKey) break;
+    start = d.nextExclusiveStartKey;
+  }
+  const keys = all.filter(k => k.endsWith("__items"));
   const results = await readAll(keys);
   const seen = new Set(); const arts = [];
   results.forEach((res, i) => {
@@ -354,7 +362,10 @@ async function load() {
         thumbSmall: `https://i.ytimg.com/vi/${v}/mqdefault.jpg`,
         // A Short is a Snippet (see below). The feed link says so for some; the video's
         // duration settles the rest in addDurations().
-        short: /youtube\.com\/shorts\//i.test(String(a.link || "")),
+        // 18 Oct 2026 (launch): everything in a creator's _snippets feed is a Snippet. Those feeds
+        // link Shorts as ordinary watch?v= links, so the link test alone missed 420 of 441 and the
+        // 400-word floor then dropped them.
+        short: /youtube\.com\/shorts\//i.test(String(a.link || "")) || /_snippets__items$/.test(keys[i]),
         format: a.format || "",
       });
     }
@@ -541,11 +552,21 @@ async function load() {
   return { arts, snippets, panel, threads: chosen, subjects, avatars: av, evergreen, removed, loadedAt: new Date().toISOString() };
 }
 
+// SERVE THE LAST COPY WHILE REFRESHING, 18 Oct 2026 (launch). Seen live on launch day: when the
+// five minute copy ran out, the next visitor waited for a full reload of every feed (well over
+// 30 seconds) and got nothing back. Now a warm instance keeps serving the copy it has and
+// refreshes in the background; only a brand new instance with no copy yet has to wait. A refresh
+// that has been running for more than two minutes is treated as stuck and started again.
 export async function getData() {
   const now = Date.now();
   if (cache.data && now - cache.at < TTL_MS) return cache.data;
-  if (!cache.pending) cache.pending = load().then(d => { cache = { at: Date.now(), data: d, pending: null }; return d; })
-    .catch(err => { cache.pending = null; if (cache.data) return cache.data; throw err; });
+  if (cache.pending && now - (cache.pendingAt || 0) > 120000) cache.pending = null;
+  if (!cache.pending) {
+    cache.pendingAt = now;
+    cache.pending = load().then(d => { cache = { at: Date.now(), data: d, pending: null, pendingAt: 0 }; return d; })
+      .catch(err => { cache.pending = null; if (cache.data) return cache.data; throw err; });
+  }
+  if (cache.data) return cache.data;
   return cache.pending;
 }
 
