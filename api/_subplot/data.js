@@ -62,6 +62,20 @@ export const CREATORS = [
   // Handle checked on YouTube: @CommentatorsCurseFGC, channel UCWrdZpY_HEdTnmIpjOm3voQ.
   // SUBPLOT rate card row 13189706168 created the same day.
   { slug: "commentatorscursefgc", name: "Commentator's Curse FGC",               handles: ["@commentatorscursefgc"] },         // Commentator's Curse FGC (Trey Cooper), approved 1 Oct 2026
+  // Added 11 Oct 2026 for the launch (Tom: creators approved for MSN articles count as approved for SUBPLOT; "Yes, you can
+  // add them"). Slugs are the real YouTube handles the site already resolves from each video, so they match the
+  // /a/<slug>/ URLs. Each has a SUBPLOT row on the Platform Rate Card (row id in the comment). Rocket Riley stays off (Tom).
+  { slug: "thecosmicwonder", name: "The Cosmic Wonder",                               handles: ["@thecosmicwonder"] },        // rate card row 13156463868
+  { slug: "cinepals", name: "CinePals",                                               handles: ["@cinepals"] },               // rate card row 13260159694
+  { slug: "newrockstars", name: "New Rockstars",                                      handles: ["@newrockstars"] },           // rate card row 13260159251
+  { slug: "ajm_nerdcore", name: "AJM Nerdcore",                                       handles: ["@ajm_nerdcore"] },           // rate card row 13260159459
+  { slug: "deepdivenr", name: "The Deep Dive",                                        handles: ["@deepdivenr"] },             // rate card row 13260159636
+  { slug: "themoviecouple", name: "The Movie Couple",                                 handles: ["@themoviecouple"] },         // rate card row 13260159637
+  { slug: "thegoldman25", name: "The Gold Man",                                       handles: ["@thegoldman25"] },           // rate card row 13260176886
+  { slug: "cinedesi", name: "CineDesi",                                               handles: ["@cinedesi"] },               // rate card row 13260159547
+  { slug: "moviefactsproyt", name: "Movie Facts Pro",                                 handles: ["@moviefactsproyt"] },        // rate card row 13260177181
+  { slug: "vettedpodcast", name: "Vetted",                                            handles: ["@vettedpodcast"] },          // rate card row 13260159458
+  { slug: "galaxygeeks", name: "Galaxy Geeks",                                        handles: ["@galaxygeeks"] },            // rate card row 13260159577
 ];
 
 export const APPROVED_HANDLES = CREATORS.flatMap(c => c.handles);
@@ -431,6 +445,11 @@ async function load() {
   // OK and approved by Tom on the Review Queue (not auto-approved), no repeat-coverage flag,
   // video embedded and AI note present. 11 creators. To restore the full site, set false.
   if (REVIEW_SET_ON) { const keep = new Set(REVIEW_SET); const kept = arts.filter(a => keep.has(a.id)); arts.length = 0; arts.push(...kept); }
+  // DATED CLAIMS HELD AT LAUNCH, 18 Oct 2026 (Tom: set SUBPLOT live with all articles). The publisher's one-off date
+  // sweep (build 82, feed store record launch_date_sweep) read every article and found these still presenting a date as
+  // upcoming when it has passed ("the Lanterns finale airs October 4th"). They are not rendered until fixed; nothing is
+  // deleted from the store. Remove an id once its article is corrected.
+  { const hold = new Set(STALE_HOLD); const kept = arts.filter(a => !hold.has(a.id)); arts.length = 0; arts.push(...kept); }
 
   // CORRECTIONS, 8 Sep 2026. Errors found by auditing every live article, fixed at render rather
   // than in the store, so the source record is untouched, the change is reversible, and the copy
@@ -531,7 +550,24 @@ export async function getData() {
 }
 
 // See the REVIEW SET note in loadData. true = only these article ids render (43 as at 3 Oct 2026).
-export const REVIEW_SET_ON = true;
+// LAUNCH (Tom, 11 Oct 2026: "Before opening to search, we would need to get all of the articles live"). The review set
+// ends with the launch: merging this PR shows every article again alongside dropping the noindex. Set true to restore it.
+export const REVIEW_SET_ON = false;
+// See DATED CLAIMS HELD AT LAUNCH in loadData. 63 articles, 18 Oct 2026.
+export const STALE_HOLD = [
+  "-4QU76wzWOM", "-ywzCKKPpOI", "2owGtFMcyR0", "3CtzjeYkMhw", "40ci88x8Cl8", "4RoCzA_INZ0",
+  "75sW8Npstxc", "ASarfon5VHk", "AeHDhlQeMVI", "CPCDubI2GyA", "CniP8riFc88", "Crs8wmUMkw4",
+  "D8HczYJBNrc", "DkZDabzaQT8", "E81Io2ddmgw", "II8XeDMKLqM", "IudWk1vfly4", "JRi9m_GcVQc",
+  "JZdr64CzfhM", "JdTzba6ddF8", "K5rkYzlq79c", "KN7efkwFMA8", "KxJTLpVcDwg", "LhNP4piRP8k",
+  "MMhXsGHCkfE", "N_29qTiUSFo", "Oaj0wm13JyQ", "Oe0_heyjYEk", "Rkkk9_xz0lU", "SJ0BpMmu_2U",
+  "Srgl-KJOOAs", "Tiq_OzEC_oA", "TupbeHzX2-U", "W5IzuA4Gtk0", "X_gDrSn9Dqo", "YznqLLQRFXc",
+  "ZS4wSN0pDMs__t20", "_g6-TYV2uo0", "aQH7nc67ZZs", "bDZqzJF4218", "bfHP-Ag-rTE", "cStswtAVSiw",
+  "dYhimjWpmlc", "drONnMIL3sU", "fNujcjPGPVc", "faoxn5HzUV8", "iVECSRebjDo", "imEN609ZGV4",
+  "kkhVtb_MhZs", "kzI4R1DwXb0", "l1JnbGnI15s", "m800yvSGuaw", "oSwaLyEhbzo", "pdg0kSGPlQM",
+  "qRj7uQwgJiQ", "q_8cCpQ9V38", "qii3Jd4HVBs", "ueAeCu6UE7s", "vtHPDuQ6OFI", "wcE83M_g29w__t5",
+  "yRu6VoJgE-c", "ynUOk98o5vI", "zU4zUfLqqxU",
+];
+
 export const REVIEW_SET = [
   "JOFMVYJFVR4", "dVDVnbpeco4", "jkJfhdqfSrE", "QKEOyUJ5oJQ", "ECdZTmkiN5U", "tmdRhQm4Ask",
   "N69s8oDSD-E", "ZHMmndWNelQ", "hVHYb8lZKhk", "RcyW0YLDxYU", "1yeVdXjnPMM", "dVpDUQoeM_Q",
@@ -545,7 +581,7 @@ export const REVIEW_SET = [
 ];
 
 // See the SNIPPETS OFF note in loadData. false = Snippets hidden site-wide.
-export const SNIPPETS_LIVE = false;
+export const SNIPPETS_LIVE = true; // back on at launch, 18 Oct 2026 (Tom: "get the snippets going")
 
 // An article by id, long-form or Snippet. Routes and sitemaps use this rather than reaching
 // into data.arts, so a Snippet's URL resolves like any other article's.
