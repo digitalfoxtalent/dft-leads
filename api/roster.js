@@ -1395,16 +1395,21 @@ async function recruitDraft(b, email) {
   const niche = t(RC.niche) || "Entertainment";
   const name = String(it.name || "").trim();
   // Similar creators DFT represents: signed long-form rows whose category fits the niche, biggest first.
-  const [data, signedQ, lessonsQ] = await Promise.all([
+  const [data, signedQ, lessonsQ, relQ] = await Promise.all([
     loadBoard(),
     monday(`query{boards(ids:[${CREATOR_BOARD}]){groups(ids:${JSON.stringify(SIGNED_GROUPS)}){items_page(limit:500){items{id}}}}}`).catch(() => null),
-    monday(`query{items(ids:[${RECRUIT_LESSONS_ITEM}]){column_values(ids:["long_text_mm83jwpf"]){text}}}`).catch(() => null)
+    monday(`query{items(ids:[${RECRUIT_LESSONS_ITEM}]){column_values(ids:["long_text_mm83jwpf"]){text}}}`).catch(() => null),
+    // The Rates row's link to its roster creator. Read with linked_item_ids: the column's raw value comes back null on
+    // this API version, so loadBoard's r.creator is empty and cannot be used for this.
+    monday(`query{boards(ids:[${BOARD}]){groups(ids:["topics"]){items_page(limit:500){items{id column_values(ids:["${C.rel}"]){... on BoardRelationValue{linked_item_ids}}}}}}}`).catch(() => null)
   ]);
   const signed = new Set();
   ((((signedQ || {}).boards || [])[0] || {}).groups || []).forEach(g => (((g || {}).items_page || {}).items || []).forEach(x => signed.add(String(x.id))));
+  const signedRow = new Set();
+  ((((((relQ || {}).boards || [])[0] || {}).groups || [])[0] || {}).items_page || { items: [] }).items.forEach(x => { if ((((x.column_values || [])[0] || {}).linked_item_ids || []).some(id => signed.has(String(id)))) signedRow.add(String(x.id)); });
   const lessons = String((((((lessonsQ || {}).items || [])[0] || {}).column_values || [])[0] || {}).text || "").split("\n").map(x => x.replace(/^[-\s]+/, "").trim()).filter(Boolean).slice(0, 25);
   const fit = NICHE_WORDS[niche] || NICHE_WORDS.Entertainment;
-  const similar = data.rows.filter(r => r.kind === "long" && !r.dedicated && r.group === "topics" && r.creator && signed.has(String(r.creator)) && fit.test(String(r.cv[C.category] || "") + " " + String(r.cv[C.about] || "").slice(0, 300)))
+  const similar = data.rows.filter(r => r.kind === "long" && !r.dedicated && r.group === "topics" && signedRow.has(String(r.id)) && fit.test(String(r.cv[C.category] || "") + " " + String(r.cv[C.about] || "").slice(0, 300)))
     .sort((a, b2) => (+b2.cv[C.avg] || 0) - (+a.cv[C.avg] || 0)).slice(0, 8)
     .map(r => ({ name: r.name, category: String(r.cv[C.category] || ""), avgViews: +r.cv[C.avg] || 0 }));
   const tok = await gmailToken(email); if (!tok) throw new Error("Gmail is not connected for " + email);
