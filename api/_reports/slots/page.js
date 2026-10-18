@@ -1,8 +1,7 @@
 // The Slot board page. Data arrives in the __DATA__ script tag (see load.js); everything else is drawn here.
-// Layout: four headline tiles, then one grid (a row per creator, a column per week). Each week cell is shaded
-// by how many sponsor slots are still open (darker = more to sell) and carries the number, so the grid reads
-// as a heat map; sold deals sit on top as solid green chips. Studio releases fold into one row under the
-// week headers. Colours: open = the brand orange ramp, sold = green; both always carry a label or number.
+// Layout: four headline tiles, then one grid (a row per creator, a column per week). Every video a creator is
+// expected to post that week is one square: green = sold (shows the brand's first letter, hover for the brand
+// and deal, click to open it on monday), dashed = pencilled, empty = free to sell. "N of M left" sits below.
 export const TEMPLATE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="robots" content="noindex,nofollow"><link rel="icon" type="image/png" href="https://digitalfoxtalent.com/dft/favicon.png"><title>DFT Slot board</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Hanken+Grotesk:wght@400;500;600;700&display=swap">
 <style>
@@ -55,15 +54,13 @@ td.c{position:sticky;left:0;background:var(--surface);z-index:1;padding:10px 12p
 /* one week for one creator */
 .cell{border-radius:8px;padding:6px;display:flex;flex-direction:column;gap:5px;background:var(--bg);min-height:40px;justify-content:center}
 .slots{display:flex;flex-wrap:wrap;gap:3px}
-.slots i{display:block;width:11px;height:11px;border-radius:3px;border:1.5px solid var(--accent-fill);background:transparent}
-.slots i.sold{background:var(--good);border-color:var(--good)}
-.slots i.pen{border:1.5px dashed var(--good-text)}
+.slots i,.slots a{display:flex;align-items:center;justify-content:center;width:14px;height:14px;border-radius:3px;border:1.5px solid var(--accent-fill);background:transparent;font:700 9px/1 "Hanken Grotesk",sans-serif;font-style:normal;text-decoration:none;text-transform:uppercase}
+.slots .sold{background:var(--good);border-color:var(--good);color:var(--good-ink);cursor:pointer}.slots a.sold:hover{filter:brightness(1.15)}
+.slots .pen{border:1.5px dashed var(--good-text);color:var(--good-text);cursor:default}
+#tip{position:fixed;z-index:50;pointer-events:none;background:var(--ink);color:var(--surface);font-size:12.5px;line-height:1.35;padding:6px 9px;border-radius:7px;max-width:280px;box-shadow:var(--shadow);display:none}#tip b{display:block;font-size:13px}
 .cap{font-size:12px;color:var(--muted);line-height:1.2}.cap b{font-size:14px;color:var(--ink)}
 .cell.full .cap b{color:var(--good-text)}
 .cell.none{background:transparent;color:var(--muted);text-align:center;opacity:.6}
-.chip{display:block;font-size:12px;font-weight:600;line-height:1.25;padding:3px 7px;border-radius:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;background:var(--good);color:var(--good-ink);text-decoration:none}
-.chip:hover{filter:brightness(1.08)}
-.chip.pen{background:var(--surface);color:var(--body);border:1.5px dashed var(--muted);font-weight:500}
 td.tot b{display:block;font-size:17px;color:var(--ink)}td.tot span{display:block;font-size:12.5px;color:var(--muted);white-space:nowrap}
 tr.paused td.c .who,tr.paused .cell{opacity:.5}
 tbody tr:hover td{background:var(--line-soft)}tbody tr:hover td.c{background:var(--line-soft)}
@@ -82,7 +79,7 @@ details ul{margin:6px 0 2px;padding:0;list-style:none;font-size:12.5px;color:var
 </style></head><body><div class="wrap">
 <div class="topbar"><div class="brandline"><img class="wordmark" src="https://df-cdn.b-cdn.net/GeneralLendingConfigs/landing_logo/DigitalFoxTalent-TextLogoBLACK-VECTOR.svg" alt="Digital Fox Talent" width="216" height="72"></div>
 <nav class="tabs" aria-label="Brand Partnerships"><a href="https://roster-viewguarantee.digitalfoxtalent.com" target="_blank" rel="noopener">Roster</a><a href="/partnerships/slot-board" aria-current="page">Slot board</a><a href="/partnerships">All of Brand Partnerships</a></nav></div>
-<header><h1>Slot <em>board</em></h1><p class="sub">Every video a creator posts can carry a sponsor. Each square is one video expected that week: green is sold, an empty square is still free to sell. Rebuilt every night from YouTube, US Campaigns and the rates board.</p></header>
+<header><h1>Slot <em>board</em></h1><p class="sub">Every video a creator posts can carry a sponsor. Each square is one video expected that week: green is sold (hover for the brand, click to open the deal), an empty square is still free to sell. Rebuilt every night from YouTube, US Campaigns and the rates board.</p></header>
 <div id="app"></div>
 </div>
 <script id="data" type="application/json">__DATA__</script>
@@ -99,15 +96,15 @@ const day=s=>{const x=dp(s);return x.m+" "+x.d;};
 const pace=r=>!r?"no recent uploads":r>=1?(Math.round(r*10)/10)+" uploads a week":"1 upload every "+Math.round(1/r)+" weeks";
 function cell(c,w,k){
   const wk=D.weeks[k],label=esc(c.name)+" \\u00b7 "+range(wk.start,wk.end)+": ";
-  const chips=w.booked.map(s=>'<a class="chip" title="Sold: '+esc(s.brand+" \\u00b7 "+s.deal+(s.start?" \\u00b7 "+s.start:"")+" \\u00b7 "+s.group)+'" href="https://digitalfoxtalent.monday.com/boards/6162879609/pulses/'+esc(s.dealId)+'" target="_blank" rel="noopener">'+esc(s.brand)+'</a>').join("")+
-    w.pencilled.map(s=>'<span class="chip pen" title="Pencilled, not sold yet: '+esc(s.deal+" \\u00b7 "+s.group)+'">'+esc(s.brand)+'?</span>').join("");
   const n=Math.max(w.expected,w.booked.length);
-  if(!n)return '<div class="cell none" title="'+label+'no video expected">'+chips+'<span>\\u2013</span></div>';
-  let sq='';
-  for(let i=0;i<n;i++)sq+=i<w.booked.length?'<i class="sold"></i>':i<w.booked.length+w.pencilled.length?'<i class="pen"></i>':'<i></i>';
+  if(!n)return '<div class="cell none" title="'+label+'no video expected"><span>\\u2013</span></div>';
+  const ltr=s=>esc(((s.brand||"?").trim().match(/[A-Za-z0-9]/)||["?"])[0]);
+  let sq=w.booked.map(s=>'<a class="sold" href="https://digitalfoxtalent.monday.com/boards/6162879609/pulses/'+esc(s.dealId)+'" target="_blank" rel="noopener" aria-label="Sold: '+esc(s.brand)+'" data-tip="'+esc(s.brand)+'" data-sub="'+esc("Sold \\u00b7 "+s.deal+(s.start?" \\u00b7 "+day(s.start):""))+'">'+ltr(s)+'</a>').join("")+
+    w.pencilled.map(s=>'<i class="pen" aria-label="Pencilled: '+esc(s.brand)+'" data-tip="'+esc(s.brand)+'" data-sub="'+esc("Pencilled, not sold yet \\u00b7 "+s.deal)+'">'+ltr(s)+'</i>').join("");
+  for(let i=w.booked.length+w.pencilled.length;i<n;i++)sq+='<i></i>';
   const val=c.rate&&w.open?", "+money(w.open*c.rate)+" open":"";
   const cap=w.open?'<b>'+w.open+'</b> of '+w.expected+' left':'<b>Sold out</b>';
-  return '<div class="cell'+(w.open?'':' full')+'" title="'+label+w.expected+' video'+(w.expected===1?'':'s')+' expected, '+w.booked.length+' sold, '+w.open+' left'+val+'">'+chips+'<div class="slots">'+sq+'</div><span class="cap">'+cap+'</span></div>';
+  return '<div class="cell'+(w.open?'':' full')+'" title="'+label+w.expected+' video'+(w.expected===1?'':'s')+' expected, '+w.booked.length+' sold, '+w.open+' left'+val+'"><div class="slots">'+sq+'</div><span class="cap">'+cap+'</span></div>';
 }
 function render(){
   const app=$("#app");
@@ -131,4 +128,13 @@ function render(){
   '</tbody></table></div></div>';
 }
 render();
+const tip=document.createElement("div");tip.id="tip";document.body.appendChild(tip);
+document.addEventListener("mouseover",e=>{const t=e.target.closest&&e.target.closest("[data-tip]");if(!t){tip.style.display="none";return;}
+  const cellBox=t.closest(".cell");if(cellBox)cellBox.dataset.t=cellBox.title,cellBox.title="";
+  tip.innerHTML="<b>"+esc(t.dataset.tip)+"</b>"+esc(t.dataset.sub||"");tip.style.display="block";
+  const r=t.getBoundingClientRect(),w=tip.offsetWidth,h=tip.offsetHeight;
+  let x=Math.min(Math.max(8,r.left+r.width/2-w/2),innerWidth-w-8),y=r.top-h-8;if(y<8)y=r.bottom+8;
+  tip.style.left=x+"px";tip.style.top=y+"px";});
+document.addEventListener("mouseout",e=>{const t=e.target.closest&&e.target.closest("[data-tip]");if(!t)return;tip.style.display="none";const c=t.closest(".cell");if(c&&c.dataset.t!=null){c.title=c.dataset.t;delete c.dataset.t;}});
+document.addEventListener("scroll",()=>{tip.style.display="none";},true);
 </script></body></html>`;
