@@ -4,7 +4,7 @@
 // the Video distribution report reads it. It is never logged or returned.
 //
 // RULES (as every report): reading never throws (null or { error } comes back); writing is only ever
-// done by the nightly cron handler api/slots-build.js.
+// done by the cron handler api/slots-build.js (nightly build and the 10-minute quick refresh).
 
 import { monday } from "../monday.js";
 

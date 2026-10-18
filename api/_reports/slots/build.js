@@ -1,6 +1,8 @@
 // Slot board: how many sponsor slots each creator has in the next eight weeks, and which are sold.
 // ecosystem.digitalfoxtalent.com/partnerships/slot-board (Tom, 17 Oct 2026). Built once a night by
 // api/slots-build.js and saved (store.js); the page only reads the saved copy. Nobody types anything in.
+// Every 10 minutes a quick refresh (refreshSnapshot) re-reads the rates board and US Campaigns and reuses
+// that night's upload pace, so a booking shows within minutes without touching the YouTube key (Tom, 18 Oct 2026).
 //
 // WHERE THE NUMBERS COME FROM
 //   Creators and prices   Rates - View Guarantee Model 18417663127, YouTube channels group: name, handle,
@@ -205,9 +207,10 @@ export function assemble({ creators, rows, handles, releases, now = new Date() }
   const first = weeks[0].start, last = weeks[WEEKS - 1].end;
   const byHandle = {}, byName = {};
   const out = creators.filter(c => !c.hidden).map(c => {
-    const cad = cadence((c.uploads && c.uploads.dates) || [], now, { truncated: !!(c.uploads && c.uploads.truncated) });
+    // A quick refresh hands in last night's cadence; the nightly build works it out from the uploads.
+    const cad = c.cadence || cadence((c.uploads && c.uploads.dates) || [], now, { truncated: !!(c.uploads && c.uploads.truncated) });
     const o = { id: c.id, name: c.name, handle: c.handle, channel: c.channel, logo: c.logo, vg: c.vg, rate: c.rate, avg: c.avg,
-      cadence: cad, uploadsError: c.uploads && c.uploads.error || "", weeks: weeks.map(() => ({ expected: 0, booked: [], pencilled: [], open: 0 })), unscheduled: [] };
+      cadence: cad, uploadsError: (c.uploadsError != null ? c.uploadsError : (c.uploads && c.uploads.error)) || "", weeks: weeks.map(() => ({ expected: 0, booked: [], pencilled: [], open: 0 })), unscheduled: [] };
     if (!cad.paused && !o.uploadsError) o.weeks.forEach((w, k) => { w.expected = expectedInWeek(cad.rate, k); });
     if (c.handle) byHandle[hkey(c.handle)] = o;
     byName[nkey(c.name)] = o;
@@ -269,5 +272,28 @@ export async function buildSnapshot(token, ytKey, opts = {}) {
     throw new Error("YouTube could not be read for " + unread + " of " + snap.creators.length + " channels (first: " + first.uploadsError + ")");
   }
   snap.youtubeUnits = units;
+  snap.paceAt = snap.builtAt;
+  return snap;
+}
+
+// The quick refresh (every 10 minutes): re-reads monday only and reuses the pace from the last saved copy
+// (prev), matched by rates-board item id. A channel added since last night has no pace yet and offers no
+// slots until tonight's build. No YouTube calls. opts.load can stand in for the monday reads (tests).
+export async function refreshSnapshot(token, prev, opts = {}) {
+  if (!prev || prev.error || !Array.isArray(prev.creators) || !prev.creators.length) throw new Error("no saved copy to refresh from yet");
+  const now = opts.now || new Date();
+  const L = Object.assign({ creators: loadCreators, rows: loadCampaignRows, handles: loadGtrHandles, releases: loadReleases }, opts.load || {});
+  const [creators, rows, handles, releases] = await Promise.all([L.creators(token), L.rows(token), L.handles(token), L.releases(token)]);
+  if (rows.length < 50) throw new Error("campaign rows read is short (" + rows.length + ")");
+  const pace = {}; for (const c of prev.creators) pace[c.id] = c;
+  for (const c of creators) {
+    const p = pace[c.id];
+    if (p && p.cadence) { c.cadence = p.cadence; c.uploadsError = p.uploadsError || ""; }
+    else { c.cadence = { rate: 0, last: null, paused: false, irregular: false, uploads: 0, weeksCovered: 0 }; c.uploadsError = "new channel: upload pace is read tonight"; }
+  }
+  const snap = assemble({ creators, rows, handles, releases, now });
+  snap.paceAt = prev.paceAt || prev.builtAt;
+  snap.youtubeUnits = 0;
+  snap.refreshed = true;
   return snap;
 }

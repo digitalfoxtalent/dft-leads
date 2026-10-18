@@ -125,3 +125,27 @@ assert.ok(r.body.includes('"name":"Heavy Spoilers"'), "the saved copy is embedde
 r = await hit("slots-data", team);
 assert.equal(r.code, 200); assert.equal(JSON.parse(r.body).totals.booked, 3);
 console.log("slots: all checks passed");
+
+// Quick refresh (every 10 minutes): reuses last night's pace by rates-board id, re-reads bookings, no YouTube.
+{
+  const { refreshSnapshot } = await import("../api/_reports/slots/build.js");
+  const { nearNightly } = await import("../api/slots-build.js");
+  const prev = assemble({ creators, rows, handles, releases, now });
+  prev.paceAt = prev.builtAt;
+  const manyRows = rows.concat(Array.from({ length: 50 }, (_, i) => ({ id: "f" + i, row: "filler", deal: "Old_" + i, dealId: "o" + i, group: "Complete - Creators Paid", status: "", brand: "Old", creator: "Heavy Spoilers", start: "2026-01-01", end: "", pub: "", hasLinks: true })));
+  const newBooking = { id: "r9", row: "W x New", deal: "New_Oct", dealId: "d9", group: "Campaign Won", status: "", brand: "NewBrand", creator: "Weekly Show", start: "2026-10-26", end: "", pub: "", hasLinks: false };
+  const fresh = creators.map(c => Object.assign({}, c, { uploads: undefined })).concat([{ id: "5", name: "Brand New", handle: "@new", channel: "UC" + "n".repeat(22), vg: 1000, rate: 100, hidden: false }]);
+  const later = new Date(now.getTime() + 3600000);
+  const r = await refreshSnapshot("tok", prev, { now: later, load: { creators: async () => fresh.map(c => Object.assign({}, c)), rows: async () => manyRows.concat([newBooking]), handles: async () => handles, releases: async () => releases } });
+  const rw = r.creators.find(c => c.name === "Weekly Show"), pw = prev.creators.find(c => c.name === "Weekly Show");
+  assert.deepEqual(rw.cadence, pw.cadence, "pace is carried over from the saved copy");
+  assert.equal(rw.bookedSlots, pw.bookedSlots + 1, "the new booking is counted");
+  assert.equal(r.paceAt, prev.builtAt); assert.equal(r.youtubeUnits, 0); assert.equal(r.builtAt, later.toISOString());
+  const bn = r.creators.find(c => c.name === "Brand New");
+  assert.equal(bn.openSlots, 0, "a channel added today offers nothing until tonight"); assert.match(bn.uploadsError, /tonight/);
+  await assert.rejects(refreshSnapshot("tok", null), /no saved copy/);
+  await assert.rejects(refreshSnapshot("tok", { error: "x" }), /no saved copy/);
+  await assert.rejects(refreshSnapshot("tok", prev, { load: { creators: async () => fresh, rows: async () => rows, handles: async () => handles, releases: async () => releases } }), /short/);
+  assert.equal(nearNightly(new Date("2026-10-18T08:20:00Z")), true); assert.equal(nearNightly(new Date("2026-10-18T08:40:00Z")), false); assert.equal(nearNightly(new Date("2026-10-18T19:00:00Z")), false);
+}
+console.log("slots: quick refresh checks passed");
