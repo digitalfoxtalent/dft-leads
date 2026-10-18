@@ -37,12 +37,12 @@ h1{font-size:clamp(30px,4.2vw,42px);font-weight:800;line-height:1.02}h1 em{font-
 .card{background:var(--surface);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow)}
 .grid{border-radius:16px}
 table{border-collapse:separate;border-spacing:0;width:100%;min-width:1060px;table-layout:fixed;font-size:14px}
-col.cr{width:250px}col.tot{width:130px}
+col.cr{width:250px}col.tot{width:210px}
 th{text-align:left;font-weight:600;color:var(--ink);padding:12px 8px 10px;border-bottom:1px solid var(--line);vertical-align:bottom;background:var(--surface);position:sticky;top:0;z-index:2}
 th.corner{left:0;z-index:4;font-size:12.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;padding-left:16px;border-right:1px solid var(--line)}
 th.wk .d{display:block;font-size:14.5px;white-space:nowrap}
 th.wk .now{display:inline-block;font-size:11px;font-weight:700;color:var(--accent);background:var(--accent-soft);border-radius:999px;padding:1px 8px;margin-bottom:4px;text-transform:uppercase;letter-spacing:.04em}
-th.tot,td.tot{text-align:right;padding-right:16px}
+th.tot{text-align:right;padding-right:16px}td.tot{padding:8px 16px 8px 12px}
 td{padding:6px 4px;border-bottom:1px solid var(--line-soft);vertical-align:middle}
 td.c{position:sticky;left:0;background:var(--surface);z-index:1;padding:10px 12px 10px 16px;border-right:1px solid var(--line)}
 .who{display:flex;gap:10px;align-items:center;min-width:0}
@@ -61,13 +61,14 @@ td.c{position:sticky;left:0;background:var(--surface);z-index:1;padding:10px 12p
 .cap{font-size:12px;color:var(--muted);line-height:1.2}.cap b{font-size:14px;color:var(--ink)}
 .cell.full .cap b{color:var(--good-text)}
 .cell.none{background:transparent;color:var(--muted);text-align:center;opacity:.6}
-td.tot b{display:block;font-size:17px;color:var(--ink)}td.tot span{display:block;font-size:12.5px;color:var(--muted);white-space:nowrap}
+.mb+.mb{margin-top:9px}.mb .ml{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:0 6px;font-size:12px;color:var(--muted);white-space:nowrap}.mb .ml b{color:var(--ink);font-size:13.5px}.mb .ml .s{color:var(--good-text);font-weight:600}.mb .ml span+span{margin-left:auto}
+.mb .bar{display:flex;height:7px;border-radius:9px;background:var(--sunk);overflow:hidden;margin-top:4px}.mb .bar i{display:block;height:100%;background:var(--good)}
 tr.paused td.c .who,tr.paused .cell{opacity:.5}
 tbody tr:hover td{background:var(--line-soft)}tbody tr:hover td.c{background:var(--line-soft)}
 tfoot td{position:sticky;bottom:0;z-index:2;background:var(--surface);border-top:2px solid var(--line);border-bottom:0;padding:10px 8px;box-shadow:0 -6px 12px -10px rgba(0,0,0,.25)}
 tfoot td.c{z-index:4;font-size:12.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;font-weight:600}
 tfoot .cap{display:block}tfoot .sub{display:block;font-size:12px;color:var(--muted);margin-top:2px;white-space:nowrap}
-tfoot td.tot{padding-right:16px}
+
 /* bottom cards */
 .note{font-size:13px;color:var(--muted)}.err{background:var(--accent-soft);color:var(--accent);border-radius:12px;padding:12px 14px;margin:0}
 .empty{padding:60px 20px;text-align:center;color:var(--muted)}
@@ -103,11 +104,14 @@ function cell(c,w,k){
   const cap=(w.open?'<b>'+w.open+'</b> of '+w.expected+' left':'<b>Sold out</b>')+(w.pencilled.length?' \\u00b7 '+w.pencilled.length+' pending':'');
   return '<div class="cell'+(w.open?'':' full')+'" title="'+label+w.expected+' video'+(w.expected===1?'':'s')+' expected, '+w.booked.length+' sold, '+w.open+' left'+val+'"><div class="slots">'+sq+'</div><span class="cap">'+cap+'</span></div>';
 }
+function mbar(sold,left,total,fmt){const f=total?Math.min(100,sold/total*100):0;
+  return '<div class="mb"><div class="ml"><span class="s">'+fmt(sold)+' sold</span><span><b>'+fmt(left)+'</b> of '+fmt(total)+' left</span></div><div class="bar" role="img" aria-label="'+fmt(sold)+' sold, '+fmt(left)+' left"><i style="width:'+f+'%"></i></div></div>';}
+function tot(booked,open,bookedVal,openVal){return mbar(booked,open,booked+open,nf)+mbar(bookedVal,openVal,bookedVal+openVal,smoney);}
 function foot(rows,W){
   const sum=f=>rows.reduce((n,c)=>n+f(c),0);
   const wk=W.map((w,k)=>{const e=sum(c=>c.weeks[k].expected),o=sum(c=>c.weeks[k].open),b=sum(c=>c.weeks[k].booked.length),p=sum(c=>(c.weeks[k].pencilled||[]).length);
     return '<td><span class="cap"><b>'+nf(o)+'</b> of '+nf(e)+' left</span><span class="sub">'+nf(b)+' sold'+(p?' \\u00b7 '+nf(p)+' pending':'')+'</span></td>';}).join("");
-  return '<tfoot><tr><td class="c">Total</td>'+wk+'<td class="tot"><b>'+nf(sum(c=>c.openSlots))+' left</b><span>'+smoney(sum(c=>c.openValue))+'</span><span>'+nf(sum(c=>c.bookedSlots))+' sold</span></td></tr></tfoot>';
+  return '<tfoot><tr><td class="c">Total</td>'+wk+'<td class="tot">'+tot(sum(c=>c.bookedSlots),sum(c=>c.openSlots),sum(c=>c.bookedSlots*(c.rate||0)),sum(c=>c.openValue))+'</td></tr></tfoot>';
 }
 function render(){
   const app=$("#app");
@@ -127,7 +131,7 @@ function render(){
   '<thead><tr><th class="corner">Creator</th>'+W.map((w,k)=>'<th class="wk">'+(today>=w.start&&today<=w.end?'<span class="now">This week</span>':'')+'<span class="d">'+range(w.start,w.end)+'</span></th>').join("")+'<th class="tot">8 weeks</th></tr></thead><tbody>'+
   (rows.length?rows.map(c=>'<tr'+(c.cadence.paused?' class="paused"':'')+'><td class="c"><div class="who">'+(c.logo?'<img src="'+esc(c.logo)+'" alt="" loading="lazy" referrerpolicy="no-referrer">':'')+'<div class="t"><b title="'+esc(c.name+(c.handle?" "+c.handle:""))+'">'+esc(c.name)+'</b><span>'+(c.cadence.paused?'<i class="flag">Paused</i> last upload '+esc(c.cadence.last||"unknown"):pace(c.cadence.rate))+(c.uploadsError?'<i class="flag" title="'+esc(c.uploadsError)+'">YouTube not read</i>':'')+'</span></div></div></td>'+
     c.weeks.map((w,k)=>'<td>'+cell(c,w,k)+'</td>').join("")+
-    '<td class="tot"><b>'+nf(c.openSlots)+' left</b><span>'+smoney(c.openValue)+'</span><span>'+nf(c.bookedSlots)+' sold</span></td></tr>').join(""):'<tr><td class="c" colspan="'+(W.length+2)+'"><span class="note">No creators match.</span></td></tr>')+
+    '<td class="tot">'+tot(c.bookedSlots,c.openSlots,c.bookedSlots*(c.rate||0),c.openValue)+'</td></tr>').join(""):'<tr><td class="c" colspan="'+(W.length+2)+'"><span class="note">No creators match.</span></td></tr>')+
   '</tbody>'+foot(rows,W)+'</table></div></div>';
 }
 render();
