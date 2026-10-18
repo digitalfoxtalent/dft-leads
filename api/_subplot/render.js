@@ -266,6 +266,12 @@ body[data-ads="off"] .ad{display:none}
 .wire .sub a:hover{text-decoration:underline}
 `;
 
+// GROW BY MEDIAVINE, 18 Oct 2026 (Tom: install Grow now so the site can qualify for Mediavine Journey later).
+// Free audience tool (bookmarks, recommended content, subscribe). It also gives Mediavine the traffic data it
+// reviews for Journey. Site id from the Grow publisher portal, manual script-tag install. SUBPLOT only.
+const GROW_SITE_ID = "U2l0ZTpmZjBjM2QwNy04YzM1LTQwOTUtODMzMy05NGM3NmQ1N2IzMGI=";
+const growTag = () => `<script data-grow-initializer="">!(function(){window.growMe||((window.growMe=function(e){window.growMe._.push(e);}),(window.growMe._=[]));var e=document.createElement("script");(e.type="text/javascript"),(e.src="https://faves.grow.me/main.js"),(e.defer=!0),e.setAttribute("data-grow-faves-site-id","${GROW_SITE_ID}");var t=document.getElementsByTagName("script")[0];t.parentNode.insertBefore(e,t);})();</script>`;
+
 function shell({ base, title, desc, body, current = "all", bodyClass = "", rule = "", trending = [], jsonld = "" }) {
   const nav = [["all", "All"], ...Object.entries(CATS)].map(([k, n]) =>
     `<a href="${base}/${k === "all" ? "" : "s/" + k}" ${k === current ? 'aria-current="true"' : ""}>${esc(n)}</a>`).join("")
@@ -293,6 +299,7 @@ ${jsonld}
 <style>${CSS}${EXTRA_CSS}${promoCss}${brandCss()}${design() >= 2 ? CSS2 : ""}${design() === 3 ? formatCss() + CSS3 : ""}</style>
 <script defer src="/_vercel/insights/script.js"></script>
 ${adHead()}
+${brand().key === "subplot" ? growTag() : ""}
 </head>
 <body class="${`${bodyClass} brand-${brand().key}`.trim()}">
 <header class="top">
