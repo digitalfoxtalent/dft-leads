@@ -22,22 +22,16 @@
 // mirror (from CONTACTS) and QB Customer (auto) should name the same company. Mismatches are listed.
 //
 // Writes: only in-flight videos and make-goods touch deals (append to LIVE VIDEO URLS + an update with the
-// evidence), and only when MAKEGOOD_WRITES is on. Everything else goes to the review board "Unmatched sponsor reads"
-// (18433205666), one row per video and brand (or per invoice), never twice. Contacts and deals are
-// never created or changed by this pass.
+// evidence), and only when MAKEGOOD_WRITES is on. Contacts and deals are never created or changed by this pass.
+// The other classes are listed in the run summary (?pass=unmatched&dry=1) and nowhere else. Until 18 Oct 2026
+// they went to a review board, "Unmatched sponsor reads" (18433205666), with a daily overdue notification; Tom
+// retired it that day because most rows were other agencies' deals and stray links, so it was never worked.
 
 import { monday } from "./monday.js";
 import { yt, loadGtr } from "./backfill.js";
 import { windowOf, monthHint } from "./flight-match.js";
 
-export const REVIEW_BOARD = 18433205666;
 const SUB_BOARD = 6162879732, AR_BOARD = 18424308590;
-export const NOTIFY_USERS = [100099218, 54957240]; // Margot Grant, Alex Mackenzie
-// Every review row gets an owner and a due date (Tom, 29 Sep 2026: working the board is mandatory).
-// Alex owns them; a client-tag row where the INVOICE looks wrong is a finance flag and goes to Tom.
-// Rows still New or Looking into it after their due date are listed to the owner AND Tom every morning.
-const ALEX = 54957240, TOM = 40241658, DUE_DAYS = 3;
-const ownerOf = f => (f.cls === "Client tag mismatch" && /finance flag/.test(f.evidence || "")) ? TOM : ALEX;
 const D = 864e5, REPORT_DAYS = 14, STANDING_DAYS = 45;
 // Classes the pass writes to the deal row itself (when MAKEGOOD_WRITES is on); everything else is for a person.
 const AUTO = new Set(["In-flight", "Make-good"]);
@@ -56,8 +50,6 @@ const ROW_FIELDS = "cursor items { id name parent_item { id name group { title }
 export const ROWS_QUERY = "query { boards(ids:[" + SUB_BOARD + "]) { items_page(limit:500) { " + ROW_FIELDS + " } } }";
 const AR_FIELDS = "cursor items { id name group { title } column_values(ids:[\"text_mm5qdm4f\",\"text_mm60e5d9\",\"text_mm5qvwsw\",\"text_mm5qq5q\",\"board_relation_mm5xasjj\",\"date_mm5qwsdn\"]) { id text ... on BoardRelationValue { display_value linked_item_ids } } }";
 export const AR_QUERY = "query { boards(ids:[" + AR_BOARD + "]) { items_page(limit:500) { " + AR_FIELDS + " } } }";
-const REVIEW_FIELDS = "cursor items { id name column_values(ids:[\"key\",\"review\",\"due\",\"owner\"]) { id text ... on PeopleValue { persons_and_teams { id } } } }";
-export const REVIEW_QUERY = "query { boards(ids:[" + REVIEW_BOARD + "]) { items_page(limit:500) { " + REVIEW_FIELDS + " } } }";
 
 async function allPages(token, query, fields) {
   let d = await monday(token, query);
@@ -103,11 +95,10 @@ export function parseInvoices(items) {
 const SUB_FIELDS = "cursor items { id name parent_item { id } column_values(ids:[\"connect_boards__1\",\"text_mm6aq9qp\",\"numeric_mm3yxqes\",\"numeric_mm4bn6yq\",\"date_mm1mb38m\",\"timerange_mm1m50vx\",\"color_mm7jh1xw\"]) { id text ... on BoardRelationValue { display_value } } }";
 const DEAL_FIELDS = "cursor items { id name group { title } column_values(ids:[\"status_1\",\"dropdown_mm1a3tqp\",\"date__1\",\"board_relation_mm5x8h0y\",\"deal_contact\"]) { id text ... on BoardRelationValue { linked_item_ids } } }";
 export async function loadData(token) {
-  const [subItems, dealItems, arItems, revItems, gtr] = await Promise.all([
+  const [subItems, dealItems, arItems, gtr] = await Promise.all([
     allPages(token, "query { boards(ids:[" + SUB_BOARD + "]) { items_page(limit:500) { " + SUB_FIELDS + " } } }", SUB_FIELDS),
     allPages(token, "query { boards(ids:[6162879609]) { items_page(limit:500) { " + DEAL_FIELDS + " } } }", DEAL_FIELDS),
-    allPages(token, AR_QUERY, AR_FIELDS),
-    allPages(token, REVIEW_QUERY, REVIEW_FIELDS), loadGtr(token)]);
+    allPages(token, AR_QUERY, AR_FIELDS), loadGtr(token)]);
   // The deals' contacts: which client each contact belongs to, and its QuickBooks name.
   const contactOf = {}, ids = new Set();
   for (const d of dealItems) { const c = cvMap(d.column_values).deal_contact; const l = (c && c.linked_item_ids) || []; contactOf[d.id] = l.map(String); l.forEach(x => ids.add(String(x))); }
@@ -123,10 +114,7 @@ export async function loadData(token) {
     deals[d.id] = { id: d.id, name: d.name, group: d.group, column_values: [c.status_1, c.dropdown_mm1a3tqp, c.date__1, c.board_relation_mm5x8h0y, { id: "lookup_mkz6pygk", text: join("client") }, { id: "lookup_mm5zp13v", text: join("qb") }].filter(Boolean) };
   }
   const rowItems = subItems.map(it => ({ ...it, parent_item: it.parent_item && deals[it.parent_item.id] })).filter(it => it.parent_item);
-  return { rows: parseRows(rowItems), invoices: parseInvoices(arItems), reviewKeys: new Set(revItems.flatMap(i => String((cvMap(i.column_values).key || {}).text || "").split(/\s+/)).filter(Boolean)),
-    // Open rows past their due date: the daily nudge lists them until someone closes them.
-    overdue: revItems.map(i => { const c = cvMap(i.column_values); return { id: i.id, name: i.name, review: (c.review || {}).text || "", due: (c.due || {}).text || "", owners: (((c.owner || {}).persons_and_teams) || []).map(p => Number(p.id)) }; })
-      .filter(r => /^(New|Looking into it)$/.test(r.review) && r.due && r.due < iso(Date.now())), gtr };
+  return { rows: parseRows(rowItems), invoices: parseInvoices(arItems), gtr };
 }
 
 // ---------- brands and description parsing ----------
@@ -446,9 +434,9 @@ export function tagCheck(data, aliases, now) {
 
 export async function runUnmatched(token, opts) {
   opts = opts || {};
-  const { dry, makegoodWrites, notify, timeMs = 38000 } = opts;
+  const { dry, makegoodWrites, timeMs = 38000 } = opts;
   const key = process.env.YOUTUBE_API_KEY; if (!key) throw new Error("YOUTUBE_API_KEY missing");
-  const t0 = Date.now(), summary = { pass: "unmatched", dry: !!dry, makegoodWrites: !!makegoodWrites, notify: !!notify, units: 0, channels: 0, errors: [] };
+  const t0 = Date.now(), summary = { pass: "unmatched", dry: !!dry, makegoodWrites: !!makegoodWrites, units: 0, channels: 0, errors: [] };
   const data = (opts && opts.data) || await loadData(token);
   summary.loadMs = Date.now() - t0;
   // Dry-run testing only: treat these videos as if no row linked them (re-runs the 28 Sep worked examples).
@@ -469,12 +457,10 @@ export async function runUnmatched(token, opts) {
   summary.units += Math.ceil(need.size / 50);
   const res = classify(data, scans, refs);
   summary.skipped = res.skipped; summary.tagsWithoutCustomer = res.tags.noCustomer;
-  // One review row per channel, brand and class: a weekly flight is one question for a person, not seven.
-  // Videos already on the board (by key) are left out; make-goods stay one row per video.
+  // One entry per channel, brand and class: a weekly flight is one line, not seven. Make-goods stay one per video.
   const ORDER = ["In-flight", "Make-good", "Deal missing (invoiced)", "Separate buy, deal missing", "Other agency's deal", "Client tag mismatch", "Unknown"];
   const groups = new Map();
   for (const f of res.found) {
-    if (data.reviewKeys.has(f.key)) continue;
     const g = AUTO.has(f.cls) ? f.key : f.cls + "|" + f.h + "|" + f.brand;
     const cur = groups.get(g);
     if (!cur) { groups.set(g, { ...f, keys: [f.key], vids: [f] }); continue; }
@@ -486,12 +472,12 @@ export async function runUnmatched(token, opts) {
     Object.assign(g, { url: first.url, title: first.title, at: first.at, video: first.video, code: [...new Set(g.vids.map(x => x.code).filter(Boolean))].join(", "),
       evidence: g.vids.length + " videos (" + g.vids.map(x => x.at.slice(5) + " youtu.be/" + x.video).join(", ") + "). " + first.evidence });
   }
-  const fresh = [...groups.values()].map(g => ({ ...g, key: g.keys.join(" ") })).concat(res.tags.mismatches.filter(t => !data.reviewKeys.has(t.key)))
+  const fresh = [...groups.values()].map(g => ({ ...g, key: g.keys.join(" ") })).concat(res.tags.mismatches)
     .sort((a, b) => ORDER.indexOf(a.cls) - ORDER.indexOf(b.cls));
   const list = res.found.concat(res.tags.mismatches);
   summary.counts = list.reduce((a, f) => (a[f.cls] = (a[f.cls] || 0) + 1, a), {});
   summary.review = fresh.map(f => ({ cls: f.cls, channel: f.channel, brand: f.brand, suggested: f.suggested, evidence: f.evidence }));
-  summary.list = list.map(f => ({ cls: f.cls, channel: f.channel, video: f.url, at: f.at, brand: f.brand, code: f.code, suggested: f.suggested, evidence: f.evidence, new: !data.reviewKeys.has(f.key) }));
+  summary.list = list.map(f => ({ cls: f.cls, channel: f.channel, video: f.url, at: f.at, brand: f.brand, code: f.code, suggested: f.suggested, evidence: f.evidence }));
   if (dry) { summary.ms = Date.now() - t0; return summary; }
   // Make-goods: append to the deal row, with the same checks as the first pass.
   const made = new Set();
@@ -499,34 +485,6 @@ export async function runUnmatched(token, opts) {
     try { if (await writeMakegood(token, f)) { made.add(f.key); f.written = true; } } catch (e) { summary.errors.push("make-good " + f.video + ": " + String(e.message || e).slice(0, 120)); }
   }
   summary.makegoods = made.size;
-  for (const g of fresh) if (AUTO.has(g.cls) && made.has(g.key)) g.written = true;
-  // Everything new goes on the review board (make-goods too, as a record, marked Done when written).
-  let added = 0;
-  for (const f of fresh) {
-    if (Date.now() - t0 > (opts.stopMs || 52000)) { summary.errors.push("out of time: " + (fresh.length - added) + " review rows left for tomorrow"); break; }
-    added++;
-    try { await addReviewItem(token, f, makegoodWrites); } catch (e) { summary.errors.push("review " + f.key + ": " + String(e.message || e).slice(0, 120)); }
-  }
-  summary.added = added;
-  const overdue = data.overdue || [];
-  summary.overdue = overdue.length;
-  if (notify && (fresh.length || overdue.length)) {
-    const send = async (u, x) => { try { await mondayVars(token, "mutation ($u: ID!, $t: ID!, $x: String!) { create_notification(user_id:$u, target_id:$t, target_type:Project, text:$x) { text } }", { u: String(u), t: String(REVIEW_BOARD), x }); summary.notified = (summary.notified || 0) + 1; } catch (e) { summary.errors.push("notify " + u + ": " + String(e.message || e).slice(0, 100)); } };
-    // Short and plain (Tom, 14 Oct 2026): monday uses this text as the email SUBJECT and the body, so a
-    // long sentence with a list of rows read badly in both. Lead with the count; the rows are on the board.
-    const day = t => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(t || "")); return m ? Number(m[3]) + " " + ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][Number(m[2]) - 1] : ""; };
-    const plural = (n, w) => n + " " + w + (n === 1 ? "" : "s");
-    const newTxt = fresh.length ? plural(added, "new read") + " to check, due " + day(iso(Date.now() + DUE_DAYS * D)) : "";
-    const lateFor = u => overdue.filter(r => r.owners.includes(u) || u === TOM);
-    for (const u of [...new Set(NOTIFY_USERS.concat(TOM))]) {
-      const late = lateFor(u).slice().sort((p, q) => String(p.due).localeCompare(String(q.due)));
-      const oldest = late[0] ? late[0].name.replace(/\s+\d{4}-\d{2}-\d{2}$/, "") + (day(late[0].due) ? " (due " + day(late[0].due) + ")" : "") : "";
-      const lateTxt = late.length ? plural(late.length, "overdue review") + (oldest ? ", oldest " + oldest : "") : "";
-      const parts = [NOTIFY_USERS.includes(u) ? newTxt : "", lateTxt].filter(Boolean);
-      const x = parts.length ? "Sponsor reads: " + parts.join(". ") : "";
-      if (x) await send(u, x);
-    }
-  }
   summary.ms = Date.now() - t0;
   return summary;
 }
@@ -552,14 +510,4 @@ async function writeMakegood(token, f) {
   const body = "<p><b>" + (f.cls === "In-flight" ? "Video from this row's flight" : "Make-good") + " linked by the nightly link finder</b></p><p>" + esc(f.at) + " " + esc(f.url.replace(/^https:\/\/(www\.)?/, "")) + " (" + esc(f.title) + ")</p><p>" + esc(f.evidence) + ".</p><p>Views before: " + f.before.toLocaleString("en-US") + (f.req ? " of " + f.req.toLocaleString("en-US") : "") + ". After (with this video's " + f.views.toLocaleString("en-US") + " today): " + (f.before + f.views).toLocaleString("en-US") + ".</p><p>If this is wrong, take the link out of LIVE VIDEO URLS; the view sync corrects the totals the next morning.</p>";
   await mondayVars(token, "mutation ($i: ID!, $t: String!) { create_update(item_id:$i, body:$t) { id } }", { i: String(f.rowId), t: body });
   return true;
-}
-
-async function addReviewItem(token, f, writesOn) {
-  const name = f.cls === "Client tag mismatch" ? f.deal : (f.brand + " on " + f.channel + " " + f.at);
-  const ev = AUTO.has(f.cls) ? f.evidence + (f.written ? ". Linked to the deal automatically." : !f.open ? ". Not written: the deal is closed or lost." : !writesOn ? ". Not written: make-good writes are off (dry run)." : ". Not written.") : f.evidence;
-  const cols = { channel: f.channel || "", brand: f.brand || "", code: f.code || "", suggested: String(f.suggested || "").slice(0, 250), evidence: { text: String(ev).slice(0, 1900) }, key: f.key, class: { label: f.cls }, review: { label: f.written ? "Done" : "New" },
-    owner: { personsAndTeams: [{ id: ownerOf(f), kind: "person" }] }, due: { date: iso(Date.now() + DUE_DAYS * D) } };
-  if (f.url) cols.video = { url: f.url, text: f.title ? f.title.slice(0, 60) : f.video };
-  if (f.at) cols.published = { date: f.at };
-  await mondayVars(token, "mutation ($b: ID!, $n: String!, $v: JSON!) { create_item(board_id:$b, item_name:$n, column_values:$v, create_labels_if_missing:true) { id } }", { b: String(REVIEW_BOARD), n: name.slice(0, 250), v: JSON.stringify(cols) });
 }

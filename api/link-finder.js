@@ -50,10 +50,9 @@ export const config = { maxDuration: 300 };
 // Set to false to make the nightly run plan only (same as ?dry=1), changing nothing on monday.
 const WRITES_ENABLED = true; // on 27 Sep 2026 after the overnight dry runs (board 18432874155) checked out
 // Second pass (?pass=unmatched, its own cron at 07:40 UTC): sponsor reads on roster channels that no row
-// links. See _reports/unmatched.js. Review rows always go to board 18433205666; these two switches gate
-// the rest. Both OFF until Tom has checked the first night's list (brief of 28 Sep 2026, tracker d39).
-const MAKEGOOD_WRITES = true;  // on 29 Sep 2026 after Tom checked the first list on board 18433205666
-const NOTIFY_TEAM = true;
+// links. See _reports/unmatched.js. It adds in-flight videos and make-goods to their deal rows. Its review
+// board (18433205666) and daily notification were retired on 18 Oct 2026 (Tom).
+const MAKEGOOD_WRITES = true;  // on 29 Sep 2026 after Tom checked the first list
 // TikTok and Instagram finder (?pass=social): set to false to make its scheduled run plan only.
 const SOCIAL_WRITES = true;
 // Weekly flight audit (?pass=audit): set to false to make its scheduled run plan only.
@@ -67,9 +66,6 @@ export default async function handler(req, res) {
   const token = mondayToken();
   const fromCron = isCron(req);
   const dry = String(req.query && req.query.dry || "") === "1" || !WRITES_ENABLED;
-  // A signed-in team member may also post the second pass's review rows by hand (?pass=unmatched&post=1).
-  // That writes to the review board only: make-goods and notifications stay with the cron.
-  const post = String(req.query && req.query.pass || "") === "unmatched" && String(req.query && req.query.post || "") === "1";
   // One-click add from a flight audit flag (?pass=audit&accept=row:video). Team sign-in only. GET shows what
   // will be added and an Add button; the button POSTs, so opening the link alone changes nothing.
   if (String(req.query && req.query.pass || "") === "audit" && req.query.accept) {
@@ -88,7 +84,7 @@ export default async function handler(req, res) {
       return page(done.ok ? 200 : 400, done.ok ? "<p>" + (done.already ? "Already on " : "Added to ") + "<b>" + safe(done.deal) + "</b>.</p>" : "<p>" + safe(done.error) + "</p>");
     } catch (e) { return page(500, "<p>Could not add it: " + safe(String(e.message || e).slice(0, 200)) + "</p>"); }
   }
-  if (!fromCron && !((String(req.query && req.query.dry || "") === "1" || post) && token && cookieOk(req, token))) return res.status(401).json({ error: "Unauthorized" });
+  if (!fromCron && !(String(req.query && req.query.dry || "") === "1" && token && cookieOk(req, token))) return res.status(401).json({ error: "Unauthorized" });
   if (!token || !process.env.YOUTUBE_API_KEY) return res.status(500).json({ error: "Setup: monday or YouTube key missing" });
   // Scheduled, writing runs go on the run log so a missing or failed night is noticed (?pass=watch).
   const logRun = (job, summary) => (fromCron && String(req.query && req.query.dry || "") !== "1") ? recordRun(token, job, summary) : null;
@@ -129,7 +125,7 @@ export default async function handler(req, res) {
   }
   if (String(req.query && req.query.pass || "") === "unmatched") {
     let out;
-    try { out = await runUnmatched(token, { dry: String(req.query.dry || "") === "1", makegoodWrites: MAKEGOOD_WRITES && !!fromCron, notify: NOTIFY_TEAM && !!fromCron, unlink: req.query.unlink, timeMs: UNMATCHED_TIME_MS, stopMs: UNMATCHED_STOP_MS }); }
+    try { out = await runUnmatched(token, { dry: String(req.query.dry || "") === "1", makegoodWrites: MAKEGOOD_WRITES && !!fromCron, unlink: req.query.unlink, timeMs: UNMATCHED_TIME_MS, stopMs: UNMATCHED_STOP_MS }); }
     catch (e) { out = { pass: "unmatched", error: String(e.message || e).slice(0, 300) }; }
     await logRun(JOBS.unmatched, out);
     return res.status(200).json(out);
