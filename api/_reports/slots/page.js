@@ -76,7 +76,7 @@ tfoot .cap{display:block}
 </style></head><body><div class="wrap">
 <div class="topbar"><div class="brandline"><img class="wordmark" src="https://df-cdn.b-cdn.net/GeneralLendingConfigs/landing_logo/DigitalFoxTalent-TextLogoBLACK-VECTOR.svg" alt="Digital Fox Talent" width="216" height="72"></div>
 <nav class="tabs" aria-label="Brand Partnerships"><a href="https://roster-viewguarantee.digitalfoxtalent.com" target="_blank" rel="noopener">Roster</a><a href="/partnerships/slot-board" aria-current="page">Ad Inventory Slots Available</a><a href="/partnerships">All of Brand Partnerships</a></nav></div>
-<header><h1>Ad Inventory Slots Available</h1><p class="sub">Every video a creator posts can carry a sponsor. Each square is one video expected that week: green is sold, orange is pending (hover either for the brand; click a sold one to open the deal), an empty square is still free to sell. Rebuilt every night from YouTube, US Campaigns and the rates board.</p></header>
+<header><h1>Ad Inventory Slots Available</h1><p class="sub">Every video a creator posts can carry a sponsor. Each square is one video expected that week: green is sold, orange is pending (hover either for the brand; click a sold one to open the deal), an empty square is still free to sell. Bookings update every 10 minutes from US Campaigns; each creator's upload pace is read from YouTube every night.</p></header>
 <div id="app"></div>
 </div>
 <script id="data" type="application/json">__DATA__</script>

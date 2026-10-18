@@ -4,7 +4,7 @@
 import { readSnapshot } from "./store.js";
 import { TEMPLATE } from "./page.js";
 
-const CACHE_MS = 10 * 60 * 1000;
+const CACHE_MS = 2 * 60 * 1000; // short: bookings refresh every 10 minutes
 let cache = null, lastGood = null;
 
 export async function slotsData(token) {
