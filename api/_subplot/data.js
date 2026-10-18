@@ -52,6 +52,7 @@ export const CREATORS = [
   // A SECOND, SEPARATE Chaos channel - not @chaosgaming and not @chaostrektv. YouTube shows it
   // as "ChaosGaming" too, which is why it is easy to mistake for the first one. Same payee.
   { slug: "morechaosgaming", name: "ChaosGaming (second channel)",                 handles: ["@morechaosgaming"] },            // ChaosGaming, 26.7K
+  { slug: "witchinghournr", name: "The Witching Hour",                              handles: ["@witchinghournr"] },             // The Witching Hour, approved for SUBPLOT by Tom 18 Oct 2026
   { slug: "beyondthetrailer", name: "Beyond The Trailer",                        handles: ["@beyondthetrailer"] },             // Beyond The Trailer (Grace Randolph), approved 8 Sep 2026
   // Approved on the Article Rights board 23 Sep 2026 (row 12870062853, Tom's confirmation).
   // Handle checked against the videos themselves, not the store: all 91 long-form records in
@@ -415,6 +416,10 @@ async function load() {
   arts.sort((x, y) => new Date(y.p) - new Date(x.p));
   await addViews(arts);
   const removed = await pruneMissing(arts);
+  // SNIPPET CHANNEL NAMES, 18 Oct 2026 (Tom: release them). Some Snippets carry their snippets feed's name as the
+  // creator ("@gique__snippets", "@kristianharloff_snippets") instead of the creator's own handle, so they missed the
+  // approved list and never showed. A Snippet belongs to the creator whose feed it came from: drop the suffix.
+  for (const a of arts) if (/_snippets$/i.test(a.c)) a.c = a.c.replace(/_snippets$/i, "");
   if (APPROVED) { const kept = arts.filter(a => APPROVED.includes(a.c)); arts.length = 0; arts.push(...kept); }
 
   // DISPLAY NAMES, 4 Oct 2026 (Tom). The feed's displayName is wrong on some records: one
