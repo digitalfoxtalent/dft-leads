@@ -115,6 +115,10 @@
     {
       "path": "/api/release-finder?niche=film",
       "schedule": "30 14 * * 1"
+    },
+    {
+      "path": "/api/tom-sent-sync",
+      "schedule": "20 13 * * *"
     }
   ],
   "rewrites": [
