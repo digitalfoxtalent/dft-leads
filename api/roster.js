@@ -885,16 +885,19 @@ async function editRow(b, email) {
     if (!(vg > 0) || !(cpm > 0) || cpm > 10000 || vg > 1e9) throw new Error("View guarantee and CPM must be positive numbers");
     let rate = Math.round(vg * cpm / 1000);
     if (kind === "long" && rate < FLOOR) rate = FLOOR;
-    // Short form: store the publishing rate the roster shows (to the $100) beside its
-    // production fee and the total, so the board reads the same as the page.
-    if (kind !== "long") rate = r100(rate);
+    // Short form is priced by the post (Tom and Alex, 13 Oct 2026): store what the page shows,
+    // the Publishing Rate (POST_SHARE of the production fee for these views) beside the fee and
+    // the total, so the board reads the same as the page (fixed 18 Oct 2026; it had kept
+    // writing the old views x CPM rate).
+    const sFee = kind !== "long" ? feeFor(vg) : 0;
+    if (kind !== "long") rate = Math.round(sFee * POST_SHARE);
     // Brand CPM keeps the CPM that was asked for (not rate / views), so a small row lifted
     // by the floor is bundled at the CPM DFT chose rather than the house $25.
     Object.assign(values, {
       [K.bvg]: String(vg), [K.bcpm]: String(r2(cpm)), [K.brate]: String(rate), [K.bq]: quarterLabel(),
       [K.bnote]: "Edited by " + email + " on " + stamp() + " (was VG " + (cur.vg || "-") + ", CPM $" + (cur.cpm || "-") + "); resets next quarter",
     });
-    if (kind !== "long" && K.bfee) Object.assign(values, { [K.bfee]: String(feeFor(vg)), [K.btotal]: String(rate + feeFor(vg)) });
+    if (kind !== "long" && K.bfee) Object.assign(values, { [K.bfee]: String(sFee), [K.btotal]: String(rate + sFee) });
   }
   if (!Object.keys(values).length) throw new Error("nothing to change");
   const before = {};
