@@ -122,7 +122,7 @@ h1,h2,h3{font-family:"Bricolage Grotesque",sans-serif;color:var(--ink);margin:0;
 .tabs a{padding:7px 15px;border-radius:999px;font-size:13.5px;font-weight:600;color:var(--muted);text-decoration:none;white-space:nowrap}.tabs a:hover{color:var(--ink)}
 .tabs a[aria-current="page"]{background:var(--surface);color:var(--ink);box-shadow:var(--shadow)}
 h1{font-size:clamp(30px,4.6vw,46px);font-weight:800;line-height:1.02}h1 em{font-style:normal;color:var(--accent)}
-.sub{color:var(--muted);max-width:76ch;margin:10px 0 0}
+.sub{color:var(--muted);margin:10px 0 0}
 .layout{display:grid;grid-template-columns:300px 1fr;gap:20px;align-items:start}
 .card{background:var(--surface);border:1px solid var(--line);border-radius:18px;box-shadow:var(--shadow)}
 .side{padding:14px;position:sticky;top:16px;max-height:calc(100vh - 32px);display:flex;flex-direction:column;gap:10px}
