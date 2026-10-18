@@ -1,8 +1,8 @@
-// The Slot board page. Data arrives in the __DATA__ script tag (see load.js); everything else is drawn here.
+// The Ad Inventory Slots Available page (was "Slot board"). Data arrives in the __DATA__ script tag (see load.js); everything else is drawn here.
 // Layout: four headline tiles, then one grid (a row per creator, a column per week). Every video a creator is
 // expected to post that week is one square: green = sold (shows the brand's first letter, hover for the brand
 // and deal, click to open it on monday), orange = pending (pencilled), empty = free to sell. "N of M left" sits below.
-export const TEMPLATE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="robots" content="noindex,nofollow"><link rel="icon" type="image/png" href="https://digitalfoxtalent.com/dft/favicon.png"><title>DFT Slot board</title>
+export const TEMPLATE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="robots" content="noindex,nofollow"><link rel="icon" type="image/png" href="https://digitalfoxtalent.com/dft/favicon.png"><title>DFT Ad Inventory Slots Available</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Hanken+Grotesk:wght@400;500;600;700&display=swap">
 <style>
 :root{--bg:#F2F3F6;--surface:#FFFFFF;--sunk:#E9EBF0;--ink:#14161B;--body:#3A3F49;--muted:#687080;--line:#DFE2E8;--line-soft:#ECEEF2;--accent:#C05600;--accent-fill:#FF8800;--accent-soft:#FFF0DF;--slot:#AEB5C1;--good:#1F6B40;--good-ink:#FFFFFF;--good-soft:#E3F1E8;--good-text:#2C7A4B;--warn:#8A6D00;--warn-soft:#FFF6D6;
@@ -71,8 +71,8 @@ tbody tr:hover td{background:var(--line-soft)}tbody tr:hover td.c{background:var
 @media(max-width:820px){.wrap{padding:22px 16px 70px}col.cr{width:180px}.tile b{font-size:28px}.grid{max-height:none}}
 </style></head><body><div class="wrap">
 <div class="topbar"><div class="brandline"><img class="wordmark" src="https://df-cdn.b-cdn.net/GeneralLendingConfigs/landing_logo/DigitalFoxTalent-TextLogoBLACK-VECTOR.svg" alt="Digital Fox Talent" width="216" height="72"></div>
-<nav class="tabs" aria-label="Brand Partnerships"><a href="https://roster-viewguarantee.digitalfoxtalent.com" target="_blank" rel="noopener">Roster</a><a href="/partnerships/slot-board" aria-current="page">Slot board</a><a href="/partnerships">All of Brand Partnerships</a></nav></div>
-<header><h1>Slot <em>board</em></h1><p class="sub">Every video a creator posts can carry a sponsor. Each square is one video expected that week: green is sold, orange is pending (hover either for the brand; click a sold one to open the deal), an empty square is still free to sell. Rebuilt every night from YouTube, US Campaigns and the rates board.</p></header>
+<nav class="tabs" aria-label="Brand Partnerships"><a href="https://roster-viewguarantee.digitalfoxtalent.com" target="_blank" rel="noopener">Roster</a><a href="/partnerships/slot-board" aria-current="page">Ad Inventory Slots Available</a><a href="/partnerships">All of Brand Partnerships</a></nav></div>
+<header><h1>Ad Inventory Slots Available</h1><p class="sub">Every video a creator posts can carry a sponsor. Each square is one video expected that week: green is sold, orange is pending (hover either for the brand; click a sold one to open the deal), an empty square is still free to sell. Rebuilt every night from YouTube, US Campaigns and the rates board.</p></header>
 <div id="app"></div>
 </div>
 <script id="data" type="application/json">__DATA__</script>
@@ -109,7 +109,7 @@ function render(){
   '<div class="tiles">'+
   '<div class="tile hi"><div class="k">Open slots</div><b>'+nf(T.open)+'</b><div class="s">next 8 weeks \\u00b7 '+short(T.openViews)+' guaranteed views</div></div>'+
   '<div class="tile"><div class="k">Open inventory</div><b title="'+money(T.openValue)+'">'+smoney(T.openValue)+'</b><div class="s">at rate card</div></div>'+
-  '<div class="tile"><div class="k">Sold</div><b>'+nf(T.booked)+'</b><div class="s">'+money(T.bookedValue)+(T.pencilled?' \\u00b7 '+nf(T.pencilled)+' pencilled':'')+'</div></div>'+
+  '<div class="tile"><div class="k">Sold</div><b>'+nf(T.booked)+'</b><div class="s">'+money(T.bookedValue)+(T.pencilled?' \\u00b7 '+nf(T.pencilled)+' pending':'')+'</div></div>'+
   '<div class="tile"><div class="k">Sell-through</div><b>'+T.sellThrough+'%</b><div class="meter" role="img" aria-label="'+T.sellThrough+' percent sold"><i style="width:'+Math.min(100,Math.max(0,T.sellThrough))+'%"></i></div><div class="s" style="margin-top:6px">of '+nf(T.expected)+' expected uploads</div></div>'+
   '</div>'+
   '<div class="card"><div class="grid"><table><colgroup><col class="cr">'+W.map(()=>'<col>').join("")+'<col class="tot"></colgroup>'+
