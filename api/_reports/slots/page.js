@@ -24,7 +24,7 @@ a{color:inherit}
 .tabs a{padding:7px 15px;border-radius:999px;font-size:13.5px;font-weight:600;color:var(--muted);text-decoration:none;white-space:nowrap}.tabs a:hover{color:var(--ink)}
 .tabs a[aria-current="page"]{background:var(--surface);color:var(--ink);box-shadow:var(--shadow)}
 h1{font-size:clamp(30px,4.2vw,42px);font-weight:800;line-height:1.02}h1 em{font-style:normal;color:var(--accent)}
-.sub{color:var(--muted);max-width:96ch;margin:8px 0 0;font-size:14.5px}
+.sub{color:var(--muted);margin:8px 0 0;font-size:14.5px}
 /* headline tiles */
 .tiles{display:grid;grid-template-columns:1.25fr 1fr 1fr 1fr;gap:12px}
 .tile{border:1px solid var(--line);background:var(--surface);border-radius:14px;padding:16px 18px;box-shadow:var(--shadow);min-width:0}
