@@ -1,16 +1,16 @@
 // The Slot board page. Data arrives in the __DATA__ script tag (see load.js); everything else is drawn here.
 // Layout: four headline tiles, then one grid (a row per creator, a column per week). Every video a creator is
 // expected to post that week is one square: green = sold (shows the brand's first letter, hover for the brand
-// and deal, click to open it on monday), dashed = pencilled, empty = free to sell. "N of M left" sits below.
+// and deal, click to open it on monday), orange = pending (pencilled), empty = free to sell. "N of M left" sits below.
 export const TEMPLATE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="robots" content="noindex,nofollow"><link rel="icon" type="image/png" href="https://digitalfoxtalent.com/dft/favicon.png"><title>DFT Slot board</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Hanken+Grotesk:wght@400;500;600;700&display=swap">
 <style>
-:root{--bg:#F2F3F6;--surface:#FFFFFF;--sunk:#E9EBF0;--ink:#14161B;--body:#3A3F49;--muted:#687080;--line:#DFE2E8;--line-soft:#ECEEF2;--accent:#C05600;--accent-fill:#FF8800;--accent-soft:#FFF0DF;--good:#1F6B40;--good-ink:#FFFFFF;--good-soft:#E3F1E8;--good-text:#2C7A4B;--warn:#8A6D00;--warn-soft:#FFF6D6;
+:root{--bg:#F2F3F6;--surface:#FFFFFF;--sunk:#E9EBF0;--ink:#14161B;--body:#3A3F49;--muted:#687080;--line:#DFE2E8;--line-soft:#ECEEF2;--accent:#C05600;--accent-fill:#FF8800;--accent-soft:#FFF0DF;--slot:#AEB5C1;--good:#1F6B40;--good-ink:#FFFFFF;--good-soft:#E3F1E8;--good-text:#2C7A4B;--warn:#8A6D00;--warn-soft:#FFF6D6;
 
 --shadow:0 1px 2px rgba(20,22,27,.05),0 8px 24px -12px rgba(20,22,27,.12)}
-@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){color-scheme:dark;--bg:#0E1014;--surface:#171A20;--sunk:#1D2128;--ink:#F2F3F6;--body:#C8CCD4;--muted:#8B919D;--line:#2A2F38;--line-soft:#22262E;--accent:#FF9A2E;--accent-soft:#2B2016;--good:#6FC48E;--good-ink:#0E1014;--good-soft:#18261E;--good-text:#6FC48E;--warn:#E8C34A;--warn-soft:#2A2410;
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){color-scheme:dark;--bg:#0E1014;--surface:#171A20;--sunk:#1D2128;--ink:#F2F3F6;--body:#C8CCD4;--muted:#8B919D;--line:#2A2F38;--line-soft:#22262E;--accent:#FF9A2E;--accent-soft:#2B2016;--slot:#5A616D;--good:#6FC48E;--good-ink:#0E1014;--good-soft:#18261E;--good-text:#6FC48E;--warn:#E8C34A;--warn-soft:#2A2410;
 --shadow:0 1px 2px rgba(0,0,0,.3)}}
-:root[data-theme="dark"]{color-scheme:dark;--bg:#0E1014;--surface:#171A20;--sunk:#1D2128;--ink:#F2F3F6;--body:#C8CCD4;--muted:#8B919D;--line:#2A2F38;--line-soft:#22262E;--accent:#FF9A2E;--accent-soft:#2B2016;--good:#6FC48E;--good-ink:#0E1014;--good-soft:#18261E;--good-text:#6FC48E;--warn:#E8C34A;--warn-soft:#2A2410;
+:root[data-theme="dark"]{color-scheme:dark;--bg:#0E1014;--surface:#171A20;--sunk:#1D2128;--ink:#F2F3F6;--body:#C8CCD4;--muted:#8B919D;--line:#2A2F38;--line-soft:#22262E;--accent:#FF9A2E;--accent-soft:#2B2016;--slot:#5A616D;--good:#6FC48E;--good-ink:#0E1014;--good-soft:#18261E;--good-text:#6FC48E;--warn:#E8C34A;--warn-soft:#2A2410;
 --shadow:0 1px 2px rgba(0,0,0,.3)}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--body);font:15px/1.5 "Hanken Grotesk",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-variant-numeric:tabular-nums}
 h1,h2,h3{font-family:"Bricolage Grotesque",sans-serif;color:var(--ink);margin:0;letter-spacing:-.01em}
@@ -54,9 +54,9 @@ td.c{position:sticky;left:0;background:var(--surface);z-index:1;padding:10px 12p
 /* one week for one creator */
 .cell{border-radius:8px;padding:6px;display:flex;flex-direction:column;gap:5px;background:var(--bg);min-height:40px;justify-content:center}
 .slots{display:flex;flex-wrap:wrap;gap:3px}
-.slots i,.slots a{display:flex;align-items:center;justify-content:center;width:14px;height:14px;border-radius:3px;border:1.5px solid var(--accent-fill);background:transparent;font:700 9px/1 "Hanken Grotesk",sans-serif;font-style:normal;text-decoration:none;text-transform:uppercase}
+.slots i,.slots a{display:flex;align-items:center;justify-content:center;width:14px;height:14px;border-radius:3px;border:1.5px solid var(--slot);background:var(--surface);font:700 9px/1 "Hanken Grotesk",sans-serif;font-style:normal;text-decoration:none;text-transform:uppercase}
 .slots .sold{background:var(--good);border-color:var(--good);color:var(--good-ink);cursor:pointer}.slots a.sold:hover{filter:brightness(1.15)}
-.slots .pen{border:1.5px dashed var(--good-text);color:var(--good-text);cursor:default}
+.slots .pen{background:var(--accent-fill);border-color:var(--accent-fill);color:#14161B;cursor:default}
 #tip{position:fixed;z-index:50;pointer-events:none;background:var(--ink);color:var(--surface);font-size:12.5px;line-height:1.35;padding:6px 9px;border-radius:7px;max-width:280px;box-shadow:var(--shadow);display:none}#tip b{display:block;font-size:13px}
 .cap{font-size:12px;color:var(--muted);line-height:1.2}.cap b{font-size:14px;color:var(--ink)}
 .cell.full .cap b{color:var(--good-text)}
@@ -64,13 +64,6 @@ td.c{position:sticky;left:0;background:var(--surface);z-index:1;padding:10px 12p
 td.tot b{display:block;font-size:17px;color:var(--ink)}td.tot span{display:block;font-size:12.5px;color:var(--muted);white-space:nowrap}
 tr.paused td.c .who,tr.paused .cell{opacity:.5}
 tbody tr:hover td{background:var(--line-soft)}tbody tr:hover td.c{background:var(--line-soft)}
-/* releases row */
-tr.rel td{background:var(--bg);padding:6px 6px;vertical-align:top;border-bottom:1px solid var(--line)}
-tr.rel td.c{background:var(--bg);font-size:12.5px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
-tr.rel:hover td{background:var(--bg)}
-details summary{cursor:pointer;font-size:13px;color:var(--warn);font-weight:600;list-style:none;white-space:nowrap}details summary::-webkit-details-marker{display:none}
-details summary::before{content:"+ ";}details[open] summary::before{content:"\\2212  ";}
-details ul{margin:6px 0 2px;padding:0;list-style:none;font-size:12.5px;color:var(--body)}details li{padding:2px 0;border-top:1px solid var(--line-soft)}details li span{color:var(--muted)}
 /* bottom cards */
 .note{font-size:13px;color:var(--muted)}.err{background:var(--accent-soft);color:var(--accent);border-radius:12px;padding:12px 14px;margin:0}
 .empty{padding:60px 20px;text-align:center;color:var(--muted)}
@@ -79,7 +72,7 @@ details ul{margin:6px 0 2px;padding:0;list-style:none;font-size:12.5px;color:var
 </style></head><body><div class="wrap">
 <div class="topbar"><div class="brandline"><img class="wordmark" src="https://df-cdn.b-cdn.net/GeneralLendingConfigs/landing_logo/DigitalFoxTalent-TextLogoBLACK-VECTOR.svg" alt="Digital Fox Talent" width="216" height="72"></div>
 <nav class="tabs" aria-label="Brand Partnerships"><a href="https://roster-viewguarantee.digitalfoxtalent.com" target="_blank" rel="noopener">Roster</a><a href="/partnerships/slot-board" aria-current="page">Slot board</a><a href="/partnerships">All of Brand Partnerships</a></nav></div>
-<header><h1>Slot <em>board</em></h1><p class="sub">Every video a creator posts can carry a sponsor. Each square is one video expected that week: green is sold (hover for the brand, click to open the deal), an empty square is still free to sell. Rebuilt every night from YouTube, US Campaigns and the rates board.</p></header>
+<header><h1>Slot <em>board</em></h1><p class="sub">Every video a creator posts can carry a sponsor. Each square is one video expected that week: green is sold, orange is pending (hover either for the brand; click a sold one to open the deal), an empty square is still free to sell. Rebuilt every night from YouTube, US Campaigns and the rates board.</p></header>
 <div id="app"></div>
 </div>
 <script id="data" type="application/json">__DATA__</script>
@@ -100,10 +93,10 @@ function cell(c,w,k){
   if(!n)return '<div class="cell none" title="'+label+'no video expected"><span>\\u2013</span></div>';
   const ltr=s=>esc(((s.brand||"?").trim().match(/[A-Za-z0-9]/)||["?"])[0]);
   let sq=w.booked.map(s=>'<a class="sold" href="https://digitalfoxtalent.monday.com/boards/6162879609/pulses/'+esc(s.dealId)+'" target="_blank" rel="noopener" aria-label="Sold: '+esc(s.brand)+'" data-tip="'+esc(s.brand)+'" data-sub="'+esc("Sold \\u00b7 "+s.deal+(s.start?" \\u00b7 "+day(s.start):""))+'">'+ltr(s)+'</a>').join("")+
-    w.pencilled.map(s=>'<i class="pen" aria-label="Pencilled: '+esc(s.brand)+'" data-tip="'+esc(s.brand)+'" data-sub="'+esc("Pencilled, not sold yet \\u00b7 "+s.deal)+'">'+ltr(s)+'</i>').join("");
+    w.pencilled.map(s=>'<i class="pen" aria-label="Pending: '+esc(s.brand)+'" data-tip="'+esc(s.brand)+'" data-sub="'+esc("Pending, not sold yet \\u00b7 "+s.deal+(s.group?" \\u00b7 "+s.group:"")+(s.start?" \\u00b7 "+day(s.start):""))+'">'+ltr(s)+'</i>').join("");
   for(let i=w.booked.length+w.pencilled.length;i<n;i++)sq+='<i></i>';
   const val=c.rate&&w.open?", "+money(w.open*c.rate)+" open":"";
-  const cap=w.open?'<b>'+w.open+'</b> of '+w.expected+' left':'<b>Sold out</b>';
+  const cap=(w.open?'<b>'+w.open+'</b> of '+w.expected+' left':'<b>Sold out</b>')+(w.pencilled.length?' \\u00b7 '+w.pencilled.length+' pending':'');
   return '<div class="cell'+(w.open?'':' full')+'" title="'+label+w.expected+' video'+(w.expected===1?'':'s')+' expected, '+w.booked.length+' sold, '+w.open+' left'+val+'"><div class="slots">'+sq+'</div><span class="cap">'+cap+'</span></div>';
 }
 function render(){
@@ -121,7 +114,6 @@ function render(){
   '</div>'+
   '<div class="card"><div class="grid"><table><colgroup><col class="cr">'+W.map(()=>'<col>').join("")+'<col class="tot"></colgroup>'+
   '<thead><tr><th class="corner">Creator</th>'+W.map((w,k)=>'<th class="wk">'+(today>=w.start&&today<=w.end?'<span class="now">This week</span>':'')+'<span class="d">'+range(w.start,w.end)+'</span></th>').join("")+'<th class="tot">8 weeks</th></tr></thead><tbody>'+
-  '<tr class="rel"><td class="c" title="Films, games, TV and tech coming out that week, from the Studio/Dev and Games, TV & Tech release boards">Out this week</td>'+W.map(w=>'<td>'+(w.releases.length?'<details><summary>'+w.releases.length+' title'+(w.releases.length===1?'':'s')+'</summary><ul>'+w.releases.slice().sort((a,b)=>a.date<b.date?-1:1).map(r=>'<li><span>'+day(r.date)+'</span> '+esc(r.name)+'</li>').join("")+'</ul></details>':'<span class="note">None</span>')+'</td>').join("")+'<td></td></tr>'+
   (rows.length?rows.map(c=>'<tr'+(c.cadence.paused?' class="paused"':'')+'><td class="c"><div class="who">'+(c.logo?'<img src="'+esc(c.logo)+'" alt="" loading="lazy" referrerpolicy="no-referrer">':'')+'<div class="t"><b title="'+esc(c.name+(c.handle?" "+c.handle:""))+'">'+esc(c.name)+'</b><span>'+(c.cadence.paused?'<i class="flag">Paused</i> last upload '+esc(c.cadence.last||"unknown"):pace(c.cadence.rate))+(c.uploadsError?'<i class="flag" title="'+esc(c.uploadsError)+'">YouTube not read</i>':'')+'</span></div></div></td>'+
     c.weeks.map((w,k)=>'<td>'+cell(c,w,k)+'</td>').join("")+
     '<td class="tot"><b>'+nf(c.openSlots)+' left</b><span>'+smoney(c.openValue)+'</span><span>'+nf(c.bookedSlots)+' sold</span></td></tr>').join(""):'<tr><td class="c" colspan="'+(W.length+2)+'"><span class="note">No creators match.</span></td></tr>')+
