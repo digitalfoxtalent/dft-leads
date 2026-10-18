@@ -743,7 +743,7 @@ export function aboutPage(data, base) {
     <p>${BRAND_()} is a publication written by the people who actually watch the things it covers. Every article here started life as a video by one of the ${data.panel.length} creators on <a href="${base}/#panel" style="color:var(--blue)">The Panel</a>, and runs under that creator&rsquo;s name with a link to the video it came from. We don&rsquo;t have staff writers. We don&rsquo;t have anonymous bylines.</p>
     <p>The name is the idea: the story under the story. Breakdowns, theories, reactions, opinions, reviews and lore - the second layer that people who love this stuff actually talk about.</p>
     ${brand().key === "subplot" ? `<h2 id="publisher">Who publishes ${BRAND_()}</h2>
-    <p>${BRAND_()} is owned and published by <a href="https://digitalfoxtalent.com" rel="noopener" style="color:var(--blue)">Digital Fox Talent LLC</a>, a creator management agency based in Denver, Colorado. It is edited by Tom James, Founder of Digital Fox Talent, who leads its editorial team and signs off every article before it is published. Questions about the site go to ${mail("hello")}.</p>` : ""}
+    <p>${BRAND_()} is owned and published by <a href="https://digitalfoxtalent.com" rel="noopener" style="color:var(--blue)">Digital Fox Talent LLC</a>, a creator management agency based in Denver, Colorado. It is edited by Tom James, Founder of Digital Fox Talent, who leads its editorial team. Every article is reviewed and approved by a person on that team before it is published. Questions about the site go to ${mail("hello")}.</p>` : ""}
 
     <h2 id="standards">Editorial standards</h2>
     <p><b>One creator, one byline.</b> Each article is adapted from a single creator&rsquo;s own video and published under their name. If it isn&rsquo;t theirs, it isn&rsquo;t here.</p>
@@ -752,7 +752,7 @@ export function aboutPage(data, base) {
     <p><b>Corrections.</b> If we&rsquo;ve got something wrong, tell us at ${mail("corrections")} and we&rsquo;ll fix it and say so.</p>
 
     <h2 id="ai">How we use AI</h2>
-    <p>The first draft of every article is written by AI, from the creator&rsquo;s own transcript. A fidelity check then compares the draft with the video and holds back anything that drifts from what was actually said. Every article carries a short note saying so. Our editorial team then reviews each article, and Tom James signs off every one before it is published.</p>
+    <p>The first draft of every article is written by AI, from the creator&rsquo;s own transcript. A fidelity check then compares the draft with the video and holds back anything that drifts from what was actually said. Every article carries a short note saying so. Every article is then reviewed and approved by a person on our editorial team before it is published.</p>
     <p>What&rsquo;s never AI: the ideas, the takes, the jokes, the reporting, the personality. Those belong to the creator, which is the whole point.</p>
     <p>Creators join by applying with their handle and agreeing to the same standard terms as everyone else; nothing publishes under a creator&rsquo;s name without that agreement, and any creator can pull any article at any time.</p>
 
