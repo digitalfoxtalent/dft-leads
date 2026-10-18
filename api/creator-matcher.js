@@ -1,5 +1,6 @@
 export const config={maxDuration:300};
-// CREATOR MATCHER for the Studio/Dev Upcoming Releases board (18415007170).
+// CREATOR MATCHER for the release boards: George's Studio/Dev Upcoming Releases (18415007170, films) and Tom's
+// Games, TV & Tech Upcoming Releases (18435939296, split off 17 Oct 2026). Both boards share column ids.
 // Two jobs each weekly run:
 //  1) PREP (source-once): for releases 0-120 days out with no Suggested Creators yet, scan DFT
 //     roster creators' recent uploads for videos on that release's IP, and write creators + videos.
@@ -12,7 +13,7 @@ export const config={maxDuration:300};
 export default async function handler(req,res){
 const YT=process.env.YOUTUBE_API_KEY;
 const MK=process.env.MONDAY_API_KEY;
-const RELEASE_BOARD="18415007170";
+const RELEASE_BOARDS=["18415007170","18435939296"];
 const ROSTER_BOARD="6160485039";
 const REL_DATE="date_mm3rpkm4",REL_WINDOW="color_mm5cpevg",REL_CREATORS="long_text_mm5cfcfd",REL_VIDEOS="long_text_mm5cwn40";
 const ROSTER_GROUPS=["new_group__1","group_mks8q6fd"];
@@ -63,8 +64,13 @@ return false;
 }
 
 // ---- Step 1: read releases (date, creators, window); build prep + flip target lists ----
-const relRes=await monday("{boards(ids:["+RELEASE_BOARD+"]){items_page(limit:200){items{id name column_values(ids:[\""+REL_DATE+"\",\""+REL_CREATORS+"\",\""+REL_WINDOW+"\"]){id text}}}}}");
-const relItems=(relRes&&relRes.data&&relRes.data.boards&&relRes.data.boards[0]&&relRes.data.boards[0].items_page&&relRes.data.boards[0].items_page.items)||[];
+// Upcoming group only, every row (the old single items_page(limit:200) call stopped at 200 of 300+ rows).
+const relItems=[];
+for(const board of RELEASE_BOARDS){
+const relRes=await monday("{boards(ids:["+board+"]){groups(ids:[\"topics\"]){items_page(limit:500){items{id name column_values(ids:[\""+REL_DATE+"\",\""+REL_CREATORS+"\",\""+REL_WINDOW+"\"]){id text}}}}}}");
+const grp=(relRes&&relRes.data&&relRes.data.boards&&relRes.data.boards[0]&&relRes.data.boards[0].groups&&relRes.data.boards[0].groups[0])||null;
+for(const it of((grp&&grp.items_page&&grp.items_page.items)||[])){it.board=board;relItems.push(it);}
+}
 const today=Date.now();
 const matchTargets=[]; // 0-120d, no creators yet -> match creators (source once)
 const flipTargets=[];  // 0-ALERT_DAYS, not yet "Reach out now"/"Launched" -> fire alert
@@ -74,8 +80,8 @@ for(const cv of(it.column_values||[])){if(cv.id===REL_DATE)dateTxt=(cv.text||"")
 if(!dateTxt)continue;
 const days=Math.round((Date.parse(dateTxt)-today)/86400000);
 if(days<0)continue; // launched -> handled by the sourcing task
-if(days<=PREP_MAX&&!creators)matchTargets.push({id:it.id,name:it.name,days:days,kw:keywordsFor(it.name)});
-if(days<=ALERT_DAYS&&windowTxt!=="Reach out now"&&windowTxt!=="Launched")flipTargets.push({id:it.id,name:it.name,days:days});
+if(days<=PREP_MAX&&!creators)matchTargets.push({id:it.id,board:it.board,name:it.name,days:days,kw:keywordsFor(it.name)});
+if(days<=ALERT_DAYS&&windowTxt!=="Reach out now"&&windowTxt!=="Launched")flipTargets.push({id:it.id,board:it.board,name:it.name,days:days});
 }
 if(!matchTargets.length&&!flipTargets.length)return res.json({message:"No releases to match or flip",checked:relItems.length});
 
@@ -139,7 +145,7 @@ videosText="";
 // If already within the alert window, go straight to "Reach out now"; otherwise hold at "Prep window".
 const windowLabel=t.days<=ALERT_DAYS?"Reach out now":"Prep window";
 const cols={};cols[REL_CREATORS]={text:creatorsText};cols[REL_VIDEOS]={text:videosText};cols[REL_WINDOW]={label:windowLabel};
-try{await monday("mutation{change_multiple_column_values(board_id:"+RELEASE_BOARD+",item_id:"+t.id+",column_values:"+JSON.stringify(JSON.stringify(cols))+",create_labels_if_missing:true){id}}");}catch(e){}
+try{await monday("mutation{change_multiple_column_values(board_id:"+t.board+",item_id:"+t.id+",column_values:"+JSON.stringify(JSON.stringify(cols))+",create_labels_if_missing:true){id}}");}catch(e){}
 report.push({release:t.name,days:t.days,window:windowLabel,creatorsMatched:top.length,topCreators:top.map(function(h){return h.name+"("+h.count+")";})});
 }
 
@@ -148,7 +154,7 @@ let flipped=0;
 for(const f of flipTargets){
 if(matchedIds.has(f.id))continue; // already set in the prep pass this run
 const cols={};cols[REL_WINDOW]={label:"Reach out now"};
-try{await monday("mutation{change_multiple_column_values(board_id:"+RELEASE_BOARD+",item_id:"+f.id+",column_values:"+JSON.stringify(JSON.stringify(cols))+",create_labels_if_missing:true){id}}");flipped++;}catch(e){}
+try{await monday("mutation{change_multiple_column_values(board_id:"+f.board+",item_id:"+f.id+",column_values:"+JSON.stringify(JSON.stringify(cols))+",create_labels_if_missing:true){id}}");flipped++;}catch(e){}
 await sleep(20);
 }
 
