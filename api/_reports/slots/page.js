@@ -59,7 +59,6 @@ td.c{position:sticky;left:0;background:var(--surface);z-index:1;padding:10px 12p
 .slots .pen{background:var(--accent-fill);border-color:var(--accent-fill);color:#14161B;cursor:default}
 #tip{position:fixed;z-index:50;pointer-events:none;background:var(--ink);color:var(--surface);font-size:12.5px;line-height:1.35;padding:6px 9px;border-radius:7px;max-width:280px;box-shadow:var(--shadow);display:none}#tip b{display:block;font-size:13px}
 .cap{font-size:12px;color:var(--muted);line-height:1.2}.cap b{font-size:14px;color:var(--ink)}
-.cell.full .cap b{color:var(--good-text)}
 .cell.none{background:transparent;color:var(--muted);text-align:center;opacity:.6}
 .mb+.mb{margin-top:9px}.mb .ml{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:0 6px;font-size:12px;color:var(--muted);white-space:nowrap}.mb .ml b{color:var(--ink);font-size:13.5px}.mb .ml .s{color:var(--good-text);font-weight:600}.mb .ml span+span{margin-left:auto}
 .mb .bar{display:flex;height:7px;border-radius:9px;background:var(--sunk);overflow:hidden;margin-top:4px}.mb .bar i{display:block;height:100%;background:var(--good)}
@@ -101,8 +100,7 @@ function cell(c,w,k){
     w.pencilled.map(s=>'<i class="pen" aria-label="Pending: '+esc(s.brand)+'" data-tip="'+esc(s.brand)+'" data-sub="'+esc("Pending, not sold yet \\u00b7 "+s.deal+(s.group?" \\u00b7 "+s.group:"")+(s.start?" \\u00b7 "+day(s.start):""))+'">'+ltr(s)+'</i>').join("");
   for(let i=w.booked.length+w.pencilled.length;i<n;i++)sq+='<i></i>';
   const val=c.rate&&w.open?", "+money(w.open*c.rate)+" open":"";
-  const cap=(w.open?'<b>'+w.open+'</b> of '+w.expected+' left':'<b>Sold out</b>')+(w.pencilled.length?' \\u00b7 '+w.pencilled.length+' pending':'');
-  return '<div class="cell'+(w.open?'':' full')+'" title="'+label+w.expected+' video'+(w.expected===1?'':'s')+' expected, '+w.booked.length+' sold, '+w.open+' left'+val+'"><div class="slots">'+sq+'</div><span class="cap">'+cap+'</span></div>';
+  return '<div class="cell'+(w.open?'':' full')+'" title="'+label+w.expected+' video'+(w.expected===1?'':'s')+' expected, '+w.booked.length+' sold, '+w.open+' left'+val+'"><div class="slots">'+sq+'</div></div>';
 }
 function mbar(sold,left,total,fmt){const f=total?Math.min(100,sold/total*100):0;
   return '<div class="mb"><div class="ml"><span class="s">'+fmt(sold)+' sold</span><span><b>'+fmt(left)+'</b> of '+fmt(total)+' left</span></div><div class="bar" role="img" aria-label="'+fmt(sold)+' sold, '+fmt(left)+' left"><i style="width:'+f+'%"></i></div></div>';}
