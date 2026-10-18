@@ -423,7 +423,7 @@ const band = base => `
       ${hasCast() ? `<div class="mascot">${ch("reactor", 120)}</div>` : ""}
       <div class="band-body">
         <div class="band-top"><h2>Make videos? Get read.</h2><a class="cta" href="${base}/join">${joinCta()}</a></div>
-        <p>${BRAND_()} turns the videos you already make into articles, under your name, with a link back to every one.<br>You keep 60% of what they earn. Apply with your YouTube handle.</p>
+        <p>${BRAND_()} turns the videos you already make into articles, under your name, with a link back to every one.<br>You keep 60% of what they earn. ${brand().key === "subplot" ? "Apply through Digital Fox Talent." : "Apply with your YouTube handle."}</p>
       </div>
     </section>`;
 
@@ -628,7 +628,7 @@ export function joinPage(data, base) {
       <div><span class="kicker">${joinCta()}</span>
         <h1>Your videos, <em>in writing.</em> Under your name.</h1></div>
       <div><p>You make the video. We turn it into an article that people find on Google and Discover, bylined to you, linking back to your channel. You don&rsquo;t write a word.</p>
-        <a class="cta" href="#apply">Apply with your handle</a></div>
+        <a class="cta" href="#apply">${brand().key === "subplot" ? "How to apply" : "Apply with your handle"}</a></div>
       ${hasCast() ? `<div class="mascot">${ch("subplot", 220)}</div>` : ""}
     </div>
     <div class="rule-h"><h2>How it works</h2><span class="note">three steps, one of them yours</span></div>
@@ -653,6 +653,25 @@ export function joinPage(data, base) {
         <li><b>A real name and a real channel.</b> No anonymous bylines here.</li>
         <li><b>Patience with the odd hold.</b> If the check flags an article, it waits for a human. That&rsquo;s a feature.</li></ul></div>
     </div>
+${brand().key === "subplot" ? `
+    <div class="apply" id="apply">
+      <div class="aside"><h2>Apply through Digital Fox Talent.</h2>
+        <p>${BRAND_()} is published by Digital Fox Talent, the creator management agency, so creators join through DFT&rsquo;s creator sign-up. One application covers ${BRAND_()} and everything else DFT can do for your channel.</p>
+        <p>We&rsquo;re taking film, TV, games, comics, anime and everything adjacent. Long-form, reactions, breakdowns, lore, interviews.</p></div>
+      <div class="form">
+        <h3 style="margin:0 0 .8rem">What happens when you apply</h3>
+        <ul style="margin:0 0 1.6rem;padding-left:1.2rem">
+          <li><b>Check your channel in about 30 seconds.</b> Connect your YouTube channel on DFT&rsquo;s sign-up page and it checks straight away whether you qualify. Read-only access: DFT never sees your password and can&rsquo;t post or change anything.</li>
+          <li><b>The bar.</b> At least 50,000 average views per long-form video. Views on Spotify Video and Apple Podcasts count too.</li>
+          <li><b>Pick what you want.</b> If you qualify, choose what you&rsquo;d like DFT to do, including turning your videos into articles here, and accept the terms on the form.</li>
+          <li><b>Approved by email.</b> Usually the same day. No interview, nothing to sign later.</li>
+        </ul>
+        <p style="margin:0 0 1rem"><a class="submit" href="https://digitalfoxtalent.com/sign-up?source=subplot" rel="noopener" style="display:inline-block;background:var(--blue);color:#fff;font-weight:700;padding:.8rem 1.6rem;border-radius:999px;text-decoration:none">Apply on Digital Fox Talent &rarr;</a></p>
+        <p class="formnote">Mostly on Spotify or Apple Podcasts? Email <a href="mailto:theteam@digitalfoxtalent.com">theteam@digitalfoxtalent.com</a> with your show link and a screenshot of your stats for the last 10 episodes.</p>
+      </div>
+    </div>
+  </div>
+</section>` : `
     <div class="apply" id="apply">
       <div class="aside"><h2>Apply with your YouTube handle.</h2>
         <p>That&rsquo;s all we really need - we look at the channel, the captions and the kind of videos you make, and if it&rsquo;s a fit we start.</p>
@@ -701,7 +720,7 @@ export function joinPage(data, base) {
     }
   });
 })();
-</script>`;
+</script>`}`;
   return shell({ base, title: `${joinCta()} - ${BRAND_()}`, desc: "Your videos, in writing. Under your name.", body, rule: "var(--orange)" })
     .replace('<span id="panelcount-slot"></span>', `<span>${data.panel.length} creators writing here</span>`);
 }
@@ -754,7 +773,7 @@ export function aboutPage(data, base) {
     <h2 id="ai">How we use AI</h2>
     <p>The first draft of every article is written by AI, from the creator&rsquo;s own transcript. A fidelity check then compares the draft with the video and holds back anything that drifts from what was actually said. Every article carries a short note saying so. Every article is then reviewed and approved by a person on our editorial team before it is published.</p>
     <p>What&rsquo;s never AI: the ideas, the takes, the jokes, the reporting, the personality. Those belong to the creator, which is the whole point.</p>
-    <p>Creators join by applying with their handle and agreeing to the same standard terms as everyone else; nothing publishes under a creator&rsquo;s name without that agreement, and any creator can pull any article at any time.</p>
+    <p>Creators join ${brand().key === "subplot" ? "through Digital Fox Talent&rsquo;s creator sign-up and agree" : "by applying with their handle and agreeing"} to the same standard terms as everyone else; nothing publishes under a creator&rsquo;s name without that agreement, and any creator can pull any article at any time.</p>
 
     </div>
     <aside class="aboutrail">
