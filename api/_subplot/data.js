@@ -511,7 +511,7 @@ async function load() {
     const dated = new Set(DATED_IDS);
     const longDate = d => { const t = new Date(d); return isNaN(t) ? "" : t.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" }); };
     for (const a of arts) {
-      for (const [from, to] of byId.get(a.id) || []) { a.h = a.h.split(from).join(to); a.s = (a.s || "").split(from).join(to); a.body = a.body.split(from).join(to); }
+      for (const [from, to] of byId.get(a.id) || []) { a.h = a.h.split(from).join(to); a.s = (a.s || "").split(from).join(to); a.body = a.body.split(from).join(to); if (Array.isArray(a.t)) a.t = a.t.map(x => String(x).split(from).join(to)); }
       if (dated.has(a.id) && longDate(a.p)) a.body = `<p class="dated-note"><em>Published ${longDate(a.p)}. Words like "tonight" or "next week" refer to that date.</em></p>` + a.body;
     }
   }
@@ -721,6 +721,10 @@ export const EDITORIAL_FIXES = [
   ["8THUXFI59jo", "Composer Metro Boomin", "Soundtrack producer Metro Boomin"],
   ["8THUXFI59jo", "As I put it: \"how low is the life expectancy of this place\".", "Which makes me wonder how low the life expectancy of this place is."],
   ["8THUXFI59jo", "\"I'm not telling you what to think,\" but these animators", "I'm not telling you what to think, but these animators"],
+  ["ifTdbDAcd9U__t3", "Jon ", "John "],
+  ["ifTdbDAcd9U__t3", "Jon'", "John'"],
+  ["ifTdbDAcd9U__t3", "Jon,", "John,"],
+  ["ifTdbDAcd9U__t3", "Jon.", "John."],
 ];
 export const DATED_IDS = [
   "-4QU76wzWOM", "-ywzCKKPpOI", "2owGtFMcyR0", "3CtzjeYkMhw", "40ci88x8Cl8", "4RoCzA_INZ0",
