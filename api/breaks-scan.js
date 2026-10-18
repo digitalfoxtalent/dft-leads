@@ -1,4 +1,4 @@
-// Nightly ad-break and history check for the breaks dashboard (reports.digitalfoxtalent.com/distribution).
+// Nightly ad-break and history check for the breaks dashboard (ecosystem.digitalfoxtalent.com/reporting/video-distribution).
 // Runs on Vercel (crons in vercel.json, 22:00, 22:06 and 22:12 UTC), one part of the shows each time;
 // the last part also saves tonight's list of open breaks so the page can show what was fixed this week.
 // See _reports/distribution/breaks-scan.js for what it checks. Megaphone is only read, never changed.

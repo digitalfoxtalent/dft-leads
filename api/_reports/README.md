@@ -2,7 +2,7 @@
 
 reports.digitalfoxtalent.com - the team's reporting home. Entry point: `api/reports.js`.
 
-The same handler serves ecosystem.digitalfoxtalent.com, the team's home: the ecosystem map at `/` and `/<department>`, and these reports under `/reports/...`. The map lives in `ecosystem/page.js`.
+The same handler serves ecosystem.digitalfoxtalent.com, the team's home: the ecosystem map at `/` and `/<department>`, and every tool at `/<department>/<tool>` (these reports sit under `/reporting/...`). The address book, including every old address that redirects, is `routes.js`. The team report pages on reports.digitalfoxtalent.com redirect there too; partner pages stay. The map lives in `ecosystem/page.js`.
 
 | File | Job |
 |---|---|
@@ -22,6 +22,6 @@ Rules every report follows:
 3. A short or empty read is a fault, never the truth.
 4. Every source shows its own "updated" time.
 
-To add a report: a folder here, a card in `home.js`, a case in `api/reports.js`.
+To add a report: a folder here, a line in `routes.js` (its `/<department>/<tool>` address), and a case in `api/reports.js`.
 Routes arrive as `?r=<path>` from the reports.digitalfoxtalent.com rewrite in `vercel.json`.
 Preview builds answer `/api/reports?r=status` without the cookie (codes and counts only) so a build can be checked before it goes live.

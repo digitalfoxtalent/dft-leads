@@ -1,4 +1,4 @@
-// Creator earnings calculator: the channel lookup behind ecosystem.digitalfoxtalent.com/marketing/earnings.
+// Creator earnings calculator: the channel lookup behind ecosystem.digitalfoxtalent.com/marketing/earnings-calculator.
 //
 // INTERNAL PREVIEW (Tom, 17 Oct 2026: "I'd like to see this internally first"). The page sits behind the
 // Ecosystem's DFT sign-in. A public version for digitalfoxtalent.com, which saves each result as a sign-up

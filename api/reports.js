@@ -1,11 +1,15 @@
 // DFT Reports - reports.digitalfoxtalent.com. One entry point for every team report.
 //
 // THE ECOSYSTEM - ecosystem.digitalfoxtalent.com is the team's home and is served by this same handler.
-//   /  and /<department> (talent, sales, content, platforms, data, finance, marketing) -> the ecosystem map
-//   /reports, /reports/platforms, /reports/distribution ... -> the reports below, linked back to the ecosystem
-//   /marketing/earnings -> the creator earnings calculator (internal preview), reading /earnings-data
-//   every other path (data routes the report pages fetch) works as it does on the reports host.
-// Partner pages stay on reports.digitalfoxtalent.com, where their links were sent.
+//   Every address follows the map: /<department> opens the map on that department, /<department>/<tool> is a tool.
+//   /  and /partnerships, /platforms, /shows, /talent, /reporting, /content, /finance, /data, /marketing -> the map
+//   /reporting/campaign-reach, /reporting/platform-monetization, /reporting/video-distribution,
+//   /reporting/creator-distribution, /reporting/engaged-views, /reporting/refresh -> the reports below
+//   /marketing/earnings-calculator -> the creator earnings calculator (internal preview), reading /earnings-data
+//   The address book, and every old address that redirects, is _reports/routes.js.
+//   Every other path (data routes the report pages fetch) works as it does on the reports host.
+// Partner pages stay on reports.digitalfoxtalent.com, where their links were sent. The team report pages there
+// now redirect to their Ecosystem addresses (17 Oct 2026).
 // Sign-in: the ecosystem sends people to reports.digitalfoxtalent.com/eco-signin, which hands back a
 // 60-second signed token (the roster site's handoff), so the Google client needs no new address.
 //
@@ -54,6 +58,7 @@ import { ECOSYSTEM_PAGE } from "./_reports/ecosystem/page.js";
 import { ecosystemWithLive, ecoLive } from "./_reports/ecosystem/live.js";
 import { EARNINGS_PAGE } from "./_reports/ecosystem/earnings-page.js";
 import { earningsLookup } from "./_reports/ecosystem/earnings.js";
+import { resolveEco, ADDRESS_OF, REPORTS_HOST_MOVED, DEPARTMENTS, ECO_ORIGIN, carryQuery } from "./_reports/routes.js";
 
 export const config = { maxDuration: 300 }; // the Reporting refresh write step can take over a minute
 
@@ -64,11 +69,15 @@ const HOSTS = new Set([
   "ecosystem.digitalfoxtalent.com", // the team home, see the note at the top
 ]);
 const ECO_HOST = "ecosystem.digitalfoxtalent.com";
-const ECO_DEPTS = new Set(["talent", "shows", "sales", "content", "platforms", "data", "finance", "marketing"]);
-// A report page shown on the ecosystem host: its tabs point under /reports, with a way back to the ecosystem.
-const ecoWrap = body => String(body)
-  .replace(/href="\/(campaigns|platforms|distribution|coverage|engaged|refresh)?(?=["?#])/g, (m, p) => 'href="/reports' + (p && p !== "campaigns" ? "/" + p : ""))
-  .replace(/<body([^>]*)>/, '<body$1><a href="/" style="display:inline-block;margin:14px 0 0 max(16px,env(safe-area-inset-left,0px));font:500 13px system-ui,sans-serif;color:inherit;opacity:.7;text-decoration:none">Back to the Ecosystem</a>');
+const escHtml = v => String(v).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+// A report page shown on the ecosystem host: its tabs point at their Ecosystem addresses, and a breadcrumb
+// (Ecosystem / department / page) sits above it, matching the map's navigation.
+const ecoWrap = (body, page) => String(body)
+  .replace(/href="\/(campaigns|platforms|distribution|coverage|engaged|refresh)?(?=["?#])/g, (m, p) => 'href="' + ADDRESS_OF[p || "campaigns"])
+  .replace(/<body([^>]*)>/, '<body$1><nav aria-label="Breadcrumb" style="margin:14px 0 0 max(16px,env(safe-area-inset-left,0px));font:500 13px system-ui,sans-serif;color:inherit;opacity:.7">'
+    + '<a href="/" style="color:inherit;text-decoration:none">Ecosystem</a>'
+    + (page ? ' / <a href="/' + page.dept + '" style="color:inherit;text-decoration:none">' + escHtml(DEPARTMENTS[page.dept]) + '</a> / ' + escHtml(page.name) : '')
+    + '</nav>');
 let probeCache = null;
 
 const html = (res, code, body) => { res.setHeader("Content-Type", "text/html; charset=utf-8"); return res.status(code).send(body); };
@@ -94,13 +103,14 @@ export default async function handler(req, res) {
   const eco = host === ECO_HOST;
   const rawPath = String((req.query && req.query.r) || "").replace(/\/+$/, "");
   let route = String((req.query && req.query.r) || "home");
+  let ecoPage = null;
   if (eco) {
-    if (rawPath === "" || rawPath === "home" || ECO_DEPTS.has(rawPath)) route = "ecosystem";
-    else if (rawPath === "reports") route = "campaigns";
-    else if (rawPath.startsWith("reports/")) route = rawPath.slice(8);
-    else route = rawPath;
+    const to = resolveEco(rawPath);
+    // An old Ecosystem address: send it to where that page lives now, keeping any query string.
+    if (to.redirect !== undefined) { res.setHeader("Location", to.redirect + carryQuery(req.query)); return res.status(301).end(); }
+    route = to.route; ecoPage = to.page || null;
   }
-  const send = (code, body) => html(res, code, eco ? ecoWrap(body) : body);
+  const send = (code, body) => html(res, code, eco ? ecoWrap(body, ecoPage) : body);
 
   // The first home of Campaign reach. Send visitors to the reports address, carrying the
   // team key if the link had one, so old links keep working and sign people in there.
@@ -169,6 +179,11 @@ export default async function handler(req, res) {
   if (pid && (authed || partner === pid)) return html(res, 200, await renderPartner(token, pid));
   if (partner && route === "videos") { try { return res.status(200).json(await videoDetails(req.query && req.query.ids)); } catch (e) { return res.status(500).json({ error: "unavailable" }); } }
   if (partner) { res.setHeader("Location", "/campaigns/" + partner); return res.status(302).end(); } // a partner link only opens its own page
+  // The team report pages on the reports host now live in the Ecosystem. Partners never reach this line.
+  if (host === "reports.digitalfoxtalent.com" && REPORTS_HOST_MOVED[route] && req.method === "GET") {
+    res.setHeader("Location", ECO_ORIGIN + REPORTS_HOST_MOVED[route] + carryQuery(req.query));
+    return res.status(301).end();
+  }
   if (!authed) {
     if (pid) return html(res, 401, partnerGate(PARTNERS[pid].name, "/campaigns/" + pid));
     if (route !== "home" && !/^(campaigns|platforms|distribution|coverage|engaged|refresh|ecosystem|marketing\/earnings)$/.test(route)) return res.status(401).json({ error: "Sign in required" });
