@@ -25,12 +25,13 @@ export const CREATORS = [
   { slug: "kristianharloff", name: "Kristian Harloff",                              handles: ["@kristianharloff", "@thekristianharloff"] }, // 18 Oct 2026: his articles arrive as @kristianharloff, so the old handle alone kept him off         // Kristian Harloff
   { slug: "chaosgaming", name: "Chaos",                                             handles: ["@chaosgaming"] },                // Chaos
   { slug: "chaostrektv", name: "ChaosTrek",                                         handles: ["@chaostrektv"] },                // ChaosTrek
+  { slug: "chaoscinemayt", name: "Chaos Cinema",                                    handles: ["@chaoscinemayt"] },              // Chaos Cinema, Chaos's fourth channel, approved by Tom 18 Oct 2026
   { slug: "wesnemo", name: "WesNemo",                                               handles: ["@wesnemo", "@wesnemotv"] },                    // WesNemo
   { slug: "filmparadise", name: "Film Paradise",                                    handles: ["@filmparadise", "@film_paradise"] },  // 18 Oct 2026: articles arrive as @filmparadise              // Film Paradise
   { slug: "lorereloaded", name: "Lore Reloaded",                                    handles: ["@lorereloaded"] },               // Lore Reloaded
   { slug: "arealknowitall", name: "Mr. Know-It-All",                                handles: ["@arealknowitall"] },             // Mr. Know-It-All (no articles yet; appears when his feed fills)
   { slug: "coltonogburnchannel", name: "Colton Ogburn",                             handles: ["@coltonogburnchannel"] },        // Colton Ogburn
-  { slug: "everythingalways", name: "Everything Always",                            handles: ["@everythingalways"] },           // Everything Always
+  { slug: "everythingalways", name: "Everything Always",                            handles: ["@everythingalways", "@everythingalways_snippets"] }, // Everything Always (snippets channel approved by Tom 18 Oct 2026)
   { slug: "gique_", name: "GIQUE",                                                  handles: ["@gique_"] },                     // GIQUE (DFT-owned; dormant channel, evergreen back catalogue)
   { slug: "downtoearthkh", name: "Down to Earth with Kristian Harloff",             handles: ["@downtoearthkh"] },              // Down to Earth with Kristian Harloff (MSN-banned, but that is platform-side and does not apply here)
 
