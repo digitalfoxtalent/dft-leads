@@ -236,24 +236,47 @@ async function addViews(arts) {
 // key only the link-flagged ones count, which is safe: an unflagged Short simply stays below
 // the floor as it does today.
 const SHORT_MAX_S = 180;
+// SPEED, 18 Oct 2026 (launch). Live, a full reload made about 120 YouTube calls one after another
+// (mostly the dead-video check below, 25 ids a call over 2,000+ articles), took over 30 seconds
+// and could time out, and every five-minute refresh used YouTube quota again for answers that had
+// not changed. Now: a video's duration is remembered for good (it never changes), a video seen
+// alive is not asked about again for six hours, and the calls that are still needed run six at a
+// time instead of one by one.
+const durCache = new Map();                      // video id -> seconds
+const aliveAt = new Map();                       // video id -> when YouTube last said it is live
+const ALIVE_TTL = 6 * 3600 * 1000;
+async function inParallel(jobs, width = 6) {
+  let next = 0;
+  const worker = async () => { while (next < jobs.length) { const j = jobs[next++]; try { await j(); } catch { /* each job guards itself */ } } };
+  await Promise.all(Array.from({ length: Math.min(width, jobs.length) }, worker));
+}
 const isoSeconds = d => { const m = String(d || "").match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/); return m ? (+m[1] || 0) * 3600 + (+m[2] || 0) * 60 + (+m[3] || 0) : 0; };
 async function addDurations(arts, floor) {
   const key = process.env.YOUTUBE_API_KEY;
   if (!key) return;
   const maybe = arts.filter(a => a.short || a.w < floor);
-  for (let i = 0; i < maybe.length; i += 50) {
-    const batch = maybe.slice(i, i + 50);
-    try {
-      const r = await fetch(`https://www.googleapis.com/youtube/v3/videos?part=contentDetails&id=${batch.map(a => a.v).join(",")}&key=${key}`);
-      if (!r.ok) continue;
-      const j = await r.json();
-      for (const it of j.items || []) {
-        const a = batch.find(x => x.v === it.id); if (!a) continue;
-        a.dur = isoSeconds(it.contentDetails?.duration);
-        if (a.dur > 0 && a.dur <= SHORT_MAX_S) a.short = true;
-      }
-    } catch { /* leave the batch alone */ }
+  const ask = [];
+  for (const a of maybe) {
+    if (durCache.has(a.v)) { a.dur = durCache.get(a.v); if (a.dur > 0 && a.dur <= SHORT_MAX_S) a.short = true; }
+    else ask.push(a);
   }
+  const jobs = [];
+  for (let i = 0; i < ask.length; i += 50) {
+    const batch = ask.slice(i, i + 50);
+    jobs.push(async () => {
+      try {
+        const r = await fetch(`https://www.googleapis.com/youtube/v3/videos?part=contentDetails&id=${batch.map(a => a.v).join(",")}&key=${key}`);
+        if (!r.ok) return;
+        const j = await r.json();
+        for (const it of j.items || []) {
+          const d = isoSeconds(it.contentDetails?.duration);
+          if (d > 0) durCache.set(it.id, d);
+          for (const a of batch) if (a.v === it.id) { a.dur = d; if (d > 0 && d <= SHORT_MAX_S) a.short = true; }
+        }
+      } catch { /* leave the batch alone */ }
+    });
+  }
+  await inParallel(jobs);
 }
 
 // Articles whose source video has gone (deleted, made private, or pulled) must not stay on the
@@ -273,19 +296,27 @@ async function pruneMissing(arts) {
   // read as a dead video and pull a perfectly good article. An article is only removed when
   // NEITHER id comes back alive.
   const ids = a => [...new Set([a.v, a.id].filter(Boolean))];
-  for (let i = 0; i < arts.length; i += 25) {
-    const batch = arts.slice(i, i + 25).filter(a => ids(a).length);
-    if (!batch.length) continue;
-    try {
-      const ask = [...new Set(batch.flatMap(ids))];
-      const r = await fetch(`https://www.googleapis.com/youtube/v3/videos?part=id&id=${ask.join(",")}&key=${key}`);
-      if (!r.ok) continue;
-      const j = await r.json();
-      const live = new Set((j.items || []).map(it => it.id));
-      if (!live.size) continue;                 // whole batch missing = suspect the API, not the videos
-      for (const a of batch) if (!ids(a).some(id => live.has(id))) gone.push(a);
-    } catch { /* leave the batch alone */ }
+  // Only ask about pieces with no id seen alive in the last six hours.
+  const now = Date.now();
+  const fresh = id => now - (aliveAt.get(id) || 0) < ALIVE_TTL;
+  const toCheck = arts.filter(a => ids(a).length && !ids(a).some(fresh));
+  const jobs = [];
+  for (let i = 0; i < toCheck.length; i += 25) {
+    const batch = toCheck.slice(i, i + 25);
+    jobs.push(async () => {
+      try {
+        const ask = [...new Set(batch.flatMap(ids))];
+        const r = await fetch(`https://www.googleapis.com/youtube/v3/videos?part=id&id=${ask.join(",")}&key=${key}`);
+        if (!r.ok) return;
+        const j = await r.json();
+        const live = new Set((j.items || []).map(it => it.id));
+        if (!live.size) return;                 // whole batch missing = suspect the API, not the videos
+        const at = Date.now(); for (const id of live) aliveAt.set(id, at);
+        for (const a of batch) if (!ids(a).some(id => live.has(id))) gone.push(a);
+      } catch { /* leave the batch alone */ }
+    });
   }
+  await inParallel(jobs);
   if (gone.length) {
     const ids = new Set(gone.map(a => a.id));
     const kept = arts.filter(a => !ids.has(a.id));
@@ -462,6 +493,15 @@ async function load() {
   // upcoming when it has passed ("the Lanterns finale airs October 4th"). They are not rendered until fixed; nothing is
   // deleted from the store. Remove an id once its article is corrected.
   { const hold = new Set(STALE_HOLD); const kept = arts.filter(a => !hold.has(a.id)); arts.length = 0; arts.push(...kept); }
+  {
+    const byId = new Map(); for (const [id, from, to] of DATE_FIXES) { if (!byId.has(id)) byId.set(id, []); byId.get(id).push([from, to]); }
+    const dated = new Set(DATED_IDS);
+    const longDate = d => { const t = new Date(d); return isNaN(t) ? "" : t.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" }); };
+    for (const a of arts) {
+      for (const [from, to] of byId.get(a.id) || []) { a.h = a.h.split(from).join(to); a.s = (a.s || "").split(from).join(to); a.body = a.body.split(from).join(to); }
+      if (dated.has(a.id) && longDate(a.p)) a.body = `<p class="dated-note"><em>Published ${longDate(a.p)}. Words like "tonight" or "next week" refer to that date.</em></p>` + a.body;
+    }
+  }
 
   // CORRECTIONS, 8 Sep 2026. Errors found by auditing every live article, fixed at render rather
   // than in the store, so the source record is untouched, the change is reversible, and the copy
@@ -576,7 +616,10 @@ export async function getData() {
 // ends with the launch: merging this PR shows every article again alongside dropping the noindex. Set true to restore it.
 export const REVIEW_SET_ON = false;
 // See DATED CLAIMS HELD AT LAUNCH in loadData. 63 articles, 18 Oct 2026.
-export const STALE_HOLD = [
+// 18 Oct 2026 (Tom: "fix these and publish"): the passed-date sentences in all 63 were rewritten (DATE_FIXES)
+// and the list emptied. Ids are kept in DATED_IDS, which puts a "published on" line at the top of each.
+export const STALE_HOLD = [];
+export const DATED_IDS = [
   "-4QU76wzWOM", "-ywzCKKPpOI", "2owGtFMcyR0", "3CtzjeYkMhw", "40ci88x8Cl8", "4RoCzA_INZ0",
   "75sW8Npstxc", "ASarfon5VHk", "AeHDhlQeMVI", "CPCDubI2GyA", "CniP8riFc88", "Crs8wmUMkw4",
   "D8HczYJBNrc", "DkZDabzaQT8", "E81Io2ddmgw", "II8XeDMKLqM", "IudWk1vfly4", "JRi9m_GcVQc",
@@ -589,6 +632,413 @@ export const STALE_HOLD = [
   "qRj7uQwgJiQ", "q_8cCpQ9V38", "qii3Jd4HVBs", "ueAeCu6UE7s", "vtHPDuQ6OFI", "wcE83M_g29w__t5",
   "yRu6VoJgE-c", "ynUOk98o5vI", "zU4zUfLqqxU",
 ];
+
+// PASSED DATES, REWRITTEN 18 Oct 2026. Each entry is [article id, text as published, corrected text]. Applied to the
+// headline, subheadline and body when the site loads; the store is untouched, so the publisher cannot undo them.
+// Every "find" text was checked to occur exactly once in the article as the site renders it.
+export const DATE_FIXES = [
+[
+"oSwaLyEhbzo",
+"is expected to sell for up to £20,000 at auction on 15 October, and the reason",
+"was expected to sell for up to £20,000 at auction on 15 October, and the reason"
+],
+[
+"W5IzuA4Gtk0",
+"is a free upgrade for existing owners, arriving 29th of September.",
+"is a free upgrade for existing owners, released on 29 September."
+],
+[
+"X_gDrSn9Dqo",
+"Rockstar's own GTA 6 extended look lands on Netflix on the 27th.",
+"Rockstar's own GTA 6 extended look landed on Netflix on 27 August."
+],
+[
+"DkZDabzaQT8",
+", and I will get into that in more detail later this week.",
+"."
+],
+[
+"ueAeCu6UE7s",
+"A lot of how it lands is going to depend on how they represent him in that hologram next week.",
+"A lot of how it lands was always going to depend on how they represented him in that hologram in the finale."
+],
+[
+"AeHDhlQeMVI",
+"which arrives on Peacock October 15",
+"which arrived on Peacock on October 15"
+],
+[
+"AeHDhlQeMVI",
+"Crystal Lake drops its entire season, all eight episodes, on Peacock on October 15th, this Thursday.",
+"Crystal Lake dropped its entire season, all eight episodes, on Peacock on October 15th."
+],
+[
+"IudWk1vfly4",
+"and it hasn't hit China or Japan yet: China arrives tomorrow and Japan on Friday, so it should easily become the franchise's top film.",
+"and at the time it still had China and Japan to come, with China opening the next day and Japan that Friday, so it looked set to become the franchise's top film."
+],
+[
+"LhNP4piRP8k",
+"and I hope Lanterns sticks the landing with its season finale on Sunday.",
+"and I was hoping Lanterns would stick the landing with its season finale on Sunday, October 4."
+],
+[
+"faoxn5HzUV8",
+"who is my favorite character on a new show that starts on Thursday;",
+"who is my favorite character on a new show that started on October 1;"
+],
+[
+"3CtzjeYkMhw",
+"Street Fighter and Clayface both have tickets going on sale this week, with Street Fighter also landing in IMAX, and neither has enough A-list reservations right now,",
+"Street Fighter and Clayface both had tickets going on sale that week, with Street Fighter also landing in IMAX, and neither had enough A-list reservations at the time,"
+],
+[
+"3CtzjeYkMhw",
+"DreamWorks releases its animated film Forgotten Island this week.",
+"DreamWorks released its animated film Forgotten Island that same week."
+],
+[
+"SJ0BpMmu_2U",
+"though I cannot review it until it drops on October 1st, I expect",
+"though I could not review it until it dropped on October 1st, I expect"
+],
+[
+"SJ0BpMmu_2U",
+"The Traitors returns this week with civilian contestants",
+"The Traitors returned that week with civilian contestants"
+],
+[
+"pdg0kSGPlQM",
+"How do you think Resident Evil will perform this weekend, and can it prove Zach Cregger is more than a one hit wonder?",
+"Can Resident Evil prove Zach Cregger is more than a one hit wonder?"
+],
+[
+"-ywzCKKPpOI",
+"Infinity Ward's DMZ Week Starting October 4th Needs to Show Substance",
+"Infinity Ward's DMZ Week From October 4th Needed to Show Substance"
+],
+[
+"-ywzCKKPpOI",
+"Infinity Ward has announced five days of DMZ coverage beginning October 4th,",
+"Infinity Ward announced five days of DMZ coverage beginning October 4th,"
+],
+[
+"aQH7nc67ZZs",
+"Modern Warfare 4's Beta Arrives Today With Its First Ever Campaign Mission",
+"Modern Warfare 4's Beta Arrived With Its First Ever Campaign Mission"
+],
+[
+"aQH7nc67ZZs",
+"The Modern Warfare 4 beta starts today, and it's a big deal.",
+"The Modern Warfare 4 beta started on August 22, and it was a big deal."
+],
+[
+"aQH7nc67ZZs",
+"requires a pre-order to access, and it starts today, so this should be a peak moment for pre-orders.",
+"required a pre-order to access, so its start on August 22 was a peak moment for pre-orders."
+],
+[
+"75sW8Npstxc",
+"launches August 13th on PC",
+"launched August 13th on PC"
+],
+[
+"75sW8Npstxc",
+"arrives August 11th with retro",
+"arrived August 11th with retro"
+],
+[
+"75sW8Npstxc",
+"releases August 18th via 3D Realms",
+"released August 18th via 3D Realms"
+],
+[
+"MMhXsGHCkfE",
+"Marvel's marketing push for Avengers Doomsday is entering full swing, with the official first trailer arriving at San Diego Comic-Con on July 25th.",
+"Marvel's marketing push for Avengers Doomsday was entering full swing, with the official first trailer set for San Diego Comic-Con on July 25th."
+],
+[
+"imEN609ZGV4",
+"VisionQuest premieres tonight on Disney Plus, and the first reviews",
+"VisionQuest premiered on Disney Plus on October 14, and the first reviews"
+],
+[
+"m800yvSGuaw",
+"Avengers Endgame Encore is set for release next week on September 25th in most places, though here in the US you can actually find showings starting September 24th.",
+"Avengers Endgame Encore was released on September 25th in most places, with US showings starting September 24th."
+],
+[
+"JRi9m_GcVQc",
+"point to a brand new Avengers Doomsday trailer arriving by the end of this month or sometime next month, and there is a good chance",
+"pointed to a brand new Avengers Doomsday trailer arriving by the end of September or sometime in October, and there was a good chance"
+],
+[
+"2owGtFMcyR0",
+"That Endgame Encore doesn't come out until September 25th with the new Doomsday footage attached, but Marvel is being extremely structured",
+"That Endgame Encore did not come out until September 25th with the new Doomsday footage attached, and Marvel was being extremely structured"
+],
+[
+"Oaj0wm13JyQ",
+"Dragon Ball Super Beerus episode 1 premieres this Sunday evening in Japan, which is morning for us over here.",
+"Dragon Ball Super Beerus episode 1 premiered on Sunday evening, October 11, in Japan, which was morning in the US."
+],
+[
+"Crs8wmUMkw4",
+"The 19 episode series debuts on Fuji TV on October 11,",
+"The 19 episode series debuted on Fuji TV on October 11,"
+],
+[
+"Crs8wmUMkw4",
+"will arrive on the service starting October 17, but that date puts it a full week behind",
+"would arrive on the service starting October 17, a full week behind"
+],
+[
+"Crs8wmUMkw4",
+"Dragon Ball Super Beerus premieres on Fuji TV on October 11",
+"Dragon Ball Super Beerus premiered on Fuji TV on October 11"
+],
+[
+"Oe0_heyjYEk",
+"Dragon Ball Super Beerus Premieres October 11 on Fuji TV",
+"Dragon Ball Super Beerus Premiered October 11 on Fuji TV"
+],
+[
+"Tiq_OzEC_oA",
+"The new broadcast begins October 11, a Sunday, at 11:15 p.m.",
+"The new broadcast began on Sunday, October 11, at 11:15 p.m."
+],
+[
+"ASarfon5VHk",
+"The panel is scheduled for Thursday, October 8, from 12:00 p.m.",
+"The panel was held on Thursday, October 8, from 12:00 p.m."
+],
+[
+"N_29qTiUSFo",
+"The Lanterns finale airs October 4th, and HBO kept the trailer under wraps",
+"The Lanterns finale aired October 4th, and HBO kept the trailer under wraps"
+],
+[
+"N_29qTiUSFo",
+"The season finale airs October 4th and is rumoured to be titled Dirt and Stars.",
+"The season finale aired October 4th and was rumoured to be titled Dirt and Stars."
+],
+[
+"-4QU76wzWOM",
+"The episode arrives on September 27th, and according to the wiki, the title is The Jordan Boys Legacy.",
+"The episode arrived on September 27th, and according to the wiki, the title is The Jordan Boys Legacy."
+],
+[
+"CPCDubI2GyA",
+"The first episode launches August 27th with new episodes airing weekly, and the fifth episode, covering Endgame, will coincide",
+"The first episode launched August 27th with new episodes airing weekly, and the fifth episode, covering Endgame, was set to coincide"
+],
+[
+"K5rkYzlq79c",
+"D23 kicked off today, and from what I'm hearing, the panel dropping later tonight is going to be the only thing anyone is talking about",
+"When D23 kicked off on August 15, the word was that the panel that night would be the only thing anyone talked about"
+],
+[
+"D8HczYJBNrc",
+"With Lantern set to premiere on HBO this Sunday, The Ankler published",
+"With Lanterns set to premiere on HBO on Sunday, August 16, The Ankler published"
+],
+[
+"D8HczYJBNrc",
+"and Lanterns debuts this Sunday, but the rest",
+"and Lanterns debuted on August 16, but the rest"
+],
+[
+"yRu6VoJgE-c",
+"IMAX screenings launching later this week could add substantial revenue.",
+"IMAX screenings launching later that week were expected to add substantial revenue."
+],
+[
+"40ci88x8Cl8",
+"from the upcoming Spider-Man film arriving next week,",
+"from the Spider-Man film that was arriving the following week,"
+],
+[
+"TupbeHzX2-U",
+"The Odyssey releases on July 17, 2026.",
+"The Odyssey was released on July 17, 2026."
+],
+[
+"II8XeDMKLqM",
+"Toy Story will likely dominate for at least two weeks, with Minions and Monsters arriving July 1st.",
+"Toy Story was expected to dominate for at least two weeks, with Minions and Monsters arriving July 1st."
+],
+[
+"ZS4wSN0pDMs__t20",
+"Double Episode Drops Begin October 14",
+"Double Episode Drops Began October 14"
+],
+[
+"ZS4wSN0pDMs__t20",
+"Vision Quest is coming to Disney Plus on Wednesdays at 6 PM Pacific, and the first three weeks of the show are going to be double episode drops, starting October 14.",
+"Vision Quest airs on Disney Plus on Wednesdays at 6 PM Pacific, and its first three weeks are double episode drops, starting October 14."
+],
+[
+"drONnMIL3sU",
+"Marvel's VisionQuest premieres with two episodes on October 14 on Disney Plus, and this is the complete history you need to go in caught up.",
+"Marvel's VisionQuest premiered with two episodes on October 14 on Disney Plus, and this is the complete history you need to be caught up."
+],
+[
+"kkhVtb_MhZs",
+"It all starts with a two episode premiere on October 14th.",
+"It all started with a two episode premiere on October 14th."
+],
+[
+"bfHP-Ag-rTE",
+"The series is set to premiere October 14th.",
+"The series premiered on October 14th."
+],
+[
+"qii3Jd4HVBs",
+"We disagreed slightly on whether a trailer drops tomorrow, but agreed",
+"We disagreed slightly on whether a trailer would drop at D23, but agreed"
+],
+[
+"kzI4R1DwXb0",
+"Vision Quest is the new series coming to Disney Plus on October 14th,",
+"Vision Quest is the series that arrived on Disney Plus on October 14th,"
+],
+[
+"CniP8riFc88",
+"yet it is opening in theaters on August 28th anyway.",
+"yet it opened in theaters on August 28th anyway."
+],
+[
+"vtHPDuQ6OFI",
+"That one releases October 14th, 2026.",
+"That one was released on October 14th, 2026."
+],
+[
+"ynUOk98o5vI",
+"VisionQuest comes out next week on October 14th, and Avengers: Doomsday arrives on December 18th.",
+"VisionQuest came out on October 14th, and Avengers: Doomsday arrives on December 18th."
+],
+[
+"q_8cCpQ9V38",
+"The trailer is reportedly, though not confirmed by Marvel, set to release globally on September 25.",
+"The trailer was reportedly, though not confirmed by Marvel, set to release globally on September 25."
+],
+[
+"q_8cCpQ9V38",
+"and then stated that something will be shown worldwide on Friday according to his source.",
+"and then stated that something would be shown worldwide on Friday, September 25, according to his source."
+],
+[
+"Srgl-KJOOAs",
+"Endgame Encore comes out September 25th, just a month later,",
+"Endgame Encore came out September 25th, just a month later,"
+],
+[
+"KN7efkwFMA8",
+"but it will now open on October 6, 2023.",
+"before being moved to October 6, 2023, and then pushed back again."
+],
+[
+"fNujcjPGPVc",
+"Avengers: Endgame Encore Arrives September 25, 2026 With New Doomsday-Connected Footage",
+"Avengers: Endgame Encore Arrived September 25, 2026 With New Doomsday-Connected Footage"
+],
+[
+"fNujcjPGPVc",
+"The next project up is Avengers: Endgame Encore, coming out September 25, 2026.",
+"The next project up was Avengers: Endgame Encore, which came out September 25, 2026."
+],
+[
+"fNujcjPGPVc",
+"Vision Quest Closes Out the Wanda Trilogy on October 14, 2026",
+"Vision Quest Closed Out the Wanda Trilogy From October 14, 2026"
+],
+[
+"dYhimjWpmlc",
+"arrives ahead of its October 2 release.",
+"arrived ahead of its October 2 release."
+],
+[
+"dYhimjWpmlc",
+"and it drops in theaters October 2, which is roughly two months away.",
+"and it opened in theaters on October 2."
+],
+[
+"wcE83M_g29w__t5",
+"Allegedly he also has an interview scheduled to release tomorrow, a little pregame, I think, with Bret Baier on Fox News.",
+"Allegedly he also had an interview scheduled to release the next day, a little pregame, with Bret Baier on Fox News."
+],
+[
+"iVECSRebjDo",
+"I think Rockstar is probably preparing some kind of formal music reveal very soon, whether that lands this week, later this month, or as part of a larger September marketing beat.",
+"I think Rockstar was probably preparing some kind of formal music reveal, possibly as part of a larger September marketing beat."
+],
+[
+"YznqLLQRFXc",
+"The Witcher 3 Remastered launches September 29th, 2026.",
+"The Witcher 3 Remastered launched September 29th, 2026."
+],
+[
+"cStswtAVSiw",
+"The Witcher 3 Remastered Launches Free on September 29, With Songs of the Past Coming in 2027",
+"The Witcher 3 Remastered Launched Free on September 29, With Songs of the Past Coming in 2027"
+],
+[
+"cStswtAVSiw",
+"is releasing on September 29, 2026, and the whole upgrade is free.",
+"would release on September 29, 2026, and the whole upgrade is free."
+],
+[
+"cStswtAVSiw",
+"The Witcher 3 Remastered Launches Free on September 29, 2026",
+"The Witcher 3 Remastered Launched Free on September 29, 2026"
+],
+[
+"4RoCzA_INZ0",
+"vampire RPG launches September 3 with 55-70 hours",
+"vampire RPG launched September 3 with 55-70 hours"
+],
+[
+"4RoCzA_INZ0",
+"Blood of Dawnwalker is launching September 3 as an open-world dark fantasy RPG that could blindside players this year.",
+"Blood of Dawnwalker launched September 3 as an open-world dark fantasy RPG that could blindside players this year."
+],
+[
+"JZdr64CzfhM",
+"Ubisoft is confirmed as an exhibitor at Gamescom Opening Night Live on August 25,",
+"Ubisoft was confirmed as an exhibitor at Gamescom Opening Night Live on August 25,"
+],
+[
+"bDZqzJF4218",
+"Rockstar's marketing plan is set to accelerate next month, with a major investor call scheduled for early August.",
+"Rockstar's marketing plan was set to accelerate, with a major investor call scheduled for early August."
+],
+[
+"E81Io2ddmgw",
+"and all eight films will screen worldwide from August 27th through September 3rd.",
+"and all eight films screened worldwide from August 27th through September 3rd."
+],
+[
+"E81Io2ddmgw",
+"If Hogwarts Legacy 2 is announced on September 1st, it likely won't be a full gameplay breakdown.",
+"If Hogwarts Legacy 2 was announced on September 1st, it was unlikely to be a full gameplay breakdown."
+],
+[
+"l1JnbGnI15s",
+"Gamescom Opening Night Live is confirmed for Tuesday, August 25th, 2026,",
+"Gamescom Opening Night Live took place on Tuesday, August 25th, 2026,"
+],
+[
+"qRj7uQwgJiQ",
+"and I am assuming episode 8 will not even be locked until later this month.",
+"and I was assuming episode 8 would not even be locked until later in September."
+],
+[
+"qRj7uQwgJiQ",
+"and we will not know for sure until the episode airs.",
+"and there was no way to know for sure until the episode aired."
+]
+];
+
 
 export const REVIEW_SET = [
   "JOFMVYJFVR4", "dVDVnbpeco4", "jkJfhdqfSrE", "QKEOyUJ5oJQ", "ECdZTmkiN5U", "tmdRhQm4Ask",
