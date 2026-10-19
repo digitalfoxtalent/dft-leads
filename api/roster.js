@@ -2026,7 +2026,11 @@ async function saveColumns(b, email) {
 export const config = { maxDuration: 120 };
 const PITCH_BOARD = 18435316650;
 const AI_LIST = "ai-campaigns-tj-50001f"; // Tom's saved list of creators open to AI brands (13 Oct 2026). Edit the list, not the code.
-const PB = { by: "text_mm83t28h", contact: "text_mm83nbr6", result: "text_mm83dzmw", list: "link_mm832b9j" };
+const PB = { by: "text_mm83t28h", contact: "text_mm83nbr6", result: "text_mm83dzmw", list: "link_mm832b9j", draft: "long_text_mm89wehb", check: "text_mm897m47" };
+// Learning from Tom's sent replies (Tom, 19 Oct 2026: "review the emails I have sent, and try to learn from them").
+// Each pitch draft is kept on its row (Draft as written, Draft check); api/pitch-learn.js compares it each night with
+// what was actually sent and keeps the edits as standing lessons on this item, which polishPitch applies to new drafts.
+const PITCH_LESSONS_ITEM = 13327548036; // Pitch Requests item "Standing lessons for pitch replies"
 const PITCH_MODELS = ["claude-opus-5-5", "claude-sonnet-4-5", "claude-haiku-4-5-20251001"]; // strongest first (Tom, 14 Oct 2026), older models only as a fallback
 const FACTS_ITEM = 13283766377; // Pitch Requests item "Standing facts for pitch replies": the only facts a reply may state
 const PITCH_LABEL = { topics: "YouTube integration", dedicated: "YouTube dedicated video", group_mm4av3kr: "YouTube Shorts", group_mm4a1fe0: "Instagram", group_mm4bd5tk: "TikTok", group_mm7yw8cy: "Snapchat" };
@@ -2257,6 +2261,9 @@ async function pitchFromEmail(b) {
   await pitchItem(b.item, fromEmail);
   try {
     const f = parseForward(b);
+    // Mail to a DFT Google Group (Tom, 19 Oct 2026, Frogge via brands@): the forward only shows "'Grant' via Brands
+    // <brands@...>", so the draft was addressed to our own group. The real sender is in the original's Reply-To.
+    if (DFT_DOMAIN.test(f.contactEmail || "")) { const real = await groupSender(f, fromEmail).catch(() => ""); if (real) { f.contactEmail = real; f.quoteEmail = f.quoteEmail && DFT_DOMAIN.test(f.quoteEmail) ? real : f.quoteEmail; } }
     // Press packages from the pipeline (Tom, 16 Oct 2026): a note above the forward that says "press"
     // (or "earned media") makes a press package, with no prices, and a draft worded for one.
     // Or forwarded to press@ (Tom, 16 Oct 2026: "Press and Pitch are different"): Make passes the To and Cc addresses as sentTo.
@@ -2264,10 +2271,12 @@ async function pitchFromEmail(b) {
     // Tom's pointers (13 Oct 2026): the note above each forward is kept on the Pitch Requests board and fed into later pitches, so the system learns from them.
     if (f.note && !b.outreach) await monday(`mutation{change_multiple_column_values(board_id:${PITCH_BOARD},item_id:${Number(b.item)},column_values:${JSON.stringify(JSON.stringify({ long_text_mm83jwpf: { text: f.note } }))}){id}}`).catch(() => null);
     const pastQ = await monday(`query{boards(ids:[${PITCH_BOARD}]){items_page(limit:200){items{id column_values(ids:["long_text_mm83jwpf"]){text}}}}}`).catch(() => null);
-    const pointers = (((((pastQ || {}).boards || [])[0] || {}).items_page || {}).items || []).filter(it => String(it.id) !== String(b.item) && String(it.id) !== String(FACTS_ITEM) && String(it.id) !== String(PLAYBOOK_ITEM) && String(it.id) !== String(RECRUIT_LESSONS_ITEM)).map(it => String(((it.column_values || [])[0] || {}).text || "").trim()).filter(p => p && !/^(warm|kind|best) regards/i.test(p) && !/^\s*(press|press (package|list|pitch|junket)|earned media)[\s.!]*$/i.test(p)).filter((p, i, a) => a.indexOf(p) === i).slice(-30);
+    const pointers = (((((pastQ || {}).boards || [])[0] || {}).items_page || {}).items || []).filter(it => String(it.id) !== String(b.item) && String(it.id) !== String(FACTS_ITEM) && String(it.id) !== String(PLAYBOOK_ITEM) && String(it.id) !== String(RECRUIT_LESSONS_ITEM) && String(it.id) !== String(PITCH_LESSONS_ITEM)).map(it => String(((it.column_values || [])[0] || {}).text || "").trim()).filter(p => p && !/^(warm|kind|best) regards/i.test(p) && !/^\s*(press|press (package|list|pitch|junket)|earned media)[\s.!]*$/i.test(p)).filter((p, i, a) => a.indexOf(p) === i).slice(-30);
     if (!f.contactEmail || f.body.length < 40) throw new Error("No forwarded enquiry found. Forward the brand's own email.");
     const factsQ = await monday(`query{items(ids:[${FACTS_ITEM}]){column_values(ids:["long_text_mm83jwpf"]){text}}}`).catch(() => null);
     const facts = String(((((factsQ || {}).items || [])[0] || {}).column_values || [{}])[0].text || "").trim();
+    const lessonsQ = await monday(`query{items(ids:[${PITCH_LESSONS_ITEM}]){column_values(ids:["long_text_mm83jwpf"]){text}}}`).catch(() => null);
+    const lessons = String(((((lessonsQ || {}).items || [])[0] || {}).column_values || [{}])[0].text || "").split("\n").map(x => x.replace(/^[-\s]+/, "").trim()).filter(Boolean).slice(0, 25);
     const data = await loadBoard();
     const cat = pitchCatalogue(data, press);
     // Brand fit notes (Rates board column, Tom 14 Oct 2026): DFT's own judgement on who each creator suits, applied to all of that creator's formats.
@@ -2442,7 +2451,8 @@ async function pitchFromEmail(b) {
     const qs = !b.outreach && Array.isArray(out.questions) ? out.questions.filter(q => q && q.q) : [];
     if (aiDeclined.length) ans.push("Sadly, " + joinN(aiDeclined) + " won't take on AI projects, but these creators would.");
     if (out.stage !== "shortlist" && solo.length > 1 && listNames.length && !details.length && (/\?/.test(f.body) || withRates !== ".")) ans.push(pick([joinN(listNames) + (listNames.length > 1 ? " are" : " is") + " on the list" + withRates, "You'll find " + joinN(listNames) + " on there" + withRates]));
-    if (/availab|posting date|\bdates\b|schedule|timeline|timing|turnaround/i.test(f.body) && !qs.some(q => /availab|posting|\bdates?\b|timeline|timing/i.test(String(q.q) + " " + String(q.answer || "")))) ans.push(pick(["We confirm availability and posting dates with each creator as soon as you approve, and can move quickly.", "Once you've picked, we'll confirm availability and posting dates with each creator straight away."]));
+    // No stock availability line (Tom, 19 Oct 2026: he deleted it from nearly every draft he edited). When the brand asks about
+    // availability or dates, the answer to its question covers it.
     // The brand's questions: answered only from the Standing facts item.
     // NEVER put a note for DFT inside the draft (Tom, 14 Oct 2026: two drafts went to brands with
     // "[TOM TO ANSWER: ...]" in them). The draft must always be safe to send exactly as it is: an
@@ -2473,6 +2483,9 @@ async function pitchFromEmail(b) {
     const paras = [thanksN].concat(named ? details : [], [leadN], howN ? [howN] : [], !named && solo.length === 1 ? details : [], ["[[LIST_LINK]]"]).concat(answer ? [answer] : [], [askN]).map(p => p === "[[LIST_LINK]]" ? p : p.replace(/\s*\[[^\]]*\]/g, "").trim()).filter(Boolean);
     if (!paras.some(p => p.indexOf("[[LIST_LINK]]") >= 0)) paras.splice(Math.min(2, paras.length), 0, "[[LIST_LINK]]");
     if (reportUrl) paras.splice(paras.length - 1, 0, "[[REPORT_LINK]]");
+    // Tom's standing lessons from his own sent edits, applied as a last careful pass (prices, numbers and links untouched).
+    const polished = lessons.length && !b.outreach ? await polishPitch(paras, lessons, first, f, latest).catch(() => null) : null;
+    if (polished) paras.splice(0, paras.length, ...polished);
     const REPORT_LEAD = "You can also see how our recent Libsyn campaigns have performed here: ";
     const bullets = [];
     const sig = ["Warm regards", fwdName, "Digital Fox Talent", "\u{1F98A}"];
@@ -2502,6 +2515,9 @@ async function pitchFromEmail(b) {
     const resultObj = { ok: true, listUrl: saved.url, title, placements: ids.length, to: f.contactEmail, cc, subject, search: pitchSearch(f), html: b.outreach ? html : html + quoteHtml, text: b.outreach ? text : text + quoteText, model: out.model, picks: out.picks, research, stage: out.stage || "new", closing: out.closing === true, questions: out.questions || [], reviewed, reused: reuse ? reuse.slug : "", press };
     // For the sender only, never the brand: the questions the draft holds over (Make route "Before you send").
     resultObj.unanswered = todo;
+    resultObj.polished = !!polished;
+    // Kept for the nightly learner (api/pitch-learn.js): the email as written, the visible list link text in place of the URL.
+    if (!b.outreach) await monday("mutation($b:ID!,$i:ID!,$v:JSON!){change_multiple_column_values(board_id:$b,item_id:$i,column_values:$v){id}}", { b: String(PITCH_BOARD), i: String(b.item), v: JSON.stringify({ [PB.draft]: { text: ("Hi " + first + ",\n\n" + paras.map(p => p === "[[REPORT_LINK]]" ? REPORT_LEAD + "Libsyn campaign report" : p.indexOf("[[LIST_LINK]]") >= 0 ? linkText : p).join("\n\n")).slice(0, 9000) }, [PB.check]: [fromEmail, f.contactEmail, new Date().toISOString()].join("|") }) }).catch(() => null);
     resultObj.unansweredHtml = todo.length ? "<p>Your pitch draft to " + escH(f.contactEmail) + " is ready (subject: " + escH(subject) + ").</p><p>The brand also asked these, which the standing facts do not cover. The draft tells them you will come back to them shortly, so it is safe to send as it is. Reply on these yourself, or add your answers to the draft before you send:</p><ul>" + todo.map(q => "<li>" + escH(q) + "</li>").join("") + "</ul><p>To have the system answer a question like this next time, add the answer to the Standing facts item on the Roster - Pitch Requests board.</p>" : "";
     // Teammates get the draft in their own Gmail (Tom, 14 Oct 2026); Tom's drafts still come from Make.
     resultObj.draftMade = await teamDraft(fromEmail, resultObj).catch(e => "failed: " + String((e && e.message) || e).slice(0, 200));
@@ -2573,6 +2589,49 @@ async function gmailToken(subject) {
 // Underscores stay inside a word: Gmail indexes "tugboat_spenny_official" as one word, so splitting it found nothing
 // (Tom's Facemoji forward, 16 Oct 2026).
 const subjectWords = s => String(s || "").replace(/^\s*((re|fwd?|fw|aw|wg|tr)\s*:\s*)+/i, "").replace(/[^\p{L}\p{N}_]+/gu, " ").replace(/(^|\s)_+|_+(?=\s|$)/g, "$1").trim().slice(0, 200);
+// The real sender of mail that reached us through a DFT Google Group: the original message's Reply-To (or X-Original-Sender).
+async function groupSender(f, fromEmail) {
+  const tok = await gmailToken(/@digitalfoxtalent\.com$/i.test(fromEmail) ? fromEmail : "tom@digitalfoxtalent.com");
+  const subj = String(f.subject || "").replace(/^\s*((re|fwd?|fw)\s*:\s*)+/i, "").replace(/["]/g, "").trim();
+  if (!tok || !subj) return "";
+  const G = p => fetch("https://gmail.googleapis.com/gmail/v1/users/me" + p, { headers: { Authorization: "Bearer " + tok } }).then(r => r.ok ? r.json() : {}).catch(() => ({}));
+  const list = (await G("/messages?maxResults=5&q=" + encodeURIComponent('subject:"' + subj + '" -from:me newer_than:60d'))).messages || [];
+  for (const m of list) {
+    const d = await G("/messages/" + m.id + "?format=metadata&metadataHeaders=Reply-To&metadataHeaders=X-Original-Sender&metadataHeaders=X-Original-From");
+    for (const h of ((d.payload || {}).headers || [])) {
+      const em = (String(h.value || "").match(/[A-Za-z0-9._%+'-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/) || [])[0];
+      if (em && !DFT_DOMAIN.test(em)) return em.toLowerCase();
+    }
+  }
+  return "";
+}
+// The last pass over a pitch draft (Tom, 19 Oct 2026): rewrite it the way Tom's standing lessons say, from his own sent
+// edits. Strictly checked: every paragraph with a price stays word for word, no number that was not there appears, the
+// list and report links stay as their own paragraphs, no dashes. Anything that fails a check keeps the template draft.
+async function polishPitch(paras, lessons, first, f, latest) {
+  const tokens = paras.filter(p => /^\[\[(LIST|REPORT)_LINK\]\]$/.test(p));
+  const priced = paras.filter(p => /\$\s?\d/.test(p));
+  const prompt = [
+    "You are Tom James at Digital Fox Talent, a creator talent agency, tidying a reply to a brand before it is sent. Apply Tom's standing lessons below to this draft. Keep it short, warm and natural, in Tom's voice.",
+    "Rules: keep the meaning and every fact. Do not add facts, prices, numbers, dates, promises or creator names that are not in the draft. Keep these placeholder paragraphs exactly as they are, each on its own: " + (tokens.join(", ") || "(none)") + ". Keep every paragraph that contains a $ price exactly word for word. You may cut a sentence the lessons say to cut, reword the opening thank-you, the line introducing the list and the closing question. No em dashes or en dashes. Do not write the greeting (Hi " + first + ",) or the sign-off.",
+    "TOM'S STANDING LESSONS:\n- " + lessons.join("\n- "),
+    "THE BRAND'S EMAIL (for context only):\n" + String(latest || f.body || "").slice(0, 2500),
+    "THE DRAFT (one paragraph per item):\n" + JSON.stringify(paras),
+    'Reply with ONLY JSON: {"paragraphs":["..."]}'
+  ].join("\n\n");
+  const out = await askClaude(prompt);
+  const ps = Array.isArray(out && out.paragraphs) ? out.paragraphs.map(p => String(p || "").trim()).filter(Boolean) : [];
+  if (ps.length < 2 || ps.length > paras.length + 2) return null;
+  const all = paras.join("\n"), got = ps.join("\n");
+  if (tokens.some(t => ps.filter(p => p === t).length !== 1) || ps.some(p => /\[\[/.test(p) && !tokens.includes(p))) return null;
+  if (priced.some(p => !ps.includes(p))) return null;
+  const nums = s => (s.match(/\d[\d,.]*/g) || []).map(n => n.replace(/[,.]+$/, ""));
+  const had = new Set(nums(all));
+  if (nums(got).some(n => !had.has(n))) return null;
+  if (/[\u2013\u2014]|\[(?!\[)|^(hi|hello|dear)\b|warm regards/im.test(got.replace(/\[\[(LIST|REPORT)_LINK\]\]/g, ""))) return null;
+  if (got.length > all.length * 1.4 + 200) return null;
+  return ps;
+}
 function pitchSearch(f) {
   const w = subjectWords(f.subject);
   // subject:(...) matches all the words; the quoted phrase it replaced missed subjects with "&", "|" or a date
