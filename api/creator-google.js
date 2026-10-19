@@ -76,12 +76,14 @@ export function addressWord(title, handle) {
   return h.length >= 3 ? h.slice(0, 30) : "";
 }
 
+let ytNote = "";
 async function channelTitle(handle) {
   const key = process.env.YOUTUBE_API_KEY;
-  if (!key || !handle) return "";
+  if (!key || !handle) { ytNote = "no YOUTUBE_API_KEY"; return ""; }
   const r = await fetch(`https://www.googleapis.com/youtube/v3/channels?part=snippet&forHandle=${encodeURIComponent(handle.replace(/^@/, ""))}&key=${key}`);
-  if (!r.ok) return "";
-  const d = await r.json();
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) { ytNote = "YouTube " + r.status + " " + ((d.error && d.error.message) || "").slice(0, 120); return ""; }
+  if (!(d.items && d.items[0])) ytNote = "YouTube found no channel for " + handle;
   return (d.items && d.items[0] && d.items[0].snippet.title) || "";
 }
 
@@ -115,7 +117,7 @@ export default async function handler(req, res) {
     if (!/^@[A-Za-z0-9._-]{2,60}$/.test(handle)) return res.status(422).json({ error: "no @handle on roster row" });
     const creatorEmail = col("email__1").trim().toLowerCase();
     const title = (await channelTitle(handle)) || handle.replace(/^@/, "");
-    log.handle = handle; log.channel = title;
+    log.handle = handle; log.channel = title; if (ytNote) log.youtube = ytNote;
 
     // ---- the address ----
     let address = col("text_mkm0t55g").trim().toLowerCase(), addressMade = false, addressNote = "";
