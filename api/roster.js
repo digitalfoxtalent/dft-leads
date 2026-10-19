@@ -2914,7 +2914,7 @@ async function makeDraft(b, email) {
     }
   }
   const html = (/^\s*<div/i.test(body) ? body : '<div dir="ltr">' + body + "</div>") + quoteHtml;
-  const text = String(b.text || htmlToText(body)) + quoteText;
+  const text = String(b.text || htmlToText(body.replace(/<a\b[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi, "$2 \u0001$1\u0002")).replace(/\u0001/g, "<").replace(/\u0002/g, ">")) + quoteText; // the plain-text part keeps each link's address
   // One draft per thread (Tom, 15 Oct 2026): any older draft on this thread goes.
   let removed = 0;
   if (threadId) { const dr = (await G("/drafts?maxResults=50").catch(() => ({}))).drafts || []; for (const d of dr) if (d.message && d.message.threadId === threadId) { await G("/drafts/" + d.id, { method: "DELETE" }).catch(() => null); removed++; } }
