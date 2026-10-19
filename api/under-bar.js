@@ -67,6 +67,79 @@ async function channelInfo(channel) {
   return { title: it.snippet.title, handle: it.snippet.customUrl || "", subs: it.statistics.hiddenSubscriberCount ? null : +it.statistics.subscriberCount };
 }
 
+// WHY THEY WERE UNDER THE BAR (Tom, 19 Oct 2026, after the honestilana alert read "0 avg
+// views" with no explanation: "Can you include this information in the rejection email
+// please?"). We re-read their last 50 uploads with the public API and say, in plain words,
+// which rule they missed, how their long-form and Shorts actually do, and what they make.
+// The rules mirror dft-connect api/signup-check.js (keep them in step if the bar moves):
+// 50,000 average over the last 10 long-form uploads (100,000 needs no back catalogue,
+// 50,000-100,000 needs 10+ long-form videos), and 3+ long-form uploads in the last 90 days.
+// Long-form = over 3 minutes, as in dft-connect _youtube.js. Everything here is best
+// effort: any failure just leaves the extra lines out.
+const LONGFORM_MIN_SECONDS = 180;
+const BAR = 50000, STANDOUT = 100000, MIN_LONGFORM_VIDEOS = 10, ACTIVE_90D = 3;
+
+function isoSeconds(d) {
+  const m = /^P(?:(\d+)D)?T?(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$/.exec(String(d || ""));
+  if (!m) return 0;
+  return (+m[1] || 0) * 86400 + (+m[2] || 0) * 3600 + (+m[3] || 0) * 60 + (+m[4] || 0);
+}
+
+async function channelBreakdown(channel) {
+  const key = process.env.YOUTUBE_API_KEY;
+  if (!key) return null;
+  const get = async (u) => { const r = await fetch(u + "&key=" + key); if (!r.ok) throw new Error("yt " + r.status); return r.json(); };
+  const c = await get(`https://www.googleapis.com/youtube/v3/channels?part=snippet,contentDetails&id=${channel}`);
+  const it = c.items && c.items[0];
+  if (!it) return null;
+  const pl = await get(`https://www.googleapis.com/youtube/v3/playlistItems?part=contentDetails&maxResults=50&playlistId=${it.contentDetails.relatedPlaylists.uploads}`);
+  const ids = (pl.items || []).map((x) => x.contentDetails.videoId);
+  if (!ids.length) return { description: it.snippet.description || "", scanned: 0, longform: [], shorts: [], titles: [] };
+  const v = await get(`https://www.googleapis.com/youtube/v3/videos?part=snippet,contentDetails,statistics,liveStreamingDetails&id=${ids.join(",")}`);
+  const vids = (v.items || []).map((x) => ({
+    title: x.snippet.title, at: Date.parse(x.snippet.publishedAt), seconds: isoSeconds(x.contentDetails.duration),
+    views: +((x.statistics || {}).viewCount || 0), live: !!x.liveStreamingDetails,
+  })).sort((a, b) => b.at - a.at);
+  return {
+    description: it.snippet.description || "",
+    scanned: vids.length,
+    longform: vids.filter((x) => x.seconds > LONGFORM_MIN_SECONDS && !x.live),
+    shorts: vids.filter((x) => x.seconds <= LONGFORM_MIN_SECONDS && !x.live),
+    titles: vids.slice(0, 15).map((x) => x.title),
+  };
+}
+
+// The rules they missed, in the order the sign-up check applies them.
+function reasons(avg, b) {
+  const out = [];
+  const nf = (x) => Math.round(x).toLocaleString("en-US");
+  if (b && b.scanned && !b.longform.length) out.push(`Posts Shorts only: none of their last ${b.scanned} uploads is long-form (over 3 minutes), and Shorts don't count towards the bar.`);
+  else if (avg != null && avg < BAR) out.push(`Long-form average of ${nf(avg)} views is under the ${nf(BAR)} bar.`);
+  if (b && b.longform.length) {
+    const recent = b.longform.filter((x) => x.at > Date.now() - 90 * 864e5).length;
+    if (recent < ACTIVE_90D) out.push(`Only ${recent} long-form upload${recent === 1 ? "" : "s"} in the last 90 days (we need ${ACTIVE_90D}).`);
+    if (avg != null && avg >= BAR && avg < STANDOUT && b.longform.length < MIN_LONGFORM_VIDEOS && b.scanned < 50) out.push(`Only ${b.longform.length} long-form videos in total (we need ${MIN_LONGFORM_VIDEOS} at this average).`);
+  }
+  return out;
+}
+
+// One plain line on what they make and how it sits with our roster. Claude Haiku, best effort.
+async function whatTheyMake(name, b) {
+  const key = process.env.ANTHROPIC_API_KEY;
+  if (!key || !b) return "";
+  const prompt = `YouTube channel: ${name}\nChannel description: ${b.description.slice(0, 800)}\nRecent video titles:\n- ${b.titles.join("\n- ")}\n\nIn one short sentence (under 30 words), say what this channel makes and whether it fits a talent agency roster that is mostly film, TV, pop culture and gaming creators. Plain English, no dashes, no preamble.`;
+  try {
+    const r = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+      body: JSON.stringify({ model: "claude-haiku-4-5", max_tokens: 120, messages: [{ role: "user", content: prompt }] }),
+    });
+    if (!r.ok) return "";
+    const d = await r.json();
+    return String(((d.content || [])[0] || {}).text || "").replace(/\s*[–—]\s*/g, " - ").trim().slice(0, 300);
+  } catch (e) { return ""; }
+}
+
 export default async function handler(req, res) {
   res.setHeader("Cache-Control", "no-store");
   if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
@@ -97,9 +170,25 @@ export default async function handler(req, res) {
     // Only Channel Connect's own signed stats links go in the email.
     const stats = String(body.statsUrl || "");
     const statsLink = stats.startsWith(STATS_PREFIX) && stats.length < 400 ? stats : "";
+    let bd = null;
+    try { bd = await channelBreakdown(channel); } catch (e) { bd = null; }
+    const why = reasons(avg, bd);
+    const make = await whatTheyMake(name, bd);
+    const avgOf = (xs) => (xs.length ? xs.reduce((s, x) => s + x.views, 0) / xs.length : null);
+    const facts = [`Average views per long-form video (last 10): ${n(avg)}`];
+    if (bd && bd.scanned) {
+      const lf90 = bd.longform.filter((x) => x.at > Date.now() - 90 * 864e5).length;
+      facts.push(`Long-form uploads in the last 90 days: ${lf90}${lf90 === bd.scanned && bd.scanned >= 50 ? "+" : ""}`);
+      facts.push(`Shorts in their last ${bd.scanned} uploads: ${bd.shorts.length}${bd.shorts.length ? `, averaging ${n(avgOf(bd.shorts.slice(0, 20)))} views` : ""}`);
+      const last = Math.max(...bd.longform.concat(bd.shorts).map((x) => x.at));
+      if (Number.isFinite(last)) facts.push(`Latest upload: ${new Date(last).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "America/Denver" })}`);
+    }
+    facts.push(`Subscribers: ${n(info.subs)}`);
     const subject = `Sign-up check under the bar: ${name} (${n(avg)} avg views)`;
     const html = `<p><a href="${esc(url)}">${esc(name)}</a>${info.handle ? " (" + esc(info.handle) + ")" : ""} checked their channel on the sign-up page and was under the bar.</p>
-<p>Average views per long-form video: ${n(avg)}<br>Subscribers: ${n(info.subs)}</p>
+${why.length ? `<p><b>Why they didn't qualify</b></p><ul>${why.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}
+<p><b>Their numbers</b><br>${facts.map(esc).join("<br>")}</p>
+${make ? `<p><b>What they make</b><br>${esc(make)}</p>` : ""}
 <p>We've kept their read-only YouTube access${statsLink ? `, so their live stats stay here: <a href="${esc(statsLink)}">Open the stats page</a>` : ""}. No contact details are captured at this step.</p>`;
     await sendAlert(subject, html);
     return res.status(200).json({ ok: true, sent: true });
