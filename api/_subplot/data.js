@@ -3,6 +3,7 @@
 // Cached per lambda instance for TTL_MS; the CDN caches rendered pages on top.
 
 import { formatOf } from "./formats.js";
+import { ONE_OF_US_FIXES } from "./oneofus.js";
 
 const STORE = "https://api.apify.com/v2/key-value-stores/5yFLBuHJj59ySXY9e";
 const TTL_MS = 5 * 60 * 1000;
@@ -507,7 +508,7 @@ async function load() {
   // deleted from the store. Remove an id once its article is corrected.
   { const hold = new Set([...STALE_HOLD, ...EDITORIAL_HOLD]); const kept = arts.filter(a => !hold.has(a.id)); arts.length = 0; arts.push(...kept); }
   {
-    const byId = new Map(); for (const [id, from, to] of [...DATE_FIXES, ...EDITORIAL_FIXES]) { if (!byId.has(id)) byId.set(id, []); byId.get(id).push([from, to]); }
+    const byId = new Map(); for (const [id, from, to] of [...DATE_FIXES, ...EDITORIAL_FIXES, ...ONE_OF_US_FIXES]) { if (!byId.has(id)) byId.set(id, []); byId.get(id).push([from, to]); }
     const dated = new Set(DATED_IDS);
     const longDate = d => { const t = new Date(d); return isNaN(t) ? "" : t.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" }); };
     for (const a of arts) {
