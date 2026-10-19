@@ -77,6 +77,10 @@ const EARLY_DAYS = 7, LATE_DAYS = 21;
 // A read 8 to 45 days from the nearest flight is never added: it is flagged to Tom as a possible make-good,
 // with a one-click link that adds it (?pass=audit&accept=row:video).
 const NEAR_DAYS = 7, MAKEGOOD_DAYS = 60, FLAG_DAYS = 45;
+// A flight counts as finished FINISHED days after its last day. Flights end on a Sunday and the audit runs on
+// Monday, so 1 day audits last week's flight the next morning (it was 2, which left every flight a week late).
+// Uploads that land later are still caught: each run re-checks every flight of the last LOOKBACK_DAYS.
+const FINISHED = 1;
 export const isMakegood = r => /make.?good/i.test(String(r.row || "") + " " + String(r.deal || ""));
 const gap = (t, f) => t < f.core[0] ? f.core[0] - t : t > f.core[1] ? t - f.core[1] : 0;
 
@@ -88,7 +92,7 @@ export function auditCreator(rows, vids, now, lookbackDays, heard) {
   const today = now || Date.now(), from = today - (lookbackDays || LOOKBACK_DAYS) * D;
   const out = [];
   for (const r of rows) {
-    const f = flight(r); if (!f || f.core[1] < from || f.core[1] > today - 2 * D) continue; // finished flights only
+    const f = flight(r); if (!f || f.core[1] < from || f.core[1] > today - FINISHED * D) continue; // finished flights only
     const bk = sq(r.brandKey || r.brand); if (bk.length < 3) continue;
     const own = r.vids.map(id => byId.get(id)).filter(Boolean);
     const links = new Set(own.flatMap(v => (v.u || []).filter(u => sq(u).includes(bk)).map(normLink)));
@@ -155,18 +159,26 @@ export function auditCreator(rows, vids, now, lookbackDays, heard) {
 
 // Pure: reads 8 to 45 days from the nearest finished flight of their brand, on no row of the brand.
 // Never added; returned for Tom as possible make-goods, each against its nearest row.
+// The nearest flight is judged against EVERY dated row of the brand, finished or not (19 Oct 2026: two
+// PrizePicks reads from 16 and 18 Oct were flagged as make-goods for September Spot2 because October Spot1,
+// whose own flight was 12 to 18 Oct, had ended the day before and so was left out). A read inside any row's
+// own dates belongs to that row, and a read whose nearest flight has not finished yet waits for that row's audit.
 export function makegoodFlags(rows, vids, now, heard) {
   const out = []; if (!heard) return out;
   const brands = new Map(); for (const r of rows) { const bk = sq(r.brandKey || r.brand); if (bk.length >= 3) (brands.get(bk) || brands.set(bk, []).get(bk)).push(r); }
   for (const [bk, rs] of brands) {
-    const fl = rs.map(r => ({ r, f: flight(r) })).filter(x => x.f && x.f.core[1] <= (now || Date.now()) - 2 * D);
-    if (!fl.length) continue;
+    const all = rs.map(r => ({ r, f: flight(r) })).filter(x => x.f);
+    const done = x => x.f.core[1] <= (now || Date.now()) - FINISHED * D;
+    if (!all.some(done)) continue;
     const taken = new Set(rs.flatMap(r => r.vids));
     for (const v of vids) {
       if (taken.has(v.v) || !heard.get(v.v)) continue;
-      const t = day(v.at); let best = null;
-      for (const x of fl) { const g = gap(t, x.f); if (!best || g < best.g) best = { ...x, g }; }
-      if (!best || t <= best.f.core[1]) continue; // make-goods run after a flight, never before it
+      const t = day(v.at);
+      if (all.some(x => t >= x.f.core[0] && t <= x.f.core[1])) continue; // inside a row's own dates: that row owns it
+      let best = null;
+      for (const x of all) { const g = gap(t, x.f); if (!best || g < best.g) best = { ...x, g }; }
+      if (!best || !done(best)) continue; // nearest flight still running: its own audit judges it
+      if (t <= best.f.core[1]) continue; // make-goods run after a flight, never before it
       const limit = (isMakegood(best.r) ? MAKEGOOD_DAYS : NEAR_DAYS) * D;
       if (best.g <= limit || best.g > FLAG_DAYS * D) continue;
       const read = spokenRead(heard.get(v.v), best.r.brand); if (!read) continue;
@@ -174,6 +186,31 @@ export function makegoodFlags(rows, vids, now, heard) {
     }
   }
   return out;
+}
+
+// Plain-English wording for each kind of flag: a short label for the email subject, and why a person is needed.
+const KIND = {
+  "possible make-good": { label: "possible make-good", hold: "It went up more than a week after this flight ended, so it could be a make-good for this deal or a separate booking. Only someone who knows the deal can tell." },
+  "copy differs": { label: "new ad copy", hold: "Its ad read is different from this row's videos, which usually means a new campaign rather than this one." },
+  "two rows": { label: "between two deals", hold: "It is as close to another flight of this brand as to this one, so it is not clear which deal it belongs to." },
+  "link but no read": { label: "link but no read", hold: "The description carries this row's tracking link, but the brand is not read out in the video. Descriptions are often copied from week to week." },
+};
+const MAX_NOTIFY = 10;
+const plural = (n, w) => n + " " + w + (n === 1 ? "" : "s");
+export function notifyText(xs) {
+  const r = xs[0].r, labels = [...new Set(xs.map(x => (KIND[x.kind] || { label: x.kind }).label))].join(", ");
+  return "Action needed: confirm " + plural(xs.length, r.brand + " video") + " for " + r.deal + (r.h ? " (" + r.h + ")" : "") + " - " + labels +
+    ". Open the row, read the Flight audit update and press Add if " + (xs.length === 1 ? "it belongs" : "they belong") + " to this deal. If not, do nothing.";
+}
+export function flagUpdate(x) {
+  const k = KIND[x.kind] || { hold: "It needs a person to decide where it belongs." };
+  return "<p><b>Flight audit: please confirm this " + esc(x.r.brand) + " video (not added)</b></p>" +
+    "<p><b>Found:</b> " + esc(x.v.at) + " youtube.com/watch?v=" + esc(x.v.v) + " " + esc(x.v.t) + ". " + esc(x.why) + ".</p>" +
+    "<p><b>Why it was not added:</b> " + esc(k.hold) + "</p>" +
+    "<p><b>What to do:</b></p><ul>" +
+    "<li>It belongs to this deal: open " + esc(ACCEPT_URL + x.r.id + ":" + x.v.v) + " and press Add (team sign-in).</li>" +
+    "<li>It belongs to another deal: add the link to that row's LIVE VIDEO URLS.</li>" +
+    "<li>It is not a paid read for this brand: do nothing. It will not be flagged again.</li></ul>";
 }
 
 async function loadRows(token) {
@@ -207,7 +244,7 @@ export async function runAudit(token, opts) {
   const summary = { pass: "audit", dry: !!opts.dry, days, creators: 0, units: 0, rowsChecked: 0, added: 0, videos: 0, review: [], plan: [], errors: [] };
   const [rows, gtr] = await Promise.all([loadRows(token), loadGtr(token)]);
   const from = now - days * D;
-  const due = rows.filter(r => r.h.startsWith("@") && (() => { const f = flight(r); return f && f.core[1] >= from && f.core[1] <= now - 2 * D; })());
+  const due = rows.filter(r => r.h.startsWith("@") && (() => { const f = flight(r); return f && f.core[1] >= from && f.core[1] <= now - FINISHED * D; })());
   summary.rowsChecked = due.length;
   const hs = [...new Set(due.map(r => r.h))];
   const writes = [], scans = [];
@@ -253,7 +290,7 @@ export async function runAudit(token, opts) {
   summary.transcripts = { asked: ask.length, got: heard.size, more: Math.max(0, new Set(want.map(x => x.v)).size - ask.length) };
   const flags = [];
   for (const { mine, vids } of scans) {
-    for (const m of makegoodFlags(mine, vids, now, heard)) if (due.includes(m.r)) flags.push({ r: m.r, v: m.v, kind: "possible make-good", why: "brand read out " + m.days + " days after this flight (\"" + m.quote + "\"), on no row" });
+    for (const m of makegoodFlags(mine, vids, now, heard)) if (due.includes(m.r)) flags.push({ r: m.r, v: m.v, kind: "possible make-good", why: m.r.brand + " is read out in it (\"" + m.quote + "\"), " + m.days + " days after this flight ended. No other " + m.r.brand + " row covers that date, and it is on no campaign row" });
     for (const x of auditCreator(mine, vids, now, days, heard)) {
       if (x.flag) { for (const v of x.flag) flags.push({ r: x.r, v, kind: v.kind, why: v.why }); continue; }
       if (x.review) { summary.review.push({ id: x.r.id, deal: x.r.deal, why: x.review, videos: x.vids.map(v => v.v + " " + v.at) }); continue; }
@@ -281,7 +318,7 @@ export async function runAudit(token, opts) {
       await mondayVars(token, "mutation ($i: ID!, $t: String!) { create_update(item_id:$i, body:$t) { id } }", { i: String(x.r.id), t: body });
     } catch (e) { summary.errors.push(x.r.id + ": " + String(e.message || e).slice(0, 160)); }
   }
-  // Flags for a person: one update on the row per video (so it is never flagged twice) and one notification to Tom.
+  // Flags for a person: one update on the row per video (so it is never flagged twice) and one notification to Tom per row.
   { const seen = new Set(); for (let i = flags.length - 1; i >= 0; i--) { const k = flags[i].v.v + "|" + flags[i].kind; if (seen.has(k)) flags.splice(i, 1); else seen.add(k); } }
   summary.flags = flags.map(x => ({ id: x.r.id, deal: x.r.deal, kind: x.kind, video: x.v.v + " " + x.v.at, why: x.why, accept: ACCEPT_URL + x.r.id + ":" + x.v.v }));
   if (!opts.dry && flags.length) {
@@ -292,19 +329,20 @@ export async function runAudit(token, opts) {
         const d = await monday(token, "query { items(ids:[" + x.r.id + "]) { column_values(ids:[\"text_mm6aq9qp\"]) { text } updates(limit:100) { text_body } } }");
         const it = d.items && d.items[0]; if (!it) continue;
         if ((it.column_values[0].text || "").includes(x.v.v) || (it.updates || []).some(u => String(u.text_body || "").includes(x.v.v))) continue;
-        const body = "<p><b>Flight audit: " + esc(x.kind) + ", not added</b></p><p>" + esc(x.v.at) + " youtube.com/watch?v=" + esc(x.v.v) + " " + esc(x.v.t) + ": " + esc(x.why) +
-          ".</p><p>If it belongs here, open " + esc(ACCEPT_URL + x.r.id + ":" + x.v.v) + " and press Add (team sign-in). Otherwise ignore this; it is not flagged again.</p>";
-        await mondayVars(token, "mutation ($i: ID!, $t: String!) { create_update(item_id:$i, body:$t) { id } }", { i: String(x.r.id), t: body });
+        await mondayVars(token, "mutation ($i: ID!, $t: String!) { create_update(item_id:$i, body:$t) { id } }", { i: String(x.r.id), t: flagUpdate(x) });
         fresh.push(x);
       } catch (e) { summary.errors.push("flag " + x.r.id + ": " + String(e.message || e).slice(0, 120)); }
     }
-    if (fresh.length) {
-      // Short headline (Tom, 14 Oct 2026): monday uses this text as the email subject and body. The detail,
-      // with each Add link, is already in the update on every flagged row.
-      const text = "Flight audit: " + fresh.length + " sponsor read" + (fresh.length === 1 ? "" : "s") + " to check by hand, newest on " + fresh[0].r.deal;
-      try { await mondayVars(token, "mutation ($u: ID!, $t: ID!, $x: String!) { create_notification(user_id:$u, target_id:$t, target_type:Project, text:$x) { text } }", { u: String(TOM), t: String(fresh[0].r.id), x: text.slice(0, 1900) }); summary.notified = fresh.length; }
-      catch (e) { summary.errors.push("notify: " + String(e.message || e).slice(0, 120)); }
+    // One notification per flagged row, pointing at that row (19 Oct 2026, Tom: "I don't know what it's about or
+    // what to action"). monday uses this text as the email subject and body, so it says what, where and what to do.
+    const byRow = new Map(); for (const x of fresh) (byRow.get(x.r.id) || byRow.set(x.r.id, []).get(x.r.id)).push(x);
+    let sent = 0;
+    for (const [id, xs] of byRow) {
+      if (sent >= MAX_NOTIFY) { summary.notifyCapped = byRow.size - sent; break; }
+      try { await mondayVars(token, "mutation ($u: ID!, $t: ID!, $x: String!) { create_notification(user_id:$u, target_id:$t, target_type:Project, text:$x) { text } }", { u: String(TOM), t: String(id), x: notifyText(xs).slice(0, 1900) }); sent++; }
+      catch (e) { summary.errors.push("notify " + id + ": " + String(e.message || e).slice(0, 120)); }
     }
+    if (sent) summary.notified = sent;
   }
   summary.ms = Date.now() - t0;
   return summary;
