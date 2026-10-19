@@ -1458,7 +1458,13 @@ async function recruitDraft(b, email) {
   let bodyOut = noDash(String(out.body)).replace(/\r/g, "").trim();
   if (!/sign up here/i.test(bodyOut)) bodyOut += "\n\nIf you prefer not to do a video call, you can sign up here.";
   plain = bodyOut.replace(/sign up here/i, m => m + " (" + SIGNUP + ")") + "\n\nWarm regards\n" + sig;
-  const html = (bodyOut + "\n\nWarm regards\n" + sig).split(/\n{2,}/).map(p => "<p>" + escH(p).replace(/\n/g, "<br>").replace(/sign up here/i, m => m.slice(0, -4) + '<a href="' + SIGNUP + '">here</a>') + "</p>").join("");
+  // The first "Digital Fox Talent" in the body links to our website (Tom, 19 Oct 2026: "our website is impressive so it
+  // should build trust"). The signature stays plain.
+  let siteLinked = false;
+  const para = p => "<p>" + escH(p).replace(/\n/g, "<br>") + "</p>";
+  const html = bodyOut.split(/\n{2,}/).map(p => para(p)
+    .replace(/Digital Fox Talent/, m => siteLinked ? m : (siteLinked = true, '<a href="https://digitalfoxtalent.com">' + m + "</a>"))
+    .replace(/sign up here/i, m => m.slice(0, -4) + '<a href="' + SIGNUP + '">here</a>')).join("") + para("Warm regards\n" + sig);
   const cc = ["tom@digitalfoxtalent.com", "alex@digitalfoxtalent.com"].filter(x => x !== email).join(", ");
   const G = (path, opt = {}) => fetch("https://gmail.googleapis.com/gmail/v1/users/me" + path, Object.assign({}, opt, { headers: Object.assign({ Authorization: "Bearer " + tok }, opt.headers || {}) })).then(async r => { const tx = await r.text(); let j = {}; try { j = tx ? JSON.parse(tx) : {}; } catch (_) {} return r.ok ? j : Object.assign(j, { _status: r.status }); });
   const dr = await G("/drafts", { method: "POST", headers: { "Content-Type": "application/json" }, body: pitchMime({ to, cc, subject, html, text: plain }).draft });
