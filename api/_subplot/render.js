@@ -531,7 +531,7 @@ export function articlePage(a, data, base) {
     datePublished: a.p, dateModified: a.p, image: [a.thumb], wordCount: a.w, articleSection: CATS[a.k], keywords: a.t.join(", "),
     author: { "@type": "Person", name: a.b, alternateName: a.c, url: "https://www.youtube.com/" + a.c, ...(bioFor(a.c) ? { description: bioFor(a.c) } : {}) },
     publisher: { "@type": "Organization", name: BRAND_() },
-    ...(NOTES[a.id] ? { editor: { "@type": "Person", name: NOTE_SIGNOFF.split(",")[0] } } : {}),
+    ...(NOTES[a.id] || brand().key === "subplot" ? { editor: { "@type": "Person", name: NOTE_SIGNOFF.split(",")[0] } } : {}),
     isBasedOn: "https://www.youtube.com/watch?v=" + a.v,
     mainEntityOfPage: siteUrl() + base + artPath(a),
   }).replace(/</g, "\\u003c")}</script>`;
@@ -545,7 +545,7 @@ export function articlePage(a, data, base) {
       <h1 class="headline">${esc(a.h)}</h1>
       <p class="dek">${esc(a.s)}</p>
       <div class="authorbar">${bylineMark(a.b, data.avatars && data.avatars[a.c])}
-        <span class="nm"><b><a href="${base}/c/${esc(slugH(a.c))}" style="color:inherit;text-decoration:none">${esc(a.b || a.c)}</a> <span style="font-weight:400">(AI-assisted)</span></b><span>${esc(fmt(a.p))}</span></span>
+        <span class="nm"><b><a href="${base}/c/${esc(slugH(a.c))}" style="color:inherit;text-decoration:none">${esc(a.b || a.c)}</a> <span style="font-weight:400">(AI-assisted)</span></b><span>${esc(fmt(a.p))}${brand().key === "subplot" ? ` &middot; Editor: ${esc(NOTE_SIGNOFF.split(",")[0])}` : ""}</span></span>
         <span class="meta">${a.w.toLocaleString("en-GB")} words · ${a.rt} min read</span></div>
       ${editorNote(a, data, base)}
       <div class="prose">${withInArticleAds(splitDisclosure(endNote(siteContacts(a.body), a, base))[0])}</div>
