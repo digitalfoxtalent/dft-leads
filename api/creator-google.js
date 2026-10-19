@@ -128,7 +128,11 @@ export default async function handler(req, res) {
       const want = word + "@" + DOMAIN;
       const dirTok = await googleToken(TOM, ["admin.directory.group"]);
       const got = await g(dirTok, "GET", `https://admin.googleapis.com/admin/directory/v1/groups/${encodeURIComponent(want)}`);
-      if (got.ok) { addressNote = want + " is already taken by the group \"" + (got.json.name || "") + "\", so nothing was made: pick another word by hand"; }
+      if (got.ok && String(got.json.description || "").includes("(" + handle + ")")) {
+        // Made by an earlier run of this endpoint that stopped before writing the roster row: adopt it.
+        address = want; addressMade = true; addressNote = "created " + want + " (on an earlier run)";
+      }
+      else if (got.ok) { addressNote = want + " is already taken by the group \"" + (got.json.name || "") + "\", so nothing was made: pick another word by hand"; }
       else if (got.status !== 404) { throw new Error("group lookup " + got.status + " " + got.text); }
       else if (dry) { addressNote = "would create " + want; address = want; }
       else {
