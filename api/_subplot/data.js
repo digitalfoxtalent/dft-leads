@@ -725,6 +725,7 @@ export const EDITORIAL_FIXES = [
   ["ifTdbDAcd9U__t3", "Jon'", "John'"],
   ["ifTdbDAcd9U__t3", "Jon,", "John,"],
   ["ifTdbDAcd9U__t3", "Jon.", "John."],
+  ["xGwVPYCrgME", "a woman who wanted her wife's brother alive but her wife's sister-in-law kept quiet because she is a problem.", "a woman who wanted her wife's brother, Daniel, alive, and his wife, Helen, kept quiet because she is a problem."],
 ];
 export const DATED_IDS = [
   "-4QU76wzWOM", "-ywzCKKPpOI", "2owGtFMcyR0", "3CtzjeYkMhw", "40ci88x8Cl8", "4RoCzA_INZ0",
