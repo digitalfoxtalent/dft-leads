@@ -2463,6 +2463,7 @@ async function pitchFromEmail(b) {
     const aiCamp = aiIds.size > 0 && out.ai_product === true;
     const namedIds = new Set((out.picks || []).filter(p => p && p.named === true).map(p => String(p.id)));
     const ids = [...new Set((out.picks || []).filter(p => p && (p.named === true || !(Number(p.fit) < 3))).map(p => String(p && p.id)).filter(id => cat.byId[id] && (!aiCamp || aiOk(id) || namedIds.has(id))))];
+    const picked0 = ids.slice(); // the model's picks before the format, market and pointer checks (for the fallback below)
     // Only formats the enquiry asks for: dedicated and social placements need to be named; integrations and Shorts are the default.
     const wantF = { dedicated: /dedicated|full video|standalone video/i, group_mm4a1fe0: /instagram|\binsta\b|\bIG\b|\breels?\b/i, group_mm4bd5tk: /tik ?tok/i, group_mm7yw8cy: /snap ?chat/i };
     // Formats strictly as the brand states them; nothing stated means YouTube, integration plus Shorts (Tom, 14 Oct 2026).
@@ -2486,8 +2487,12 @@ async function pitchFromEmail(b) {
     for (let k = ids.length - 1; k >= 0; k--) if (ruledOut(base(cat.byId[ids[k]].name))) ids.splice(k, 1);
     // Market limits are enforced here, not left to the model (Tom, 13 Oct 2026: "only available to the Australian market").
     const MARKETS = [["australia", /\baustralia(n)?\b|\baus\b/i], ["new zealand", /new zealand|\bnz\b|kiwi/i], ["united kingdom", /\b(uk|united kingdom|british|britain|england)\b/i], ["canada", /\bcanad(a|ian)\b/i], ["ireland", /\bireland|irish\b/i], ["united states", /\b(us only|usa|united states|american market)\b/i]];
-    const limitTxt = f.note + " " + (/\bonly\b|exclusively|limited to/i.test(f.body) ? f.body : "");
-    const market = /\bonly\b|exclusively|limited to/i.test(limitTxt) ? (MARKETS.find(m => m[1].test(limitTxt)) || [])[0] : "";
+    // A market limit only when the words say so together, e.g. "only available in Australia" or "UK only" (Tom, 19 Oct 2026,
+    // Nanoleaf): "only" in the agency's confidentiality footer and "Canada" in its office address made a Canada-only list,
+    // which left nobody, so the forward was refused. Read from the note and the newest message, never from quoted history.
+    const LIMIT = "(?:only|exclusively|solely|limited to|restricted to)";
+    const marketIn = txt => (MARKETS.find(m => /only/i.test((String(txt || "").match(m[1]) || [""])[0]) || new RegExp("\\b" + LIMIT + "\\b[^.\\n]{0,40}(?:" + m[1].source + ")|(?:" + m[1].source + ")[^.\\n]{0,25}\\b(?:only|exclusively)\\b", "i").test(String(txt || ""))) || [])[0] || "";
+    const market = marketIn(f.note) || marketIn(latest);
     const inMarket = id => { const loc = String(cat.byId[id].location || "").toLowerCase(); return market === "united kingdom" ? /united kingdom|\buk\b|england|scotland|wales/.test(loc) : market === "united states" ? /united states|\busa?\b/.test(loc) : loc.includes(market); };
     if (market) for (let k = ids.length - 1; k >= 0; k--) if (!inMarket(ids[k])) ids.splice(k, 1);
     const aiDeclined = []; // named creators who do not take AI work (unless the enquiry says DFT already confirmed them)
@@ -2546,6 +2551,23 @@ async function pitchFromEmail(b) {
     }
     // Nothing to pitch (Tom, 14 Oct 2026, Alex's Gamesight forward): say why in plain words, and how to get a list anyway.
     const whyNone = noDash(String(out.no_pitch_reason || "").trim()).replace(/[.\s]+$/, "");
+    // Never refuse a real enquiry because the checks left nobody (Tom, 19 Oct 2026, Nanoleaf: "We need to make sure this system is
+    // robust and flawless"). Fall back, in order, to: the model's picks and the named creators in the formats asked for, then
+    // as YouTube integrations and Shorts, then any of their rows, then one more ask for the closest fits. The row says so.
+    let fellBack = "";
+    if (!ids.length) {
+      const keep = id => cat.byId[id] && !leftOut(base(cat.byId[id].name)) && !ruledOut(base(cat.byId[id].name)) && !aiDeclined.includes(nameOf(id)) && (!aiCamp || aiOk(id) || !!nameOf(id));
+      const choose = pool => { const p = [...new Set(pool)].filter(keep); const inAsk = p.filter(id => askedG.has(cat.byId[id].gid)), yt = p.filter(id => ["topics", "group_mm4av3kr"].includes(cat.byId[id].gid)); return inAsk.length ? inAsk : yt.length ? yt : p; };
+      let alt = choose(picked0.concat(namedPl));
+      if (!alt.length) {
+        const wide = await askClaude(prompt + "\n\nNo creator came through the checks. Pick the 10 to 15 creators on the roster who come closest to suiting this enquiry, even if the fit is only adjacent (family friendly channels first for a family or kids product), with honest fit scores. Return the same JSON.").catch(() => null);
+        alt = choose(((wide && wide.picks) || []).map(p => String(p && p.id)).filter(id => cat.byId[id])).slice(0, 15);
+      }
+      if (alt.length) {
+        ids.push(...alt);
+        fellBack = "the format, market and fit checks left no creators" + (market ? " (it read the email as " + market + " only)" : "") + ", so this list is the closest fits" + (alt.some(id => !askedG.has(cat.byId[id].gid)) ? " in the nearest format to the one asked for" : "") + ". Check it before you send";
+      }
+    }
     if (!ids.length) throw new Error("No list made: " + (whyNone ? whyNone + "." : (out.picks || []).length ? "no creator passed the fit, format and market checks for this brief." : "no creators were picked for this email.") + " To get a list anyway, forward it again with a note above it saying what you want, e.g. 'pitch more creators for this'.");
     if (update && !update.replace) { const keep = update.ids.filter(id => !leftOut(base(cat.byId[id].name))); const had = new Set(keep); ids.splice(0, ids.length, ...keep, ...ids.filter(id => !had.has(id))); }
     if (!reuse) ids.sort((x, y) => order.indexOf(cat.byId[x].gid) - order.indexOf(cat.byId[y].gid));
@@ -2661,9 +2683,9 @@ async function pitchFromEmail(b) {
       const dom0 = x => { const p = String(String(x || "").split("@")[1] || "").toLowerCase().split("."); return p.slice(p.length > 2 && p[p.length - 1].length === 2 && p[p.length - 2].length <= 3 ? -3 : -2).join("."); };
       const cd0 = dom0(f.contactEmail), side0 = x => !!cd0 && !FREE0.test(cd0) && dom0(x) === cd0;
       const cc0 = [...new Set((f.others || []).filter(x => x !== f.contactEmail && (side0(x) || /^(alex|margot|george)@digitalfoxtalent\.com$/i.test(x))).concat(["tom@digitalfoxtalent.com", "alex@digitalfoxtalent.com", "margot@digitalfoxtalent.com"]))].filter(x => x !== fromEmail).join(", ");
-      return { ok: true, listUrl: saved.url, title, linkText, placements: ids.length, product: noDash(b.sub.name), mix, first, answer, to: f.contactEmail, cc: cc0, subject, search: pitchSearch(f), html: html + quoteHtml, text: text + quoteText, quoteHtml, quoteText, model: out.model, picks: out.picks, questions: out.questions || [], reviewed, press, unanswered: todo, headsUp: whyNone };
+      return { ok: true, listUrl: saved.url, title, linkText, placements: ids.length, product: noDash(b.sub.name), mix, first, answer, to: f.contactEmail, cc: cc0, subject, search: pitchSearch(f), html: html + quoteHtml, text: text + quoteText, quoteHtml, quoteText, model: out.model, picks: out.picks, questions: out.questions || [], reviewed, press, unanswered: todo, headsUp: [fellBack, whyNone].filter(Boolean).join(". ") };
     }
-    await pitchMark(b.item, (press ? "Press package. " : "") + (reuse ? "Ready: same list as before, " : "Ready: ") + ids.length + " placements (" + out.model + ")" + (todo.length ? ". Brand also asked (not answered in the draft): " + todo.join("; ") : "") + (whyNone ? ". Heads-up: " + whyNone : ""), saved.url);
+    await pitchMark(b.item, (press ? "Press package. " : "") + (reuse ? "Ready: same list as before, " : "Ready: ") + ids.length + " placements (" + out.model + ")" + (todo.length ? ". Brand also asked (not answered in the draft): " + todo.join("; ") : "") + (fellBack ? ". Heads-up: " + fellBack : "") + (whyNone ? ". Heads-up: " + whyNone : ""), saved.url);
     // Who gets copied (Tom, 14 Oct 2026, after a creator's personal email was copied on Margot's Base44 draft):
     // never a creator. Besides Tom, Alex and Margot, the only addresses kept from the forwarded email are
     // colleagues of the brand contact at the same company domain. A free mail domain (gmail, icloud...) is
