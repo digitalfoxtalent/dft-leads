@@ -26,6 +26,7 @@
 // if Google Chat is already Yes. mode "dry" reports what it would do and changes nothing.
 import crypto from "node:crypto";
 import { monday, mondayToken } from "./_reports/monday.js";
+import { yt } from "./_ytkey.js";
 
 export const config = { maxDuration: 60 };
 
@@ -78,10 +79,9 @@ export function addressWord(title, handle) {
 
 let ytNote = "";
 async function channelTitle(handle) {
-  const key = process.env.YOUTUBE_API_KEY;
-  if (!key || !handle) { ytNote = "no YOUTUBE_API_KEY"; return ""; }
-  const r = await fetch(`https://www.googleapis.com/youtube/v3/channels?part=snippet&forHandle=${encodeURIComponent(handle.replace(/^@/, ""))}&key=${key}`);
-  const d = await r.json().catch(() => ({}));
+  if (!handle) return "";
+  const r = await yt(`https://www.googleapis.com/youtube/v3/channels?part=snippet&forHandle=${encodeURIComponent(handle.replace(/^@/, ""))}`);
+  const d = r.json || {};
   if (!r.ok) { ytNote = "YouTube " + r.status + " " + ((d.error && d.error.message) || "").slice(0, 120); return ""; }
   if (!(d.items && d.items[0])) ytNote = "YouTube found no channel for " + handle;
   return (d.items && d.items[0] && d.items[0].snippet.title) || "";

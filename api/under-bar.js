@@ -15,6 +15,7 @@
 // board. Only dft-connect can produce a valid signature, so nobody else can trigger an alert.
 import crypto from "node:crypto";
 import { monday, mondayToken } from "./_reports/monday.js";
+import { yt } from "./_ytkey.js";
 
 const ALERT_FROM = "theteam@digitalfoxtalent.com";
 const ALERT_TO = ["tom@digitalfoxtalent.com", "alex@digitalfoxtalent.com"];
@@ -86,9 +87,7 @@ function isoSeconds(d) {
 }
 
 async function channelBreakdown(channel) {
-  const key = process.env.YOUTUBE_API_KEY;
-  if (!key) return null;
-  const get = async (u) => { const r = await fetch(u + "&key=" + key); if (!r.ok) throw new Error("yt " + r.status); return r.json(); };
+  const get = async (u) => { const r = await yt(u); if (!r.ok) throw new Error("yt " + r.status); return r.json; };
   const c = await get(`https://www.googleapis.com/youtube/v3/channels?part=snippet,contentDetails&id=${channel}`);
   const it = c.items && c.items[0];
   if (!it) return null;
