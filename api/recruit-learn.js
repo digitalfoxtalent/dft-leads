@@ -34,6 +34,8 @@ export function mainText(s) {
   let t = String(s || "").replace(/\r/g, "");
   t = t.split(/\n(?:On .{6,120} wrote:|-{2,} ?Forwarded message|>)/)[0];
   t = t.split(/\n\s*(?:warm regards|kind regards|best regards|best|cheers|thanks|many thanks|all the best)\s*,?\s*\n/i)[0];
+  // Link targets are not wording: Gmail shows a link as "here <https://...>", the draft as "here (https://...)".
+  t = t.replace(/\s*[<(]https?:\/\/[^\s>)]+[>)]/g, "");
   return t.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 const same = (a, b) => a.replace(/\s+/g, " ").trim().toLowerCase() === b.replace(/\s+/g, " ").trim().toLowerCase();
