@@ -181,6 +181,8 @@ export default async function handler(req, res) {
     log.steps.push("chat: " + spaceNote);
 
     if (dry) return res.status(200).json(Object.assign(log, { ok: true, wouldWrite: { address } }));
+    // Nothing new to make (already set up): no roster update, no email.
+    if (!addressMade && !spaceUrl) return res.status(200).json(Object.assign(log, { ok: true, nothingToDo: true }));
 
     // ---- the roster row ----
     const cv = {};
