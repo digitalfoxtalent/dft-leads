@@ -326,7 +326,7 @@ ${body}
 <footer class="foot">
   <div class="wrap foot-in">
     <div><p class="fm">${art("subplot", 44)}${BRAND_()}</p><p>${esc(TAG_())}</p></div>
-    <div><h3>About</h3><ul><li><a href="${base}/join">${joinCta()}</a></li><li><a href="${base}/about">Who we are</a></li><li><a href="${base}/about#standards">Editorial standards</a></li><li><a href="${base}/about#ai">How we use AI</a></li></ul></div>
+    <div><h3>About</h3><ul><li><a href="${base}/join">${joinCta()}</a></li><li><a href="${base}/about">Who we are</a></li><li><a href="${base}/about#standards">Editorial standards</a></li><li><a href="${base}/about#ai">How we use AI</a></li>${brand().key === "subplot" ? `<li><a href="${base}/about#disclosures">Disclosures</a></li>` : ""}</ul></div>
     <div><h3>Sections</h3><ul>${Object.entries(CATS).map(([k, n]) => `<li><a href="${base}/s/${k}">${esc(n)}</a></li>`).join("")}</ul></div>
     <div><h3>Contact</h3><p>${mail("hello")}</p><p>${mail("corrections")}</p><p class="legal"><a href="${base}/contact">Contact</a> &middot; <a href="${base}/terms">Terms</a> &middot; <a href="${base}/privacy">Privacy</a> &middot; <a href="${base}/creators">Creator agreement</a></p>${brand().key === "subplot" ? `<p class="legal">Owned and published by <a href="https://digitalfoxtalent.com" rel="noopener">Digital Fox Talent LLC</a>, Denver, Colorado</p>` : ""}</div>
   </div>
@@ -774,6 +774,10 @@ export function aboutPage(data, base) {
     <p>The first draft of every article is written by AI, from the creator&rsquo;s own transcript. A fidelity check then compares the draft with the video and holds back anything that drifts from what was actually said. Every article carries a short note saying so. Every article is then reviewed and approved by a person on our editorial team before it is published.</p>
     <p>What&rsquo;s never AI: the ideas, the takes, the jokes, the reporting, the personality. Those belong to the creator, which is the whole point.</p>
     <p>Creators join ${brand().key === "subplot" ? "through Digital Fox Talent&rsquo;s creator sign-up and agree" : "by applying with their handle and agreeing"} to the same standard terms as everyone else; nothing publishes under a creator&rsquo;s name without that agreement, and any creator can pull any article at any time.</p>
+${brand().key === "subplot" ? `<h2 id="disclosures">Disclosures</h2>
+<p><b>Who we work with.</b> ${BRAND_()} is published by Digital Fox Talent, which works with every creator published here and represents many of them on brand partnerships. Each creator receives 60% of what their articles earn on ${BRAND_()}.</p>
+<p><b>How the site is paid for.</b> Advertising served by third-party networks, and affiliate links. As an Amazon Associate, ${BRAND_()} earns from qualifying purchases, and articles with an Amazon link say so. Advertisers and affiliate partners have no say in what we publish.</p>
+<p><b>No paid content.</b> We do not publish sponsored articles or paid placements.</p>` : ""}
 
     </div>
     <aside class="aboutrail">
