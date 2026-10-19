@@ -2180,6 +2180,7 @@ function reviewPrompt(f, lines, pointers, researchTxt) {
     "THE ENQUIRY (newest message first, then any earlier thread; DFT's own replies in the thread stand):",
     String(f.subject || ""),
     String(f.body || "").slice(0, 9000),
+    f.thread ? "THE WHOLE GMAIL THREAD (oldest first):\n" + String(f.thread).slice(-9000) : "",
     "",
     "BRAND RESEARCH (the brand's site and past creator partners):",
     researchTxt || "(none)",
@@ -2205,6 +2206,7 @@ function pitchPrompt(f, lines, fwdName, aiNames, namedNames, pointers, facts, re
     f.note ? "POINTER FROM " + fwdName.toUpperCase() + " FOR THIS ENQUIRY (top priority, follow it exactly: creators to add or leave out, formats, angle, list size): " + f.note : "",
     pointers && pointers.length ? "PAST POINTERS FROM THE DFT TEAM (standing guidance learned from earlier pitches; apply wherever relevant):\n- " + pointers.join("\n- ") : "",
     "-----", f.body, "-----",
+    f.thread ? "THE WHOLE GMAIL THREAD (oldest message first, each without its quoted history). This is the full context of the enquiry: read every message, including DFT's own replies, before you decide anything:\n" + f.thread + "\n-----" : "",
     "",
     "THE ROSTER (one line per placement: id | format | creator | handle | category | subscribers | views | price | location and audience | about). Only these ids exist. guaranteed views = YouTube integration view guarantee; est views = estimated views for a dedicated video (no guarantee); avg views = short-form average, for context only (short form is priced per post).",
     lines.join("\n"),
@@ -2245,10 +2247,10 @@ function pitchPrompt(f, lines, fwdName, aiNames, namedNames, pointers, facts, re
     "THE REPLY",
     "Do not write the email (it is built from a fixed template). Give only: opener, one short thank-you sentence (under 20 words) starting with Thanks that shows we read their email, naming one concrete thing from it in plain words, such as what they are promoting, when it runs or who it is for (e.g. Thanks for sending over the details on your Christmas tech deals roundup. or Thanks for getting in touch about Fishing Clash for October and November.). Use only facts from their email, never an opinion about the product (never fun, great, exciting or amazing), no exclamation marks, no dashes, no promises; product, the short brand or product name exactly as people would say it (e.g. Catch Flex, Higgsfield), never a description; mix, a short phrase for the kinds of channels on your list (e.g. gaming, reaction, and personality channels); and answer, one or two short plain sentences that directly answer any practical question the enquiry asks, otherwise empty. answer may only use these facts: " + (press ? "the press opportunities that suit each creator are on the list; " : "the current rates are on the list; ") + "availability and posting dates are confirmed with each creator as soon as they approve, and we can move quickly; which of the named creators are on the list (only those given above as named and on the roster). Never say a creator is not on the roster, has left, or is unavailable: simply leave other names out. Never invent availability, dates, prices or numbers, never mention creators who left, and never refer to anything below or attached. No em dashes, no slashes.",
     "",
-    "- Every enquiry forwarded to DFT is an opportunity to pitch and recommend creators (Tom, 19 Oct 2026: \"This is an opportunity to pitch something and recommend creators, so we should be open to it\"). An invitation addressed to one creator, including a creator who is not on the roster, still gets every strong fit from the roster. Return no picks ONLY when the newest message is part of an ongoing booking (dates, contracts, payment, invoices, edits or deliverables for creators already booked) or the brand has said it wants no more names; then put one short plain sentence in no_pitch_reason saying why, for the DFT teammate who forwarded it. Otherwise leave no_pitch_reason empty.",
+    "- ALWAYS pick creators. Every enquiry forwarded to DFT is an opportunity to pitch and recommend creators (Tom, 19 Oct 2026: \"This is an opportunity to pitch something and recommend creators, so we should be open to it\", and after a refusal on a vague outreach email: \"It's not helpful\"). Never return an empty picks list, whatever the email is: a vague or generic outreach email, an invitation addressed to one creator (including one who is not on the roster), a follow-up or an ongoing booking all get a shortlist of the strongest fits, using the whole thread to judge what the brand is after. If the brief is thin (no brand, product, deliverables or budget named), pick a broad, strong shortlist anyway and put a short plain phrase naming what is missing in needs_details (e.g. the brand, deliverables and budget), so the draft can ask for it. If something makes you hesitate (for example it reads like mass outreach, or it is mid-booking), still pick, and put one short plain sentence about it in no_pitch_reason as a heads-up for the DFT teammate. Otherwise leave both empty.",
     "",
     "Return ONLY JSON, no prose:",
-    "{\"brand\":\"\",\"ai_product\":false,\"product\":\"\",\"opener\":\"\",\"title\":\"short list name naming the IP, game, film, show or product being promoted (and the release or season if there is one), e.g. Transformers: Eternal War, Ghost Soldier, EXT (Exterminauts). NEVER the agency, network or the sender's company\",\"contact_first_name\":\"the sender's first name if known, else empty\",\"angles\":[\"\"],\"mix\":\"\",\"answer\":\"\",\"stage\":\"new\",\"closing\":false,\"formats\":[],\"questions\":[{\"q\":\"short paraphrase\",\"answer\":\"\"}],\"picks\":[{\"id\":\"\",\"named\":false,\"fit\":4,\"why\":\"max 6 words\"}],\"no_pitch_reason\":\"\"}"
+    "{\"brand\":\"\",\"ai_product\":false,\"product\":\"\",\"opener\":\"\",\"title\":\"short list name naming the IP, game, film, show or product being promoted (and the release or season if there is one), e.g. Transformers: Eternal War, Ghost Soldier, EXT (Exterminauts). NEVER the agency, network or the sender's company\",\"contact_first_name\":\"the sender's first name if known, else empty\",\"angles\":[\"\"],\"mix\":\"\",\"answer\":\"\",\"stage\":\"new\",\"closing\":false,\"formats\":[],\"questions\":[{\"q\":\"short paraphrase\",\"answer\":\"\"}],\"picks\":[{\"id\":\"\",\"named\":false,\"fit\":4,\"why\":\"max 6 words\"}],\"no_pitch_reason\":\"\",\"needs_details\":\"\"}"
   ].join("\n");
 }
 
@@ -2279,6 +2281,7 @@ async function splitCampaigns(f) {
     "SUBJECT: " + String(f.subject || ""),
     "THE EMAIL (newest message first, then the earlier thread):",
     String(f.body || "").slice(0, 9000),
+    f.thread ? "THE WHOLE GMAIL THREAD (oldest first):\n" + String(f.thread).slice(-9000) : "",
     "",
     "List each distinct campaign, product or game the brand wants creators for, as the brand describes it in its newest message (use the earlier thread only to fill in details). At most 4. For each give name (the game, product or brand as people say it, e.g. War Thunder) and brief (one to three plain sentences of what the brand says it wants for that campaign: formats, audience, markets, timing, numbers; empty if it says nothing).",
     "Return ONLY JSON: {\"campaigns\":[{\"name\":\"\",\"brief\":\"\"}]}"
@@ -2316,6 +2319,33 @@ async function recoverNotice(b, f, fromEmail) {
   return Object.assign({}, b, { subject: subj, text: (f.note ? f.note + "\n\n" : "") + text.slice(at), html });
 }
 
+// The whole Gmail thread (Tom, 19 Oct 2026: "We need a system that looks at the whole thread and prepares it based on
+// that"). A forward only carries what Gmail quoted, which often misses earlier replies from DFT or the brand. The forward
+// to pitch@ sits in the brand's thread, so that thread is read from the forwarder's mailbox, oldest message first, each
+// message without its own quoted history. Any failure simply means the forward alone is used.
+async function fetchThread(fromEmail, f) {
+  const tok = await gmailToken(fromEmail); if (!tok) return "";
+  const G = path => fetch("https://gmail.googleapis.com/gmail/v1/users/me" + path, { headers: { Authorization: "Bearer " + tok } }).then(r => r.ok ? r.json() : {}).catch(() => ({}));
+  const w = subjectWords(f.subject);
+  const qs = [pitchSearch(f).replace(/^in:sent /, "in:anywhere from:me "), w && f.contactEmail ? "in:anywhere from:" + f.contactEmail + " subject:(" + w + ") newer_than:180d" : ""].filter(Boolean);
+  let threadId = "";
+  for (const q of qs) { const hit = ((await G("/messages?maxResults=1&includeSpamTrash=true&q=" + encodeURIComponent(q))).messages || [])[0]; if (hit) { threadId = hit.threadId; break; } }
+  if (!threadId) return "";
+  const t = await G("/threads/" + threadId + "?format=full");
+  const hdr = (m, n) => ((((m.payload || {}).headers || []).find(h => h.name.toLowerCase() === n)) || {}).value || "";
+  const msgs = (t.messages || []).filter(m => !(m.labelIds || []).includes("DRAFT") && !/(pitch|press)@digitalfoxtalent\.com/i.test(hdr(m, "to")));
+  const parts = msgs.map(m => {
+    let body = gmailPart(m.payload, "text/plain") || htmlToText(gmailPart(m.payload, "text/html"));
+    const cut = body.search(/\n[ \t>]*On [^\n]{6,200}(\n[^\n]{0,80})?wrote:|\n-{3,}\s*(Forwarded|Original) message|\nFrom:[^\n]*\n(Sent|Date):/i);
+    if (cut > 0) body = body.slice(0, cut);
+    body = body.replace(/\n{3,}/g, "\n\n").trim().slice(0, 2500);
+    return body ? "FROM: " + hdr(m, "from") + " | TO: " + hdr(m, "to") + " | DATE: " + hdr(m, "date") + "\n" + body : "";
+  }).filter(Boolean);
+  let out = parts.join("\n\n-----\n\n");
+  if (out.length > 14000) out = "(earlier messages cut for length)\n\n" + out.slice(out.length - 14000);
+  return parts.length > 1 ? out : ""; // a single message adds nothing to what the forward already holds
+}
+
 // One reply draft for several pitches: a line and a link per campaign, then one ask (Tom's template shape).
 function composeMulti(subs, fwdName) {
   const pick = a => a[Math.floor(Math.random() * a.length)];
@@ -2344,6 +2374,8 @@ async function pitchFromEmail(b) {
     }
     // Never a draft to ourselves: a DFT address is never the brand (Tom, 19 Oct 2026, "Hi The,").
     if (DFT_DOMAIN.test(f.contactEmail || "")) throw new Error("No list made: no brand email address was found in the forward. Forward the brand's own email to pitch@ with your note above it.");
+    if (!b.outreach && b.thread === undefined) b = Object.assign({}, b, { thread: await fetchThread(fromEmail, f).catch(() => "") });
+    f = Object.assign({}, f, { thread: String(b.thread || "") });
     if (!b.sub && !b.outreach && wantsSeveral(f.note)) {
       const camps = await splitCampaigns(f);
       if (camps.length >= 2) {
@@ -2354,7 +2386,7 @@ async function pitchFromEmail(b) {
         const fwdName0 = String(b.fromName || "").replace(/["<>]/g, "").trim() || fromEmail.split("@")[0];
         const mail = subs.length >= 2 ? composeMulti(subs, fwdName0) : { html: subs[0].html, text: subs[0].text };
         const todo = [...new Set([].concat(...subs.map(s => s.unanswered || [])))];
-        await pitchMark(b.item, "Ready: " + subs.length + " pitches. " + subs.map(s => s.title + ", " + s.placements + " placements").join("; ") + " (" + subs[0].model + ")" + (failed.length ? ". Not made: " + failed.join("; ") : "") + (todo.length ? ". Brand also asked (not answered in the draft): " + todo.join("; ") : ""), subs[0].listUrl);
+        await pitchMark(b.item, "Ready: " + subs.length + " pitches. " + subs.map(s => s.title + ", " + s.placements + " placements").join("; ") + " (" + subs[0].model + ")" + (failed.length ? ". Not made: " + failed.join("; ") : "") + subs.filter(s => s.headsUp).map(s => ". Heads-up on " + s.title + ": " + s.headsUp).join("") + (todo.length ? ". Brand also asked (not answered in the draft): " + todo.join("; ") : ""), subs[0].listUrl);
         const s0 = subs[0];
         const resultObj = { ok: true, listUrl: s0.listUrl, lists: subs.map(s => ({ title: s.title, url: s.listUrl, placements: s.placements })), title: subs.map(s => s.title).join(" + "), placements: subs.reduce((a, s) => a + s.placements, 0), to: s0.to, cc: s0.cc, subject: s0.subject, search: s0.search, html: mail.html, text: mail.text, model: s0.model, picks: [].concat(...subs.map(s => s.picks || [])), research: null, stage: "new", closing: false, questions: [].concat(...subs.map(s => s.questions || [])), reviewed: subs.map(s => s.reviewed).filter(Boolean).join("; "), reused: "", press: !!s0.press, unanswered: todo, notMade: failed };
         resultObj.unansweredHtml = todo.length ? "<p>Your pitch draft to " + escH(s0.to) + " is ready (subject: " + escH(s0.subject) + ").</p><p>The brand also asked these, which the standing facts do not cover. Reply on these yourself, or add your answers to the draft before you send:</p><ul>" + todo.map(q => "<li>" + escH(q) + "</li>").join("") + "</ul>" : "";
@@ -2410,8 +2442,8 @@ async function pitchFromEmail(b) {
     let out = await askClaude(prompt);
     // No picks and no reason is never the answer to an enquiry (Tom, 19 Oct 2026, Nanoleaf): ask once more, firmly.
     const usable = o => (o.picks || []).some(p => p && (p.named === true || !(Number(p.fit) < 3)));
-    if (!usable(out) && !String(out.no_pitch_reason || "").trim()) {
-      const again = await askClaude(prompt + "\n\nYour first answer picked no creators and gave no no_pitch_reason. This enquiry is an opportunity to recommend creators: pick every creator on the roster who would genuinely suit it (fit 3 or above), aiming for at least 10. Return the same JSON.").catch(() => null);
+    if (!usable(out)) {
+      const again = await askClaude(prompt + "\n\nYour first answer picked no creators. That is never the right answer: this enquiry is an opportunity to recommend creators: pick every creator on the roster who would genuinely suit it (fit 3 or above), aiming for at least 10. Return the same JSON.").catch(() => null);
       if (again && usable(again)) out = again;
     }
     const order = GROUPS.map(g => g.id);
@@ -2568,6 +2600,9 @@ async function pitchFromEmail(b) {
     const todo = qs.filter(q => !noDash(String(q.answer || "").replace(/\[[^\]]*\]/g, "").trim())).map(q => noDash(String(q.q).trim().replace(/[.?\s]+$/, "")));
     // No holding line for unanswered questions (Tom, 16 Oct 2026: "Can we stop putting this in the email drafts please?").
     // They still reach the sender in the separate internal email and on the monday row.
+    // A thin brief still gets a list (Tom, 19 Oct 2026, Elida: refusing was "not helpful"); the draft asks for what is missing.
+    const needs = noDash(String(out.needs_details || "").trim()).replace(/[.\s]+$/, "").replace(/^([A-Z])(?=[a-z])/, m => m.toLowerCase());
+    if (needs && !b.outreach) ans.push("If you can share " + needs + ", I'll tailor the list further.");
     const answer = ans.join(" ");
     const ask = press ? pick(["Could you let me know who you'd like to work with?", "Who would you like to go ahead with?", "Could you confirm who you'd like to work with on this?"]) : pick(["Could you confirm who you would like to book?", "Could you confirm who you would like to book please?", "Who would you like to book?", "Could you confirm who you'd like to book for this?", "Let me know who you'd like to go ahead with and we'll get it booked in.", "Have a look and let me know who stands out."]);
     const options = /option\s*\d|both options|\boptions\b/i.test(f.body);
@@ -2611,9 +2646,9 @@ async function pitchFromEmail(b) {
       const dom0 = x => { const p = String(String(x || "").split("@")[1] || "").toLowerCase().split("."); return p.slice(p.length > 2 && p[p.length - 1].length === 2 && p[p.length - 2].length <= 3 ? -3 : -2).join("."); };
       const cd0 = dom0(f.contactEmail), side0 = x => !!cd0 && !FREE0.test(cd0) && dom0(x) === cd0;
       const cc0 = [...new Set((f.others || []).filter(x => x !== f.contactEmail && (side0(x) || /^(alex|margot|george)@digitalfoxtalent\.com$/i.test(x))).concat(["tom@digitalfoxtalent.com", "alex@digitalfoxtalent.com", "margot@digitalfoxtalent.com"]))].filter(x => x !== fromEmail).join(", ");
-      return { ok: true, listUrl: saved.url, title, linkText, placements: ids.length, product: noDash(b.sub.name), mix, first, answer, to: f.contactEmail, cc: cc0, subject, search: pitchSearch(f), html: html + quoteHtml, text: text + quoteText, quoteHtml, quoteText, model: out.model, picks: out.picks, questions: out.questions || [], reviewed, press, unanswered: todo };
+      return { ok: true, listUrl: saved.url, title, linkText, placements: ids.length, product: noDash(b.sub.name), mix, first, answer, to: f.contactEmail, cc: cc0, subject, search: pitchSearch(f), html: html + quoteHtml, text: text + quoteText, quoteHtml, quoteText, model: out.model, picks: out.picks, questions: out.questions || [], reviewed, press, unanswered: todo, headsUp: whyNone };
     }
-    await pitchMark(b.item, (press ? "Press package. " : "") + (reuse ? "Ready: same list as before, " : "Ready: ") + ids.length + " placements (" + out.model + ")" + (todo.length ? ". Brand also asked (not answered in the draft): " + todo.join("; ") : ""), saved.url);
+    await pitchMark(b.item, (press ? "Press package. " : "") + (reuse ? "Ready: same list as before, " : "Ready: ") + ids.length + " placements (" + out.model + ")" + (todo.length ? ". Brand also asked (not answered in the draft): " + todo.join("; ") : "") + (whyNone ? ". Heads-up: " + whyNone : ""), saved.url);
     // Who gets copied (Tom, 14 Oct 2026, after a creator's personal email was copied on Margot's Base44 draft):
     // never a creator. Besides Tom, Alex and Margot, the only addresses kept from the forwarded email are
     // colleagues of the brand contact at the same company domain. A free mail domain (gmail, icloud...) is
