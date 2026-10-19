@@ -2030,6 +2030,15 @@ const PB = { by: "text_mm83t28h", contact: "text_mm83nbr6", result: "text_mm83dz
 const PITCH_MODELS = ["claude-opus-5-5", "claude-sonnet-4-5", "claude-haiku-4-5-20251001"]; // strongest first (Tom, 14 Oct 2026), older models only as a fallback
 const FACTS_ITEM = 13283766377; // Pitch Requests item "Standing facts for pitch replies": the only facts a reply may state
 const PITCH_LABEL = { topics: "YouTube integration", dedicated: "YouTube dedicated video", group_mm4av3kr: "YouTube Shorts", group_mm4a1fe0: "Instagram", group_mm4bd5tk: "TikTok", group_mm7yw8cy: "Snapchat" };
+// The model's opening line is used only when it reads like Tom (19 Oct 2026): a thank-you, one sentence, no stock
+// opinion of the product, nothing that could be a promise or a figure.
+function pitchOpener(o) {
+  const s = noDash(String(o || "")).replace(/\s+/g, " ").trim().replace(/[.\s]+$/, "");
+  if (s.length < 15 || s.length > 160 || !/^thank/i.test(s)) return "";
+  if (/[\[\]!?;:]|https?:|www\.|\$|%|\d{1,3},\d{3}|\b(?!20\d\d\b)\d{4,}/.test(s) || /\.\s+\S/.test(s)) return "";
+  if (/\b(fun|great|amazing|exciting|excited|awesome|perfect|incredible|fantastic|cool|love|lovely|brilliant|guarantee\w*)\b/i.test(s)) return "";
+  return s + ".";
+}
 const kfmt = n => !n ? "" : n >= 1e6 ? (Math.round(n / 1e5) / 10) + "M" : n >= 1000 ? Math.round(n / 1000) + "K" : String(n);
 const escH = s => String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 const noDash = s => String(s == null ? "" : s).replace(/\s*\u2014\s*/g, ", ").replace(/\u2013/g, "-").trim();
@@ -2218,12 +2227,12 @@ function pitchPrompt(f, lines, fwdName, aiNames, namedNames, pointers, facts, re
     "- Never invent ids.",
     "",
     "THE REPLY",
-    "Do not write the email (it is built from a fixed template). Give only: product, the short brand or product name exactly as people would say it (e.g. Catch Flex, Higgsfield), never a description; mix, a short phrase for the kinds of channels on your list (e.g. gaming, reaction, and personality channels); and answer, one or two short plain sentences that directly answer any practical question the enquiry asks, otherwise empty. answer may only use these facts: " + (press ? "the press opportunities that suit each creator are on the list; " : "the current rates are on the list; ") + "availability and posting dates are confirmed with each creator as soon as they approve, and we can move quickly; which of the named creators are on the list (only those given above as named and on the roster). Never say a creator is not on the roster, has left, or is unavailable: simply leave other names out. Never invent availability, dates, prices or numbers, never mention creators who left, and never refer to anything below or attached. No em dashes, no slashes.",
+    "Do not write the email (it is built from a fixed template). Give only: opener, one short thank-you sentence (under 20 words) starting with Thanks that shows we read their email, naming one concrete thing from it in plain words, such as what they are promoting, when it runs or who it is for (e.g. Thanks for sending over the details on your Christmas tech deals roundup. or Thanks for getting in touch about Fishing Clash for October and November.). Use only facts from their email, never an opinion about the product (never fun, great, exciting or amazing), no exclamation marks, no dashes, no promises; product, the short brand or product name exactly as people would say it (e.g. Catch Flex, Higgsfield), never a description; mix, a short phrase for the kinds of channels on your list (e.g. gaming, reaction, and personality channels); and answer, one or two short plain sentences that directly answer any practical question the enquiry asks, otherwise empty. answer may only use these facts: " + (press ? "the press opportunities that suit each creator are on the list; " : "the current rates are on the list; ") + "availability and posting dates are confirmed with each creator as soon as they approve, and we can move quickly; which of the named creators are on the list (only those given above as named and on the roster). Never say a creator is not on the roster, has left, or is unavailable: simply leave other names out. Never invent availability, dates, prices or numbers, never mention creators who left, and never refer to anything below or attached. No em dashes, no slashes.",
     "",
     "- If the email does not call for creators at all (for example an ongoing booking about dates, contracts, payment or edits, or the brand has already said it wants no more names), return no picks and put one short plain sentence in no_pitch_reason saying why, for the DFT teammate who forwarded it. Otherwise leave no_pitch_reason empty.",
     "",
     "Return ONLY JSON, no prose:",
-    "{\"brand\":\"\",\"ai_product\":false,\"product\":\"\",\"title\":\"short list name naming the IP, game, film, show or product being promoted (and the release or season if there is one), e.g. Transformers: Eternal War, Ghost Soldier, EXT (Exterminauts). NEVER the agency, network or the sender's company\",\"contact_first_name\":\"the sender's first name if known, else empty\",\"angles\":[\"\"],\"mix\":\"\",\"answer\":\"\",\"stage\":\"new\",\"closing\":false,\"formats\":[],\"questions\":[{\"q\":\"short paraphrase\",\"answer\":\"\"}],\"picks\":[{\"id\":\"\",\"named\":false,\"fit\":4,\"why\":\"max 6 words\"}],\"no_pitch_reason\":\"\"}"
+    "{\"brand\":\"\",\"ai_product\":false,\"product\":\"\",\"opener\":\"\",\"title\":\"short list name naming the IP, game, film, show or product being promoted (and the release or season if there is one), e.g. Transformers: Eternal War, Ghost Soldier, EXT (Exterminauts). NEVER the agency, network or the sender's company\",\"contact_first_name\":\"the sender's first name if known, else empty\",\"angles\":[\"\"],\"mix\":\"\",\"answer\":\"\",\"stage\":\"new\",\"closing\":false,\"formats\":[],\"questions\":[{\"q\":\"short paraphrase\",\"answer\":\"\"}],\"picks\":[{\"id\":\"\",\"named\":false,\"fit\":4,\"why\":\"max 6 words\"}],\"no_pitch_reason\":\"\"}"
   ].join("\n");
 }
 
@@ -2405,8 +2414,11 @@ async function pitchFromEmail(b) {
     const listNames = namedNames.filter(nm => ids.some(id => nameOf(id) === nm));
     const followUp = !b.outreach && /following up|thanks again|thank you again|coming back|earlier conversation|as discussed/i.test(f.body);
     const across = mix ? " across " + mix : "", who = aiCamp ? " who are open to working with brands on AI campaigns" : "";
+    // The opening line (Tom, 19 Oct 2026: "Holiday Tech Deals looks like a fun one" made no sense and read as robotic).
+    // The model writes one thank-you line naming something concrete from the brand's own email; pitchOpener checks it.
+    // Otherwise a plain thank-you: no stock opinions about the product ("looks like a fun one", "sounds like a great one").
     let thanks = followUp ? pick(["Thanks for coming back to me. :)", "Thanks for following up on " + product + ".", "Thanks for coming back to me on " + product + "."])
-      : pick(["Thanks for reaching out about " + product + ".", "Thanks for getting in touch about " + product + ".", "Great to hear from you about " + product + ".", "Thanks for reaching out, " + product + " looks like a fun one.", "Thanks so much for thinking of us for " + product + ".", "Lovely to hear from you, and thanks for sending over " + product + ".", "Thanks for the details on " + product + ", this sounds like a great one."]);
+      : (pitchOpener(out.opener) || pick(["Thanks for reaching out about " + product + ".", "Thanks for getting in touch about " + product + ".", "Great to hear from you about " + product + ".", "Thanks so much for thinking of us for " + product + ".", "Thanks for sending over the details on " + product + "."]));
     const intro = pick(["I've put together a shortlist of creators" + across + (who || " for you") + ".", "Here's a shortlist of creators" + across + (who || " who'd be happy to take this on") + ".", "Please find below a list of creators" + across + (who || " who would be happy to promote " + product) + ".", "I've pulled together some creators" + across + (who || " who'd be a great fit") + ".", "We've got some great creators" + across + (who || " for this") + ", so I've put them together for you below.", "I've lined up a few creators" + across + (who || " who I think would really suit " + product) + "."]);
     const solo = [...new Set(ids.map(id => base(cat.byId[id].name).replace(/^@/, "")))]; // one creator: say so plainly
     const soloFirst = solo.length === 1 ? solo[0] : ""; // full name: first word alone gave "Mr.'s rates" (Mr. Know-It-All, 15 Oct 2026)
@@ -2430,7 +2442,7 @@ async function pitchFromEmail(b) {
     const qs = !b.outreach && Array.isArray(out.questions) ? out.questions.filter(q => q && q.q) : [];
     if (aiDeclined.length) ans.push("Sadly, " + joinN(aiDeclined) + " won't take on AI projects, but these creators would.");
     if (out.stage !== "shortlist" && solo.length > 1 && listNames.length && !details.length && (/\?/.test(f.body) || withRates !== ".")) ans.push(pick([joinN(listNames) + (listNames.length > 1 ? " are" : " is") + " on the list" + withRates, "You'll find " + joinN(listNames) + " on there" + withRates]));
-    if (/availab|posting date|\bdates\b|schedule|timeline|timing|turnaround/i.test(f.body) && !qs.some(q => /availab|posting|\bdates?\b|timeline|timing/i.test(String(q.q)))) ans.push(pick(["We confirm availability and posting dates with each creator as soon as you approve, and can move quickly.", "Once you've picked, we'll confirm availability and posting dates with each creator straight away."]));
+    if (/availab|posting date|\bdates\b|schedule|timeline|timing|turnaround/i.test(f.body) && !qs.some(q => /availab|posting|\bdates?\b|timeline|timing/i.test(String(q.q) + " " + String(q.answer || "")))) ans.push(pick(["We confirm availability and posting dates with each creator as soon as you approve, and can move quickly.", "Once you've picked, we'll confirm availability and posting dates with each creator straight away."]));
     // The brand's questions: answered only from the Standing facts item.
     // NEVER put a note for DFT inside the draft (Tom, 14 Oct 2026: two drafts went to brands with
     // "[TOM TO ANSWER: ...]" in them). The draft must always be safe to send exactly as it is: an
