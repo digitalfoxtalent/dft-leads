@@ -511,7 +511,7 @@ async function load() {
     const byId = new Map(); for (const [id, from, to] of [...DATE_FIXES, ...EDITORIAL_FIXES, ...ONE_OF_US_FIXES]) { if (!byId.has(id)) byId.set(id, []); byId.get(id).push([from, to]); }
     const dated = new Set(DATED_IDS);
     const longDate = d => { const t = new Date(d); return isNaN(t) ? "" : t.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" }); };
-    for (const a of arts) {
+    for (const a of [...arts, ...snippets]) { // 19 Oct 2026: Snippets get the same fixes (two carried "one of us")
       for (const [from, to] of byId.get(a.id) || []) { a.h = a.h.split(from).join(to); a.s = (a.s || "").split(from).join(to); a.body = a.body.split(from).join(to); if (Array.isArray(a.t)) a.t = a.t.map(x => String(x).split(from).join(to)); }
       if (dated.has(a.id) && longDate(a.p)) a.body = `<p class="dated-note"><em>Published ${longDate(a.p)}. Words like "tonight" or "next week" refer to that date.</em></p>` + a.body;
     }
