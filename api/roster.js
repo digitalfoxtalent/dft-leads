@@ -2378,9 +2378,9 @@ async function pitchFromEmail(b) {
     }
     // Mail to a DFT Google Group (Tom, 19 Oct 2026, Frogge via brands@): the forward only shows "'Grant' via Brands
     // <brands@...>", so the draft was addressed to our own group. The real sender is in the original's Reply-To.
-    if (DFT_DOMAIN.test(f.contactEmail || "")) { const real = await groupSender(f, fromEmail).catch(() => ""); if (real) { f.contactEmail = real; f.quoteEmail = f.quoteEmail && DFT_DOMAIN.test(f.quoteEmail) ? real : f.quoteEmail; } }
+    let groupWhy = ""; if (DFT_DOMAIN.test(f.contactEmail || "")) { const real = await groupSender(f, fromEmail).catch(e => { groupWhy = String((e && e.message) || e).slice(0, 160); return ""; }); if (!real && !groupWhy) groupWhy = "no outside sender in the original's headers"; if (real) { f.contactEmail = real; f.quoteEmail = f.quoteEmail && DFT_DOMAIN.test(f.quoteEmail) ? real : f.quoteEmail; } }
     // Never a draft to ourselves: a DFT address is never the brand (Tom, 19 Oct 2026, "Hi The,").
-    if (DFT_DOMAIN.test(f.contactEmail || "")) throw new Error("No list made: no brand email address was found in the forward. Forward the brand's own email to pitch@ with your note above it.");
+    if (DFT_DOMAIN.test(f.contactEmail || "")) throw new Error("No list made: no brand email address was found in the forward. Forward the brand's own email to pitch@ with your note above it." + (groupWhy ? " (Group lookup: " + groupWhy + ")" : ""));
     if (!b.outreach && b.thread === undefined) b = Object.assign({}, b, { thread: await fetchThread(fromEmail, f).catch(() => "") });
     f = Object.assign({}, f, { thread: String(b.thread || "") });
     if (!b.sub && !b.outreach && wantsSeveral(f.note)) {
@@ -2754,9 +2754,12 @@ const subjectWords = s => String(s || "").replace(/^\s*((re|fwd?|fw|aw|wg|tr)\s*
 async function groupSender(f, fromEmail) {
   const tok = await gmailToken(/@digitalfoxtalent\.com$/i.test(fromEmail) ? fromEmail : "tom@digitalfoxtalent.com");
   const subj = String(f.subject || "").replace(/^\s*((re|fwd?|fw)\s*:\s*)+/i, "").replace(/["]/g, "").trim();
-  if (!tok || !subj) return "";
-  const G = p => fetch("https://gmail.googleapis.com/gmail/v1/users/me" + p, { headers: { Authorization: "Bearer " + tok } }).then(r => r.ok ? r.json() : {}).catch(() => ({}));
-  const list = (await G("/messages?maxResults=5&q=" + encodeURIComponent('subject:"' + subj + '" -from:me newer_than:60d'))).messages || [];
+  if (!tok) throw new Error("Gmail is not connected");
+  if (!subj) throw new Error("no subject in the forward");
+  const G = p => fetch("https://gmail.googleapis.com/gmail/v1/users/me" + p, { headers: { Authorization: "Bearer " + tok } }).then(async r => { const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error("Gmail " + r.status + " " + ((j.error || {}).message || "")); return j; });
+  const w = subjectWords(subj);
+  const list = (await G("/messages?maxResults=5&q=" + encodeURIComponent((w ? "subject:(" + w + ")" : 'subject:"' + subj + '"') + " -from:me newer_than:60d"))).messages || [];
+  if (!list.length) throw new Error("the original was not found in " + (/@digitalfoxtalent\.com$/i.test(fromEmail) ? fromEmail : "tom@") + "'s mail");
   for (const m of list) {
     const d = await G("/messages/" + m.id + "?format=metadata&metadataHeaders=Reply-To&metadataHeaders=X-Original-Sender&metadataHeaders=X-Original-From");
     for (const h of ((d.payload || {}).headers || [])) {
