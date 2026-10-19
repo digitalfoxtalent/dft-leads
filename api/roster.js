@@ -2157,8 +2157,12 @@ async function askClaude(prompt) {
   if (!key) throw new Error("ANTHROPIC_API_KEY not set");
   let last = "";
   for (const model of PITCH_MODELS) {
-    const r = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers: { "Content-Type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01" }, body: JSON.stringify({ model, max_tokens: 9000, messages: [{ role: "user", content: prompt }] }) });
-    const d = await r.json().catch(() => ({}));
+    // A network error or a hung call on one model falls through to the next (audit, 19 Oct 2026: "fetch failed" ended the pitch).
+    let r, d;
+    try {
+      r = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", signal: AbortSignal.timeout(110000), headers: { "Content-Type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01" }, body: JSON.stringify({ model, max_tokens: 9000, messages: [{ role: "user", content: prompt }] }) });
+      d = await r.json().catch(() => ({}));
+    } catch (e) { last = model + ": " + String((e && e.message) || e).slice(0, 120); continue; }
     if (r.ok && d && d.content) {
       const t = String((d.content.find(x => x.type === "text") || {}).text || "").split("```json").join("").split("```").join("");
       const o = firstJson(t);
@@ -2278,6 +2282,8 @@ async function pitchItem(id, fromEmail) {
   if (Date.now() - Date.parse(it.created_at) > 15 * 60 * 1000) throw new Error("Pitch request is too old");
   const cv = {}; (it.column_values || []).forEach(c => { cv[c.id] = String(c.text || ""); });
   if (cv[PB.result]) throw new Error("Pitch request already used");
+  // Claim it now (audit 19 Oct 2026): a Make retry while this run is working sees "Working" and stops, instead of a second list and draft.
+  await monday("mutation($b:ID!,$i:ID!,$v:JSON!){change_multiple_column_values(board_id:$b,item_id:$i,column_values:$v){id}}", { b: String(PITCH_BOARD), i: String(it.id), v: JSON.stringify({ [PB.result]: "Working on it..." }) }).catch(() => null);
   const by = cv[PB.by].trim().toLowerCase();
   if (!/@digitalfoxtalent\.com$/.test(by) || by !== String(fromEmail || "").trim().toLowerCase()) throw new Error("Pitch request does not match the forwarder");
   return it;
@@ -2289,7 +2295,7 @@ async function pitchMark(id, result, url) {
 
 // Several pitches from one forward (Tom, 19 Oct 2026, Mediacube: "Can you prepare 2 pitches? One for each of these please?").
 // A note like that splits the email into its campaigns; each gets its own list, and one reply draft carries every list.
-const SEVERAL_RE = /\b(\d+|two|three|four|both|separate|each)\b[^.\n?]{0,40}\b(pitch(es)?|lists?|shortlists?)\b|\bone (pitch |list )?(for|per) each\b|\bpitch(es)? for (each|both)\b/i;
+const SEVERAL_RE = /\b(\d+|two|three|four|both|separate)\s+(separate\s+)?(pitch(es)?|lists|shortlists)\b|\bone (pitch |list )?(for|per) each\b|\bpitch(es)? for (each|both)\b|\bseparate (pitch(es)?|lists?)\b/i; // audit 19 Oct 2026: "Need 10+ creators on the list" no longer splits
 const wantsSeveral = note => SEVERAL_RE.test(String(note || ""));
 async function splitCampaigns(f) {
   const prompt = [
@@ -2369,8 +2375,8 @@ function composeMulti(subs, fwdName) {
   const n = subs.length, s0 = subs[0];
   const intro = pick(n === 2 ? ["Thanks for clarifying the two campaigns, I've put a separate list together for each.", "Thanks for explaining, here's a separate list for each of the two campaigns.", "Thanks for clarifying, I've pulled together a list for each campaign."] : ["Thanks for clarifying, here's a separate list for each campaign.", "Thanks for explaining, I've put a list together for each campaign."]);
   const lines = [p => "For " + p.product + ", here's a shortlist of creators" + (p.mix ? " across " + p.mix : "") + " who'd suit it well.", p => "For " + p.product + ", I've put together creators" + (p.mix ? " across " + p.mix : "") + " who'd be a great fit.", p => "And for " + p.product + ", here are creators" + (p.mix ? " across " + p.mix : "") + " who I think would work really well."];
-  const off = Math.floor(Math.random() * 2); // a different sentence for each campaign, so the email does not repeat itself
-  const blocks = subs.map((s, i) => ({ line: lines[i === 0 ? off : i === 1 ? 2 : (off + i) % 2](s), url: s.listUrl, linkText: s.linkText }));
+  const off = Math.floor(Math.random() * lines.length); // a different sentence for each campaign, so the email does not repeat itself
+  const blocks = subs.map((s, i) => ({ line: lines[(off + i) % lines.length](s).replace(/^And for/, i === 0 ? "For" : "And for"), url: s.listUrl, linkText: s.linkText }));
   // One availability line however many campaigns said it (19 Oct 2026: the first combined draft said it twice).
   let availSaid = false;
   const answers = [...new Set([].concat(...subs.map(s => String(s.answer || "").split(/(?<=[.!?])\s+/))).map(x => x.trim()).filter(Boolean))].filter(x => { if (!/availab|posting dates/i.test(x)) return true; if (availSaid) return false; availSaid = true; return true; }).join(" ");
@@ -2404,7 +2410,7 @@ async function pitchFromEmail(b) {
         const settled = await Promise.allSettled(camps.map(c => pitchFromEmail(Object.assign({}, b, { sub: c }))));
         const subs = settled.filter(x => x.status === "fulfilled").map(x => x.value);
         const failed = camps.map((c, i) => ({ c, s: settled[i] })).filter(x => x.s.status !== "fulfilled").map(x => x.c.name + " (" + String((x.s.reason && x.s.reason.message) || "failed").slice(0, 160) + ")");
-        if (!subs.length) throw new Error("No list made for any campaign: " + failed.join("; "));
+        if (!subs.length) { b = Object.assign({}, b, { multiFailed: failed.join("; ") }); } else {
         const fwdName0 = String(b.fromName || "").replace(/["<>]/g, "").trim() || fromEmail.split("@")[0];
         const mail = subs.length >= 2 ? composeMulti(subs, fwdName0) : { html: subs[0].html, text: subs[0].text };
         const todo = [...new Set([].concat(...subs.map(s => s.unanswered || [])))];
@@ -2415,17 +2421,19 @@ async function pitchFromEmail(b) {
         // Kept for the nightly learner (api/pitch-learn.js), as for a single pitch.
         await monday("mutation($b:ID!,$i:ID!,$v:JSON!){change_multiple_column_values(board_id:$b,item_id:$i,column_values:$v){id}}", { b: String(PITCH_BOARD), i: String(b.item), v: JSON.stringify({ [PB.draft]: { text: String(mail.text).slice(0, 9000) }, [PB.check]: [fromEmail, s0.to, new Date().toISOString()].join("|") }) }).catch(() => null);
         resultObj.draftMade = await teamDraft(fromEmail, resultObj).catch(e => "failed: " + String((e && e.message) || e).slice(0, 200));
+        if (resultObj.draftMade && resultObj.draftMade !== true) await pitchMark(b.item, "Lists ready but the draft was not made (" + String(resultObj.draftMade).slice(0, 160) + "). " + subs.map(s => s.title + ": " + s.listUrl).join("; "), s0.listUrl).catch(() => null);
         return resultObj;
+        } // every campaign pass failed: carry on as one combined pitch below
       }
     }
     // Press packages from the pipeline (Tom, 16 Oct 2026): a note above the forward that says "press"
     // (or "earned media") makes a press package, with no prices, and a draft worded for one.
     // Or forwarded to press@ (Tom, 16 Oct 2026: "Press and Pitch are different"): Make passes the To and Cc addresses as sentTo.
-    const press = /\bpress\b|earned media/i.test(f.note || "") || /(^|[\s,<])press@digitalfoxtalent\.com/i.test(String(b.sentTo || ""));
+    const press = (/\bpress (package|pitch|list|junket|kit)\b|earned media|^\s*press\b(?!\s+release)/i.test(f.note || "") && !/\bno press\b|\bnot (a )?press\b/i.test(f.note || "")) || /(^|[\s,<])press@digitalfoxtalent\.com/i.test(String(b.sentTo || "")); // audit 19 Oct 2026
     // Tom's pointers (13 Oct 2026): the note above each forward is kept on the Pitch Requests board and fed into later pitches, so the system learns from them.
     // One campaign of several (Tom, 19 Oct 2026): this pass pitches that campaign alone. The wording avoids "only these",
     // "more creators" and "new list", which mean something else further down.
-    if (b.sub) f = Object.assign({}, f, { note: "This pitch is for the " + b.sub.name + " campaign alone; leave the other campaign in the email aside." + (b.sub.brief ? " What the brand says it wants for " + b.sub.name + ": " + b.sub.brief : "") });
+    if (b.sub) f = Object.assign({}, f, { note: "This pitch is for the " + b.sub.name + " campaign alone; leave the other campaign in the email aside." + (b.sub.brief ? " What the brand says it wants for " + b.sub.name + ": " + b.sub.brief : "") + (String(f.note || "").replace(SEVERAL_RE, "").replace(/\s+/g, " ").trim().length > 12 ? " The teammate's note: " + String(f.note).replace(/\s+/g, " ").trim().slice(0, 600) : "") });
     if (f.note && !b.outreach && !b.sub) await monday(`mutation{change_multiple_column_values(board_id:${PITCH_BOARD},item_id:${Number(b.item)},column_values:${JSON.stringify(JSON.stringify({ long_text_mm83jwpf: { text: f.note } }))}){id}}`).catch(() => null);
     const pastQ = await monday(`query{boards(ids:[${PITCH_BOARD}]){items_page(limit:200){items{id column_values(ids:["long_text_mm83jwpf"]){text}}}}}`).catch(() => null);
     const pointers = (((((pastQ || {}).boards || [])[0] || {}).items_page || {}).items || []).filter(it => String(it.id) !== String(b.item) && String(it.id) !== String(FACTS_ITEM) && String(it.id) !== String(PLAYBOOK_ITEM) && String(it.id) !== String(RECRUIT_LESSONS_ITEM) && String(it.id) !== String(PITCH_LESSONS_ITEM)).map(it => String(((it.column_values || [])[0] || {}).text || "").trim()).filter(p => p && !/^(warm|kind|best) regards/i.test(p) && !/^\s*(press|press (package|list|pitch|junket)|earned media)[\s.!]*$/i.test(p) && !wantsSeveral(p)).filter((p, i, a) => a.indexOf(p) === i).slice(-30);
@@ -2444,7 +2452,9 @@ async function pitchFromEmail(b) {
     const fitOf = id => { const c = cat.byId[id] || {}; for (const k of [fitKey(c.name), fitKey(c.handle)]) if (k && fitBy[k]) return fitBy[k]; return ""; };
     const fitLines = cat.lines.map(l => { const n = fitOf(l.split(" | ")[0]); return n ? l + " | DFT FIT NOTE: " + n : l; });
     // AI campaigns (Tom, 13 Oct 2026): only creators on the AI_LIST saved list are open to AI brands.
-    const aiL = (await freshList(AI_LIST).catch(() => ({}))).list;
+    // Read twice before giving up (audit 19 Oct 2026): a failed read silently switched the AI-only rule off.
+    let aiL = (await freshList(AI_LIST).catch(() => ({}))).list;
+    if (!aiL || aiL.bad) aiL = (await new Promise(r => setTimeout(r, 800)).then(() => freshList(AI_LIST)).catch(() => ({}))).list;
     const aiIds = new Set(((aiL && aiL.body && aiL.body.ids) || []).map(String));
     const aiKey = id => String((cat.byId[id] || {}).name || "").toLowerCase().trim();
     const aiNameSet = new Set([...aiIds].map(aiKey).filter(Boolean));
@@ -2457,7 +2467,15 @@ async function pitchFromEmail(b) {
     const hm = afterHead.search(/\n[ \t>*\-]*(on \d{4}-\d\d-\d\d[^\n]{0,80}wrote|On [^\n]{6,160}(\n[^\n]{0,80})?wrote:|-{3,}\s*Original Message|From:[^\n]*\n[ \t>*\-]*(Sent|Date):)/i);
     const hasHistory = hm >= 0, latest = hasHistory ? afterHead.slice(0, hm) : afterHead;
     const hay = norm(latest + (hasHistory ? "" : " " + f.to)); // names in the pointer are left to the model, so "leave out X" never forces X in
-    const namedPl = Object.keys(cat.byId).filter(id => { const n = norm(base(cat.byId[id].name)), h = norm(cat.byId[id].handle); return (n.length >= 5 && hay.includes(n)) || (h.length >= 5 && hay.includes(h)); });
+    // Names count on word boundaries, or as a whole @handle (audit 19 Oct 2026: "a better gaming experience" named Better Gaming).
+    // In a campaign pass only names in that campaign's own brief count, so one campaign's creator is not forced onto the other.
+    const esc0 = x => String(x).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const spaced = s => " " + String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim() + " ";
+    const nameTxt = b.sub ? String(b.sub.brief || "") + " " + String(b.sub.name || "") : latest + (hasHistory ? "" : " " + f.to);
+    const haySp = spaced(nameTxt), hayTok = new Set(String(nameTxt).toLowerCase().split(/[^a-z0-9_.]+/).map(t => t.replace(/[^a-z0-9]/g, "")).filter(t => t.length >= 5));
+    // A multi-word name made of ordinary words counts only when written as a name: each word capitalised, as on the roster, or in capitals.
+    const asName = (raw, nm) => { const ws = String(nm).replace(/^@/, "").split(/[^A-Za-z0-9]+/).filter(Boolean); if (ws.length < 2) return true; const re = new RegExp("(^|[^A-Za-z0-9])" + ws.map(w => esc0(w)).join("[^A-Za-z0-9]+") + "(?=$|[^A-Za-z0-9])", "gi"); let m; while ((m = re.exec(raw))) { const hit = m[0].replace(/^[^A-Za-z0-9]/, ""); if (hit.split(/[^A-Za-z0-9]+/).filter(Boolean).every(w => /^[A-Z0-9]/.test(w))) return true; } return false; };
+    const namedPl = Object.keys(cat.byId).filter(id => { const nm = base(cat.byId[id].name), n = spaced(nm), h = norm(cat.byId[id].handle); return (n.trim().length >= 5 && haySp.includes(n) && asName(nameTxt, nm)) || (h.length >= 5 && hayTok.has(h)) || (norm(nm).length >= 8 && hayTok.has(norm(nm))); });
     const namedNames = []; namedPl.map(id => base(cat.byId[id].name).replace(/^@/, "")).sort((a, b) => b.length - a.length).forEach(nm => { const k = norm(nm); if (!namedNames.some(x => norm(x).startsWith(k) || k.startsWith(norm(x)))) namedNames.push(nm); });
     const nameOf = id => { const k = norm(base(cat.byId[id].name).replace(/^@/, "")); return namedNames.find(x => norm(x).startsWith(k) || k.startsWith(norm(x))) || ""; };
     const fwdName = String(b.fromName || "").replace(/["<>]/g, "").trim() || fromEmail.split("@")[0];
@@ -2466,6 +2484,7 @@ async function pitchFromEmail(b) {
     const researchTxt = research ? JSON.stringify(research).slice(0, 2500) : "";
     const prompt = pitchPrompt(f, fitLines, fwdName, aiNames, namedNames, pointers, facts, researchTxt, press);
     let out = await askClaude(prompt);
+    const firstWhy = String(out.no_pitch_reason || "").trim(); // kept as a heads-up even when the retry picks (audit 19 Oct 2026)
     // No picks and no reason is never the answer to an enquiry (Tom, 19 Oct 2026, Nanoleaf): ask once more, firmly.
     const usable = o => (o.picks || []).some(p => p && (p.named === true || !(Number(p.fit) < 3)));
     if (!usable(out)) {
@@ -2497,12 +2516,13 @@ async function pitchFromEmail(b) {
     const groupsUsed = new Set(ids.map(id => cat.byId[id].gid)); if (!groupsUsed.size) { groupsUsed.add("topics"); groupsUsed.add("group_mm4av3kr"); }
     // A pointer that says to leave a creator out wins over everything else.
     const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const leftOut = nm => !!f.note && new RegExp("\\b(not|no|without|leave out|exclude|skip|don'?t|drop|remove)\\b[^.\\n]{0,40}" + esc(nm), "i").test(f.note) || (!!f.note && new RegExp(esc(nm) + "[^.\\n]{0,40}\\b(not|isn'?t|aren'?t|doesn'?t|don'?t)\\b[^.\\n]{0,20}\\b(fit|suit|right|work)", "i").test(f.note));
+    // The exclusion word must sit right before the name (audit 19 Oct 2026: "No rush, but please include X" removed X).
+    const leftOut = nm => !!f.note && (new RegExp("\\b(not|no|without|leave out|leave off|exclude|excluding|skip|drop|remove|minus|except)\\s+(the\\s+|@)?" + esc(nm), "i").test(f.note) || new RegExp("\\b(don'?t|do not)\\s+(include|add|use|pitch|put)\\s+(the\\s+|@)?" + esc(nm), "i").test(f.note) || new RegExp(esc(nm) + "[^.\\n]{0,40}\\b(not|isn'?t|aren'?t|doesn'?t|don'?t)\\b[^.\\n]{0,20}\\b(fit|suit|right|work)", "i").test(f.note));
     for (let k = ids.length - 1; k >= 0; k--) if (leftOut(base(cat.byId[ids[k]].name))) ids.splice(k, 1);
     // Past pointers that rule a creator out for a kind of brief are enforced too (Tom, 13 Oct 2026: Badd Medicine is not a fit for family/toy briefs). Creators the enquiry names stay.
     const FIT_TOPICS = ["family", "toy", "kids", "children", "lifestyle", "beauty", "fashion", "finance", "crypto", "tech", "food", "fitness", "horror", "sports", "betting", "gambling", "alcohol"];
     const topicIn = (t, txt) => new RegExp("\\b" + t + "s?\\b", "i").test(String(txt || ""));
-    const fitRules = pointers.filter(p => /not (a )?(good |great |right )?fit|(isn'?t|aren'?t) a (good |great |right )?fit|(doesn'?t|don'?t) suit|not suitable|not right for/i.test(p)).filter(p => { const ts = FIT_TOPICS.filter(t => topicIn(t, p)); return !ts.length || ts.some(t => topicIn(t, f.body)); });
+    const fitRules = pointers.filter(p => /not (a )?(good |great |right )?fit|(isn'?t|aren'?t) a (good |great |right )?fit|(doesn'?t|don'?t) suit|not suitable|not right for/i.test(p)).filter(p => { const ts = FIT_TOPICS.filter(t => topicIn(t, p)); return ts.length > 0 && ts.some(t => topicIn(t, f.body)); }); // audit 19 Oct 2026: a one-off "X isn't a fit for this one" no longer bans X forever
     const ruledOut = nm => hay.indexOf(norm(nm)) < 0 && fitRules.some(p => new RegExp(esc(nm) + "[^.\\n]{0,40}\\b(not|isn'?t|aren'?t|doesn'?t|don'?t)\\b", "i").test(p));
     for (let k = ids.length - 1; k >= 0; k--) if (ruledOut(base(cat.byId[ids[k]].name))) ids.splice(k, 1);
     // Market limits are enforced here, not left to the model (Tom, 13 Oct 2026: "only available to the Australian market").
@@ -2511,7 +2531,9 @@ async function pitchFromEmail(b) {
     // Nanoleaf): "only" in the agency's confidentiality footer and "Canada" in its office address made a Canada-only list,
     // which left nobody, so the forward was refused. Read from the note and the newest message, never from quoted history.
     const LIMIT = "(?:only|exclusively|solely|limited to|restricted to)";
-    const marketIn = txt => (MARKETS.find(m => /only/i.test((String(txt || "").match(m[1]) || [""])[0]) || new RegExp("\\b" + LIMIT + "\\b[^.\\n]{0,40}(?:" + m[1].source + ")|(?:" + m[1].source + ")[^.\\n]{0,25}\\b(?:only|exclusively)\\b", "i").test(String(txt || ""))) || [])[0] || "";
+    // Footers and signatures are not briefs (audit 19 Oct 2026: "for the named recipient only, Northpeak Media, Vancouver, Canada").
+    const briefOnly = txt => String(txt || "").split(/\n/).filter(l => !/confidential|intended (only )?for|recipient|unsubscribe|privacy|registered|office|address|©|copyright|all rights/i.test(l)).join("\n");
+    const marketIn = txt0 => { const txt = briefOnly(txt0); return (MARKETS.find(m => /only/i.test((txt.match(m[1]) || [""])[0]) || new RegExp("\\b" + LIMIT + "\\s+(?:to\\s+|in\\s+|for\\s+|available\\s+(?:in|to)\\s+|the\\s+){0,3}(?:" + m[1].source + ")|(?:" + m[1].source + ")[\\s-]{0,3}(?:market\\s+|audiences?\\s+|creators?\\s+)?(?:only|exclusively)\\b", "i").test(txt)) || [])[0] || ""; };
     const market = marketIn(f.note) || marketIn(latest);
     const inMarket = id => { const loc = String(cat.byId[id].location || "").toLowerCase(); return market === "united kingdom" ? /united kingdom|\buk\b|england|scotland|wales/.test(loc) : market === "united states" ? /united states|\busa?\b/.test(loc) : loc.includes(market); };
     if (market) for (let k = ids.length - 1; k >= 0; k--) if (!inMarket(ids[k])) ids.splice(k, 1);
@@ -2538,9 +2560,9 @@ async function pitchFromEmail(b) {
     // Only ever a list made for the same company (Tom, 16 Oct 2026): StarAce's Transformers list went to Dorun Media and
     // Blossom & Wood because the product matched. A list with no record of who it was made for is never reused.
     const org = orgOf(f.contactEmail);
-    const prevL = data.lists.filter(l => l.slug && l.slug !== AI_LIST && /\(pitch\)/.test(String(l.by || "")) && recent(l) && !!(l.body && l.body.press) === press && !!org && Array.isArray(l.body && l.body.for) && l.body.for.some(o => sameCo(o, org))).map(l => ({ l, k: ckey(l.name) })).filter(x => x.k.length >= 5 && (pKeys.some(k => k === x.k || (k.length >= 7 && (k.startsWith(x.k) || x.k.startsWith(k)))) || (x.k.length >= 7 && mailKey.includes(x.k))))
+    const prevL = data.lists.filter(l => l.slug && l.slug !== AI_LIST && /\(pitch\)/.test(String(l.by || "")) && recent(l) && !!(l.body && l.body.press) === press && !!org && Array.isArray(l.body && l.body.for) && l.body.for.some(o => sameCo(o, org))).map(l => ({ l, k: ckey(l.name) })).filter(x => x.k.length >= 5 && pKeys.some(k => k === x.k)) // exact campaign name only (audit 19 Oct 2026: "Call of Duty" vs "Black Ops 7", an earlier campaign named in passing)
       .sort((a, b) => lastDay(b.l).localeCompare(lastDay(a.l)))[0];
-    let reuse = null;
+    let reuse = null, hiddenKeep = [];
     // One list per campaign (Tom, 15 Oct 2026: "update the one we had rather than creating a new version").
     // When the earlier list cannot simply be reused, the new picks go onto THAT list instead of a new one:
     // added to what it already holds (team edits, prices and stages kept), or, for a brand shortlist, a
@@ -2549,6 +2571,7 @@ async function pitchFromEmail(b) {
     if (prevL && !/new list|fresh list|start (again|over)|from scratch|different list/i.test(f.note || "")) {
       const pl = (await freshList(prevL.l.slug).catch(() => ({}))).list;
       const pIds = ((pl && !pl.bad && pl.body && pl.body.ids) || []).map(String).filter(id => cat.byId[id]);
+      hiddenKeep = ((pl && !pl.bad && pl.body && pl.body.ids) || []).map(String).filter(id => !cat.byId[id]); // team additions the rate card hides
       const pG = new Set(pIds.map(id => cat.byId[id].gid));
       const fmtOk = !(Array.isArray(out.formats) && out.formats.length) || [...askedG].every(g => pG.has(g));
       const namesOk = namedNames.every(nm => pIds.some(id => nameOf(id) === nm));
@@ -2567,7 +2590,7 @@ async function pitchFromEmail(b) {
       const lineOf = {}; fitLines.forEach(l => { lineOf[l.split(" | ")[0]] = l; });
       const rv = await askClaude(reviewPrompt(f, ids.map(id => lineOf[id] || id), pointers, researchTxt)).catch(() => null);
       const ck = id => norm(base((cat.byId[id] || {}).name || ""));
-      const drop = new Set(((rv && rv.remove) || []).map(r => String(r && r.id)).filter(id => cat.byId[id] && !nameOf(id)).map(ck));
+      const drop = new Set(((rv && rv.remove) || []).map(r => String(r && r.id)).filter(id => cat.byId[id] && !nameOf(id) && !namedIds.has(id)).map(ck)); // never one the note asked for (audit 19 Oct 2026)
       // Never below 10 creators (Tom, 13 Oct 2026): removals apply worst first until the floor is reached, unless a removal is a DFT fit note or pointer.
       const creators = () => new Set(ids.filter(id => !drop.has(ck(id)) || nameOf(id)).map(ck)).size;
       const order = [...drop]; while (order.length && creators() < Math.min(10, new Set(ids.map(ck)).size)) { const last = order.pop(); const why = ((rv && rv.remove) || []).filter(r => cat.byId[String(r && r.id)] && ck(String(r.id)) === last).map(r => String(r.reason || "")).join(" "); if (/fit note|pointer|said|thread/i.test(why)) continue; drop.delete(last); }
@@ -2575,7 +2598,7 @@ async function pitchFromEmail(b) {
       if (kept.length) { reviewed = ((rv && rv.remove) || []).map(r => (cat.byId[String(r && r.id)] || {}).name + ": " + String((r && r.reason) || "")).join("; "); ids.splice(0, ids.length, ...kept); }
     }
     // Nothing to pitch (Tom, 14 Oct 2026, Alex's Gamesight forward): say why in plain words, and how to get a list anyway.
-    const whyNone = noDash(String(out.no_pitch_reason || "").trim()).replace(/[.\s]+$/, "");
+    const whyNone = noDash(String(out.no_pitch_reason || firstWhy || "").trim()).replace(/[.\s]+$/, "");
     // Never refuse a real enquiry because the checks left nobody (Tom, 19 Oct 2026, Nanoleaf: "We need to make sure this system is
     // robust and flawless"). Fall back, in order, to: the model's picks and the named creators in the formats asked for, then
     // as YouTube integrations and Shorts, then any of their rows, then one more ask for the closest fits. The row says so.
@@ -2593,6 +2616,14 @@ async function pitchFromEmail(b) {
         fellBack = "the format, market and fit checks left no creators" + (market ? " (it read the email as " + market + " only)" : "") + ", so this list is the closest fits" + (alt.some(id => !askedG.has(cat.byId[id].gid)) ? " in the nearest format to the one asked for" : "") + ". Check it before you send";
       }
     }
+    // Last resort (audit 19 Oct 2026, Tom: "The system should be robust enough to cope with this"): if the model still picked nobody,
+    // the strongest creators on the roster in the formats asked for (AI-open creators only on an AI brief) go on the list, and the row says so.
+    if (!ids.length) {
+      const keep2 = id => cat.byId[id] && !leftOut(base(cat.byId[id].name)) && (!aiCamp || aiOk(id));
+      const pool = Object.keys(cat.byId).filter(keep2), byG = g => pool.filter(id => cat.byId[id].gid === g).sort((x, y) => (Number(cat.byId[y].vg) || 0) - (Number(cat.byId[x].vg) || 0));
+      const gs = [...askedG].filter(g => byG(g).length); const top = [].concat(...(gs.length ? gs : ["topics"]).map(g => byG(g).slice(0, 10)));
+      if (top.length) { ids.push(...top); fellBack = "nobody was picked for this email, so this is a general shortlist of the strongest creators in the formats asked for. Check it before you send"; }
+    }
     if (!ids.length) throw new Error("No list made: " + (whyNone ? whyNone + "." : (out.picks || []).length ? "no creator passed the fit, format and market checks for this brief." : "no creators were picked for this email.") + " To get a list anyway, forward it again with a note above it saying what you want, e.g. 'pitch more creators for this'.");
     if (update && !update.replace) { const keep = update.ids.filter(id => !leftOut(base(cat.byId[id].name))); const had = new Set(keep); ids.splice(0, ids.length, ...keep, ...ids.filter(id => !had.has(id))); }
     if (!reuse) ids.sort((x, y) => order.indexOf(cat.byId[x].gid) - order.indexOf(cat.byId[y].gid));
@@ -2600,17 +2631,17 @@ async function pitchFromEmail(b) {
     // other agencies: "focus on the IP / release"). A bracket naming the sender's company is dropped as a backstop.
     const orgStem = String(org.split("@").pop() || "").split(".")[0].replace(/[^a-z0-9]/g, "");
     const noAgency = t => String(t || "").replace(/\s*\(([^)]*)\)/g, (m, x) => { const k = x.toLowerCase().replace(/[^a-z0-9]/g, ""); return k.length >= 4 && orgStem.length >= 4 && (orgStem.includes(k) || k.includes(orgStem)) ? "" : m; }).trim();
-    const title = reuse ? reuse.title : update ? update.title : noDash(noAgency(out.title) || out.product || f.subject || "Pitch").slice(0, 70);
+    const title = (reuse ? reuse.title : update ? update.title : noDash(noAgency(out.title) || out.product || f.subject || "Pitch").slice(0, 70)).replace(/[\[\]{}<>]/g, "").trim() || "Pitch";
     // Libsyn Ads pitches (Tom, 16 Oct 2026): YouTube integrations at a $28 CPM, and the Libsyn sub report in the draft.
     const libsyn = isLibsyn(f) && !press;
-    const saved = reuse ? { ok: true, slug: reuse.slug, url: "https://" + HOST + "/r/" + reuse.slug } : await saveList(update ? { title, ids, slug: update.slug } : { title, ids, press, for: org ? [org] : [] }, fromEmail + " (pitch)");
+    const saved = reuse ? { ok: true, slug: reuse.slug, url: "https://" + HOST + "/r/" + reuse.slug } : await saveList(update ? { title, ids: ids.concat(hiddenKeep.filter(id => !ids.includes(id))), slug: update.slug } : { title, ids, press, for: org ? [org] : [] }, fromEmail + " (pitch)");
     if (libsyn) await setListCpm(saved.slug, LIBSYN_CPM, fromEmail + " (pitch)").catch(() => null);
     // The brand asks for ideas (Tom, 16 Oct 2026, Ghost Soldier): the list gets a Campaign ideas column, drafted for
     // each creator by the roster-warm cron within a few minutes, from the brief.
     const wantsIdeas = press || /\b(ideas?|concepts?|creative (?:direction|angles?|treatments?)|how (?:\w+ ){0,4}(?:promote|feature|integrate))\b/i.test(String(f.note || "") + " " + String(f.body || ""));
     if (wantsIdeas) { const { list: il } = await freshList(saved.slug).catch(() => ({})); if (il && !il.bad) await writeList(il.id, Object.assign({}, il.body, press ? {} : { ideasOn: true }, { ideasPending: true, brief: (String(f.note || "") + "\n" + String(f.body || "")).trim().slice(0, 4000) }), {}).catch(() => null); }
     const reportUrl = libsyn ? await libsynReportUrl().catch(() => "") : "";
-    const first = noDash(out.contact_first_name || String(f.contactName).split(/\s+/)[0] || "there");
+    const first = noDash(out.contact_first_name || String(f.contactName).split(/\s+/)[0] || "there").replace(/[\[\]{}<>"]/g, "").trim() || "there"; // no "Hi [Name]," (audit 19 Oct 2026)
     const product = noDash(out.product || out.brand || f.subject || "your campaign").replace(/[.\s]+$/, "");
     const mix = noDash(out.mix || "").replace(/[.\s]+$/, "").replace(/\s*\/\s*/g, " and ");
     // Tom's own edit of the first live pitch (Catch Flex, 13 Oct 2026): one-line thanks, what the list is and how to use it, the link, then the ask. No pricing notes.
@@ -2710,7 +2741,7 @@ async function pitchFromEmail(b) {
       const cc0 = [...new Set((f.others || []).filter(x => x !== f.contactEmail && (side0(x) || /^(alex|margot|george)@digitalfoxtalent\.com$/i.test(x))).concat(["tom@digitalfoxtalent.com", "alex@digitalfoxtalent.com", "margot@digitalfoxtalent.com"]))].filter(x => x !== fromEmail).join(", ");
       return { ok: true, listUrl: saved.url, title, linkText, placements: ids.length, product: noDash(b.sub.name), mix, first, answer, to: f.contactEmail, cc: cc0, subject, search: pitchSearch(f), html: html + quoteHtml, text: text + quoteText, quoteHtml, quoteText, model: out.model, picks: out.picks, questions: out.questions || [], reviewed, press, unanswered: todo, headsUp: [fellBack, whyNone].filter(Boolean).join(". ") };
     }
-    await pitchMark(b.item, (press ? "Press package. " : "") + (reuse ? "Ready: same list as before, " : "Ready: ") + ids.length + " placements (" + out.model + ")" + (todo.length ? ". Brand also asked (not answered in the draft): " + todo.join("; ") : "") + (fellBack ? ". Heads-up: " + fellBack : "") + (whyNone ? ". Heads-up: " + whyNone : "") + (lowFit ? ". Heads-up: no creator was a strong fit, so these are the closest" : ""), saved.url);
+    await pitchMark(b.item, (press ? "Press package. " : "") + (reuse ? "Ready: same list as before, " : "Ready: ") + ids.length + " placements (" + out.model + ")" + (todo.length ? ". Brand also asked (not answered in the draft): " + todo.join("; ") : "") + (fellBack ? ". Heads-up: " + fellBack : "") + (b.multiFailed ? ". Heads-up: the separate campaign pitches failed (" + String(b.multiFailed).slice(0, 200) + "), so this is one combined pitch" : "") + (whyNone ? ". Heads-up: " + whyNone : "") + (lowFit ? ". Heads-up: no creator was a strong fit, so these are the closest" : ""), saved.url).catch(() => null); // never "Failed" once the list is saved (audit 19 Oct 2026)
     // Who gets copied (Tom, 14 Oct 2026, after a creator's personal email was copied on Margot's Base44 draft):
     // never a creator. Besides Tom, Alex and Margot, the only addresses kept from the forwarded email are
     // colleagues of the brand contact at the same company domain. A free mail domain (gmail, icloud...) is
@@ -2729,6 +2760,7 @@ async function pitchFromEmail(b) {
     resultObj.unansweredHtml = todo.length ? "<p>Your pitch draft to " + escH(f.contactEmail) + " is ready (subject: " + escH(subject) + ").</p><p>The brand also asked these, which the standing facts do not cover. The draft tells them you will come back to them shortly, so it is safe to send as it is. Reply on these yourself, or add your answers to the draft before you send:</p><ul>" + todo.map(q => "<li>" + escH(q) + "</li>").join("") + "</ul><p>To have the system answer a question like this next time, add the answer to the Standing facts item on the Roster - Pitch Requests board.</p>" : "";
     // Teammates get the draft in their own Gmail (Tom, 14 Oct 2026); Tom's drafts still come from Make.
     resultObj.draftMade = await teamDraft(fromEmail, resultObj).catch(e => "failed: " + String((e && e.message) || e).slice(0, 200));
+    if (resultObj.draftMade && resultObj.draftMade !== true) await pitchMark(b.item, "List ready but the draft was not made (" + String(resultObj.draftMade).slice(0, 160) + "). List: " + saved.url, saved.url).catch(() => null);
     return resultObj;
   } catch (e) {
     if (!b.sub) { try { await pitchMark(b.item, (/^No list made/.test(String(e && e.message)) ? "" : "Failed: ") + String(e && e.message || e).slice(0, 500)); } catch (_) {} }
@@ -2847,7 +2879,7 @@ function pitchSearch(f) {
   const w = subjectWords(f.subject);
   // subject:(...) matches all the words; the quoted phrase it replaced missed subjects with "&", "|" or a date
   // such as 10/19 in them (Tom's Motrin forward, 16 Oct 2026), so the draft was saved outside the brand's thread.
-  return w ? "in:sent {to:pitch@digitalfoxtalent.com to:press@digitalfoxtalent.com} subject:(" + w + ") newer_than:7d" : "from:" + f.contactEmail + " newer_than:90d";
+  return w ? "in:sent {to:pitch@digitalfoxtalent.com to:press@digitalfoxtalent.com} subject:(" + w + ") -subject:(\"No pitch draft\") newer_than:7d" : "from:" + f.contactEmail + " newer_than:90d";
 }
 function brandMsgId(thread, fallbackId) {
   const ms = (thread && thread.messages) || [];
@@ -3042,7 +3074,9 @@ export default async function handler(req, res) {
       }
       // Pitch pipeline (Tom, 13 Oct 2026): Make, with a fresh Roster - Pitch Requests item as proof.
     if (b && b.op === "pitch-mime") { try { return res.status(200).json(pitchMime(await pitchReplyTo(b))); } catch (e) { return res.status(400).json({ error: String(e && e.message || e) }); } }
-    if (b && b.op === "pitch") { try { return res.status(200).json(await pitchFromEmail(b)); } catch (e) { return res.status(400).json({ error: String(e && e.message || e) }); } }
+    // sub, thread and multiFailed are internal to a multi-campaign run; never accept them from a request (audit 19 Oct 2026:
+    // sending "sub" skipped the fresh Pitch Requests item check).
+    if (b && b.op === "pitch") { try { const { sub: _s, thread: _t, multiFailed: _m, ...clean } = b; return res.status(200).json(await pitchFromEmail(clean)); } catch (e) { return res.status(400).json({ error: String(e && e.message || e) }); } }
     if (!email) return res.status(401).json({ error: "Sign in with your DFT Google account" });
       try {
         if (b.op === "draft") return res.status(200).json(await makeDraft(b, email));
