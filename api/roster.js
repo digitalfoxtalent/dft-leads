@@ -2358,8 +2358,10 @@ function composeMulti(subs, fwdName) {
   const lines = [p => "For " + p.product + ", here's a shortlist of creators" + (p.mix ? " across " + p.mix : "") + " who'd suit it well.", p => "For " + p.product + ", I've put together creators" + (p.mix ? " across " + p.mix : "") + " who'd be a great fit.", p => "And for " + p.product + ", here are creators" + (p.mix ? " across " + p.mix : "") + " who I think would work really well."];
   const off = Math.floor(Math.random() * 2); // a different sentence for each campaign, so the email does not repeat itself
   const blocks = subs.map((s, i) => ({ line: lines[i === 0 ? off : i === 1 ? 2 : (off + i) % 2](s), url: s.listUrl, linkText: s.linkText }));
-  const answers = [...new Set(subs.map(s => s.answer).filter(Boolean))].join(" ");
-  const ask = pick(["Could you let me know who you'd like to book for each one?", "Let me know who stands out for each campaign and we'll get things moving.", "Could you confirm who you'd like to book for each?"]);
+  // One availability line however many campaigns said it (19 Oct 2026: the first combined draft said it twice).
+  let availSaid = false;
+  const answers = [...new Set([].concat(...subs.map(s => String(s.answer || "").split(/(?<=[.!?])\s+/))).map(x => x.trim()).filter(Boolean))].filter(x => { if (!/availab|posting dates/i.test(x)) return true; if (availSaid) return false; availSaid = true; return true; }).join(" ");
+  const ask = "Who would you like to book for each campaign?"; // the standing close for two campaigns (Standing lessons item, 19 Oct 2026)
   const sig = ["Warm regards", fwdName, "Digital Fox Talent", "\u{1F98A}"];
   const html = "<div dir=\"ltr\">Hi " + escH(s0.first) + ",<br><br>" + escH(intro) + "<br><br>" + blocks.map(x => escH(x.line) + "<br><br><a href=\"" + x.url + "\">" + escH(x.linkText) + "</a>").join("<br><br>") + (answers ? "<br><br>" + escH(answers) : "") + "<br><br>" + escH(ask) + "<br><br>" + sig.map(escH).join("<br>") + "</div>";
   const text = "Hi " + s0.first + ",\n\n" + intro + "\n\n" + blocks.map(x => x.line + "\n\n" + x.url).join("\n\n") + (answers ? "\n\n" + answers : "") + "\n\n" + ask + "\n\n" + sig.join("\n");
@@ -2454,9 +2456,14 @@ async function pitchFromEmail(b) {
     // No picks and no reason is never the answer to an enquiry (Tom, 19 Oct 2026, Nanoleaf): ask once more, firmly.
     const usable = o => (o.picks || []).some(p => p && (p.named === true || !(Number(p.fit) < 3)));
     if (!usable(out)) {
-      const again = await askClaude(prompt + "\n\nYour first answer picked no creators. That is never the right answer: this enquiry is an opportunity to recommend creators: pick every creator on the roster who would genuinely suit it (fit 3 or above), aiming for at least 10. Return the same JSON.").catch(() => null);
+      const again = await askClaude(prompt + "\n\nYour first answer picked no creators. That is never the right answer: this enquiry is an opportunity to recommend creators: pick every creator on the roster who would genuinely suit it (fit 3 or above), aiming for at least 10. If nobody is an obvious fit, still return the 10 closest creators with honest fit scores (2 is fine). Return the same JSON.").catch(() => null);
       if (again && usable(again)) out = again;
+      else if (again && (again.picks || []).length && !(out.picks || []).length) out = again;
     }
+    // Still nobody at fit 3 (Tom, 19 Oct 2026, Nanoleaf, refused twice): the closest creators go on the list anyway, best first,
+    // and the row says the fit is weak. Refusing is never the answer to a forward.
+    const lowFit = !usable(out) && (out.picks || []).length > 0;
+    if (lowFit) out.picks = (out.picks || []).filter(p => p && p.id).sort((a, b) => (Number(b.fit) || 0) - (Number(a.fit) || 0)).slice(0, 20).map(p => Object.assign({}, p, { fit: Math.max(3, Number(p.fit) || 0) }));
     const order = GROUPS.map(g => g.id);
     // AI campaigns are the model's call on the product, not any mention of "AI" in the email (Tom, 15 Oct 2026: RayNeo AR glasses
     // "touches on AI but isn't a completely AI focussed product", and got an AI-only list).
@@ -2509,8 +2516,10 @@ async function pitchFromEmail(b) {
     // format it has no tab for, a creator the note leaves out, a market limit, an AI brief, or a
     // note asking to widen it or start a new list.
     const ckey = s => String(s || "").replace(/\s*\(.*$/, "").toLowerCase().replace(/\b(the|of|a|an|and)\b/g, " ").replace(/[^a-z0-9]/g, "");
-    const pKeys = [ckey(out.product), ckey(out.brand), ckey(out.title)].filter(k => k.length >= 5);
-    const mailKey = ckey(f.subject + " " + latest).slice(0, 4000);
+    // A campaign split out of a multi-pitch forward matches an earlier list by its own name only (Tom, 19 Oct 2026, Mediacube:
+    // the PixAI pass matched the Fishing Clash list because the email names both, and wrote over it).
+    const pKeys = (b.sub ? [ckey(b.sub.name)] : [ckey(out.product), ckey(out.brand), ckey(out.title)]).filter(k => k.length >= 5);
+    const mailKey = b.sub ? "" : ckey(f.subject + " " + latest).slice(0, 4000);
     const lastDay = l => ((String(l.by || "") + " " + String(l.updated || "")).match(/\d{4}-\d\d-\d\d/g) || [""]).sort().pop();
     const recent = l => { const d = (String(l.by || "") + " " + String(l.updated || "")).match(/\d{4}-\d\d-\d\d/g) || []; return d.some(x => Date.now() - Date.parse(x) < 120 * 864e5); };
     // Only ever a list made for the same company (Tom, 16 Oct 2026): StarAce's Transformers list went to Dorun Media and
@@ -2685,7 +2694,7 @@ async function pitchFromEmail(b) {
       const cc0 = [...new Set((f.others || []).filter(x => x !== f.contactEmail && (side0(x) || /^(alex|margot|george)@digitalfoxtalent\.com$/i.test(x))).concat(["tom@digitalfoxtalent.com", "alex@digitalfoxtalent.com", "margot@digitalfoxtalent.com"]))].filter(x => x !== fromEmail).join(", ");
       return { ok: true, listUrl: saved.url, title, linkText, placements: ids.length, product: noDash(b.sub.name), mix, first, answer, to: f.contactEmail, cc: cc0, subject, search: pitchSearch(f), html: html + quoteHtml, text: text + quoteText, quoteHtml, quoteText, model: out.model, picks: out.picks, questions: out.questions || [], reviewed, press, unanswered: todo, headsUp: [fellBack, whyNone].filter(Boolean).join(". ") };
     }
-    await pitchMark(b.item, (press ? "Press package. " : "") + (reuse ? "Ready: same list as before, " : "Ready: ") + ids.length + " placements (" + out.model + ")" + (todo.length ? ". Brand also asked (not answered in the draft): " + todo.join("; ") : "") + (fellBack ? ". Heads-up: " + fellBack : "") + (whyNone ? ". Heads-up: " + whyNone : ""), saved.url);
+    await pitchMark(b.item, (press ? "Press package. " : "") + (reuse ? "Ready: same list as before, " : "Ready: ") + ids.length + " placements (" + out.model + ")" + (todo.length ? ". Brand also asked (not answered in the draft): " + todo.join("; ") : "") + (fellBack ? ". Heads-up: " + fellBack : "") + (whyNone ? ". Heads-up: " + whyNone : "") + (lowFit ? ". Heads-up: no creator was a strong fit, so these are the closest" : ""), saved.url);
     // Who gets copied (Tom, 14 Oct 2026, after a creator's personal email was copied on Margot's Base44 draft):
     // never a creator. Besides Tom, Alex and Margot, the only addresses kept from the forwarded email are
     // colleagues of the brand contact at the same company domain. A free mail domain (gmail, icloud...) is
