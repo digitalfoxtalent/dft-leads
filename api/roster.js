@@ -1373,7 +1373,8 @@ async function outreachDraft(b, email) {
 // 2 to 3 similar creators DFT already represents, has Claude write a short direct email offering a call, and saves it
 // as a fresh draft in the clicker's own Gmail with Alex copied. Nothing is ever sent.
 // What the email leans on (Tom, 18 Oct 2026): brand deals and content distribution, similar creators we represent,
-// "Since 2017". It offers a call (direct recruitment), never a sign-up link.
+// "Since 2017". It offers a call (direct recruitment); since 19 Oct 2026 (Tom's edit to the Volrusk email) the close also
+// offers the sign-up page for creators who would rather not do a video call, as a real link in the draft.
 // Tom's first edits (18 Oct 2026): no opening line about their videos, and only name creators who are actually signed
 // (a Rates row linked to a Global Talent Roster creator in a signed group, so Markiplier/Corridor Crew style pitch rows
 // never count). The email as written is kept on the row (Draft as written / Draft thread) and api/recruit-learn.js
@@ -1426,7 +1427,8 @@ async function recruitDraft(b, email) {
     "- Say Digital Fox Talent has represented creators since 2017.",
     "- Lead with brand partnerships (our core offer: we bring them sponsorship deals), then content distribution (we put their existing videos on more platforms so the same content earns more).",
     similar.length ? "- Name 2 or 3 creators from SIGNED CREATORS WE REPRESENT who best fit their niche, as creators we work with. Use only names from that list, exactly as written; never name anyone else as a creator we work with." : "- Do not name any creators as ones we work with.",
-    "- Close by offering a quick call this week or next. No sign-up link.",
+    "- Say we'd (the agency) like to talk with them about representing them, not I'd.",
+    "- Close with one sentence offering a quick call this week or next to explain how we work and answer any questions, then: \"or if you prefer not to do a video call, you can sign up here.\" End the email with exactly those words (\"sign up here.\"); the link is added after.",
     "- Greet them by their channel or first name if obvious. Do not include a signature; it is added after.",
     lessons.length ? "STANDING LESSONS FROM " + fromName.toUpperCase() + "'S EDITS TO EARLIER EMAILS (follow every one; where one conflicts with a rule above, the lesson wins):\n- " + lessons.join("\n- ") : "",
     'Reply with ONLY JSON: {"subject":"short subject, no emojis","body":"plain text with \\n line breaks"}',
@@ -1450,8 +1452,13 @@ async function recruitDraft(b, email) {
   if (!out || !out.body) throw new Error("Could not write the email, try again");
   const subject = noDash(String(out.subject || "Working with Digital Fox Talent")).slice(0, 120);
   const sig = fromName + "\nDigital Fox Talent\n\u{1F98A}";
-  const plain = noDash(String(out.body)).replace(/\r/g, "").trim() + "\n\nWarm regards\n" + sig;
-  const html = plain.split(/\n{2,}/).map(p => "<p>" + escH(p).replace(/\n/g, "<br>") + "</p>").join("");
+  let plain = "";
+  // The sign-up page for creators who would rather not do a call (Tom, 19 Oct 2026): "here" becomes the link.
+  const SIGNUP = "https://digitalfoxtalent.com/sign-up";
+  let bodyOut = noDash(String(out.body)).replace(/\r/g, "").trim();
+  if (!/sign up here/i.test(bodyOut)) bodyOut += "\n\nIf you prefer not to do a video call, you can sign up here.";
+  plain = bodyOut.replace(/sign up here/i, m => m + " (" + SIGNUP + ")") + "\n\nWarm regards\n" + sig;
+  const html = (bodyOut + "\n\nWarm regards\n" + sig).split(/\n{2,}/).map(p => "<p>" + escH(p).replace(/\n/g, "<br>").replace(/sign up here/i, m => m.slice(0, -4) + '<a href="' + SIGNUP + '">here</a>') + "</p>").join("");
   const cc = ["tom@digitalfoxtalent.com", "alex@digitalfoxtalent.com"].filter(x => x !== email).join(", ");
   const G = (path, opt = {}) => fetch("https://gmail.googleapis.com/gmail/v1/users/me" + path, Object.assign({}, opt, { headers: Object.assign({ Authorization: "Bearer " + tok }, opt.headers || {}) })).then(async r => { const tx = await r.text(); let j = {}; try { j = tx ? JSON.parse(tx) : {}; } catch (_) {} return r.ok ? j : Object.assign(j, { _status: r.status }); });
   const dr = await G("/drafts", { method: "POST", headers: { "Content-Type": "application/json" }, body: pitchMime({ to, cc, subject, html, text: plain }).draft });
