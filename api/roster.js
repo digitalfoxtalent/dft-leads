@@ -2547,7 +2547,10 @@ async function pitchFromEmail(b) {
     if (reuse) ids.splice(0, ids.length, ...reuse.ids);
     // Second pass (Tom, 14 Oct 2026): the list is checked the way Tom would before it is saved. Creators the brand's newest message names always stay.
     let reviewed = "";
-    if (!reuse && !shortOnly && ids.length > 1) {
+    // A note asking to widen the list wins over the review pass (Tom, 19 Oct 2026, Nanoleaf StoryBub: "Let's expand the
+    // creators on this one - a lot more could work"). The model picked 31, the review cut 17 for male-skewed audiences and
+    // left 14. With an expand note the review is skipped and Tom trims the list himself.
+    if (!reuse && !shortOnly && !expandAsk && ids.length > 1) {
       const lineOf = {}; fitLines.forEach(l => { lineOf[l.split(" | ")[0]] = l; });
       const rv = await askClaude(reviewPrompt(f, ids.map(id => lineOf[id] || id), pointers, researchTxt)).catch(() => null);
       const ck = id => norm(base((cat.byId[id] || {}).name || ""));
