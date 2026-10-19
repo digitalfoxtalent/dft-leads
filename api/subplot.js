@@ -6,6 +6,7 @@ import { getData, findArt, SNIPPETS_LIVE } from "./_subplot/data.js";
 import { brandFor, setBrand, siteUrl, brand } from "./_subplot/brand.js";
 import { runHealth } from "./_subplot/health.js";
 import { smartnewsFeed, SN_LOGO, SN_LOGO_DARK } from "./_subplot/smartnews.js";
+import { flipboardFeed, newsSitemap } from "./_subplot/feeds.js";
 import { setDesign } from "./_subplot/design.js";
 import { listMonths, readMonth } from "./_subplot/archive.js";
 import { homePage, articlePage, snippetsPage, creatorPage, joinPage, aboutPage, threadPage, rssFeed, notFound, legalPage, artPath, revenuePage, sitemap } from "./_subplot/render.js";
@@ -167,12 +168,17 @@ export default async function handler(req, res) {
     // BING, 12 Oct 2026 (Tom: "Turn both of these on"). Bingbot is let in on subplot.tv itself so
     // the site can be submitted in Bing Webmaster Tools. Not on Wordie or the /subplot preview path.
     const bingAgents = brand().key === "subplot" && !base ? ["Bingbot"] : [];
+    // FEED READERS, 19 Oct 2026 (Tom: "Let's do it", Flipboard and Google News). Flipboard reads /flipboard.xml and
+    // fetches article pages for its previews; SmartNews reads /smartnews.xml (applied 7 Oct). Neither is a search
+    // indexer. Everyone else stays blocked. Not on Wordie or the /subplot preview path.
+    const feedAgents = brand().key === "subplot" && !base ? ["FlipboardRSS", "FlipboardProxy", "Flipboard", "SmartNews"] : [];
     return res.status(200).send([
-      ...[...googleAgents, ...bingAgents].flatMap(a => ["User-agent: " + a, "Allow: /", ""]),
+      ...[...googleAgents, ...bingAgents, ...feedAgents].flatMap(a => ["User-agent: " + a, "Allow: /", ""]),
       "User-agent: *", "Allow: /ads.txt", "Disallow: /", "",
       // Absolute by spec, and it names the sitemap even to crawlers that never see
       // Search Console. This is the line that says "the site is here".
-      "Sitemap: " + siteUrl() + base + "/sitemap.xml", "",
+      "Sitemap: " + siteUrl() + base + "/sitemap.xml",
+      ...(brand().key === "subplot" && !base ? ["Sitemap: " + siteUrl() + "/news-sitemap.xml"] : []), "",
     ].join("\n"));
   }
 
@@ -190,6 +196,9 @@ export default async function handler(req, res) {
   }
   // SmartNews (7 Oct 2026): SmartFormat 2.2 feed plus its two 700 x 100 logos. See smartnews.js.
   if (path === "/smartnews.xml") { res.setHeader("Content-Type", "application/rss+xml; charset=utf-8"); res.setHeader("Cache-Control", "public, s-maxage=600"); return res.status(200).send(smartnewsFeed(data, base)); }
+  // Flipboard and Google News (19 Oct 2026). See feeds.js.
+  if (path === "/flipboard.xml") { res.setHeader("Content-Type", "application/rss+xml; charset=utf-8"); res.setHeader("Cache-Control", "public, s-maxage=600"); return res.status(200).send(flipboardFeed(data, base)); }
+  if (path === "/news-sitemap.xml") { res.setHeader("Content-Type", "application/xml; charset=utf-8"); res.setHeader("Cache-Control", "public, s-maxage=600"); return res.status(200).send(newsSitemap(data, base)); }
   if (path === "/feed.xml") { res.setHeader("Content-Type", "application/rss+xml; charset=utf-8"); res.setHeader("Cache-Control", "public, s-maxage=600"); return res.status(200).send(rssFeed(data, base)); }
   res.setHeader("Content-Type", "text/html; charset=utf-8");
   res.setHeader("Cache-Control", pass || activeDesign !== 3 ? "private, no-store" : "public, s-maxage=300, stale-while-revalidate=3600");
