@@ -2883,6 +2883,51 @@ async function teamDraft(fromEmail, o) {
   return true;
 }
 
+// Clean Gmail drafts for anything Claude writes by hand (Tom, 19 Oct 2026: "really annoying that the links here get
+// garbled. We need a robust rule that stops this from happening"). Drafts made through the Gmail connector come back with
+// every link wrapped in a google.com/url redirect, and Tati's Mediacube reply went out like that. This saves the draft
+// straight through the Gmail API instead, in the signed-in person's own mailbox: links unwrapped (cleanLinks), threaded
+// under the brand's latest message with its quote, older drafts on that thread removed, then read back. If any wrapped
+// link survives, the draft is deleted again and the call fails, so a garbled draft can never be left behind.
+async function makeDraft(b, email) {
+  const tok = await gmailToken(email); if (!tok) throw new Error("Gmail is not connected for " + email);
+  const G = (path, opt = {}) => fetch("https://gmail.googleapis.com/gmail/v1/users/me" + path, Object.assign({}, opt, { headers: Object.assign({ Authorization: "Bearer " + tok }, opt.headers || {}) })).then(async r => { const t = await r.text(); let j = {}; try { j = t ? JSON.parse(t) : {}; } catch (_) {} if (!r.ok) throw new Error("Gmail " + r.status + " " + ((j.error || {}).message || "")); return j; });
+  const to = String(b.to || "").trim(), subject = String(b.subject || "").trim(), body = String(b.html || "").trim();
+  if (!/@/.test(to) || !subject || !body) throw new Error("to, subject and html are needed");
+  if (/@digitalfoxtalent\.com\b/i.test(to) && !b.internal) throw new Error("The draft is addressed to a DFT address (" + to + "). Pass internal:true if that is meant.");
+  const hdr = (m, n) => ((((m || {}).payload || {}).headers || []).find(h => h.name.toLowerCase() === n) || {}).value || "";
+  let threadId = String(b.threadId || ""), inReplyTo = "", refs = "", quoteHtml = "", quoteText = "";
+  if (threadId) {
+    const th = await G("/threads/" + threadId + "?format=full");
+    const brand = (th.messages || []).filter(x => !(x.labelIds || []).some(l => l === "SENT" || l === "DRAFT")).pop() || (th.messages || []).filter(x => !(x.labelIds || []).includes("DRAFT")).pop();
+    if (brand) {
+      inReplyTo = hdr(brand, "message-id"); refs = hdr(brand, "references");
+      let h = "", t = "";
+      const walk = x => { if (!x) return; if (x.body && x.body.data) { const d = Buffer.from(x.body.data, "base64url").toString("utf8"); if (/text\/html/.test(x.mimeType || "") && !h) h = d; else if (/text\/plain/.test(x.mimeType || "") && !t) t = d; } (x.parts || []).forEach(walk); };
+      walk(brand.payload);
+      if (b.quote !== false) {
+        const attr = "On " + hdr(brand, "date") + " " + hdr(brand, "from") + " wrote:";
+        const inner = h ? h.replace(/^[\s\S]*?<body[^>]*>/i, "").replace(/<\/body>[\s\S]*$/i, "") : escH(t).replace(/\n/g, "<br>");
+        quoteHtml = '<br><div class="gmail_quote"><div dir="ltr" class="gmail_attr">' + escH(attr) + '<br></div><blockquote class="gmail_quote" style="margin:0px 0px 0px 0.8ex;border-left:1px solid rgb(204,204,204);padding-left:1ex">' + inner + "</blockquote></div>";
+        quoteText = "\n\n" + attr + "\n\n" + String(t || htmlToText(h)).split("\n").map(l => "> " + l).join("\n");
+      }
+    }
+  }
+  const html = (/^\s*<div/i.test(body) ? body : '<div dir="ltr">' + body + "</div>") + quoteHtml;
+  const text = String(b.text || htmlToText(body)) + quoteText;
+  // One draft per thread (Tom, 15 Oct 2026): any older draft on this thread goes.
+  let removed = 0;
+  if (threadId) { const dr = (await G("/drafts?maxResults=50").catch(() => ({}))).drafts || []; for (const d of dr) if (d.message && d.message.threadId === threadId) { await G("/drafts/" + d.id, { method: "DELETE" }).catch(() => null); removed++; } }
+  const made = await G("/drafts", { method: "POST", headers: { "Content-Type": "application/json" }, body: pitchMime({ to, cc: b.cc || "", subject, html, text, threadId, inReplyTo, references: refs }).draft });
+  // Read it back exactly as Gmail stored it.
+  const back = await G("/drafts/" + made.id + "?format=raw");
+  const raw = Buffer.from(String(((back.message || {}).raw) || ""), "base64url").toString("utf8");
+  let decoded = raw; for (const m of raw.matchAll(/Content-Transfer-Encoding: base64\r?\n\r?\n([A-Za-z0-9+\/=\r\n]+)/g)) decoded += "\n" + Buffer.from(m[1].replace(/\s+/g, ""), "base64").toString("utf8");
+  const hrefs = [...decoded.matchAll(/href="([^"]+)"/g)].map(m => m[1]);
+  const bad = hrefs.filter(h => /google\.[a-z.]+\/url\?/i.test(h));
+  if (bad.length) { await G("/drafts/" + made.id, { method: "DELETE" }).catch(() => null); throw new Error("Draft deleted again: " + bad.length + " link(s) were still wrapped"); }
+  return { ok: true, draftId: made.id, threadId: (back.message || {}).threadId || threadId, removed, links: [...new Set(hrefs.filter(h => !/^mailto:/i.test(h)))].filter(h => body.includes(h) || cleanLinks(body).includes(h)) };
+}
 // Clean links in every draft (Tom, 14 Oct 2026): a link copied from Gmail or a quoted thread can
 // arrive wrapped as https://www.google.com/url?q=<real url>&sa=...; unwrap it to the real URL.
 function cleanLinks(s) {
@@ -2984,6 +3029,7 @@ export default async function handler(req, res) {
     if (b && b.op === "pitch") { try { return res.status(200).json(await pitchFromEmail(b)); } catch (e) { return res.status(400).json({ error: String(e && e.message || e) }); } }
     if (!email) return res.status(401).json({ error: "Sign in with your DFT Google account" });
       try {
+        if (b.op === "draft") return res.status(200).json(await makeDraft(b, email));
         if (b.op === "edit") return res.status(200).json(await editRow(b, email));
         if (b.op === "undo-edit") return res.status(200).json(await undoEdit(b, email));
         if (b.op === "save-list") return res.status(200).json(await saveList(b, email));
