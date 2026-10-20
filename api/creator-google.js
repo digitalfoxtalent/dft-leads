@@ -14,9 +14,9 @@
 //  - Group <name>@digitalfoxtalent.com, named after the channel, description "Brand enquiries for <channel>
 //    (@handle)". External senders can post and contact owners, join is invite only, no external members.
 //    Members tom@ (owner) and alex@ (member).
-//  - Chat space "@handle x DFT", external members allowed, with Alex and the creator (Tom is the creator of
-//    the space). If the creator's email is not a Google account the space is still made with Alex and the
-//    alert says the creator needs inviting by hand.
+//  - Chat space "@handle x DFT", external members allowed, with Alex, George and Margot (Tom is the creator
+//    of the space). The creator and the fox icon are finished by hand: Google drops an outside person until
+//    they've had a DM from us, and the API can't set a space icon. The alert lists both steps.
 //  - Global Talent Roster row: DFT Custom Email, Bespoke Email Action "Using Bespoke DFT", Auto Forwarding NO,
 //    Google Chat Yes, plus an update.
 // WHAT IT CAN'T DO: add the address to Gmail routing rule e4566 (Google has no API for routing rules). The
@@ -32,6 +32,9 @@ export const config = { maxDuration: 60 };
 
 const DOMAIN = "digitalfoxtalent.com";
 const TOM = "tom@" + DOMAIN, ALEX = "alex@" + DOMAIN, TEAM = "theteam@" + DOMAIN;
+// Everyone from DFT who sits in each creator's Chat space (Tom is added as the space creator). Tom, 19 Oct 2026:
+// "have Margot and George added too".
+const CHAT_TEAM = [ALEX, "george@" + DOMAIN, "margot@" + DOMAIN];
 const GTR = 6160485039;
 const KEY_ITEM = 13330549704; // API Keys (Private): "Make webhook key: creator Google setup (dft-leads)"
 const KEY_COL = "text_mm5bcxe7";
@@ -162,21 +165,23 @@ export default async function handler(req, res) {
     // ---- the Chat space ----
     let spaceNote = "", spaceUrl = "", creatorInvited = false;
     if (col("status3__1") === "Yes") spaceNote = "Google Chat already marked Yes on the roster row";
-    else if (dry) spaceNote = `would create "${handle} x DFT" with Alex${creatorEmail ? " and " + creatorEmail : ""}`;
+    else if (dry) spaceNote = `would create "${handle} x DFT" with Alex, George and Margot`;
     else {
       const chatTok = await googleToken(TOM, ["chat.spaces.create"]);
       const space = { spaceType: "SPACE", displayName: `${handle} x DFT`, externalUserAllowed: true };
       const member = (email) => ({ member: { name: "users/" + email, type: "HUMAN" } });
-      let r = creatorEmail ? await g(chatTok, "POST", "https://chat.googleapis.com/v1/spaces:setup", { space, memberships: [member(ALEX), member(creatorEmail)] }) : { ok: false };
+      let r = creatorEmail ? await g(chatTok, "POST", "https://chat.googleapis.com/v1/spaces:setup", { space, memberships: [...CHAT_TEAM.map(member), member(creatorEmail)] }) : { ok: false };
       if (r.ok) creatorInvited = true;
       else {
-        if (creatorEmail) log.steps.push("chat with creator failed (" + r.status + "), retrying with Alex only");
-        r = await g(chatTok, "POST", "https://chat.googleapis.com/v1/spaces:setup", { space, memberships: [member(ALEX)] });
+        if (creatorEmail) log.steps.push("chat with creator failed (" + r.status + "), retrying with the team only");
+        r = await g(chatTok, "POST", "https://chat.googleapis.com/v1/spaces:setup", { space, memberships: CHAT_TEAM.map(member) });
       }
       if (!r.ok) throw new Error("chat space " + r.status + " " + r.text);
       const id = String(r.json.name || "").replace(/^spaces\//, "");
       spaceUrl = "https://chat.google.com/room/" + id;
-      spaceNote = `created "${handle} x DFT" with Alex` + (creatorInvited ? " and " + creatorEmail : "; the creator still needs inviting by hand");
+      // Google accepts an outside creator in the call but silently drops them until they have had a direct
+      // message from us (seen on Tex, 19 Oct 2026; what worked: DM via "Invite as an external user", then add them to the space the same way), so the creator is always finished by hand below.
+      spaceNote = `created "${handle} x DFT" with Tom, Alex, George and Margot`;
     }
     log.steps.push("chat: " + spaceNote);
 
@@ -189,14 +194,14 @@ export default async function handler(req, res) {
     if (addressMade) Object.assign(cv, { text_mkm0t55g: address, status_mkm0dn4z: { label: "Using Bespoke DFT" }, color_mkv562sg: { label: "NO" } });
     if (spaceUrl) cv.status3__1 = { label: "Yes" };
     const word2 = address ? address.split("@")[0] : "";
-    const note = `<p><b>Google set-up on approval</b></p><p>Email: ${esc(addressNote)}</p><p>Chat: ${esc(spaceNote)}${spaceUrl ? ` (${esc(spaceUrl)})` : ""}</p>` + (addressMade ? `<p>Still to do by hand: add <b>${esc(word2)}</b> to Gmail routing rule e4566 so brand mail reaches Tom and Alex with the real sender.</p>` : "");
+    const note = `<p><b>Google set-up on approval</b></p><p>Email: ${esc(addressNote)}</p><p>Chat: ${esc(spaceNote)}${spaceUrl ? ` (${esc(spaceUrl)})` : ""}</p>` + (addressMade ? `<p>Still to do by hand: add <b>${esc(word2)}</b> to Gmail routing rule e4566 so brand mail reaches Tom and Alex with the real sender.</p>` : "") + (spaceUrl ? `<p>Chat still to do by hand: DM the creator in Google Chat first, then add them to the space, and set the space icon to the fox emoji.</p>` : "");
     await monday(mtok, `mutation { ${Object.keys(cv).length ? `c: change_multiple_column_values(board_id: ${GTR}, item_id: ${gtrId}, column_values: ${JSON.stringify(JSON.stringify(cv))}) { id }` : ""} u: create_update(item_id: ${gtrId}, body: ${JSON.stringify(note)}) { id } }`);
 
     // ---- tell Tom and Alex, with the one step left ----
     const html = `<p>${esc(handle)} (${esc(title)}) was approved, and their Google set-up is done:</p><ul><li>Email: ${esc(addressNote)}</li><li>Chat: ${esc(spaceNote)}${spaceUrl ? ` - <a href="${esc(spaceUrl)}">open the space</a>` : ""}</li></ul>` +
       (addressMade ? `<p><b>One step left:</b> add <b>${esc(word2)}</b> to the Gmail routing rule "Creator addresses - deliver with original sender" (e4566) so brand mail to ${esc(address)} reaches you both with the real sender showing. Ask Claude and it will open it for you.</p>` : "") +
-      (spaceUrl && !creatorInvited ? `<p>The creator wasn't added to the Chat space automatically (their email may not be a Google account). Invite them from the space.</p>` : "");
-    await sendInternal(`New creator Google set-up: ${handle}` + (addressMade ? " (routing rule step left)" : ""), html);
+      (spaceUrl ? `<p><b>Finish the Chat space by hand</b> (Google doesn't allow these two by automation):</p><ol><li>Send ${esc(creatorEmail || "the creator")} a welcome DM in Google Chat: New chat, type their email, pick "Invite as an external user", Start chat. Google won't let an outside person into a space until they've had a DM from us.</li><li>Then open the space, Manage members, Add, type their email, pick "Invite as an external user" again (not the one marked External), Add, then Add anyway. They show as "Pending user" until they accept Google's email invite.</li><li>Set the space icon to the fox emoji: Space settings, click the icon, choose 🦊.</li></ol>` : "");
+    await sendInternal(`New creator Google set-up: ${handle}` + (spaceUrl ? " (Chat invite and fox icon left)" : addressMade ? " (routing rule step left)" : ""), html);
     return res.status(200).json(Object.assign(log, { ok: true, address, spaceUrl, creatorInvited }));
   } catch (e) {
     log.error = String(e.message || e).slice(0, 400);
