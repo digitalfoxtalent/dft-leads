@@ -97,6 +97,7 @@ assert.ok(html.includes('"avgEngaged":75000'), "page embeds the saved copy");
 assert.ok(html.includes("<h1>Engaged views</h1>"), "one-colour headline");
 assert.ok(html.includes("function showAll()") && html.includes("else if(on.length)showAll();"));
 const script = html.split('<script>').pop().split('</script>')[0];
+assert.ok(script.includes("function pdfAll(") && script.includes("function pdfCreator("), "PDF download generators are on the page");
 new Function(script); // the page script parses (catches escapes broken by the template literal)
 
 console.log("engaged-summary: all checks passed");
