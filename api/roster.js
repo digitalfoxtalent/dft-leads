@@ -2452,6 +2452,8 @@ async function pitchFromEmail(b) {
         // Kept for the nightly learner (api/pitch-learn.js), as for a single pitch.
         await monday("mutation($b:ID!,$i:ID!,$v:JSON!){change_multiple_column_values(board_id:$b,item_id:$i,column_values:$v){id}}", { b: String(PITCH_BOARD), i: String(b.item), v: JSON.stringify({ [PB.draft]: { text: String(mail.text).slice(0, 9000) }, [PB.check]: [fromEmail, s0.to, new Date().toISOString()].join("|") }) }).catch(() => null);
         resultObj.draftMade = await teamDraft(fromEmail, resultObj).catch(e => "failed: " + String((e && e.message) || e).slice(0, 200));
+        await draftLogUpdate(b.item, resultObj, resultObj.draftMade).catch(() => null);
+        delete resultObj.draftLog;
         if (resultObj.draftMade && resultObj.draftMade !== true) await pitchMark(b.item, "Lists ready but " + draftNote(resultObj.draftMade) + ". " + subs.map(s => s.title + ": " + s.listUrl).join("; "), s0.listUrl).catch(() => null);
         return resultObj;
         } // every campaign pass failed: carry on as one combined pitch below
@@ -2802,6 +2804,8 @@ async function pitchFromEmail(b) {
     resultObj.unansweredHtml = todo.length ? "<p>Your pitch draft to " + escH(f.contactEmail) + " is ready (subject: " + escH(subject) + ").</p><p>The brand also asked these, which the standing facts do not cover. The draft tells them you will come back to them shortly, so it is safe to send as it is. Reply on these yourself, or add your answers to the draft before you send:</p><ul>" + todo.map(q => "<li>" + escH(q) + "</li>").join("") + "</ul><p>To have the system answer a question like this next time, add the answer to the Standing facts item on the Roster - Pitch Requests board.</p>" : "";
     // Teammates get the draft in their own Gmail (Tom, 14 Oct 2026); Tom's drafts still come from Make.
     resultObj.draftMade = await teamDraft(fromEmail, resultObj).catch(e => "failed: " + String((e && e.message) || e).slice(0, 200));
+    await draftLogUpdate(b.item, resultObj, resultObj.draftMade).catch(() => null);
+    delete resultObj.draftLog;
     if (resultObj.draftMade && resultObj.draftMade !== true) await pitchMark(b.item, "List ready but " + draftNote(resultObj.draftMade) + ". List: " + saved.url, saved.url).catch(() => null);
     return resultObj;
   } catch (e) {
@@ -2961,28 +2965,79 @@ async function teamDraft(fromEmail, o) {
   const tok = await gmailToken(fromEmail); if (!tok) return false;
   const G = (path, opt = {}) => fetch("https://gmail.googleapis.com/gmail/v1/users/me" + path, Object.assign({}, opt, { headers: Object.assign({ Authorization: "Bearer " + tok }, opt.headers || {}) })).then(async r => { const t = await r.text(); let j = {}; try { j = t ? JSON.parse(t) : {}; } catch (_) {} if (!r.ok) throw new Error("Gmail " + r.status + " " + ((j.error && j.error.message) || "")); return j; });
   const q = encodeURIComponent;
-  const found = ((await G("/messages?maxResults=1&q=" + q(o.search)).catch(() => ({}))).messages || [])[0];
+  // What happened, step by step, for the row's update (Tom, 20 Oct 2026: Margot's Displate pitch said "Ready" five times
+  // but no draft showed in the thread, and nothing on the row said why). Headers and ids only, never the email itself.
+  const log = o.draftLog = [];
+  const found = ((await G("/messages?maxResults=1&q=" + q(o.search)).catch(e => { log.push("forward search failed: " + e.message); return {}; })).messages || [])[0];
   let threadId = "", thread = {};
-  if (found) { threadId = found.threadId; thread = await G("/threads/" + threadId + "?format=metadata&metadataHeaders=Message-ID&metadataHeaders=References&metadataHeaders=Subject").catch(() => ({})); }
-  // The previous draft to this brand in the same thread goes (Tom, 13 Oct 2026).
-  if (threadId) { const dr = (await G("/drafts?maxResults=20&q=" + q("to:" + o.to)).catch(() => ({}))).drafts || []; for (const d of dr) if (d.message && d.message.threadId === threadId) await G("/drafts/" + d.id, { method: "DELETE" }).catch(() => null); }
-  // The draft must land IN the brand's thread (Tom, 20 Oct 2026: Margot's Displate drafts sat in her Drafts folder,
-  // not in the thread, so she thought the pitch had failed). Gmail only joins a draft to the thread when it accepts
-  // the reply headers, and otherwise files it as a conversation of its own without saying so. So each draft is read
-  // back: if Gmail put it elsewhere, it is deleted and the next set of reply headers is tried.
+  if (found) { threadId = found.threadId; thread = await G("/threads/" + threadId + "?format=metadata&metadataHeaders=Message-ID&metadataHeaders=References&metadataHeaders=In-Reply-To&metadataHeaders=Subject").catch(() => ({})); }
+  log.push(found ? "forward found, thread " + threadId + " (" + ((thread.messages || []).length) + " messages: " + (thread.messages || []).map(m => (m.labelIds || []).filter(l => /^(INBOX|SENT|DRAFT|TRASH)$/.test(l)).join("+") || "other").join(", ") + ")" : "forward NOT found with: " + o.search);
+  // The previous draft to this brand in the same thread goes (Tom, 13 Oct 2026). Every draft to the brand is checked,
+  // not only the first 20 the search returns, and a stray from an earlier attempt that never joined the thread goes too.
+  if (threadId) {
+    const dr = (await G("/drafts?maxResults=100&q=" + q("to:" + o.to)).catch(() => ({}))).drafts || [];
+    let gone = 0;
+    for (const d of dr) {
+      const inThread = d.message && d.message.threadId === threadId;
+      let stray = false;
+      if (!inThread) { const full = await G("/drafts/" + d.id + "?format=full").catch(() => null); stray = !!(full && isPitchStray(full, o.subject)); }
+      if (inThread || stray) { await G("/drafts/" + d.id, { method: "DELETE" }).then(() => gone++).catch(() => null); }
+    }
+    if (gone) log.push("removed " + gone + " older draft(s) to " + o.to);
+  }
+  // The draft must land IN the brand's thread (Tom, 20 Oct 2026). Gmail only joins a draft to the thread when it
+  // accepts the reply headers, and otherwise files it as a conversation of its own. The reply to the create call is
+  // not proof of where it went, so each draft is read back from Gmail: the draft itself and the thread, which must now
+  // list it. If it is not there, it is deleted and the next set of reply headers is tried.
   const opts = threadId ? replyHeaderOptions(thread, found.id, o.subject) : [{ subject: o.subject }];
-  let landed = "", kept = null;
-  for (let i = 0; i < opts.length; i++) {
+  let ok = !threadId, kept = null;
+  for (let i = 0; i < opts.length && !ok; i++) {
     const h = opts[i];
     const made = await G("/drafts", { method: "POST", headers: { "Content-Type": "application/json" }, body: pitchMime({ to: o.to, cc: o.cc, subject: h.subject, html: o.html, text: o.text, threadId, inReplyTo: h.inReplyTo, references: h.references }).draft });
-    landed = ((made && made.message) || {}).threadId || "";
-    if (!threadId || landed === threadId) { kept = made; break; }
+    if (!threadId) { kept = made; break; }
+    const v = await draftInThread(G, made, threadId);
+    log.push("try " + (i + 1) + " (" + h.label + "): Gmail said thread " + (((made || {}).message || {}).threadId || "?") + ", read back " + (v.ok ? "IN the thread" : "NOT in the thread (draft's thread " + (v.tid || "?") + ")"));
+    if (v.ok) { ok = true; kept = made; break; }
     if (i < opts.length - 1) await G("/drafts/" + made.id, { method: "DELETE" }).catch(() => null);
     else kept = made; // every option split: keep the last one so the work is not lost, and say so on the board
   }
-  // Their forward to pitch@ leaves the brand thread (Tom, 13 Oct 2026).
-  if (threadId) { const sent = (await G("/messages?maxResults=25&q=" + q("in:sent {to:pitch@digitalfoxtalent.com to:press@digitalfoxtalent.com} newer_than:7d")).catch(() => ({}))).messages || []; for (const m of sent) if (m.threadId === threadId) await G("/messages/" + m.id + "/trash", { method: "POST" }).catch(() => null); }
-  return threadId && landed !== threadId ? DRAFT_OUTSIDE : true;
+  if (!threadId) log.push("no thread to reply in: draft saved on its own");
+  // Their forward to pitch@ leaves the brand thread (Tom, 13 Oct 2026), only once the draft is safely in the thread,
+  // so a failed run never makes the forward look as if it had been dealt with.
+  if (threadId && ok) { const sent = (await G("/messages?maxResults=25&q=" + q("in:sent {to:pitch@digitalfoxtalent.com to:press@digitalfoxtalent.com} newer_than:7d")).catch(() => ({}))).messages || []; for (const m of sent) if (m.threadId === threadId) await G("/messages/" + m.id + "/trash", { method: "POST" }).catch(() => null); }
+  o.draftId = kept && kept.id;
+  return threadId && !ok ? DRAFT_OUTSIDE : true;
+}
+// Read a new draft back: Gmail must report it in the thread, and the thread must list its message.
+async function draftInThread(G, made, threadId) {
+  let tid = "", listed = false;
+  for (let k = 0; k < 3; k++) {
+    if (k) await new Promise(r => setTimeout(r, 1500));
+    const d = await G("/drafts/" + made.id + "?format=minimal").catch(() => null);
+    const mid = (d && d.message && d.message.id) || ((made || {}).message || {}).id;
+    tid = (d && d.message && d.message.threadId) || "";
+    const t = await G("/threads/" + threadId + "?format=minimal").catch(() => null);
+    listed = !!(t && (t.messages || []).some(m => m.id === mid));
+    if (tid === threadId && listed) return { ok: true, tid };
+    if (tid && tid !== threadId) break; // Gmail has filed it elsewhere: waiting will not change that
+  }
+  return { ok: false, tid, listed };
+}
+// An earlier pitch draft to the same brand that never made it into the thread: same subject (ignoring Re:) and it
+// carries one of our saved list links, so a draft the person wrote themselves is never touched.
+function isPitchStray(d, subject) {
+  const m = (d || {}).message || {}, payload = m.payload || {};
+  const sub = (payload.headers || []).find(h => /^subject$/i.test(h.name));
+  const norm = s => String(s || "").replace(/^\s*((re|fwd?|fw)\s*:\s*)+/i, "").replace(/\s+/g, " ").trim().toLowerCase();
+  if (!sub || !norm(subject) || norm(sub.value) !== norm(subject)) return false;
+  const bodies = []; const walk = p => { if (!p) return; if (p.body && p.body.data) bodies.push(Buffer.from(p.body.data, "base64url").toString("utf8")); (p.parts || []).forEach(walk); }; walk(payload);
+  return /roster-viewguarantee\.digitalfoxtalent\.com\/r\//i.test(bodies.join("\n"));
+}
+// Post what teamDraft did as an update on the pitch row, so a missing draft can be explained without guessing.
+async function draftLogUpdate(item, o, r) {
+  if (!item || !o || !(o.draftLog || []).length) return;
+  const head = r === true ? "Draft check: saved in the brand's thread." : r === DRAFT_OUTSIDE ? "Draft check: Gmail would not put the draft in the brand's thread. It is in the Drafts folder." : "Draft check: " + String(r);
+  await audit(String(item), head + "<br>" + o.draftLog.map(escH).join("<br>"));
 }
 const DRAFT_OUTSIDE = "outside the thread";
 // Reply headers to try, best first. 1: the brand's latest message, with that message's own References chain (what
@@ -2994,15 +3049,18 @@ function replyHeaderOptions(thread, fallbackId, subject) {
   const brand = ms.filter(m => !(m.labelIds || []).includes("SENT")).pop() || ms.find(m => m.id === fallbackId) || ms[ms.length - 1];
   const bid = hd(brand, "message-id");
   const ids = ms.map(m => hd(m, "message-id")).filter(Boolean);
-  const first = String(hd(ms[0], "subject")).replace(/^\s*((re|fwd?|fw)\s*:\s*)+/i, "").trim();
+  const strip = s => String(s || "").replace(/^\s*((re|fwd?|fw)\s*:\s*)+/i, "").trim();
+  const first = strip(hd(ms[0], "subject")), bsub = strip(hd(brand, "subject"));
   const out = [];
   if (bid) {
     const chain = String(hd(brand, "references")).split(/\s+/).filter(x => x && x !== bid).join(" ");
-    out.push({ subject, inReplyTo: bid, references: chain });
-    if (chain) out.push({ subject, inReplyTo: bid, references: "" });
+    out.push({ label: "brand's latest message and its chain", subject, inReplyTo: bid, references: chain });
+    if (chain) out.push({ label: "brand's latest message alone", subject, inReplyTo: bid, references: "" });
+    // Gmail also needs the subject to match the thread's: use the brand message's own subject, exactly as it is stored.
+    if (bsub && strip(subject).toLowerCase() !== bsub.toLowerCase()) out.push({ label: "brand's own subject", subject: "Re: " + bsub, inReplyTo: bid, references: chain });
   }
-  if (ids.length) out.push({ subject: first ? "Re: " + first : subject, inReplyTo: ids[ids.length - 1], references: ids.slice(-20, -1).join(" ") });
-  return out.length ? out : [{ subject }];
+  if (ids.length) out.push({ label: "whole thread, thread subject", subject: first ? "Re: " + first : subject, inReplyTo: ids[ids.length - 1], references: ids.slice(-20, -1).join(" ") });
+  return out.length ? out : [{ label: "no headers", subject }];
 }
 // What the board says when a teammate's draft could not be made where it belongs.
 function draftNote(r) {
