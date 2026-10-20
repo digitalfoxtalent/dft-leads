@@ -2452,7 +2452,7 @@ async function pitchFromEmail(b) {
         // Kept for the nightly learner (api/pitch-learn.js), as for a single pitch.
         await monday("mutation($b:ID!,$i:ID!,$v:JSON!){change_multiple_column_values(board_id:$b,item_id:$i,column_values:$v){id}}", { b: String(PITCH_BOARD), i: String(b.item), v: JSON.stringify({ [PB.draft]: { text: String(mail.text).slice(0, 9000) }, [PB.check]: [fromEmail, s0.to, new Date().toISOString()].join("|") }) }).catch(() => null);
         resultObj.draftMade = await teamDraft(fromEmail, resultObj).catch(e => "failed: " + String((e && e.message) || e).slice(0, 200));
-        if (resultObj.draftMade && resultObj.draftMade !== true) await pitchMark(b.item, "Lists ready but the draft was not made (" + String(resultObj.draftMade).slice(0, 160) + "). " + subs.map(s => s.title + ": " + s.listUrl).join("; "), s0.listUrl).catch(() => null);
+        if (resultObj.draftMade && resultObj.draftMade !== true) await pitchMark(b.item, "Lists ready but " + draftNote(resultObj.draftMade) + ". " + subs.map(s => s.title + ": " + s.listUrl).join("; "), s0.listUrl).catch(() => null);
         return resultObj;
         } // every campaign pass failed: carry on as one combined pitch below
       }
@@ -2802,7 +2802,7 @@ async function pitchFromEmail(b) {
     resultObj.unansweredHtml = todo.length ? "<p>Your pitch draft to " + escH(f.contactEmail) + " is ready (subject: " + escH(subject) + ").</p><p>The brand also asked these, which the standing facts do not cover. The draft tells them you will come back to them shortly, so it is safe to send as it is. Reply on these yourself, or add your answers to the draft before you send:</p><ul>" + todo.map(q => "<li>" + escH(q) + "</li>").join("") + "</ul><p>To have the system answer a question like this next time, add the answer to the Standing facts item on the Roster - Pitch Requests board.</p>" : "";
     // Teammates get the draft in their own Gmail (Tom, 14 Oct 2026); Tom's drafts still come from Make.
     resultObj.draftMade = await teamDraft(fromEmail, resultObj).catch(e => "failed: " + String((e && e.message) || e).slice(0, 200));
-    if (resultObj.draftMade && resultObj.draftMade !== true) await pitchMark(b.item, "List ready but the draft was not made (" + String(resultObj.draftMade).slice(0, 160) + "). List: " + saved.url, saved.url).catch(() => null);
+    if (resultObj.draftMade && resultObj.draftMade !== true) await pitchMark(b.item, "List ready but " + draftNote(resultObj.draftMade) + ". List: " + saved.url, saved.url).catch(() => null);
     return resultObj;
   } catch (e) {
     if (!b.sub) { try { await pitchMark(b.item, (/^No list made/.test(String(e && e.message)) ? "" : "Failed: ") + String(e && e.message || e).slice(0, 500)); } catch (_) {} }
@@ -2962,15 +2962,51 @@ async function teamDraft(fromEmail, o) {
   const G = (path, opt = {}) => fetch("https://gmail.googleapis.com/gmail/v1/users/me" + path, Object.assign({}, opt, { headers: Object.assign({ Authorization: "Bearer " + tok }, opt.headers || {}) })).then(async r => { const t = await r.text(); let j = {}; try { j = t ? JSON.parse(t) : {}; } catch (_) {} if (!r.ok) throw new Error("Gmail " + r.status + " " + ((j.error && j.error.message) || "")); return j; });
   const q = encodeURIComponent;
   const found = ((await G("/messages?maxResults=1&q=" + q(o.search)).catch(() => ({}))).messages || [])[0];
-  let threadId = "", msgId = "";
-  if (found) { threadId = found.threadId; msgId = brandMsgId(await G("/threads/" + threadId + "?format=metadata&metadataHeaders=Message-ID").catch(() => ({})), found.id); }
+  let threadId = "", thread = {};
+  if (found) { threadId = found.threadId; thread = await G("/threads/" + threadId + "?format=metadata&metadataHeaders=Message-ID&metadataHeaders=References&metadataHeaders=Subject").catch(() => ({})); }
   // The previous draft to this brand in the same thread goes (Tom, 13 Oct 2026).
   if (threadId) { const dr = (await G("/drafts?maxResults=20&q=" + q("to:" + o.to)).catch(() => ({}))).drafts || []; for (const d of dr) if (d.message && d.message.threadId === threadId) await G("/drafts/" + d.id, { method: "DELETE" }).catch(() => null); }
-  const draft = pitchMime({ to: o.to, cc: o.cc, subject: o.subject, html: o.html, text: o.text, threadId, inReplyTo: msgId, references: msgId }).draft;
-  await G("/drafts", { method: "POST", headers: { "Content-Type": "application/json" }, body: draft });
+  // The draft must land IN the brand's thread (Tom, 20 Oct 2026: Margot's Displate drafts sat in her Drafts folder,
+  // not in the thread, so she thought the pitch had failed). Gmail only joins a draft to the thread when it accepts
+  // the reply headers, and otherwise files it as a conversation of its own without saying so. So each draft is read
+  // back: if Gmail put it elsewhere, it is deleted and the next set of reply headers is tried.
+  const opts = threadId ? replyHeaderOptions(thread, found.id, o.subject) : [{ subject: o.subject }];
+  let landed = "", kept = null;
+  for (let i = 0; i < opts.length; i++) {
+    const h = opts[i];
+    const made = await G("/drafts", { method: "POST", headers: { "Content-Type": "application/json" }, body: pitchMime({ to: o.to, cc: o.cc, subject: h.subject, html: o.html, text: o.text, threadId, inReplyTo: h.inReplyTo, references: h.references }).draft });
+    landed = ((made && made.message) || {}).threadId || "";
+    if (!threadId || landed === threadId) { kept = made; break; }
+    if (i < opts.length - 1) await G("/drafts/" + made.id, { method: "DELETE" }).catch(() => null);
+    else kept = made; // every option split: keep the last one so the work is not lost, and say so on the board
+  }
   // Their forward to pitch@ leaves the brand thread (Tom, 13 Oct 2026).
   if (threadId) { const sent = (await G("/messages?maxResults=25&q=" + q("in:sent {to:pitch@digitalfoxtalent.com to:press@digitalfoxtalent.com} newer_than:7d")).catch(() => ({}))).messages || []; for (const m of sent) if (m.threadId === threadId) await G("/messages/" + m.id + "/trash", { method: "POST" }).catch(() => null); }
-  return true;
+  return threadId && landed !== threadId ? DRAFT_OUTSIDE : true;
+}
+const DRAFT_OUTSIDE = "outside the thread";
+// Reply headers to try, best first. 1: the brand's latest message, with that message's own References chain (what
+// the "draft" op uses). 2: the same message alone (what Tom's Make drafts use). 3: every message in the thread,
+// with the thread's own subject. Messages the person sent themselves and drafts are never the one replied to.
+function replyHeaderOptions(thread, fallbackId, subject) {
+  const ms = ((thread && thread.messages) || []).filter(m => !(m.labelIds || []).some(l => l === "DRAFT" || l === "TRASH"));
+  const hd = (m, n) => ((((m || {}).payload || {}).headers || []).find(h => h.name.toLowerCase() === n) || {}).value || "";
+  const brand = ms.filter(m => !(m.labelIds || []).includes("SENT")).pop() || ms.find(m => m.id === fallbackId) || ms[ms.length - 1];
+  const bid = hd(brand, "message-id");
+  const ids = ms.map(m => hd(m, "message-id")).filter(Boolean);
+  const first = String(hd(ms[0], "subject")).replace(/^\s*((re|fwd?|fw)\s*:\s*)+/i, "").trim();
+  const out = [];
+  if (bid) {
+    const chain = String(hd(brand, "references")).split(/\s+/).filter(x => x && x !== bid).join(" ");
+    out.push({ subject, inReplyTo: bid, references: chain });
+    if (chain) out.push({ subject, inReplyTo: bid, references: "" });
+  }
+  if (ids.length) out.push({ subject: first ? "Re: " + first : subject, inReplyTo: ids[ids.length - 1], references: ids.slice(-20, -1).join(" ") });
+  return out.length ? out : [{ subject }];
+}
+// What the board says when a teammate's draft could not be made where it belongs.
+function draftNote(r) {
+  return r === DRAFT_OUTSIDE ? "the draft is in your Gmail Drafts folder, but Gmail would not put it in the brand's thread" : "the draft was not made (" + String(r).slice(0, 160) + ")";
 }
 
 // Clean Gmail drafts for anything Claude writes by hand (Tom, 19 Oct 2026: "really annoying that the links here get
@@ -3041,6 +3077,8 @@ function pitchMime(b) {
   if (b.threadId) message.threadId = String(b.threadId);
   return { ok: true, draft: JSON.stringify({ message }) };
 }
+
+export { teamDraft, replyHeaderOptions }; // for test/team-draft-thread.mjs
 
 export default async function handler(req, res) {
   try {
