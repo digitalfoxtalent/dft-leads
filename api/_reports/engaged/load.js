@@ -184,11 +184,11 @@ function toast(t){const e=$("#toast");e.textContent=t;e.classList.add("on");setT
 function show(ch,d){const r=L.find(x=>x.channel===ch)||{};const p=$("#panel");
 if(d.unavailable){p.innerHTML='<div class="empty"><div><h3>'+esc(r.name)+'</h3><p>'+esc(d.unavailable)+'</p></div></div>';return;}
 const S=d.summary||{},V=d.videos||[],ev=V.filter(v=>v.engagedViews!=null&&v.views),share=ev.length?ev.reduce((s,v)=>s+v.engagedViews,0)/ev.reduce((s,v)=>s+v.views,0):null;
-p.innerHTML='<div class="ph"><div><h2>'+esc(d.title||r.name)+'</h2><div class="h">'+esc(d.handle||r.name)+' · YouTube · as of '+esc(d.asOf||"")+'</div></div><div class="acts"><button class="btn pri" id="copy">Copy brand link</button><a class="btn" href="'+esc(d.brandUrl)+'" target="_blank" rel="noreferrer">Open brand page</a></div></div>'+
+p.innerHTML='<div class="ph"><div><h2>'+esc(d.title||r.name)+'</h2><div class="h">'+esc(d.handle||r.name)+' · YouTube · as of '+esc(d.asOf||"")+'</div></div><div class="acts"><button class="btn" id="pdf">Download PDF</button><button class="btn pri" id="copy">Copy brand link</button><a class="btn" href="'+esc(d.brandUrl)+'" target="_blank" rel="noreferrer">Open brand page</a></div></div>'+
 '<div class="tiles"><div class="tile hi"><b>'+nf(S.avgEngagedViews)+'</b><span>Average engaged views per video</span></div><div class="tile"><b>'+nf(S.medianEngagedViews)+'</b><span>Median engaged views</span></div><div class="tile"><b>'+nf(S.avgViews)+'</b><span>Average public views</span></div><div class="tile"><b>'+(share==null?"n/a":Math.round(100*share)+"%")+'</b><span>Engaged share of views</span></div></div>'+
 '<table><thead><tr><th>Video</th><th>Engaged</th><th>Views</th><th>Share</th></tr></thead><tbody>'+V.map(v=>'<tr'+(v.ageDays<7?' class="fresh"':"")+'><td class="t"><a href="https://www.youtube.com/watch?v='+encodeURIComponent(v.id)+'" target="_blank" rel="noreferrer">'+esc(v.title)+'</a><span>'+esc(v.published)+' · '+v.minutes+' min'+(v.ageDays<7?" · under 7 days old":"")+'</span></td><td>'+nf(v.engagedViews)+'</td><td>'+nf(v.views)+'</td><td>'+pct(v.engagedViews,v.views)+'</td></tr>').join("")+'</tbody></table>'+
 '<p class="note">Averages cover these '+(S.videos||0)+' videos, the latest long-form uploads that are at least a week old (over 3 minutes, no live streams). The brand link shows the latest 12 uploads, so newer videos appear there in grey.'+(d.note?" "+esc(d.note):"")+'</p>';
-$("#copy").onclick=async()=>{try{await navigator.clipboard.writeText(d.brandUrl);toast("Brand link copied");}catch(e){prompt("Copy the brand link:",d.brandUrl);}};}
+$("#pdf").onclick=()=>pdfCreator(d,r);$("#copy").onclick=async()=>{try{await navigator.clipboard.writeText(d.brandUrl);toast("Brand link copied");}catch(e){prompt("Copy the brand link:",d.brandUrl);}};}
 let sortKey="avgEngaged",sortDir=-1;
 const when=t=>{try{return new Date(t).toLocaleString("en-US",{day:"numeric",month:"short",year:"numeric",hour:"numeric",minute:"2-digit"});}catch(e){return t||"";}};
 const share=v=>v==null?"n/a":Math.round(100*v)+"%";
@@ -197,7 +197,7 @@ if(!S||S.error||!S.roster){p.innerHTML='<div class="empty"><div><h3>All creators
 const R=S.roster,C=S.creators.slice();
 C.sort((a,b)=>(!!a.unavailable-!!b.unavailable)||(sortKey==="name"?sortDir*String(a.name).localeCompare(String(b.name)):sortDir*((a[sortKey]==null?-1:a[sortKey])-(b[sortKey]==null?-1:b[sortKey]))));
 const col=(k,l,c)=>'<th'+(c?' class="hm"':"")+'><button data-k="'+k+'"'+(sortKey===k?' aria-sort="'+(sortDir<0?"descending":"ascending")+'"':"")+'>'+l+(sortKey===k?(sortDir<0?" ↓":" ↑"):"")+'</button></th>';
-p.innerHTML='<div class="ph"><div><h2>All creators</h2><div class="sub2">'+R.creators+' of '+R.connected+' connected creators in the averages · updated '+esc(when(S.builtAt))+'</div></div><div class="acts"><button class="btn" id="build">Refresh now</button></div></div>'+
+p.innerHTML='<div class="ph"><div><h2>All creators</h2><div class="sub2">'+R.creators+' of '+R.connected+' connected creators in the averages · updated '+esc(when(S.builtAt))+'</div></div><div class="acts"><button class="btn" id="pdf">Download PDF</button><button class="btn" id="build">Refresh now</button></div></div>'+
 '<div class="tiles"><div class="tile hi"><b>'+nf(R.avgEngaged)+'</b><span>Roster average engaged views per video</span></div><div class="tile"><b>'+nf(R.medianEngaged)+'</b><span>Middle creator, engaged views per video</span></div><div class="tile"><b>'+nf(R.avgViews)+'</b><span>Roster average public views per video</span></div><div class="tile"><b>'+share(R.share)+'</b><span>Average engaged share of views</span></div></div>'+
 '<div class="tw"><table><thead><tr>'+col("name","Creator")+col("avgEngaged","Avg engaged")+col("medianEngaged","Median engaged",1)+col("avgViews","Avg views")+col("share","Share")+col("videos","Videos",1)+'</tr></thead><tbody>'+
 C.map(r=>r.unavailable?'<tr class="na go" data-ch="'+esc(r.channel)+'"><td class="t">'+esc(r.name)+'<span class="why">'+esc(r.unavailable)+'</span></td><td>n/a</td><td class="hm">n/a</td><td>n/a</td><td>n/a</td><td class="hm">0</td></tr>':
@@ -206,11 +206,50 @@ C.map(r=>r.unavailable?'<tr class="na go" data-ch="'+esc(r.channel)+'"><td class
 ((S.notConnected||[]).length?' Not connected yet, so not included: '+S.notConnected.map(esc).join(", ")+'.':"")+'</p>';
 p.querySelectorAll("th button").forEach(b=>b.onclick=()=>{const k=b.dataset.k;if(sortKey===k)sortDir=-sortDir;else{sortKey=k;sortDir=k==="name"?1:-1;}showAll();});
 p.querySelectorAll("tr.go").forEach(t=>t.onclick=()=>pick(t.dataset.ch));
-$("#build").onclick=build;}
+$("#build").onclick=build;$("#pdf").onclick=()=>pdfAll(S,C);}
 async function build(){const b=$("#build");if(b){b.disabled=true;b.textContent="Reading YouTube Analytics for every creator…";}
 try{const res=await fetch("/engaged-summary?build=1",{headers:{Accept:"application/json"}});const d=await res.json();if(!res.ok||!d.roster)throw new Error(d.error||res.status);D.summary=d;}
 catch(e){toast("Could not refresh just now. Try again in a minute.");}
 if(cur==="all")showAll();}
+// PDF downloads (Tom, 20 Oct 2026). Built in the browser with jsPDF from cdnjs, loaded on first click.
+let libsP=null;
+function libs(){if(libsP)return libsP;const add=u=>new Promise((ok,no)=>{const s=document.createElement("script");s.src=u;s.onload=ok;s.onerror=()=>no(new Error("load"));document.head.appendChild(s);});
+libsP=add("https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js").then(()=>add("https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"));libsP.catch(()=>{libsP=null;});return libsP;}
+const pc=s=>[...String(s==null?"":s).replace(/[‘’]/g,"'").replace(/[“”]/g,'"').replace(/[–—]/g,"-").replace(/…/g,"...")].filter(ch=>{const c=ch.charCodeAt(0);return c>=32&&c<=255;}).join("").trim();
+const fileDate=()=>new Date().toISOString().slice(0,10);
+const longDate=t=>{try{if(/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(String(t)))t=t+"T12:00:00";return new Date(t).toLocaleDateString("en-US",{day:"numeric",month:"long",year:"numeric"});}catch(e){return t||"";}};
+const ORANGE=[255,136,0],INK=[20,22,27],MUTED=[104,112,128],SOFT=[255,240,223],GREY=[242,243,246];
+function pdfDoc(heading,sub,tiles){const doc=new jspdf.jsPDF({unit:"pt",format:"letter"}),W=doc.internal.pageSize.getWidth(),M=48;
+doc.setFont("helvetica","bold");doc.setFontSize(9);doc.setTextColor(...ORANGE);doc.text("DIGITAL FOX TALENT",M,54);
+doc.setTextColor(...INK);doc.setFontSize(22);doc.text(pc(heading),M,84);
+doc.setFont("helvetica","normal");doc.setFontSize(10);doc.setTextColor(...MUTED);doc.text(pc(sub),M,102);
+const gap=10,tw=(W-2*M-gap*(tiles.length-1))/tiles.length,ty=122,th=58;
+tiles.forEach((t,i)=>{const x=M+i*(tw+gap);doc.setFillColor(...(i===0?SOFT:GREY));doc.roundedRect(x,ty,tw,th,6,6,"F");
+doc.setFont("helvetica","bold");doc.setFontSize(16);doc.setTextColor(...(i===0?[192,86,0]:INK));doc.text(t[0],x+12,ty+25);
+doc.setFont("helvetica","normal");doc.setFontSize(8);doc.setTextColor(...MUTED);doc.text(doc.splitTextToSize(t[1],tw-24),x+12,ty+40);});
+return {doc,W,M,startY:ty+th+22};}
+function pdfTable(o,head,body,right){o.doc.autoTable({startY:o.startY,head:[head],body,margin:{left:o.M,right:o.M,bottom:56},theme:"plain",
+styles:{font:"helvetica",fontSize:9,textColor:INK,cellPadding:{top:6,bottom:6,left:4,right:4},lineColor:[223,226,232],lineWidth:{bottom:0.5}},
+headStyles:{fontSize:7.5,textColor:MUTED,fontStyle:"normal"},columnStyles:Object.fromEntries(right.map(i=>[i,{halign:"right"}]))});
+return o.doc.lastAutoTable.finalY;}
+function pdfFoot(o,note){const doc=o.doc,H=doc.internal.pageSize.getHeight(),n=doc.getNumberOfPages();
+let y=doc.lastAutoTable.finalY+20;const lines=doc.splitTextToSize(pc(note),o.W-2*o.M);if(y+lines.length*11>H-56){doc.addPage();y=60;}
+doc.setFont("helvetica","normal");doc.setFontSize(8.5);doc.setTextColor(...MUTED);doc.text(lines,o.M,y);
+for(let i=1;i<=doc.getNumberOfPages();i++){doc.setPage(i);doc.setFontSize(8);doc.setTextColor(...MUTED);doc.text("Digital Fox Talent · Engaged views · "+longDate(new Date()),o.M,H-30);doc.text("Page "+i+" of "+doc.getNumberOfPages(),o.W-o.M,H-30,{align:"right"});}}
+async function pdfRun(btn,fn){const t=btn&&btn.textContent;if(btn){btn.disabled=true;btn.textContent="Making PDF…";}
+try{await libs();fn();}catch(e){toast("Could not make the PDF just now. Try again in a minute.");}
+finally{if(btn){btn.disabled=false;btn.textContent=t;}}}
+function pdfCreator(d,r){pdfRun($("#pdf"),()=>{const S=d.summary||{},V=d.videos||[],ev=V.filter(v=>v.engagedViews!=null&&v.views),sh=ev.length?ev.reduce((s,v)=>s+v.engagedViews,0)/ev.reduce((s,v)=>s+v.views,0):null;
+const name=d.title||r.name,handle=d.handle||r.name;
+const o=pdfDoc(name,handle+" · YouTube · as of "+longDate(d.asOf),[[nf(S.avgEngagedViews),"Average engaged views per video"],[nf(S.medianEngagedViews),"Median engaged views per video"],[nf(S.avgViews),"Average public views per video"],[sh==null?"n/a":Math.round(100*sh)+"%","Engaged share of views"]]);
+pdfTable(o,["Video","Published","Engaged views","Public views","Share"],V.map(v=>[pc(v.title),v.published,nf(v.engagedViews),nf(v.views),pct(v.engagedViews,v.views)]),[2,3,4]);
+pdfFoot(o,"Engaged views are YouTube's own figure, the same one YouTube Studio shows, read from YouTube Analytics with the creator's permission. Averages cover the "+(S.videos||0)+" latest long-form videos that are at least a week old (over 3 minutes, no live streams).");
+o.doc.save("Engaged views - "+pc(handle).replace(/^@/,"")+" - "+fileDate()+".pdf");});}
+function pdfAll(S,C){pdfRun($("#pdf"),()=>{const R=S.roster;
+const o=pdfDoc("Engaged views, all creators",R.creators+" creators · updated "+longDate(S.builtAt),[[nf(R.avgEngaged),"Roster average engaged views per video"],[nf(R.medianEngaged),"Middle creator, engaged views per video"],[nf(R.avgViews),"Roster average public views per video"],[share(R.share),"Average engaged share of views"]]);
+pdfTable(o,["Creator","Avg engaged","Median engaged","Avg views","Share","Videos"],C.filter(r=>!r.unavailable).map(r=>[pc(r.name),nf(r.avgEngaged),nf(r.medianEngaged),nf(r.avgViews),share(r.share),String(r.videos)]),[1,2,3,4,5]);
+pdfFoot(o,"Engaged views are YouTube's own figure, read from YouTube Analytics with each creator's permission. Each creator's figures cover their latest 12 long-form videos that are at least a week old (over 3 minutes, no live streams). The roster average is the average of each creator's own average; the middle creator figure is less affected by one very large channel.");
+o.doc.save("Engaged views - all creators - "+fileDate()+".pdf");});}
 async function pick(ch){cur=ch;list();history.replaceState(null,"","#"+ch);const r=L.find(x=>x.channel===ch)||{};
 if(cache[ch])return show(ch,cache[ch]);$("#panel").innerHTML='<div class="empty"><div><h3>'+esc(r.name)+'</h3><p>Reading YouTube Analytics…</p></div></div>';
 try{const res=await fetch("/engaged-data?ch="+encodeURIComponent(ch),{headers:{Accept:"application/json"}});const d=await res.json();if(!res.ok)throw new Error(d.error||res.status);if(!d.unavailable)cache[ch]=d;if(cur===ch)show(ch,d);}
