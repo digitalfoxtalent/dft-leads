@@ -215,7 +215,15 @@ export default async function handler(req, res) {
     if (!a) html = null;
     else {
       const want = base + artPath(a);
-      if (path === artPath(a)) html = articlePage(a, data, base);
+      if (path === artPath(a)) {
+        html = articlePage(a, data, base);
+        // SNIPPETS OUT OF SEARCH, 20 Oct 2026 (Tom: "action what you think is best"). Snippets stay on the
+        // site for readers, but each one is a 25-200 word piece from a Short, and hundreds of very short
+        // pages on a new domain are what Google reads as low value across the whole site. noindex keeps
+        // them out of results (links on them are still followed); render.js sitemap() leaves them out too.
+        // Only on the live domain: the preview path already carries the stronger noindex set above.
+        if (a.short && !res.getHeader("X-Robots-Tag")) res.setHeader("X-Robots-Tag", "noindex");
+      }
       else { res.setHeader("Location", want); return res.status(301).end(); }
     }
   }
