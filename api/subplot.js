@@ -172,8 +172,13 @@ export default async function handler(req, res) {
     // fetches article pages for its previews; SmartNews reads /smartnews.xml (applied 7 Oct). Neither is a search
     // indexer. Everyone else stays blocked. Not on Wordie or the /subplot preview path.
     const feedAgents = brand().key === "subplot" && !base ? ["FlipboardRSS", "FlipboardProxy", "Flipboard", "SmartNews"] : [];
+    // OTHER SEARCH ENGINES, 20 Oct 2026 (Tom: "Yes please, and 3"). Apple (Siri, Spotlight and Safari suggestions),
+    // DuckDuckGo and Yandex index the site and send readers to it. Applebot only, NOT Applebot-Extended (Apple's AI
+    // training opt-in). AI assistants' crawlers (GPTBot, OAI-SearchBot, ClaudeBot, PerplexityBot and the like) stay
+    // blocked: a separate call for Tom. Not on Wordie or the /subplot preview path.
+    const searchAgents = brand().key === "subplot" && !base ? ["Applebot", "DuckDuckBot", "YandexBot"] : [];
     return res.status(200).send([
-      ...[...googleAgents, ...bingAgents, ...feedAgents].flatMap(a => ["User-agent: " + a, "Allow: /", ""]),
+      ...[...googleAgents, ...bingAgents, ...searchAgents, ...feedAgents].flatMap(a => ["User-agent: " + a, "Allow: /", ""]),
       "User-agent: *", "Allow: /ads.txt", "Disallow: /", "",
       // Absolute by spec, and it names the sitemap even to crawlers that never see
       // Search Console. This is the line that says "the site is here".
