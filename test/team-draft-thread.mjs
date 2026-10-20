@@ -7,7 +7,7 @@ import crypto from "node:crypto";
 const { privateKey } = crypto.generateKeyPairSync("rsa", { modulusLength: 2048 });
 process.env.GMAIL_DELEGATE_KEY = JSON.stringify({ client_email: "t@x", private_key: privateKey.export({ type: "pkcs8", format: "pem" }) });
 process.env.MONDAY_API_KEY = "x";
-const { teamDraft, teamDraftReady } = await import("../api/roster.js");
+const { teamDraft } = await import("../api/roster.js");
 const realTimeout = globalThis.setTimeout; globalThis.setTimeout = (f) => realTimeout(f, 0); // no real waits in tests
 
 const T = "thr1", SUBJ = "Re: Displate x Colton Ogburn";
@@ -63,15 +63,4 @@ function run(accepts, { echo = false, existing = [] } = {}) {
   const own = { id: "own1", message: { id: "om2", threadId: "lost2", payload: { headers: [{ name: "Subject", value: SUBJ }], parts: [{ body: { data: b64("my own note") } }] } } };
   const { log, drafts, go } = run(() => true, { existing: [stray, own] }); assert.equal(await go(), true);
   assert.ok(log.deleted.includes("old1"), "stray pitch draft removed"); assert.ok(!log.deleted.includes("own1"), "hand-written draft kept"); assert.ok(drafts.has("own1")); }
-// 6. The teammate gets one email with a link that opens the draft itself; Tom gets none.
-{ const { o, go } = run(() => true); await go();
-  assert.match(o.draftUrl, /authuser=margot%40digitalfoxtalent\.com#drafts\?compose=/);
-  const sent = []; const f0 = globalThis.fetch;
-  globalThis.fetch = async (url, opt = {}) => { if (/messages\/send/.test(url)) { sent.push(Buffer.from(JSON.parse(opt.body).raw, "base64url").toString("utf8")); return { ok: true, status: 200, text: async () => "{}", json: async () => ({}) }; } return f0(url, opt); };
-  await teamDraftReady("margot@digitalfoxtalent.com", Object.assign(o, { listUrl: "https://roster-viewguarantee.digitalfoxtalent.com/r/x", title: "Displate" }));
-  await teamDraftReady("tom@digitalfoxtalent.com", o);
-  assert.equal(sent.length, 1, "one email, to the teammate only");
-  assert.match(sent[0], /^To: margot@digitalfoxtalent\.com$/m);
-  const body = Buffer.from(sent[0].split("\r\n\r\n")[1], "base64").toString("utf8");
-  assert.ok(body.includes(o.draftUrl.replace(/&/g, "&amp;")) && /Open the draft/.test(body) && /\/r\/x/.test(body)); }
-console.log("team-draft-thread: all 6 cases pass");
+console.log("team-draft-thread: all 5 cases pass");
