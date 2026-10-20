@@ -909,10 +909,8 @@ export function sitemap(data, base) {
   }
   for (const t of (data.threads || [])) out.push(url("/t/" + t.slug, null, "0.5"));
   for (const a of data.arts) out.push(url(artPath(a), a.p, "0.9"));
-  if ((data.snippets || []).length) {
-    out.push(url("/snippets", Math.max(...data.snippets.map(a => +new Date(a.p) || 0)), "0.7"));
-    for (const a of data.snippets) out.push(url(artPath(a), a.p, "0.6"));
-  }
+  // Snippet articles are noindex (api/subplot.js), so they are not listed here; the /snippets page itself stays.
+  if ((data.snippets || []).length) out.push(url("/snippets", Math.max(...data.snippets.map(a => +new Date(a.p) || 0)), "0.7"));
 
   return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${out.join("")}</urlset>`;
 }
