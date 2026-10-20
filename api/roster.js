@@ -3004,7 +3004,7 @@ async function teamDraft(fromEmail, o) {
   if (!threadId) log.push("no thread to reply in: draft saved on its own");
   // Their forward to pitch@ leaves the brand thread (Tom, 13 Oct 2026), only once the draft is safely in the thread,
   // so a failed run never makes the forward look as if it had been dealt with.
-  if (threadId && ok) { const sent = (await G("/messages?maxResults=25&q=" + q("in:sent {to:pitch@digitalfoxtalent.com to:press@digitalfoxtalent.com} newer_than:7d")).catch(() => ({}))).messages || []; for (const m of sent) if (m.threadId === threadId) await G("/messages/" + m.id + "/trash", { method: "POST" }).catch(() => null); }
+  if (threadId && ok) { const sent = (await G("/messages?maxResults=25&q=" + q("in:sent {to:pitch@digitalfoxtalent.com to:press@digitalfoxtalent.com} newer_than:7d")).catch(() => ({}))).messages || []; let binned = 0, elsewhere = 0; for (const m of sent) { if (m.threadId === threadId) { await G("/messages/" + m.id + "/trash", { method: "POST" }).then(() => binned++).catch(() => null); } else elsewhere++; } log.push("forward(s) to pitch@ binned from this thread: " + binned + " (the forward the search found was " + found.id + "; " + elsewhere + " other recent pitch@ forward(s) left in other threads)"); }
   o.draftId = kept && kept.id;
   // What Gmail actually stored (Tom, 20 Oct 2026: Margot's draft landed in the thread but opened blank).
   if (kept) {
