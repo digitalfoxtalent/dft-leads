@@ -68,7 +68,8 @@ function siteContacts(bodyHtml) {
 // orange-ruled "ai-disclosure" paragraphs (two shapes in the store: a two-paragraph note, and a
 // single "About this article" paragraph). At render time the whole run becomes ONE line:
 // "Adapted with AI from <Creator>'s video of <date> and reviewed by Digital Fox Talent before
-// publication. Editorial standards · Corrections". Display only: the stored body and the MSN copy
+// publication. Editorial standards · Corrections" (or "checked against the video before publication" when no person
+// approved it, 20 Oct 2026). Display only: the stored body and the MSN copy
 // are untouched. The date is the video's own, read from the note; failing that the upload date.
 // Possessive is <Creator>' when the name ends in s, otherwise <Creator>'s.
 const possessive = n => /s$/i.test(n) ? `${n}'` : `${n}'s`;
@@ -77,7 +78,12 @@ function endNote(bodyHtml, a, base) {
   const m = bodyHtml.match(run); if (!m) return bodyHtml;
   const said = (m[0].match(/first published on (\d{1,2} [A-Z][a-z]+ \d{4})/) || [])[1];
   const when = said || (a.u && !isNaN(new Date(a.u)) ? fmt(a.u) : "");
-  const line = `<p class="ai-disclosure"><em>Adapted with AI from ${esc(possessive(a.b))} video${when ? ` of ${esc(when)}` : ""} and reviewed by Digital Fox Talent before publication. <a href="${base}/about#standards">Editorial standards</a> &middot; <a href="mailto:${mail("corrections")}">Corrections</a></em></p>`;
+  // 20 Oct 2026 (Tom): the publisher's hands-off rule approves articles the AI editor checked OK when no one acts within
+  // three hours. Those carry no "reviewed and approved before publication" sentence in the stored note, so they say they
+  // were checked against the video, not that a person reviewed them. Only a note that says a person reviewed it says so here.
+  const byPerson = /reviewed (?:and approved )?before publication/i.test(m[0]);
+  const how = byPerson ? "reviewed by Digital Fox Talent before publication" : "checked against the video before publication";
+  const line = `<p class="ai-disclosure"><em>Adapted with AI from ${esc(possessive(a.b))} video${when ? ` of ${esc(when)}` : ""} and ${how}. <a href="${base}/about#standards">Editorial standards</a> &middot; <a href="mailto:${mail("corrections")}">Corrections</a></em></p>`;
   return bodyHtml.replace(run, () => line);
 }
 
@@ -762,7 +768,7 @@ export function aboutPage(data, base) {
     <p>${BRAND_()} is a publication written by the people who actually watch the things it covers. Every article here started life as a video by one of the ${data.panel.length} creators on <a href="${base}/#panel" style="color:var(--blue)">The Panel</a>, and runs under that creator&rsquo;s name with a link to the video it came from. We don&rsquo;t have staff writers. We don&rsquo;t have anonymous bylines.</p>
     <p>The name is the idea: the story under the story. Breakdowns, theories, reactions, opinions, reviews and lore - the second layer that people who love this stuff actually talk about.</p>
     ${brand().key === "subplot" ? `<h2 id="publisher">Who publishes ${BRAND_()}</h2>
-    <p>${BRAND_()} is owned and published by <a href="https://digitalfoxtalent.com" rel="noopener" style="color:var(--blue)">Digital Fox Talent LLC</a>, a creator management agency based in Denver, Colorado. It is edited by Tom James, Founder of Digital Fox Talent, who leads its editorial team. Every article is reviewed and approved by a person on that team before it is published. Questions about the site go to ${mail("hello")}.</p>` : ""}
+    <p>${BRAND_()} is owned and published by <a href="https://digitalfoxtalent.com" rel="noopener" style="color:var(--blue)">Digital Fox Talent LLC</a>, a creator management agency based in Denver, Colorado. It is edited by Tom James, Founder of Digital Fox Talent, who leads its editorial team. Every article is checked against the creator&rsquo;s video before it is published, and approved either by a person on that team or by our editorial checks. Questions about the site go to ${mail("hello")}.</p>` : ""}
 
     <h2 id="standards">Editorial standards</h2>
     <p><b>One creator, one byline.</b> Each article is adapted from a single creator&rsquo;s own video and published under their name. If it isn&rsquo;t theirs, it isn&rsquo;t here.</p>
@@ -771,7 +777,7 @@ export function aboutPage(data, base) {
     <p><b>Corrections.</b> If we&rsquo;ve got something wrong, tell us at ${mail("corrections")} and we&rsquo;ll fix it and say so.</p>
 
     <h2 id="ai">How we use AI</h2>
-    <p>The first draft of every article is written by AI, from the creator&rsquo;s own transcript. A fidelity check then compares the draft with the video and holds back anything that drifts from what was actually said. Every article carries a short note saying so. Every article is then reviewed and approved by a person on our editorial team before it is published.</p>
+    <p>The first draft of every article is written by AI, from the creator&rsquo;s own transcript. A fidelity check then compares the draft with the video and holds back anything that drifts from what was actually said. Every article carries a short note saying so. An AI editor then reads every article against these standards. Articles are approved by a person on our editorial team, or, when the editor finds nothing to fix and no one has stepped in within a few hours, by our editorial checks. The note at the end of each article says which.</p>
     <p>What&rsquo;s never AI: the ideas, the takes, the jokes, the reporting, the personality. Those belong to the creator, which is the whole point.</p>
     <p>Creators join ${brand().key === "subplot" ? "through Digital Fox Talent&rsquo;s creator sign-up and agree" : "by applying with their handle and agreeing"} to the same standard terms as everyone else; nothing publishes under a creator&rsquo;s name without that agreement, and any creator can pull any article at any time.</p>
 ${brand().key === "subplot" ? `<h2 id="disclosures">Disclosures</h2>
