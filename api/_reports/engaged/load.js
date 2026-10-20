@@ -58,7 +58,9 @@ export async function engagedData(tok, ch) {
   const url = viewsUrl(await readSecret(tok), ch);
   const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), 25000);
   try {
-    const r = await fetch(url + "&format=json", { signal: ctl.signal, headers: { Accept: "application/json" } });
+    // mature=1: the latest 12 long-form videos at least a week old, so daily uploaders get averages too
+    // (dft-connect #9, 20 Oct 2026). brandUrl below stays the plain link, so brands see what they always did.
+    const r = await fetch(url + "&format=json&mature=1", { signal: ctl.signal, headers: { Accept: "application/json" } });
     if (r.status === 404) return { channel: ch, unavailable: "This creator has not connected yet." };
     if (r.status === 410) return { channel: ch, unavailable: "This creator removed our access." };
     if (!r.ok) return { channel: ch, unavailable: "YouTube did not answer just now (" + r.status + "). Try again in a minute." };
@@ -162,7 +164,7 @@ tr.fresh td{color:var(--muted)}.who.all{font-weight:600;margin-bottom:4px;border
 </style></head><body><div class="wrap">
 <div class="topbar"><div class="brandline"><img class="wordmark" src="https://df-cdn.b-cdn.net/GeneralLendingConfigs/landing_logo/DigitalFoxTalent-TextLogoBLACK-VECTOR.svg" alt="Digital Fox Talent" width="216" height="72"></div>
 <nav class="tabs" aria-label="Reports"><a href="/">Campaign reach</a><a href="/platforms">Platform monetization</a><a href="/distribution">Video distribution</a><a href="/coverage">Creator distribution</a><a href="/engaged" aria-current="page">Engaged views</a></nav></div>
-<header><h1>Engaged views</h1><p class="sub">Every roster creator connected through Channel Connect. All creators shows everyone side by side with the roster average, refreshed overnight. Pick a creator to see their latest 12 long-form videos live from YouTube Analytics, and copy the brand link to send a brand the same figures.</p></header>
+<header><h1>Engaged views</h1><p class="sub">Every roster creator connected through Channel Connect. All creators shows everyone side by side with the roster average, refreshed overnight. Pick a creator to see their latest 12 long-form videos that are at least a week old, live from YouTube Analytics, and copy their brand link for a brand.</p></header>
 <div class="layout">
 <aside class="card side"><div class="count" id="count"></div><div class="bar"><i id="bar"></i></div><input id="q" type="search" placeholder="Search creators" aria-label="Search creators"><div class="list" id="list"></div></aside>
 <main class="card panel" id="panel"></main>
@@ -185,7 +187,7 @@ const S=d.summary||{},V=d.videos||[],ev=V.filter(v=>v.engagedViews!=null&&v.view
 p.innerHTML='<div class="ph"><div><h2>'+esc(d.title||r.name)+'</h2><div class="h">'+esc(d.handle||r.name)+' · YouTube · as of '+esc(d.asOf||"")+'</div></div><div class="acts"><button class="btn pri" id="copy">Copy brand link</button><a class="btn" href="'+esc(d.brandUrl)+'" target="_blank" rel="noreferrer">Open brand page</a></div></div>'+
 '<div class="tiles"><div class="tile hi"><b>'+nf(S.avgEngagedViews)+'</b><span>Average engaged views per video</span></div><div class="tile"><b>'+nf(S.medianEngagedViews)+'</b><span>Median engaged views</span></div><div class="tile"><b>'+nf(S.avgViews)+'</b><span>Average public views</span></div><div class="tile"><b>'+(share==null?"n/a":Math.round(100*share)+"%")+'</b><span>Engaged share of views</span></div></div>'+
 '<table><thead><tr><th>Video</th><th>Engaged</th><th>Views</th><th>Share</th></tr></thead><tbody>'+V.map(v=>'<tr'+(v.ageDays<7?' class="fresh"':"")+'><td class="t"><a href="https://www.youtube.com/watch?v='+encodeURIComponent(v.id)+'" target="_blank" rel="noreferrer">'+esc(v.title)+'</a><span>'+esc(v.published)+' · '+v.minutes+' min'+(v.ageDays<7?" · under 7 days old":"")+'</span></td><td>'+nf(v.engagedViews)+'</td><td>'+nf(v.views)+'</td><td>'+pct(v.engagedViews,v.views)+'</td></tr>').join("")+'</tbody></table>'+
-'<p class="note">Averages cover the '+(S.videos||0)+' videos at least 7 days old; newer uploads are in grey. Long-form only (over 3 minutes, no live streams).'+(d.note?" "+esc(d.note):"")+'</p>';
+'<p class="note">Averages cover these '+(S.videos||0)+' videos, the latest long-form uploads that are at least a week old (over 3 minutes, no live streams). The brand link shows the latest 12 uploads, so newer videos appear there in grey.'+(d.note?" "+esc(d.note):"")+'</p>';
 $("#copy").onclick=async()=>{try{await navigator.clipboard.writeText(d.brandUrl);toast("Brand link copied");}catch(e){prompt("Copy the brand link:",d.brandUrl);}};}
 let sortKey="avgEngaged",sortDir=-1;
 const when=t=>{try{return new Date(t).toLocaleString("en-US",{day:"numeric",month:"short",year:"numeric",hour:"numeric",minute:"2-digit"});}catch(e){return t||"";}};
@@ -200,7 +202,7 @@ p.innerHTML='<div class="ph"><div><h2>All creators</h2><div class="sub2">'+R.cre
 '<div class="tw"><table><thead><tr>'+col("name","Creator")+col("avgEngaged","Avg engaged")+col("medianEngaged","Median engaged",1)+col("avgViews","Avg views")+col("share","Share")+col("videos","Videos",1)+'</tr></thead><tbody>'+
 C.map(r=>r.unavailable?'<tr class="na go" data-ch="'+esc(r.channel)+'"><td class="t">'+esc(r.name)+'<span class="why">'+esc(r.unavailable)+'</span></td><td>n/a</td><td class="hm">n/a</td><td>n/a</td><td>n/a</td><td class="hm">0</td></tr>':
 '<tr class="go" data-ch="'+esc(r.channel)+'"><td class="t">'+esc(r.name)+'</td><td>'+nf(r.avgEngaged)+'</td><td class="hm">'+nf(r.medianEngaged)+'</td><td>'+nf(r.avgViews)+'</td><td>'+share(r.share)+'</td><td class="hm">'+r.videos+'</td></tr>').join("")+'</tbody></table></div>'+
-'<p class="note">The roster average is the average of each creator’s own average, so every creator counts the same and one big channel does not swamp the smaller ones. Each creator’s figures cover their latest 12 long-form videos at least 7 days old. Click a creator for their videos.'+
+'<p class="note">The roster average is the average of each creator’s own average, so every creator counts once however often they post. A very big channel still lifts it, so the middle creator figure is the safer one to quote. Each creator’s figures cover their latest 12 long-form videos that are at least a week old (no Shorts or live streams). Click a creator for their videos.'+
 ((S.notConnected||[]).length?' Not connected yet, so not included: '+S.notConnected.map(esc).join(", ")+'.':"")+'</p>';
 p.querySelectorAll("th button").forEach(b=>b.onclick=()=>{const k=b.dataset.k;if(sortKey===k)sortDir=-sortDir;else{sortKey=k;sortDir=k==="name"?1:-1;}showAll();});
 p.querySelectorAll("tr.go").forEach(t=>t.onclick=()=>pick(t.dataset.ch));
