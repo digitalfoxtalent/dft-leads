@@ -18,6 +18,7 @@
 
 import crypto from "node:crypto";
 import { monday } from "../monday.js";
+import { readSummary } from "./summary.js";
 
 const ACCESS_BOARD = 18432126799;
 const A = { chan: "text_mm7df591", status: "color_mm7dpp3w", granted: "date_mm7dmz8d" };
@@ -99,11 +100,17 @@ export async function engagedForVideos(tok, byChannel, unknown) {
 
 // Connected creators only, for other reports (Campaign reach).
 export async function connectedChannels(tok) { return (await creators(tok)).filter(r => r.connected); }
+// Every creator row with a channel id, connected or not (All creators view, summary.js).
+export async function allCreators(tok) { return creators(tok); }
 
 export async function renderEngaged(tok) {
   let list = [], error = "";
-  try { list = await creators(tok); } catch (e) { error = "Could not read the Creator YouTube Access board just now."; }
-  const json = JSON.stringify({ list, error, at: new Date().toISOString() }).replace(/</g, "\\u003c");
+  let summary = null;
+  await Promise.all([
+    creators(tok).then(l => { list = l; }, () => { error = "Could not read the Creator YouTube Access board just now."; }),
+    readSummary(tok).then(s => { summary = s; }),
+  ]);
+  const json = JSON.stringify({ list, error, summary, at: new Date().toISOString() }).replace(/</g, "\\u003c");
   return PAGE.replace("__DATA__", () => json);
 }
 
@@ -123,7 +130,7 @@ h1,h2,h3{font-family:"Bricolage Grotesque",sans-serif;color:var(--ink);margin:0;
 .tabs a[aria-current="page"]{background:var(--surface);color:var(--ink);box-shadow:var(--shadow)}
 h1{font-size:clamp(30px,4.6vw,46px);font-weight:800;line-height:1.02}h1 em{font-style:normal;color:var(--accent)}
 .sub{color:var(--muted);margin:10px 0 0}
-.layout{display:grid;grid-template-columns:300px 1fr;gap:20px;align-items:start}
+.layout{display:grid;grid-template-columns:300px minmax(0,1fr);gap:20px;align-items:start}
 .card{background:var(--surface);border:1px solid var(--line);border-radius:18px;box-shadow:var(--shadow)}
 .side{padding:14px;position:sticky;top:16px;max-height:calc(100vh - 32px);display:flex;flex-direction:column;gap:10px}
 .count{font-family:"Martian Mono",monospace;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);padding:4px 6px 0}
@@ -147,15 +154,15 @@ h1{font-size:clamp(30px,4.6vw,46px);font-weight:800;line-height:1.02}h1 em{font-
 table{width:100%;border-collapse:collapse;font-size:14px}th{font-family:"Martian Mono",monospace;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:500;text-align:right;padding:10px 8px;border-bottom:1px solid var(--line)}th:first-child{text-align:left}
 td{padding:12px 8px;border-bottom:1px solid var(--line-soft);text-align:right;color:var(--ink);white-space:nowrap;font-variant-numeric:tabular-nums}td.t{text-align:left;white-space:normal}
 td.t a{color:var(--ink);text-decoration:none}td.t a:hover{color:var(--accent)}td.t span{display:block;color:var(--muted);font-size:12px}
-tr.fresh td{color:var(--muted)}.note{font-size:13px;color:var(--muted);margin-top:18px}
+tr.fresh td{color:var(--muted)}.who.all{font-weight:600;margin-bottom:4px;border-bottom:1px solid var(--line-soft);border-radius:10px 10px 0 0}th button{all:unset;cursor:pointer}th button:hover,th button[aria-sort]{color:var(--ink)}th button:focus-visible{outline:2px solid var(--accent-fill);outline-offset:2px}tr.go{cursor:pointer}tr.go:hover td{background:var(--sunk)}tr.na td{color:var(--muted)}td .why{display:block;font-size:12px;color:var(--muted)}.sub2{color:var(--muted);font-size:14px;margin-top:2px}.tw{overflow-x:auto}@media(max-width:600px){.hm{display:none}}.note{font-size:13px;color:var(--muted);margin-top:18px}
 .empty{display:grid;place-items:center;text-align:center;min-height:360px;color:var(--muted)}.empty h3{font-size:22px;margin-bottom:6px}
 .err{background:var(--accent-soft);color:var(--accent);border-radius:12px;padding:12px 14px}
 .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:999px;font-size:14px;opacity:0;transition:opacity .2s;pointer-events:none}.toast.on{opacity:1}
-@media(max-width:820px){.layout{grid-template-columns:1fr}.tiles{grid-template-columns:1fr 1fr}.side{position:static;max-height:none}.list{max-height:260px}.panel{padding:20px 16px}.wrap{padding:24px 16px 70px}td,th{padding:10px 4px;font-size:12.5px}}
+@media(max-width:820px){.layout{grid-template-columns:minmax(0,1fr)}.tiles{grid-template-columns:1fr 1fr}.side{position:static;max-height:none}.list{max-height:260px}.panel{padding:20px 16px}.wrap{padding:24px 16px 70px}td,th{padding:10px 4px;font-size:12.5px}}
 </style></head><body><div class="wrap">
 <div class="topbar"><div class="brandline"><img class="wordmark" src="https://df-cdn.b-cdn.net/GeneralLendingConfigs/landing_logo/DigitalFoxTalent-TextLogoBLACK-VECTOR.svg" alt="Digital Fox Talent" width="216" height="72"></div>
 <nav class="tabs" aria-label="Reports"><a href="/">Campaign reach</a><a href="/platforms">Platform monetization</a><a href="/distribution">Video distribution</a><a href="/coverage">Creator distribution</a><a href="/engaged" aria-current="page">Engaged views</a></nav></div>
-<header><h1>Engaged <em>views</em></h1><p class="sub">Every roster creator connected through Channel Connect. Pick a creator to see their latest 12 long-form videos with YouTube's engaged views, live from YouTube Analytics. Copy the brand link to send a brand the same figures.</p></header>
+<header><h1>Engaged views</h1><p class="sub">Every roster creator connected through Channel Connect. All creators shows everyone side by side with the roster average, refreshed overnight. Pick a creator to see their latest 12 long-form videos live from YouTube Analytics, and copy the brand link to send a brand the same figures.</p></header>
 <div class="layout">
 <aside class="card side"><div class="count" id="count"></div><div class="bar"><i id="bar"></i></div><input id="q" type="search" placeholder="Search creators" aria-label="Search creators"><div class="list" id="list"></div></aside>
 <main class="card panel" id="panel"></main>
@@ -168,9 +175,9 @@ const nf=n=>n==null||isNaN(n)?"n/a":Math.round(n).toLocaleString("en-US"),pct=(a
 const on=L.filter(r=>r.connected);
 $("#count").textContent=on.length+" of "+L.length+" connected";$("#bar").style.width=(L.length?100*on.length/L.length:0)+"%";
 function list(){const m=r=>!q||r.name.toLowerCase().includes(q);const a=on.filter(m),b=L.filter(r=>!r.connected&&m(r));
-$("#list").innerHTML=(a.length?a.map(r=>'<button class="who" data-ch="'+r.channel+'"'+(r.channel===cur?' aria-current="true"':"")+'><i class="dot"></i><span class="n">'+esc(r.name)+'</span>'+(r.granted?'<span class="d">'+esc(r.granted.slice(5))+'</span>':"")+'</button>').join(""):"")+
+$("#list").innerHTML='<button class="who all" id="allbtn"'+(cur==="all"?' aria-current="true"':"")+'><span class="n">All creators</span></button>'+(a.length?a.map(r=>'<button class="who" data-ch="'+r.channel+'"'+(r.channel===cur?' aria-current="true"':"")+'><i class="dot"></i><span class="n">'+esc(r.name)+'</span>'+(r.granted?'<span class="d">'+esc(r.granted.slice(5))+'</span>':"")+'</button>').join(""):"")+
 (b.length?'<div class="lab">Not connected yet</div>'+b.map(r=>'<div class="who off"><i class="dot"></i><span class="n">'+esc(r.name)+'</span></div>').join(""):"");
-document.querySelectorAll("button.who").forEach(x=>x.onclick=()=>pick(x.dataset.ch));}
+document.querySelectorAll("button.who[data-ch]").forEach(x=>x.onclick=()=>pick(x.dataset.ch));$("#allbtn").onclick=()=>showAll();}
 function toast(t){const e=$("#toast");e.textContent=t;e.classList.add("on");setTimeout(()=>e.classList.remove("on"),1800);}
 function show(ch,d){const r=L.find(x=>x.channel===ch)||{};const p=$("#panel");
 if(d.unavailable){p.innerHTML='<div class="empty"><div><h3>'+esc(r.name)+'</h3><p>'+esc(d.unavailable)+'</p></div></div>';return;}
@@ -180,6 +187,28 @@ p.innerHTML='<div class="ph"><div><h2>'+esc(d.title||r.name)+'</h2><div class="h
 '<table><thead><tr><th>Video</th><th>Engaged</th><th>Views</th><th>Share</th></tr></thead><tbody>'+V.map(v=>'<tr'+(v.ageDays<7?' class="fresh"':"")+'><td class="t"><a href="https://www.youtube.com/watch?v='+encodeURIComponent(v.id)+'" target="_blank" rel="noreferrer">'+esc(v.title)+'</a><span>'+esc(v.published)+' · '+v.minutes+' min'+(v.ageDays<7?" · under 7 days old":"")+'</span></td><td>'+nf(v.engagedViews)+'</td><td>'+nf(v.views)+'</td><td>'+pct(v.engagedViews,v.views)+'</td></tr>').join("")+'</tbody></table>'+
 '<p class="note">Averages cover the '+(S.videos||0)+' videos at least 7 days old; newer uploads are in grey. Long-form only (over 3 minutes, no live streams).'+(d.note?" "+esc(d.note):"")+'</p>';
 $("#copy").onclick=async()=>{try{await navigator.clipboard.writeText(d.brandUrl);toast("Brand link copied");}catch(e){prompt("Copy the brand link:",d.brandUrl);}};}
+let sortKey="avgEngaged",sortDir=-1;
+const when=t=>{try{return new Date(t).toLocaleString("en-US",{day:"numeric",month:"short",year:"numeric",hour:"numeric",minute:"2-digit"});}catch(e){return t||"";}};
+const share=v=>v==null?"n/a":Math.round(100*v)+"%";
+function showAll(){cur="all";list();history.replaceState(null,"",location.pathname);const p=$("#panel"),S=D.summary;
+if(!S||S.error||!S.roster){p.innerHTML='<div class="empty"><div><h3>All creators</h3><p>'+(S&&S.error?'The saved copy could not be read just now. ':'There is no saved copy yet. ')+'Build one now, it takes about a minute.</p><p><button class="btn pri" id="build">Build now</button></p></div></div>';$("#build").onclick=build;return;}
+const R=S.roster,C=S.creators.slice();
+C.sort((a,b)=>(!!a.unavailable-!!b.unavailable)||(sortKey==="name"?sortDir*String(a.name).localeCompare(String(b.name)):sortDir*((a[sortKey]==null?-1:a[sortKey])-(b[sortKey]==null?-1:b[sortKey]))));
+const col=(k,l,c)=>'<th'+(c?' class="hm"':"")+'><button data-k="'+k+'"'+(sortKey===k?' aria-sort="'+(sortDir<0?"descending":"ascending")+'"':"")+'>'+l+(sortKey===k?(sortDir<0?" ↓":" ↑"):"")+'</button></th>';
+p.innerHTML='<div class="ph"><div><h2>All creators</h2><div class="sub2">'+R.creators+' of '+R.connected+' connected creators in the averages · updated '+esc(when(S.builtAt))+'</div></div><div class="acts"><button class="btn" id="build">Refresh now</button></div></div>'+
+'<div class="tiles"><div class="tile hi"><b>'+nf(R.avgEngaged)+'</b><span>Roster average engaged views per video</span></div><div class="tile"><b>'+nf(R.medianEngaged)+'</b><span>Middle creator, engaged views per video</span></div><div class="tile"><b>'+nf(R.avgViews)+'</b><span>Roster average public views per video</span></div><div class="tile"><b>'+share(R.share)+'</b><span>Average engaged share of views</span></div></div>'+
+'<div class="tw"><table><thead><tr>'+col("name","Creator")+col("avgEngaged","Avg engaged")+col("medianEngaged","Median engaged",1)+col("avgViews","Avg views")+col("share","Share")+col("videos","Videos",1)+'</tr></thead><tbody>'+
+C.map(r=>r.unavailable?'<tr class="na go" data-ch="'+esc(r.channel)+'"><td class="t">'+esc(r.name)+'<span class="why">'+esc(r.unavailable)+'</span></td><td>n/a</td><td class="hm">n/a</td><td>n/a</td><td>n/a</td><td class="hm">0</td></tr>':
+'<tr class="go" data-ch="'+esc(r.channel)+'"><td class="t">'+esc(r.name)+'</td><td>'+nf(r.avgEngaged)+'</td><td class="hm">'+nf(r.medianEngaged)+'</td><td>'+nf(r.avgViews)+'</td><td>'+share(r.share)+'</td><td class="hm">'+r.videos+'</td></tr>').join("")+'</tbody></table></div>'+
+'<p class="note">The roster average is the average of each creator’s own average, so every creator counts the same and one big channel does not swamp the smaller ones. Each creator’s figures cover their latest 12 long-form videos at least 7 days old. Click a creator for their videos.'+
+((S.notConnected||[]).length?' Not connected yet, so not included: '+S.notConnected.map(esc).join(", ")+'.':"")+'</p>';
+p.querySelectorAll("th button").forEach(b=>b.onclick=()=>{const k=b.dataset.k;if(sortKey===k)sortDir=-sortDir;else{sortKey=k;sortDir=k==="name"?1:-1;}showAll();});
+p.querySelectorAll("tr.go").forEach(t=>t.onclick=()=>pick(t.dataset.ch));
+$("#build").onclick=build;}
+async function build(){const b=$("#build");if(b){b.disabled=true;b.textContent="Reading YouTube Analytics for every creator…";}
+try{const res=await fetch("/engaged-summary?build=1",{headers:{Accept:"application/json"}});const d=await res.json();if(!res.ok||!d.roster)throw new Error(d.error||res.status);D.summary=d;}
+catch(e){toast("Could not refresh just now. Try again in a minute.");}
+if(cur==="all")showAll();}
 async function pick(ch){cur=ch;list();history.replaceState(null,"","#"+ch);const r=L.find(x=>x.channel===ch)||{};
 if(cache[ch])return show(ch,cache[ch]);$("#panel").innerHTML='<div class="empty"><div><h3>'+esc(r.name)+'</h3><p>Reading YouTube Analytics…</p></div></div>';
 try{const res=await fetch("/engaged-data?ch="+encodeURIComponent(ch),{headers:{Accept:"application/json"}});const d=await res.json();if(!res.ok)throw new Error(d.error||res.status);if(!d.unavailable)cache[ch]=d;if(cur===ch)show(ch,d);}
@@ -187,5 +216,5 @@ catch(e){if(cur===ch)$("#panel").innerHTML='<div class="empty"><div><h3>'+esc(r.
 $("#q").oninput=e=>{q=e.target.value.toLowerCase().trim();list();};
 list();
 if(D.error)$("#panel").innerHTML='<div class="empty"><p class="err">'+esc(D.error)+'</p></div>';
-else{const h=location.hash.slice(1);const first=on.find(r=>r.channel===h)||on[0];if(first)pick(first.channel);else $("#panel").innerHTML='<div class="empty"><div><h3>No creators connected yet</h3><p>Creators appear here the day after they connect.</p></div></div>';}
+else{const h=location.hash.slice(1);const hit=on.find(r=>r.channel===h);if(hit)pick(hit.channel);else if(on.length)showAll();else $("#panel").innerHTML='<div class="empty"><div><h3>No creators connected yet</h3><p>Creators appear here the day after they connect.</p></div></div>';}
 </script></body></html>`;
