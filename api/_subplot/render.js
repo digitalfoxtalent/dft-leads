@@ -530,7 +530,7 @@ export function articlePage(a, data, base) {
     "@context": "https://schema.org", "@type": "Article", headline: a.h, description: a.s,
     datePublished: a.p, dateModified: a.p, image: [a.thumb], wordCount: a.w, articleSection: CATS[a.k], keywords: a.t.join(", "),
     author: { "@type": "Person", name: a.b, alternateName: a.c, url: "https://www.youtube.com/" + a.c, ...(bioFor(a.c) ? { description: bioFor(a.c) } : {}) },
-    publisher: { "@type": "Organization", name: BRAND_() },
+    publisher: { "@type": "Organization", name: BRAND_(), url: siteUrl() + base + "/", ...(brand().key === "subplot" ? { logo: siteUrl() + base + "/apple-touch-icon.png", parentOrganization: { "@type": "Organization", "@id": "https://digitalfoxtalent.com/#organization", name: "Digital Fox Talent", url: "https://digitalfoxtalent.com" } } : {}) },
     ...(NOTES[a.id] ? { editor: { "@type": "Person", name: NOTE_SIGNOFF.split(",")[0] } } : brand().key === "subplot" ? { editor: { "@type": "Organization", name: "Digital Fox Talent Editorial Team" } } : {}),
     isBasedOn: "https://www.youtube.com/watch?v=" + a.v,
     mainEntityOfPage: siteUrl() + base + artPath(a),
