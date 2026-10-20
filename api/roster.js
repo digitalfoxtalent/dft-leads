@@ -2453,6 +2453,8 @@ async function pitchFromEmail(b) {
         await monday("mutation($b:ID!,$i:ID!,$v:JSON!){change_multiple_column_values(board_id:$b,item_id:$i,column_values:$v){id}}", { b: String(PITCH_BOARD), i: String(b.item), v: JSON.stringify({ [PB.draft]: { text: String(mail.text).slice(0, 9000) }, [PB.check]: [fromEmail, s0.to, new Date().toISOString()].join("|") }) }).catch(() => null);
         resultObj.draftMade = await teamDraft(fromEmail, resultObj).catch(e => "failed: " + String((e && e.message) || e).slice(0, 200));
         await draftLogUpdate(b.item, resultObj, resultObj.draftMade).catch(() => null);
+        if (resultObj.draftMade === true) await teamDraftReady(fromEmail, resultObj).catch(e => audit(String(b.item), "Draft-ready email to " + escH(fromEmail) + " failed: " + escH(String(e && e.message || e).slice(0, 200))));
+        delete resultObj.draftUrl;
         delete resultObj.draftLog;
         if (resultObj.draftMade && resultObj.draftMade !== true) await pitchMark(b.item, "Lists ready but " + draftNote(resultObj.draftMade) + ". " + subs.map(s => s.title + ": " + s.listUrl).join("; "), s0.listUrl).catch(() => null);
         return resultObj;
@@ -2805,6 +2807,8 @@ async function pitchFromEmail(b) {
     // Teammates get the draft in their own Gmail (Tom, 14 Oct 2026); Tom's drafts still come from Make.
     resultObj.draftMade = await teamDraft(fromEmail, resultObj).catch(e => "failed: " + String((e && e.message) || e).slice(0, 200));
     await draftLogUpdate(b.item, resultObj, resultObj.draftMade).catch(() => null);
+    if (resultObj.draftMade === true) await teamDraftReady(fromEmail, resultObj).catch(e => audit(String(b.item), "Draft-ready email to " + escH(fromEmail) + " failed: " + escH(String(e && e.message || e).slice(0, 200))));
+    delete resultObj.draftUrl;
     delete resultObj.draftLog;
     if (resultObj.draftMade && resultObj.draftMade !== true) await pitchMark(b.item, "List ready but " + draftNote(resultObj.draftMade) + ". List: " + saved.url, saved.url).catch(() => null);
     return resultObj;
@@ -3006,6 +3010,9 @@ async function teamDraft(fromEmail, o) {
   // so a failed run never makes the forward look as if it had been dealt with.
   if (threadId && ok) { const sent = (await G("/messages?maxResults=25&q=" + q("in:sent {to:pitch@digitalfoxtalent.com to:press@digitalfoxtalent.com} newer_than:7d")).catch(() => ({}))).messages || []; let binned = 0, elsewhere = 0; for (const m of sent) { if (m.threadId === threadId) { await G("/messages/" + m.id + "/trash", { method: "POST" }).then(() => binned++).catch(() => null); } else elsewhere++; } log.push("forward(s) to pitch@ binned from this thread: " + binned + " (the forward the search found was " + found.id + "; " + elsewhere + " other recent pitch@ forward(s) left in other threads)"); }
   o.draftId = kept && kept.id;
+  // A link that opens this draft itself in the person's Gmail (same form as the Sales Desk drafts).
+  const km = (kept && kept.message) || {};
+  if (kept && kept.id) o.draftUrl = "https://mail.google.com/mail/?authuser=" + encodeURIComponent(fromEmail) + "#drafts?compose=" + (/^[0-9a-f]+$/i.test(km.threadId || "") ? "thread-f:" + BigInt("0x" + km.threadId).toString() + "%2Bmsg-a:" + kept.id : (km.id || ""));
   // What Gmail actually stored (Tom, 20 Oct 2026: Margot's draft landed in the thread but opened blank).
   if (kept) {
     const st = await G("/drafts/" + kept.id + "?format=full").catch(e => ({ err: e.message }));
@@ -3039,6 +3046,18 @@ function isPitchStray(d, subject) {
   if (!sub || !norm(subject) || norm(sub.value) !== norm(subject)) return false;
   const bodies = []; const walk = p => { if (!p) return; if (p.body && p.body.data) bodies.push(Buffer.from(p.body.data, "base64url").toString("utf8")); (p.parts || []).forEach(walk); }; walk(payload);
   return /roster-viewguarantee\.digitalfoxtalent\.com\/r\//i.test(bodies.join("\n"));
+}
+// Tell a teammate their draft is ready, with a link that opens it (Tom, 20 Oct 2026: Margot could not find the draft
+// in a long thread and expected to hear back from pitch@; Tom's own drafts need no note, he works in his thread).
+async function teamDraftReady(fromEmail, o) {
+  if (!o || !o.draftUrl || /^tom@/i.test(fromEmail) || !/@digitalfoxtalent\.com$/i.test(fromEmail)) return;
+  const lists = (o.lists && o.lists.length ? o.lists : [{ title: o.title, url: o.listUrl }]).filter(l => l && l.url);
+  const html = "<p><b>Your pitch reply to " + escH(o.to) + " is ready to check and send.</b></p>" +
+    "<p><a href=\"" + escH(o.draftUrl) + "\" style=\"display:inline-block;background:#e8541f;color:#ffffff;padding:10px 18px;border-radius:6px;text-decoration:none;font-weight:bold\">Open the draft</a></p>" +
+    "<p>It is saved as a reply at the bottom of the brand's email thread (subject: " + escH(o.subject) + "), and in your Drafts folder. Your forward to pitch@ is tidied out of that thread, which is why it shows \"This message has been deleted\".</p>" +
+    (lists.length ? "<p>" + lists.map(l => "List: <a href=\"" + escH(l.url) + "\">" + escH(l.title || l.url) + "</a>").join("<br>") + "</p>" : "") +
+    (o.unansweredHtml || "");
+  await sendInternal([fromEmail], "Pitch draft ready: " + String(o.subject || "").replace(/^\s*re:\s*/i, ""), html);
 }
 // Post what teamDraft did as an update on the pitch row, so a missing draft can be explained without guessing.
 async function draftLogUpdate(item, o, r) {
@@ -3143,7 +3162,7 @@ function pitchMime(b) {
   return { ok: true, draft: JSON.stringify({ message }) };
 }
 
-export { teamDraft, replyHeaderOptions }; // for test/team-draft-thread.mjs
+export { teamDraft, replyHeaderOptions, teamDraftReady }; // for test/team-draft-thread.mjs
 
 export default async function handler(req, res) {
   try {
