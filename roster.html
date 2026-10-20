@@ -260,10 +260,6 @@
   .tri.no .bx::after{ content:"✕"; color:#fff; font-size:9px; font-weight:800; line-height:1; }
   .tri.yes .lb{ color:var(--ok); } .tri.no .lb{ color:#b23a2a; }
   .tri.cr.ro{ cursor:default; }
-  /* Reject is its own small button beside Approve (Tom, 16 Oct 2026): a quiet 16px cross that turns red when used. */
-  .rej{ width:16px; height:16px; margin-left:2px; padding:0; border:1px solid #d9cfc3; border-radius:4px; background:#fff; color:#a39587; font-size:9px; font-weight:800; line-height:1; cursor:pointer; display:inline-grid; place-content:center; flex:0 0 auto; }
-  .rej:hover{ border-color:#b23a2a; color:#b23a2a; }
-  .rej.on{ background:#b23a2a; border-color:#b23a2a; color:#fff; }
   .nt{ display:inline-flex; align-items:center; background:none; border:0; padding:1px; cursor:pointer; color:#b9a996; }
   .nt:hover{ color:#a85f00; } .nt.has{ color:var(--orange); }
   /* Brands (Tom, 15 Oct 2026): our Stage boxes read as read-only, the brand's own box reads as the one to click */
@@ -541,7 +537,7 @@ const RENAME={ "Down To Earth With Kristian Harloff (UAP NEWS)":"Down to Earth" 
 // "Save column order") and is then the same for every viewer.
 const BRAND_COLS=[
   // Saved lists only (Tom, 10 Oct 2026): Confirmed sits first after the handle.
-  {key:"confirmed",head:"Stage", w:176, listOnly:true, tip:"Approached, the creator's response and Confirmed are set by Digital Fox Talent. Tick a creator to approve, or use the cross to reject. The speech bubble adds a note, or shows the creator's."},
+  {key:"confirmed",head:"Stage", w:176, listOnly:true, tip:"Approached, the creator's response and Confirmed are set by Digital Fox Talent. Click the box once to approve, again to reject, and a third time to clear. The speech bubble adds a note, or shows the creator's."},
   {key:"subs",   head:"Subscribers", w:112, fmt:"int"},
   // Press packages (Tom, 16 Oct 2026): campaign ideas instead of prices.
   {key:"ideas",  head:"Campaign ideas", w:420, pressOnly:true, cls:"ideas", tip:"The kind of content this creator typically makes for a press partner: early access, product, screenings or invitations."},
@@ -766,13 +762,14 @@ function cellVal(c,col){
 }
 // The middle Stage step (Tom, 10 Oct 2026): one tick box that cycles approved (green tick),
 // rejected (red cross), clear, plus a small note icon. Same box as Approached and Confirmed.
+// Tom, 20 Oct 2026: the separate reject button is gone - one box does all three states.
 const NOTE_ICON='<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>';
 function decisionRow(c,team){
   const ok=!!(c.fb&&c.fb.ok), no=!!(c.fb&&c.fb.no), note=(c.fb&&c.fb.note)||"";
   const state=ok?"yes":no?"no":"", label=ok?"Brand approved":no?"Brand rejected":(team?"Brand approval":"Approve?");
-  const tip=team?"The brand's decision. Tick to approve for them, or use the cross to reject.":(ok?"Approved. Click again to undo":no?"Rejected. Click to approve instead":"Click to approve this creator");
+  const tip=team?"The brand's decision. Click once to approve for them, again to reject, again to clear.":(ok?"Approved. Click again to reject":no?"Rejected. Click again to clear":"Click to approve. Click twice to reject");
   const noteBtn=(team&&!note)?"":`<button class="nt${note?" has":""}${team?" ro":""}" data-id="${c.id}" title="${note?esc(note):"Add a note: tell us why, or anything else"}">${NOTE_ICON}</button>`;
-  return `<span class="drow${team?"":" ask"}"><button class="tri ${state}" data-id="${c.id}" data-s="${state}" title="${tip}"><span class="bx"></span><span class="lb">${label}</span></button><button class="rej${no?" on":""}" data-id="${c.id}" data-s="${state}" title="${no?"Rejected. Click to undo":"Reject this creator"}">✕</button>${noteBtn}</span>`;
+  return `<span class="drow${team?"":" ask"}"><button class="tri ${state}" data-id="${c.id}" data-s="${state}" title="${tip}"><span class="bx"></span><span class="lb">${label}</span></button>${noteBtn}</span>`;
 }
 // The creator's response (Margot, 14 Oct 2026): DFT sets interested or declined and can add
 // a note the brand reads (why they declined, or the idea they already have). Brands read only.
@@ -1146,9 +1143,9 @@ function wire(){
       listSave({op:"creator-response",slug:LIST_SLUG,id:r.id,decision:d,note},d==="yes"?"Creator interested":d==="no"?"Creator declined. Add a note to tell the brand why":"Creator response cleared").catch(()=>{});
     }));
     sc.querySelectorAll("button.crn").forEach(bt=>bt.addEventListener("click",e=>{ e.preventDefault(); e.stopPropagation(); const f=findListRow(bt.dataset.id); if(f) crPopup(bt,f.row,true); }));
-    sc.querySelectorAll("button.tri:not(.cr), button.rej").forEach(bt=>bt.addEventListener("click",async e=>{
+    sc.querySelectorAll("button.tri:not(.cr)").forEach(bt=>bt.addEventListener("click",async e=>{
       e.stopPropagation(); const f=findListRow(bt.dataset.id); if(!f) return; const r=f.row;
-      const s0=bt.dataset.s||"", d=bt.classList.contains("rej")?(s0==="no"?"":"no"):(s0==="yes"?"":"yes"), note=(r.fb&&r.fb.note)||"";
+      const d={"":"yes",yes:"no",no:""}[bt.dataset.s||""], note=(r.fb&&r.fb.note)||"";
       holdOrder(); patchListRow(r.id,x=>{ x.fb=(d||note)?{ok:d==="yes",no:d==="no",note}:undefined; });
       listSave({op:"brand-feedback",slug:LIST_SLUG,id:r.id,decision:d,note},d==="yes"?"Marked as approved by the brand":d==="no"?"Marked as rejected by the brand":"Brand decision cleared").catch(()=>{});
     }));
@@ -1262,9 +1259,9 @@ function wireFeedback(sc){
   sc.querySelectorAll("button.crn").forEach(bt=>bt.addEventListener("click",e=>{ e.stopPropagation(); const f=findListRow(bt.dataset.id); if(f) crPopup(bt,f.row,false); }));
   // A click on one of our boxes says which box is theirs (Tom, 15 Oct 2026: Olga clicked Approached and gave up).
   sc.querySelectorAll(".stg label.dft, button.tri.cr.ro").forEach(el=>el.addEventListener("click",e=>{ e.preventDefault(); e.stopPropagation(); toast("That one is updated by our team. Tick \u201cApprove?\u201d to choose this creator."); }));
-  sc.querySelectorAll("button.tri:not(.cr), button.rej").forEach(bt=>bt.addEventListener("click",async e=>{
+  sc.querySelectorAll("button.tri:not(.cr)").forEach(bt=>bt.addEventListener("click",async e=>{
     e.stopPropagation(); const f=findListRow(bt.dataset.id); if(!f) return; const r=f.row;
-    const s0=bt.dataset.s||"", d=bt.classList.contains("rej")?(s0==="no"?"":"no"):(s0==="yes"?"":"yes"), note=(r.fb&&r.fb.note)||"";
+    const d={"":"yes",yes:"no",no:""}[bt.dataset.s||""], note=(r.fb&&r.fb.note)||"";
     holdOrder(); patchListRow(r.id,x=>{ x.fb=(d||note)?{ok:d==="yes",no:d==="no",note}:undefined; });
     listSave({op:"brand-feedback",slug:LIST_SLUG,id:r.id,decision:d,note},d==="yes"?"Approved":d==="no"?"Rejected. Add a note to tell us why":"Cleared").catch(()=>{}); nudge.sent=false; { const sb=$("#sendPicks"); if(sb){ sb.disabled=false; sb.textContent="Send my picks to Digital Fox Talent"; } } showNudge();
   }));
