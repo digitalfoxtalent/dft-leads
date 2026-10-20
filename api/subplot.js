@@ -15,6 +15,7 @@ import { faviconSvg, assetKey } from "./_subplot/brand.js";
 import { adsTxt } from "./_subplot/ads.js";
 import { OG_PNG, APPLE_PNG } from "./_subplot/images.js";
 import { isCron } from "./_reports/cron.js";
+import { INDEXNOW_KEY, recentUrls, pingIndexNow } from "./_subplot/indexnow.js";
 // Share-card assets per brand. A brand with no entry here serves no og.png and no touch icon
 // - better than serving another brand's. Wordie joins this map when it has artwork of its own.
 const OG = { subplot: OG_PNG };
@@ -95,6 +96,9 @@ export default async function handler(req, res) {
     // undefined to undefined and let anyone through.)
     if (!fromCron && !(secret && req.query.key === secret)) return res.status(404).send("Not found");
     res.setHeader("Cache-Control", "no-store");
+    // IndexNow (indexnow.js): tell Bing and Yandex about the last day's articles. Never blocks the health check.
+    try { const r = await pingIndexNow(recentUrls(await getData())); console.log("indexnow", JSON.stringify(r)); }
+    catch (e) { console.log("indexnow failed:", e.message); }
     return runHealth(req, res);
   }
 
@@ -131,6 +135,8 @@ export default async function handler(req, res) {
     if (!t) return res.status(404).send("");
     return res.status(200).send(t);
   }
+  // IndexNow key file (indexnow.js). Public by design: it proves the pings come from this site.
+  if (path === "/" + INDEXNOW_KEY + ".txt") { res.setHeader("Content-Type", "text/plain; charset=utf-8"); res.setHeader("Cache-Control", "public, max-age=86400"); return res.status(200).send(INDEXNOW_KEY); }
   if (path === "/robots.txt") {
     res.setHeader("Content-Type", "text/plain");
     res.setHeader("Cache-Control", "public, max-age=3600");
@@ -192,7 +198,7 @@ export default async function handler(req, res) {
     ] : [];
     return res.status(200).send([
       ...[...googleAgents, ...bingAgents, ...searchAgents, ...aiAgents, ...feedAgents].flatMap(a => ["User-agent: " + a, "Allow: /", ""]),
-      "User-agent: *", "Allow: /ads.txt", "Disallow: /", "",
+      "User-agent: *", "Allow: /ads.txt", "Allow: /" + INDEXNOW_KEY + ".txt", "Disallow: /", "",
       // Absolute by spec, and it names the sitemap even to crawlers that never see
       // Search Console. This is the line that says "the site is here".
       "Sitemap: " + siteUrl() + base + "/sitemap.xml",
