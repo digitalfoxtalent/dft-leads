@@ -183,12 +183,18 @@ export default async function handler(req, res) {
       if (Number.isFinite(last)) facts.push(`Latest upload: ${new Date(last).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "America/Denver" })}`);
     }
     facts.push(`Subscribers: ${n(info.subs)}`);
+    // THEIR EMAIL (Tom, 20 Oct 2026: "can it also include their email address"). The sign-up
+    // page asks for it before "Check my channel" and dft-connect passes it straight through;
+    // it is not stored there. Empty only if an older copy of the page sent no email.
+    const emailRaw = String(body.email || "").trim().toLowerCase();
+    const email = emailRaw.length <= 254 && /^[^\s@<>"]+@[^\s@<>"]+\.[^\s@<>"]+$/.test(emailRaw) ? emailRaw : "";
     const subject = `Sign-up check under the bar: ${name} (${n(avg)} avg views)`;
     const html = `<p><a href="${esc(url)}">${esc(name)}</a>${info.handle ? " (" + esc(info.handle) + ")" : ""} checked their channel on the sign-up page and was under the bar.</p>
+<p><b>Email</b><br>${email ? `<a href="mailto:${esc(email)}">${esc(email)}</a>` : "Not given"}</p>
 ${why.length ? `<p><b>Why they didn't qualify</b></p><ul>${why.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}
 <p><b>Their numbers</b><br>${facts.map(esc).join("<br>")}</p>
 ${make ? `<p><b>What they make</b><br>${esc(make)}</p>` : ""}
-<p>We've kept their read-only YouTube access${statsLink ? `, so their live stats stay here: <a href="${esc(statsLink)}">Open the stats page</a>` : ""}. No contact details are captured at this step.</p>`;
+<p>We've kept their read-only YouTube access${statsLink ? `, so their live stats stay here: <a href="${esc(statsLink)}">Open the stats page</a>` : ""}.</p>`;
     await sendAlert(subject, html);
     return res.status(200).json({ ok: true, sent: true });
   } catch (e) {
