@@ -9,12 +9,14 @@ export const config = { maxDuration: 120 };
 // row's company domain; or a recipient who is a named contact on that row only. Domain alone never matches, because one
 // studio (Netflix, Sony) sits on many rows. Daily at 13:20 UTC, before the 7:45am Denver list. ?days=30 to backfill,
 // ?dry=1 to preview. Calls need the Vercel cron user agent or CRON_SECRET.
-// 20 Oct 2026: also reads the Game rows still on George's Studio board (18415007170). Tom's 2:30pm release alerts come
-// from those rows too, so an email to one of them must stop its alert. That board has no Tom Last Emailed columns, so
+// 20 Oct 2026: also reads the Game, Series and Tech rows still on George's Studio board (18415007170) - Tom's
+// categories since the 17 Oct split - so an email Tom sends about one of them (Zelda to Golin, MacBook Pro and iMac to
+// Apple) stops its alert. Film rows stay George's alone. That board has no Tom Last Emailed columns, so
 // there it flips Not started to Contacted and posts a note on the row with the email link (once, since the flip
 // removes it from the next run).
 
 const BOARD = "18435939296", STUDIO_BOARD = "18415007170", TOM = "tom@digitalfoxtalent.com";
+const TOM_TYPES = new Set(["Game", "Series", "Tech"]);
 const COL = { status: "color_mm5bmek5", domain: "text_mm5baenw", email: "email_mm5bfw35", alt: "long_text_mm5dn2fx", verified: "long_text_mm7v8xhz", backup: "long_text_mm7vjxdy", last: "date_mm88ncxq", link: "link_mm88t2fs", type: "color_mm5bqrxh" };
 const FREE = /^(gmail|googlemail|icloud|me|mac|yahoo|ymail|hotmail|outlook|live|msn|aol|proton|protonmail|pm|gmx|mail|zoho|yandex|hey|fastmail)\./i;
 const EMAIL_RE = /[A-Za-z0-9._%+'-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
@@ -75,7 +77,7 @@ export default async function handler(req, res) {
   const days = Math.min(60, Math.max(1, +req.query.days || 3));
   const monday = async (query, variables) => (await fetch("https://api.monday.com/v2", { method: "POST", headers: { "Content-Type": "application/json", Authorization: MK }, body: JSON.stringify({ query, variables: variables || {} }) })).json();
 
-  // 1. Release rows and everything that identifies who works on each one: Tom's board, plus Game rows on George's.
+  // 1. Release rows and everything that identifies who works on each one: Tom's board, plus Game/Series/Tech rows on George's.
   const rows = []; rows.contactCount = {};
   for (const board of [BOARD, STUDIO_BOARD]) {
     const d = await monday(`query { boards(ids:[${board}]) { groups(ids:["topics"]) { items_page(limit:500) { items { id name column_values(ids:${JSON.stringify(Object.values(COL))}) { id text } } } } } }`);
@@ -83,7 +85,7 @@ export default async function handler(req, res) {
     if (!items) return res.status(502).json({ error: "Could not read board " + board, detail: d.errors || null });
     for (const it of items.items || []) {
       const c = {}; for (const v of it.column_values || []) c[v.id] = v.text || "";
-      if (board === STUDIO_BOARD && c[COL.type] !== "Game") continue;
+      if (board === STUDIO_BOARD && !TOM_TYPES.has(c[COL.type])) continue;
       rows.push(rowFrom(it, c, board, rows));
     }
   }

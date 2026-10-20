@@ -30,6 +30,7 @@ const boards = {
   "18435939296": [{ id: "13325694817", name: "The Legend of Zelda: Ocarina of Time (2026)", column_values: cv({ color_mm5bmek5: "Not started", text_mm5baenw: "nintendo.com", long_text_mm7v8xhz: "Checked 2026-10-20 | nothing\nNONE", color_mm5bqrxh: "Game" }) }],
   "18415007170": [
     { id: "13150756636", name: "The Legend of Zelda: Ocarina of Time (Switch 2)", column_values: cv({ color_mm5bmek5: "Not started", text_mm5baenw: "nintendo.com", email_mm5bfw35: "ccooper@golin.com", color_mm5bqrxh: "Game" }) },
+    { id: "12569715674", name: "Apple MacBook Pro (OLED, M6)", column_values: cv({ color_mm5bmek5: "Not started", text_mm5baenw: "apple.com", email_mm5bfw35: "mcalleja@apple.com", color_mm5bqrxh: "Tech" }) },
     { id: "999", name: "The Legend of Zelda (film)", column_values: cv({ color_mm5bmek5: "Not started", email_mm5bfw35: "ccooper@golin.com", color_mm5bqrxh: "Film" }) },
   ],
 };
@@ -37,10 +38,14 @@ const writes = [];
 const sent = { id: "m1", threadId: "1a154c92505946f1", internalDate: String(Date.parse("2026-10-19T17:33:34Z")), snippet: "",
   payload: { headers: [{ name: "To", value: "ccooper@golin.com" }, { name: "Cc", value: "alex@digitalfoxtalent.com, george@digitalfoxtalent.com" }, { name: "Subject", value: "Creator partnerships for The Legend of Zelda: Ocarina of Time (Switch 2)" }],
     mimeType: "text/plain", body: { data: Buffer.from("Hi Christian, I hope you had a lovely weekend. The Legend of Zelda: Ocarina of Time (Switch 2) is right in our creators' wheelhouse.").toString("base64url") } } };
+const sent2 = { id: "m2", threadId: "1a156471cd83f7b4", internalDate: String(Date.parse("2026-10-19T22:47:06Z")), snippet: "",
+  payload: { headers: [{ name: "To", value: "mr_delrio@apple.com" }, { name: "Cc", value: "alex@digitalfoxtalent.com" }, { name: "Subject", value: "Creator partnerships for Apple MacBook Pro (OLED, M6)" }],
+    mimeType: "text/plain", body: { data: Buffer.from("Hi Michelle, We'd love to help get Apple MacBook Pro (OLED, M6) in front of their audiences.").toString("base64url") } } };
 globalThis.fetch = async (url, opt = {}) => {
   const json = d => ({ ok: true, json: async () => d });
   if (String(url).includes("oauth2.googleapis.com")) return json({ access_token: "tok" });
-  if (String(url).includes("/messages?")) return json({ messages: [{ id: "m1" }] });
+  if (String(url).includes("/messages?")) return json({ messages: [{ id: "m1" }, { id: "m2" }] });
+  if (String(url).includes("/messages/m2")) return json(sent2);
   if (String(url).includes("/messages/m1")) return json(sent);
   const { query, variables } = JSON.parse(opt.body);
   const m = query.match(/boards\(ids:\[(\d+)\]\)/);
@@ -51,19 +56,19 @@ const { default: handler } = await import("../api/tom-sent-sync.js");
 const run = async () => { let out; await handler({ headers: { authorization: "Bearer s" }, query: {} }, { status() { return this; }, json(o) { out = o; return o; } }); return out; };
 
 const out = await run();
-assert.equal(out.written.length, 1, "exactly one row marked: " + JSON.stringify(out.written));
-assert.equal(out.written[0].title, "The Legend of Zelda: Ocarina of Time (Switch 2)");
-assert.equal(out.written[0].board, "studio");
-const flip = writes.find(w => w.query.includes("change_multiple_column_values"));
+assert.deepEqual(out.written.map(w => w.title).sort(), ["Apple MacBook Pro (OLED, M6)", "The Legend of Zelda: Ocarina of Time (Switch 2)"], "the Zelda game row and the MacBook tech row: " + JSON.stringify(out.written));
+assert.ok(out.written.every(w => w.board === "studio"));
+const flip = writes.find(w => w.query.includes("change_multiple_column_values") && w.variables.i === "13150756636");
 assert.equal(flip.variables.b, "18415007170"); assert.equal(flip.variables.i, "13150756636");
 assert.deepEqual(JSON.parse(flip.variables.v), { color_mm5bmek5: { label: "Contacted" } }, "only the status changes on George's board");
 const note = writes.find(w => w.query.includes("create_update"));
 assert.match(note.variables.t, /Tom emailed ccooper@golin\.com about this title on 2026-10-19/);
 assert.ok(!writes.some(w => w.variables && w.variables.i === "999"), "the film row is left alone");
-console.log("ok  sync marks the game row on George's board");
+console.log("ok  sync marks the game and tech rows on George's board, not the film");
 
 // Once the row is Contacted, the next day's run leaves it (no second note)
 boards["18415007170"][0].column_values = cv({ color_mm5bmek5: "Contacted", text_mm5baenw: "nintendo.com", email_mm5bfw35: "ccooper@golin.com", color_mm5bqrxh: "Game" });
+boards["18415007170"][1].column_values = cv({ color_mm5bmek5: "Contacted", text_mm5baenw: "apple.com", email_mm5bfw35: "mcalleja@apple.com", color_mm5bqrxh: "Tech" });
 writes.length = 0;
 assert.equal((await run()).written.length, 0); assert.equal(writes.length, 0);
 console.log("ok  no repeat on the next run");
