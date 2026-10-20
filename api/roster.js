@@ -547,6 +547,9 @@ function baseFields(r) {
   // One "About" column (Margot, 6 Oct 2026): the Audience Information copy reads better, so
   // it is shown when present, with the short description as the fallback.
   if (o.audience) o.about = o.audience;
+  // Ad Types matches the row's price (Tom, 20 Oct 2026, after NETA AI's agency read "Dedicated Video, Integrations" next to an
+  // integration rate and asked which one the price was for). The creator's own note stays on the Rates board.
+  if (r.kind === "long") o.adTypes = r.dedicated ? "Dedicated video" : "Integration (mid-roll)";
   return o;
 }
 
