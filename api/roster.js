@@ -2950,8 +2950,9 @@ async function pitchReplyTo(b) {
     return mid ? Object.assign({}, b, { inReplyTo: mid, references: "" }) : b;
   } catch (e) { return b; }
 }
-async function teamDraft(fromEmail, o) {
-  if (!/@digitalfoxtalent\.com$/i.test(fromEmail) || /^tom@/i.test(fromEmail)) return false;
+async function teamDraft(fromEmail, o, opts = {}) {
+  // Tom's drafts normally come from Make; a bounced forward never reached Make, so the bounce sweep passes anyone.
+  if (!/@digitalfoxtalent\.com$/i.test(fromEmail) || (/^tom@/i.test(fromEmail) && !opts.anyone)) return false;
   const tok = await gmailToken(fromEmail); if (!tok) return false;
   const G = (path, opt = {}) => fetch("https://gmail.googleapis.com/gmail/v1/users/me" + path, Object.assign({}, opt, { headers: Object.assign({ Authorization: "Bearer " + tok }, opt.headers || {}) })).then(async r => { const t = await r.text(); let j = {}; try { j = t ? JSON.parse(t) : {}; } catch (_) {} if (!r.ok) throw new Error("Gmail " + r.status + " " + ((j.error && j.error.message) || "")); return j; });
   const q = encodeURIComponent;
@@ -2965,6 +2966,142 @@ async function teamDraft(fromEmail, o) {
   // Their forward to pitch@ leaves the brand thread (Tom, 13 Oct 2026).
   if (threadId) { const sent = (await G("/messages?maxResults=25&q=" + q("in:sent {to:pitch@digitalfoxtalent.com to:press@digitalfoxtalent.com} newer_than:7d")).catch(() => ({}))).messages || []; for (const m of sent) if (m.threadId === threadId) await G("/messages/" + m.id + "/trash", { method: "POST" }).catch(() => null); }
   return true;
+}
+
+// ---------------------------------------------------------------- forwards to pitch@ that Gmail blocked
+// Tom, 20 Oct 2026 (TheSoul's Higgsfield reply): Gmail refused twice to deliver his forward to pitch@ with "Message may
+// contain a virus" (552 5.7.0). Something in the brand's email set it off (signature images on throwaway file hosts),
+// so the forward never reached Make, nothing was built, and the bounce was all he saw.
+// Gmail's block is never overridden on its own. Tom chose a person-confirms version over automatic recovery, so:
+// 1. The sweep (api/pitch-bounce.js, every 10 minutes) finds those bounces in each team mailbox and puts a plain note in
+//    the forwarder's inbox: what happened, a caution to check the sender, and a link. It builds nothing.
+// 2. The link opens a page here, signed in, that only works for the person whose Sent mail holds the forward. It shows
+//    which email it is and one button.
+// 3. Only that click builds the pitch, from the copy in their Sent mail, using its plain text only (no HTML, so no
+//    images or remote content), through the same build Make uses: a fresh Pitch Requests row as proof, pitchFromEmail,
+//    then the draft on the brand thread. The forward is labelled once built, so a second click cannot build it again.
+const BOUNCE_BOXES = ["tom", "alex", "margot", "george"].map(n => n + "@digitalfoxtalent.com");
+const BOUNCE_SEEN = "Pitch bounce noticed"; // on the bounce notices: the inbox note has gone out
+const BOUNCE_BUILT = "Pitch bounce built"; // on the forward: built once, never again
+const BOUNCE_QUERY = "from:mailer-daemon {\"pitch@digitalfoxtalent.com\" \"press@digitalfoxtalent.com\"} newer_than:2d -label:pitch-bounce-noticed";
+const PITCH_TO = /\b(pitch|press)@digitalfoxtalent\.com\b/i;
+function gmailClient(tok) {
+  return (path, opt = {}) => fetch("https://gmail.googleapis.com/gmail/v1/users/me" + path, Object.assign({}, opt, { headers: Object.assign({ Authorization: "Bearer " + tok }, opt.headers || {}) })).then(async r => { const t = await r.text(); let j = {}; try { j = t ? JSON.parse(t) : {}; } catch (_) {} if (!r.ok) throw new Error("Gmail " + r.status + ": " + String((j.error && j.error.message) || t).slice(0, 200)); return j; });
+}
+async function gmailFor(box) { const tok = await gmailToken(box); if (!tok) throw new Error("Gmail is not connected for " + box); return gmailClient(tok); }
+const gHdr = (m, n) => ((((m || {}).payload || {}).headers || []).find(h => h.name.toLowerCase() === n) || {}).value || "";
+// The plain-text part only. A forward that Gmail blocked is never read as HTML, so nothing remote in it is ever loaded.
+function gPlain(m) {
+  let text = "", html = "";
+  const walk = x => { if (!x) return; if (x.body && x.body.data && !x.filename) { const d = Buffer.from(x.body.data, "base64url").toString("utf8"); if (/text\/plain/i.test(x.mimeType || "") && !text) text = d; else if (/text\/html/i.test(x.mimeType || "") && !html) html = d; } (x.parts || []).forEach(walk); };
+  walk(m && m.payload);
+  return text || htmlToText(html.replace(/<(script|style)\b[\s\S]*?<\/\1>/gi, ""));
+}
+const isPitchForward = m => (m.labelIds || []).includes("SENT") && !(m.labelIds || []).includes("DRAFT") && PITCH_TO.test(gHdr(m, "to") + " " + gHdr(m, "cc"));
+// Which forward a set of bounces belongs to, or why there is nothing to offer. Pure, so the test checks it directly.
+export function bouncedForward(messages, bounceIds) {
+  const msgs = (messages || []).slice().sort((a, b) => Number(a.internalDate) - Number(b.internalDate));
+  const bounces = msgs.filter(m => bounceIds.includes(m.id));
+  if (!bounces.length) return { skip: "bounce not in thread" };
+  const lastBounce = Number(bounces[bounces.length - 1].internalDate);
+  const fwds = msgs.filter(isPitchForward);
+  // A forward sent after the last bounce either reached Make, or will bounce too and be picked up next run.
+  if (fwds.some(m => Number(m.internalDate) > lastBounce)) return { skip: "a later forward went out after the bounce" };
+  const fwd = fwds.filter(m => Number(m.internalDate) <= lastBounce).pop();
+  return fwd ? { fwd } : { skip: "no forward to pitch@ found in the thread" };
+}
+const mimeWord = s => /^[\x20-\x7e]*$/.test(s) ? s : "=?UTF-8?B?" + Buffer.from(s, "utf8").toString("base64") + "?=";
+// Put a note straight into someone's inbox (Gmail API insert): nothing is sent, so nothing can bounce.
+async function inboxNote(G, to, subject, html) {
+  const raw = ["From: DFT pitch <pitch@digitalfoxtalent.com>", "To: " + to, "Subject: " + mimeWord(subject), "Date: " + new Date().toUTCString(), "MIME-Version: 1.0", "Content-Type: text/html; charset=UTF-8", "Content-Transfer-Encoding: base64", "", Buffer.from(html, "utf8").toString("base64").replace(/(.{76})/g, "$1\r\n")].join("\r\n");
+  await G("/messages?internalDateSource=receivedTime", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ raw: Buffer.from(raw, "utf8").toString("base64url"), labelIds: ["INBOX", "UNREAD", "IMPORTANT"] }) });
+}
+async function labelId(G, name) {
+  const labels = (await G("/labels")).labels || [];
+  const have = labels.find(l => l.name === name); if (have) return have.id;
+  return (await G("/labels", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, labelListVisibility: "labelShow", messageListVisibility: "show" }) })).id;
+}
+const relabel = (G, id, add, remove) => G("/messages/" + id + "/modify", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ addLabelIds: add || [], removeLabelIds: remove || [] }) });
+export function bounceNoteHtml(subject, fwdId) {
+  const url = "https://" + HOST + "/api/roster?op=bounce&m=" + encodeURIComponent(fwdId);
+  return "<p>Gmail would not deliver your forward to pitch@, so no pitch was built for <b>" + escH(subject) + "</b>.</p>" +
+    "<p>Gmail flagged something in the brand's email as a possible security risk, often images or links on unusual file hosts. Please check the sender is genuine before going any further.</p>" +
+    "<p>If it is, this builds the pitch from the copy in your Sent mail, using its text only: <a href=\"" + url + "\">review and build the pitch</a>.</p>";
+}
+export async function pitchBounceSweep(opts = {}) {
+  const dry = !!opts.dry, out = [];
+  for (const box of opts.boxes || BOUNCE_BOXES) {
+    let G;
+    try { G = await gmailFor(box); } catch (e) { out.push({ box, error: String((e && e.message) || e).slice(0, 200) }); continue; }
+    let found = [];
+    try { found = (await G("/messages?maxResults=20&q=" + encodeURIComponent(BOUNCE_QUERY))).messages || []; } catch (e) { out.push({ box, error: String(e.message).slice(0, 200) }); continue; }
+    const byThread = {}; for (const m of found) (byThread[m.threadId] = byThread[m.threadId] || []).push(m.id);
+    let seen = "";
+    for (const [threadId, bounceIds] of Object.entries(byThread)) {
+      const row = { box, threadId, bounces: bounceIds.length };
+      try {
+        const th = await G("/threads/" + threadId + "?format=metadata&metadataHeaders=To&metadataHeaders=Cc&metadataHeaders=Subject");
+        const pick = bouncedForward(th.messages, bounceIds);
+        if (pick.skip) row.skipped = pick.skip;
+        else { row.subject = gHdr(pick.fwd, "subject"); row.forward = pick.fwd.id; if (!dry) { await inboxNote(G, box, "Gmail blocked your forward: " + row.subject, bounceNoteHtml(row.subject, pick.fwd.id)); row.noted = true; } }
+        if (!dry) { seen = seen || await labelId(G, BOUNCE_SEEN); for (const id of bounceIds) await relabel(G, id, [seen], ["UNREAD"]); }
+      } catch (e) { row.error = String((e && e.message) || e).slice(0, 200); }
+      out.push(row);
+    }
+  }
+  return { ok: true, dry, handled: out };
+}
+// The forward behind a note, checked: in this person's own Sent mail, to pitch@, and blocked by Gmail.
+async function bounceForward(G, id) {
+  if (!/^[0-9a-f]{8,24}$/i.test(String(id || ""))) throw new Error("That link is not complete.");
+  const fwd = await G("/messages/" + id + "?format=full").catch(() => null);
+  if (!fwd || !isPitchForward(fwd)) throw new Error("That forward is not in your Sent mail. Open the link from your own inbox.");
+  const th = await G("/threads/" + fwd.threadId + "?format=metadata&metadataHeaders=To&metadataHeaders=Cc&metadataHeaders=Subject&metadataHeaders=From");
+  const bounced = (th.messages || []).some(m => /mailer-daemon/i.test(gHdr(m, "from")) && Number(m.internalDate) >= Number(fwd.internalDate));
+  if (!bounced) throw new Error("Gmail did not block that forward, so it went through to pitch@ as normal.");
+  return fwd;
+}
+function bouncePage(q, email, info) {
+  const e = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const args = JSON.stringify({ op: "bounce-build", m: String(q.m || "") });
+  const css = "body{margin:0;background:#f5f3ef;font:15px/1.55 Poppins,Arial,sans-serif;color:#1a1a1a;display:grid;place-items:center;min-height:100vh}.c{background:#fff;border:1px solid #ece9e4;border-radius:16px;padding:36px 40px;max-width:480px;margin:24px}h1{font-size:20px;font-weight:600;margin:0 0 12px}p{margin:0 0 12px}.k{color:#6b6b6b;font-size:13px}button{background:#1a1a1a;color:#fff;border:0;border-radius:10px;padding:12px 18px;font:inherit;cursor:pointer;margin-top:8px}button[disabled]{opacity:.5;cursor:default}a{color:#c2410c}";
+  if (info.error) return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Blocked forward</title><style>${css}</style></head><body><div class="c"><h1>Nothing to build</h1><p>${e(info.error)}</p></div></body></html>`;
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Blocked forward</title><style>${css}</style></head>
+<body><div class="c"><h1>Build this pitch anyway?</h1>
+<p>Gmail would not deliver this forward to pitch@ because it flagged the brand's email as a possible security risk.</p>
+<p class="k">Email: ${e(info.subject)}<br>From the brand: ${e(info.brand || "not found")}<br>Forwarded by: ${e(email)}</p>
+<p>Only go ahead if you know the sender is genuine. The pitch is built from the text of your forward only, and the draft lands on the brand's thread as usual.</p>
+<button id="b">Build the pitch</button><p id="m" class="k"></p></div>
+<script>document.getElementById("b").onclick=function(){var b=this,m=document.getElementById("m");b.disabled=true;m.textContent="Building the list and the draft. This can take a couple of minutes, please keep this page open.";
+fetch("/api/roster",{method:"POST",headers:{"content-type":"application/json"},credentials:"same-origin",body:${JSON.stringify(args)}}).then(function(r){return r.json()}).then(function(j){if(j&&j.ok){m.innerHTML=j.message}else{throw new Error(j&&j.error||"It did not finish.")}}).catch(function(x){m.textContent="Not built: "+x.message;b.disabled=false})};</script></body></html>`;
+}
+async function bounceInfo(id, email) {
+  try {
+    const G = await gmailFor(email), fwd = await bounceForward(G, id);
+    if ((fwd.labelIds || []).includes(await labelId(G, BOUNCE_BUILT))) return { error: "This one has already been built. The draft is on the brand's thread." };
+    return { subject: gHdr(fwd, "subject"), brand: parseForward({ text: gPlain(fwd) }).contactEmail || "" };
+  } catch (e) { return { error: String((e && e.message) || e) }; }
+}
+async function bounceBuild(b, email) {
+  const G = await gmailFor(email);
+  const fwd = await bounceForward(G, b.m);
+  const built = await labelId(G, BOUNCE_BUILT);
+  if ((fwd.labelIds || []).includes(built)) throw new Error("This one has already been built. The draft is on the brand's thread.");
+  await relabel(G, fwd.id, [built]); // claimed before the build, so a second click cannot start another
+  const subject = gHdr(fwd, "subject"), fromName = (gHdr(fwd, "from").match(/^\s*"?([^"<]*?)"?\s*</) || [])[1] || "";
+  let item = "";
+  try {
+    item = (await monday("mutation($b:ID!,$n:String!,$v:JSON!){create_item(board_id:$b,item_name:$n,column_values:$v){id}}", { b: String(PITCH_BOARD), n: "Pitch " + new Date().toISOString().slice(0, 16).replace("T", " ") + " (blocked forward, built on request)", v: JSON.stringify({ [PB.by]: email }) })).create_item.id;
+    const r = await pitchFromEmail({ op: "pitch", item, fromEmail: email, fromName, subject, text: gPlain(fwd), html: "", sentTo: [gHdr(fwd, "to"), gHdr(fwd, "cc")].filter(Boolean).join(", ") });
+    const list = r.listUrl ? " <a href=\"" + escH(r.listUrl) + "\" target=\"_blank\">Open the list</a>." : "";
+    if (r.listsOnly) return { ok: true, message: "Lists made (there was no brand to draft a reply to)." + list };
+    const draft = /^tom@/i.test(email) ? await teamDraft(email, r, { anyone: true }) : r.draftMade;
+    if (draft !== true) return { ok: true, message: "The list was made, but the Gmail draft could not be saved." + list };
+    return { ok: true, message: "Done. Your draft to " + escH(r.to) + " is on the brand's thread in Gmail." + list };
+  } catch (e) {
+    await relabel(G, fwd.id, [], [built]).catch(() => null); // not built, so it can be tried again
+    throw e;
+  }
 }
 
 // Clean Gmail drafts for anything Claude writes by hand (Tom, 19 Oct 2026: "really annoying that the links here get
@@ -3055,7 +3192,7 @@ export default async function handler(req, res) {
       if (!who) { res.setHeader("Location", "/?signin=failed"); return res.status(302).end(); }
       const nx = decodeURIComponent((String(req.headers.cookie || "").match(/(?:^|;\s*)dft_next=([^;]+)/) || [])[1] || "");
       res.setHeader("Set-Cookie", [setTeamCookie(res, secret, who), "dft_next=; Path=/; Max-Age=0; Secure; SameSite=Lax"]);
-      res.setHeader("Location", /^\/api\/roster\?op=outreach&/.test(nx) ? nx : "/");
+      res.setHeader("Location", /^\/api\/roster\?op=(outreach|bounce)&/.test(nx) ? nx : "/");
       return res.status(302).end();
     }
     // The Sales Desk Draft button (Tom, 16 Oct 2026). Signed out, it goes to sign in first and comes back here.
@@ -3070,6 +3207,13 @@ export default async function handler(req, res) {
       if (!email) { res.setHeader("Set-Cookie", "dft_next=" + encodeURIComponent(req.url) + "; Path=/; Max-Age=900; Secure; SameSite=Lax"); res.setHeader("Location", "/signin"); return res.status(302).end(); }
       res.setHeader("Content-Type", "text/html; charset=utf-8");
       return res.status(200).send(outreachPage(q));
+    }
+    // A forward Gmail blocked from reaching pitch@ (Tom, 20 Oct 2026): the page behind the inbox note. Builds nothing itself.
+    if (q.op === "bounce") {
+      res.setHeader("Cache-Control", "private, no-store");
+      if (!email) { res.setHeader("Set-Cookie", "dft_next=" + encodeURIComponent(req.url) + "; Path=/; Max-Age=900; Secure; SameSite=Lax"); res.setHeader("Location", "/signin"); return res.status(302).end(); }
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      return res.status(200).send(bouncePage(q, email, await bounceInfo(q.m, email)));
     }
     if (q.op === "signout") {
       res.setHeader("Cache-Control", "private, no-store");
@@ -3116,6 +3260,7 @@ export default async function handler(req, res) {
     if (!email) return res.status(401).json({ error: "Sign in with your DFT Google account" });
       try {
         if (b.op === "draft") return res.status(200).json(await makeDraft(b, email));
+        if (b.op === "bounce-build") return res.status(200).json(await bounceBuild(b, email));
         if (b.op === "edit") return res.status(200).json(await editRow(b, email));
         if (b.op === "undo-edit") return res.status(200).json(await undoEdit(b, email));
         if (b.op === "save-list") return res.status(200).json(await saveList(b, email));
