@@ -2297,6 +2297,16 @@ async function pitchMark(id, result, url) {
 // A note like that splits the email into its campaigns; each gets its own list, and one reply draft carries every list.
 const SEVERAL_RE = /\b(\d+|two|three|four|both|separate)\s+(separate\s+)?(pitch(es)?|lists|shortlists)\b|\bone (pitch |list )?(for|per) each\b|\bpitch(es)? for (each|both)\b|\bseparate (pitch(es)?|lists?)\b/i; // audit 19 Oct 2026: "Need 10+ creators on the list" no longer splits
 const wantsSeveral = note => SEVERAL_RE.test(String(note || ""));
+// The reply for a lists-only forward (see pitchFromEmail): Make emails this to the sender instead of making a draft.
+function listsOnlyResult(f, lists, failed) {
+  const subj = String(f.subject || "your request").replace(/^\s*((re|fwd?|fw)\s*:\s*)+/i, "").trim();
+  const html = "<p><b>Your " + (lists.length > 1 ? lists.length + " lists are" : "list is") + " ready.</b> Nobody outside DFT was in this email, so no reply draft was made.</p><ul>" +
+    lists.map(l => '<li><a href="' + escH(l.url) + '">' + escH(l.title) + "</a>: " + l.placements + " placements</li>").join("") + "</ul>" +
+    (failed && failed.length ? "<p>Not made: " + escH(failed.join("; ")) + "</p>" : "") +
+    "<p>For a reply draft as well, forward the brand's own email to pitch@ with your note on top.</p>";
+  const text = "Your lists are ready. Nobody outside DFT was in this email, so no reply draft was made.\n\n" + lists.map(l => l.title + " (" + l.placements + " placements): " + l.url).join("\n");
+  return { ok: true, listsOnly: true, draftMade: true, lists, listUrl: lists[0].url, title: lists.map(l => l.title).join(" + "), placements: lists.reduce((a, l) => a + l.placements, 0), to: "", cc: "", search: "", subject: "Lists ready: " + subj, html, text };
+}
 async function splitCampaigns(f) {
   const prompt = [
     "A DFT teammate forwarded a brand email to a creator talent agency and asked for a separate pitch for each campaign in it.",
@@ -2400,17 +2410,32 @@ async function pitchFromEmail(b) {
     // Mail to a DFT Google Group (Tom, 19 Oct 2026, Frogge via brands@): the forward only shows "'Grant' via Brands
     // <brands@...>", so the draft was addressed to our own group. The real sender is in the original's Reply-To.
     let groupWhy = ""; if (DFT_DOMAIN.test(f.contactEmail || "")) { const real = await groupSender(f, fromEmail).catch(e => { groupWhy = String((e && e.message) || e).slice(0, 160); return ""; }); if (!real && !groupWhy) groupWhy = "no outside sender in the original's headers"; if (real) { f.contactEmail = real; f.quoteEmail = f.quoteEmail && DFT_DOMAIN.test(f.quoteEmail) ? real : f.quoteEmail; } }
+    // Lists only (Tom, 19 Oct 2026, after Margot's IZEA forward: three briefs she wrote to herself, "there's nobody to
+    // draft the email for"). When nobody outside DFT wrote the email (nothing forwarded, only DFT addresses, or the
+    // sender's own personal address), the lists are made, one per brief, and their links go back to the sender. No draft.
+    if (!b.outreach && !b.sub && !b.listsOnly) {
+      const nm = x => String(x || "").toLowerCase().replace(/[^a-z]+/g, " ").trim();
+      const me = nm(b.fromName).split(" ").filter(w => w.length >= 2);
+      const local = String(f.contactEmail || "").split("@")[0].toLowerCase().replace(/[^a-z]/g, "");
+      const mine = me.length >= 2 && (nm(f.quoteName || f.contactName) === me.join(" ") || me.every(w => local.includes(w)));
+      if (!f.contactEmail || DFT_DOMAIN.test(f.contactEmail) || mine) b = Object.assign({}, b, { listsOnly: true });
+    }
+    if (b.listsOnly) f = Object.assign({}, f, { contactEmail: "", contactName: "" });
     // Never a draft to ourselves: a DFT address is never the brand (Tom, 19 Oct 2026, "Hi The,").
-    if (DFT_DOMAIN.test(f.contactEmail || "")) throw new Error("No list made: no brand email address was found in the forward. Forward the brand's own email to pitch@ with your note above it." + (groupWhy ? " (Group lookup: " + groupWhy + ")" : ""));
+    if (!b.listsOnly && DFT_DOMAIN.test(f.contactEmail || "")) throw new Error("No list made: no brand email address was found in the forward. Forward the brand's own email to pitch@ with your note above it." + (groupWhy ? " (Group lookup: " + groupWhy + ")" : ""));
     if (!b.outreach && b.thread === undefined) b = Object.assign({}, b, { thread: await fetchThread(fromEmail, f).catch(() => "") });
     f = Object.assign({}, f, { thread: String(b.thread || "") });
-    if (!b.sub && !b.outreach && wantsSeveral(f.note)) {
+    if (!b.sub && !b.outreach && (wantsSeveral(f.note) || b.listsOnly)) {
       const camps = await splitCampaigns(f);
       if (camps.length >= 2) {
         const settled = await Promise.allSettled(camps.map(c => pitchFromEmail(Object.assign({}, b, { sub: c }))));
         const subs = settled.filter(x => x.status === "fulfilled").map(x => x.value);
         const failed = camps.map((c, i) => ({ c, s: settled[i] })).filter(x => x.s.status !== "fulfilled").map(x => x.c.name + " (" + String((x.s.reason && x.s.reason.message) || "failed").slice(0, 160) + ")");
         if (!subs.length) { b = Object.assign({}, b, { multiFailed: failed.join("; ") }); } else {
+        if (b.listsOnly) {
+          await pitchMark(b.item, "Lists only (no brand to reply to): " + subs.map(s => s.title + ", " + s.placements + " placements").join("; ") + " (" + subs[0].model + ")" + (failed.length ? ". Not made: " + failed.join("; ") : ""), subs[0].listUrl);
+          return listsOnlyResult(f, subs.map(s => ({ title: s.title, url: s.listUrl, placements: s.placements })), failed);
+        }
         const fwdName0 = String(b.fromName || "").replace(/["<>]/g, "").trim() || fromEmail.split("@")[0];
         const mail = subs.length >= 2 ? composeMulti(subs, fwdName0) : { html: subs[0].html, text: subs[0].text };
         const todo = [...new Set([].concat(...subs.map(s => s.unanswered || [])))];
@@ -2437,7 +2462,7 @@ async function pitchFromEmail(b) {
     if (f.note && !b.outreach && !b.sub) await monday(`mutation{change_multiple_column_values(board_id:${PITCH_BOARD},item_id:${Number(b.item)},column_values:${JSON.stringify(JSON.stringify({ long_text_mm83jwpf: { text: f.note } }))}){id}}`).catch(() => null);
     const pastQ = await monday(`query{boards(ids:[${PITCH_BOARD}]){items_page(limit:200){items{id column_values(ids:["long_text_mm83jwpf"]){text}}}}}`).catch(() => null);
     const pointers = (((((pastQ || {}).boards || [])[0] || {}).items_page || {}).items || []).filter(it => String(it.id) !== String(b.item) && String(it.id) !== String(FACTS_ITEM) && String(it.id) !== String(PLAYBOOK_ITEM) && String(it.id) !== String(RECRUIT_LESSONS_ITEM) && String(it.id) !== String(PITCH_LESSONS_ITEM)).map(it => String(((it.column_values || [])[0] || {}).text || "").trim()).filter(p => p && !/^(warm|kind|best) regards/i.test(p) && !/^\s*(press|press (package|list|pitch|junket)|earned media)[\s.!]*$/i.test(p) && !wantsSeveral(p)).filter((p, i, a) => a.indexOf(p) === i).slice(-30);
-    if (!f.contactEmail || f.body.length < 40) throw new Error("No forwarded enquiry found. Forward the brand's own email.");
+    if ((!f.contactEmail && !b.listsOnly) || f.body.length < 40) throw new Error("No forwarded enquiry found. Forward the brand's own email.");
     const factsQ = await monday(`query{items(ids:[${FACTS_ITEM}]){column_values(ids:["long_text_mm83jwpf"]){text}}}`).catch(() => null);
     const facts = String(((((factsQ || {}).items || [])[0] || {}).column_values || [{}])[0].text || "").trim();
     const lessonsQ = await monday(`query{items(ids:[${PITCH_LESSONS_ITEM}]){column_values(ids:["long_text_mm83jwpf"]){text}}}`).catch(() => null);
@@ -2715,7 +2740,7 @@ async function pitchFromEmail(b) {
     if (!paras.some(p => p.indexOf("[[LIST_LINK]]") >= 0)) paras.splice(Math.min(2, paras.length), 0, "[[LIST_LINK]]");
     if (reportUrl) paras.splice(paras.length - 1, 0, "[[REPORT_LINK]]");
     // Tom's standing lessons from his own sent edits, applied as a last careful pass (prices, numbers and links untouched).
-    const polished = lessons.length && !b.outreach && !b.sub ? await polishPitch(paras, lessons, first, f, latest).catch(() => null) : null;
+    const polished = lessons.length && !b.outreach && !b.sub && !b.listsOnly ? await polishPitch(paras, lessons, first, f, latest).catch(() => null) : null;
     if (polished) paras.splice(0, paras.length, ...polished);
     const REPORT_LEAD = "You can also see how our recent Libsyn campaigns have performed here: ";
     const bullets = [];
@@ -2740,6 +2765,10 @@ async function pitchFromEmail(b) {
       const cd0 = dom0(f.contactEmail), side0 = x => !!cd0 && !FREE0.test(cd0) && dom0(x) === cd0;
       const cc0 = [...new Set((f.others || []).filter(x => x !== f.contactEmail && (side0(x) || /^(alex|margot|george)@digitalfoxtalent\.com$/i.test(x))).concat(["tom@digitalfoxtalent.com", "alex@digitalfoxtalent.com", "margot@digitalfoxtalent.com"]))].filter(x => x !== fromEmail).join(", ");
       return { ok: true, listUrl: saved.url, title, linkText, placements: ids.length, product: noDash(b.sub.name), mix, first, answer, to: f.contactEmail, cc: cc0, subject, search: pitchSearch(f), html: html + quoteHtml, text: text + quoteText, quoteHtml, quoteText, model: out.model, picks: out.picks, questions: out.questions || [], reviewed, press, unanswered: todo, headsUp: [fellBack, whyNone].filter(Boolean).join(". ") };
+    }
+    if (b.listsOnly) {
+      await pitchMark(b.item, "Lists only (no brand to reply to): " + title + ", " + ids.length + " placements (" + out.model + ")" + (fellBack ? ". Heads-up: " + fellBack : ""), saved.url);
+      return listsOnlyResult(f, [{ title, url: saved.url, placements: ids.length }], []);
     }
     await pitchMark(b.item, (press ? "Press package. " : "") + (reuse ? "Ready: same list as before, " : "Ready: ") + ids.length + " placements (" + out.model + ")" + (todo.length ? ". Brand also asked (not answered in the draft): " + todo.join("; ") : "") + (fellBack ? ". Heads-up: " + fellBack : "") + (b.multiFailed ? ". Heads-up: the separate campaign pitches failed (" + String(b.multiFailed).slice(0, 200) + "), so this is one combined pitch" : "") + (whyNone ? ". Heads-up: " + whyNone : "") + (lowFit ? ". Heads-up: no creator was a strong fit, so these are the closest" : ""), saved.url).catch(() => null); // never "Failed" once the list is saved (audit 19 Oct 2026)
     // Who gets copied (Tom, 14 Oct 2026, after a creator's personal email was copied on Margot's Base44 draft):
