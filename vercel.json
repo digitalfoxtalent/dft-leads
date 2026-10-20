@@ -101,6 +101,10 @@
       "schedule": "20 8 * * *"
     },
     {
+      "path": "/api/engaged-build",
+      "schedule": "40 12 * * *"
+    },
+    {
       "path": "/api/slots-build?quick=1",
       "schedule": "*/10 * * * *"
     },

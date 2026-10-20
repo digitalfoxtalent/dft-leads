@@ -28,7 +28,8 @@
 //   /  and /campaigns -> Campaign reach     /platforms -> Platform monetization (?tier=written)
 //   /distribution -> Video distribution (rejected MSN videos, repair feeds)
 //   /coverage -> Creator distribution (platform coverage, rejection rates, back catalogue)
-//   /engaged -> Engaged views (Channel Connect creators, one panel each; /engaged-data?ch= feeds a panel)
+//   /engaged -> Engaged views (Channel Connect creators, one panel each; /engaged-data?ch= feeds a panel;
+//              /engaged-summary is the All creators copy, ?build=1 rebuilds it)
 //   /campaigns/<partner> -> a partner's own view (rows on the monday Report Partners board, see _reports/partners.js)
 //   /status -> source health (JSON)   /videos?ids= -> per-video detail   /platforms-data -> raw JSON
 // Every route needs a signed-in @digitalfoxtalent.com Google account (see _reports/auth.js). To add a report: a folder under _reports, a card in
@@ -49,6 +50,7 @@ import { platformsData, renderPlatforms } from "./_reports/platforms/load.js";
 import { renderDistribution } from "./_reports/distribution/load.js";
 import { renderCoverage } from "./_reports/coverage/load.js";
 import { renderEngaged, engagedData } from "./_reports/engaged/load.js";
+import { readSummary, buildSummary, writeSummary } from "./_reports/engaged/summary.js";
 import { videoDetails } from "./_reports/campaigns/videos.js";
 import { applyLinks } from "./_reports/apply-links.js";
 import { scanUploads } from "./_reports/scan.js";
@@ -217,6 +219,14 @@ export default async function handler(req, res) {
   if (route === "engaged-data") { // team only: one creator's engaged views for the Engaged views panel
     try { return res.status(200).json(await engagedData(token, String(req.query && req.query.ch || ""))); }
     catch (e) { return res.status(500).json({ error: String(e && e.message || e).slice(0, 300) }); }
+  }
+  if (route === "engaged-summary") { // team only: the All creators copy; ?build=1 rebuilds and saves it (about a minute)
+    try {
+      if (String(req.query && req.query.build || "") !== "1") return res.status(200).json((await readSummary(token)) || { error: "no copy yet" });
+      const s = await buildSummary(token);
+      await writeSummary(token, s);
+      return res.status(200).json(s);
+    } catch (e) { return res.status(500).json({ error: String(e && e.message || e).slice(0, 300) }); }
   }
   if (route === "videos") {
     try { return res.status(200).json(await videoDetails(req.query && req.query.ids, token)); } // team: with engaged views

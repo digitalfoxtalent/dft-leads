@@ -8,8 +8,8 @@
 // Logging is best effort: it never throws and never holds a run up for more than a few seconds.
 
 export const RUN_BOARD = 18432874155;
-export const JOBS = { links: "link-finder", unmatched: "unmatched-reads", podcasts: "podcast-export", alarm: "link-alarm", social: "social-links", audit: "flight-audit" };
-const LABEL = { "link-finder": "Link finder (empty rows)", "unmatched-reads": "Make-good and unmatched reads pass", "podcast-export": "Podcast reach from the Megaphone export", "link-alarm": "Links the finders could not find (weekdays, to Tom)", "social-links": "TikTok and Instagram link finder", "flight-audit": "Flight audit (weekly, Mondays)" };
+export const JOBS = { links: "link-finder", unmatched: "unmatched-reads", podcasts: "podcast-export", alarm: "link-alarm", social: "social-links", audit: "flight-audit", engaged: "engaged-views" };
+const LABEL = { "link-finder": "Link finder (empty rows)", "unmatched-reads": "Make-good and unmatched reads pass", "podcast-export": "Podcast reach from the Megaphone export", "link-alarm": "Links the finders could not find (weekdays, to Tom)", "social-links": "TikTok and Instagram link finder", "flight-audit": "Flight audit (weekly, Mondays)", "engaged-views": "Engaged views, all creators copy" };
 
 async function mondayCall(token, query, variables, ms) {
   const ctl = new AbortController();
@@ -69,7 +69,7 @@ export async function recordRun(token, job, summary) {
 // A clean morning logs "nightly cron-watch ... ok" and sends nothing.
 export const WATCH_USERS = [40241658]; // Tom James
 const SUB_BOARD = 6162879732, LATEST_VIEWS = "numeric_mm4bn6yq", WINDOW_H = 26;
-const NEW_JOB_GRACE = { "podcast-export": "2026-10-10T00:00:00Z", "link-alarm": "2026-10-08T00:00:00Z", "social-links": "2026-10-14T00:00:00Z" };
+const NEW_JOB_GRACE = { "podcast-export": "2026-10-10T00:00:00Z", "link-alarm": "2026-10-08T00:00:00Z", "social-links": "2026-10-14T00:00:00Z", "engaged-views": "2026-10-22T00:00:00Z" };
 
 export async function runWatch(token, opts) {
   opts = opts || {};
@@ -78,7 +78,8 @@ export async function runWatch(token, opts) {
   const all = d.boards[0].items_page.items || [];
   const items = all.filter(i => new Date(i.created_at).getTime() >= since);
   const dow = new Date(now).getUTCDay(); // the alarm runs Monday to Friday at 15:05 UTC, so this 10:15 check sees it Tuesday to Saturday
-  for (const job of [JOBS.links, JOBS.unmatched, JOBS.podcasts, JOBS.social].concat(dow >= 2 && dow <= 6 ? [JOBS.alarm] : [])) {
+  // Weekly flight audit (Mondays 08:30 UTC) is checked on Tuesday mornings, 26 hours after it ran (added 20 Oct 2026).
+  for (const job of [JOBS.links, JOBS.unmatched, JOBS.podcasts, JOBS.social, JOBS.engaged].concat(dow >= 2 && dow <= 6 ? [JOBS.alarm] : [], dow === 2 ? [JOBS.audit] : [])) {
     const mine = i => String(i.name).startsWith("nightly " + job + " ");
     const runs = items.filter(mine);
     seen[job] = runs.map(i => i.name);
