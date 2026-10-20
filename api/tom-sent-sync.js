@@ -9,9 +9,15 @@ export const config = { maxDuration: 120 };
 // row's company domain; or a recipient who is a named contact on that row only. Domain alone never matches, because one
 // studio (Netflix, Sony) sits on many rows. Daily at 13:20 UTC, before the 7:45am Denver list. ?days=30 to backfill,
 // ?dry=1 to preview. Calls need the Vercel cron user agent or CRON_SECRET.
+// 20 Oct 2026: also reads the Game, Series and Tech rows still on George's Studio board (18415007170) - Tom's
+// categories since the 17 Oct split - so an email Tom sends about one of them (Zelda to Golin, MacBook Pro and iMac to
+// Apple) stops its alert. Film rows stay George's alone. That board has no Tom Last Emailed columns, so
+// there it flips Not started to Contacted and posts a note on the row with the email link (once, since the flip
+// removes it from the next run).
 
-const BOARD = "18435939296", TOM = "tom@digitalfoxtalent.com";
-const COL = { status: "color_mm5bmek5", domain: "text_mm5baenw", email: "email_mm5bfw35", alt: "long_text_mm5dn2fx", verified: "long_text_mm7v8xhz", backup: "long_text_mm7vjxdy", last: "date_mm88ncxq", link: "link_mm88t2fs" };
+const BOARD = "18435939296", STUDIO_BOARD = "18415007170", TOM = "tom@digitalfoxtalent.com";
+const TOM_TYPES = new Set(["Game", "Series", "Tech"]);
+const COL = { status: "color_mm5bmek5", domain: "text_mm5baenw", email: "email_mm5bfw35", alt: "long_text_mm5dn2fx", verified: "long_text_mm7v8xhz", backup: "long_text_mm7vjxdy", last: "date_mm88ncxq", link: "link_mm88t2fs", type: "color_mm5bqrxh" };
 const FREE = /^(gmail|googlemail|icloud|me|mac|yahoo|ymail|hotmail|outlook|live|msn|aol|proton|protonmail|pm|gmx|mail|zoho|yandex|hey|fastmail)\./i;
 const EMAIL_RE = /[A-Za-z0-9._%+'-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
 const norm = s => " " + String(s || "").toLowerCase().normalize("NFKD").replace(/[̀-ͯ]/g, "").replace(/&/g, " and ").replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim() + " ";
@@ -51,6 +57,16 @@ export function matchRows(msg, rows) {
   return out;
 }
 
+export function rowFrom(it, c, board, rows) {
+  const found = [c[COL.email], c[COL.alt], c[COL.verified], c[COL.backup]].join(" ").match(EMAIL_RE) || [];
+  const em = new Set(found.map(e => e.toLowerCase().replace(/[.,]+$/, "")));
+  const domains = new Set();
+  if (c[COL.domain]) domains.add(baseDomain(c[COL.domain].replace(/^https?:\/\//, "").split("/")[0]));
+  for (const e of em) { const dm = e.split("@")[1]; if (dm && !FREE.test(dm)) domains.add(baseDomain(dm)); }
+  for (const e of em) rows.contactCount[e] = (rows.contactCount[e] || 0) + 1;
+  return { id: it.id, board, name: it.name, status: c[COL.status], last: c[COL.last], emails: em, domains, phrases: titlePhrases(it.name) };
+}
+
 export default async function handler(req, res) {
   const MK = process.env.MONDAY_API_KEY;
   if (!MK) return res.status(500).json({ error: "Missing env vars" });
@@ -61,20 +77,17 @@ export default async function handler(req, res) {
   const days = Math.min(60, Math.max(1, +req.query.days || 3));
   const monday = async (query, variables) => (await fetch("https://api.monday.com/v2", { method: "POST", headers: { "Content-Type": "application/json", Authorization: MK }, body: JSON.stringify({ query, variables: variables || {} }) })).json();
 
-  // 1. Release rows and everything that identifies who works on each one.
-  const d = await monday(`query { boards(ids:[${BOARD}]) { groups(ids:["topics"]) { items_page(limit:500) { items { id name column_values(ids:${JSON.stringify(Object.values(COL))}) { id text } } } } } }`);
-  const items = (((((d.data || {}).boards || [])[0] || {}).groups || [])[0] || {}).items_page;
-  if (!items) return res.status(502).json({ error: "Could not read the board", detail: d.errors || null });
+  // 1. Release rows and everything that identifies who works on each one: Tom's board, plus Game/Series/Tech rows on George's.
   const rows = []; rows.contactCount = {};
-  for (const it of items.items || []) {
-    const c = {}; for (const v of it.column_values || []) c[v.id] = v.text || "";
-    const found = [c[COL.email], c[COL.alt], c[COL.verified], c[COL.backup]].join(" ").match(EMAIL_RE) || [];
-    const em = new Set(found.map(e => e.toLowerCase().replace(/[.,]+$/, "")));
-    const domains = new Set();
-    if (c[COL.domain]) domains.add(baseDomain(c[COL.domain].replace(/^https?:\/\//, "").split("/")[0]));
-    for (const e of em) { const dm = e.split("@")[1]; if (dm && !FREE.test(dm)) domains.add(baseDomain(dm)); }
-    for (const e of em) rows.contactCount[e] = (rows.contactCount[e] || 0) + 1;
-    rows.push({ id: it.id, name: it.name, status: c[COL.status], last: c[COL.last], emails: em, domains, phrases: titlePhrases(it.name) });
+  for (const board of [BOARD, STUDIO_BOARD]) {
+    const d = await monday(`query { boards(ids:[${board}]) { groups(ids:["topics"]) { items_page(limit:500) { items { id name column_values(ids:${JSON.stringify(Object.values(COL))}) { id text } } } } } }`);
+    const items = (((((d.data || {}).boards || [])[0] || {}).groups || [])[0] || {}).items_page;
+    if (!items) return res.status(502).json({ error: "Could not read board " + board, detail: d.errors || null });
+    for (const it of items.items || []) {
+      const c = {}; for (const v of it.column_values || []) c[v.id] = v.text || "";
+      if (board === STUDIO_BOARD && !TOM_TYPES.has(c[COL.type])) continue;
+      rows.push(rowFrom(it, c, board, rows));
+    }
   }
 
   // 2. tom@'s sent mail to anyone outside DFT.
@@ -100,14 +113,24 @@ export default async function handler(req, res) {
     }
   }
 
-  // 3. Write newer dates; flip Not started to Contacted.
+  // 3. Write newer dates; flip Not started to Contacted. On George's board (no Tom columns) only the flip, plus a note.
   const written = [];
   for (const r of rows) {
     const h = hits[r.id]; if (!h) continue;
+    const url = "https://mail.google.com/mail/u/" + TOM + "/#all/" + h.thread;
+    if (r.board === STUDIO_BOARD) {
+      if (r.status && r.status !== "Not started") continue;
+      written.push({ title: r.name, board: "studio", date: h.at, to: h.to, subject: h.subject, contacted: true });
+      if (dry) continue;
+      await monday("mutation ($b: ID!, $i: ID!, $v: JSON!) { change_multiple_column_values(board_id: $b, item_id: $i, column_values: $v) { id } }", { b: STUDIO_BOARD, i: r.id, v: JSON.stringify({ [COL.status]: { label: "Contacted" } }) });
+      const esc = x => String(x).replace(/&/g, "&amp;").replace(/</g, "&lt;");
+      await monday("mutation ($i: ID!, $t: String!) { create_update(item_id: $i, body: $t) { id } }", { i: r.id, t: "<p>Tom emailed " + esc(h.to) + " about this title on " + h.at + ", so it is marked Contacted. <a href=\"" + url + "\">" + esc(h.subject || "Tom's email") + "</a></p>" });
+      continue;
+    }
     if (r.last && r.last >= h.at) continue;
     const cols = {};
     cols[COL.last] = { date: h.at };
-    cols[COL.link] = { url: "https://mail.google.com/mail/u/" + TOM + "/#all/" + h.thread, text: h.subject || "Tom's email" };
+    cols[COL.link] = { url, text: h.subject || "Tom's email" };
     if (!r.status || r.status === "Not started") cols[COL.status] = { label: "Contacted" };
     written.push({ title: r.name, date: h.at, to: h.to, subject: h.subject, contacted: !!cols[COL.status] });
     if (!dry) await monday("mutation ($b: ID!, $i: ID!, $v: JSON!) { change_multiple_column_values(board_id: $b, item_id: $i, column_values: $v) { id } }", { b: BOARD, i: r.id, v: JSON.stringify(cols) });
