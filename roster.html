@@ -50,6 +50,9 @@
   .seg button.on{ background:var(--team); color:#fff; }
 
   /* Banner (team identity / saved list) */
+  /* How to read the rates, always visible (Tom, 20 Oct 2026: NETA AI's agency asked what the rate, Simulcast and exclusivity meant; the answers were only in hover tips). */
+  .howto{ padding:7px 16px; font-size:11.5px; line-height:1.5; color:var(--muted); border-bottom:1px solid #eef1f4; }
+  .howto b{ color:inherit; font-weight:600; }
   .banner{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:8px 16px; font-size:12px; background:var(--teambg); color:var(--team); border-bottom:1px solid #d5e2ef; }
   .banner.list{ background:#fff5ea; color:#8a4a00; border-bottom-color:#f0dcc2; }
   .banner.warn{ background:#fff4d6; color:#6e4a00; border-bottom-color:#efd98f; }
@@ -494,6 +497,7 @@
     <a class="signin" id="signin" href="/signin" style="display:none">DFT sign in</a>
   </div>
   <div class="banner" id="banner" style="display:none"></div>
+  <div class="howto" id="howto" style="display:none"></div>
 
   <div class="scroll" id="scroll">
     <div class="state"><div><div class="spinner"></div>Loading roster…</div></div>
@@ -549,7 +553,7 @@ const BRAND_COLS=[
   {key:"total",  head:"Total Rate",  w:112, fmt:"money", shortOnly:true, tip:"Publishing Rate plus Production Rate."},
   {key:"rights", head:"Usage Rights", w:340, shortOnly:true, tip:"12 months of digital usage rights and boosting rights are included in the total."},
   {key:"minVideos",head:"Min. videos", w:112, longOnly:true, tip:"Smaller channels are booked as a short bundle so the deal reaches the $1,500 minimum at the normal CPM. The rate and view guarantee cover the whole bundle."},
-  {key:"simulcast",head:"Simulcast",  w:100, longOnly:true, tip:"Also published to Spotify Video, Apple Podcasts and other podcast apps. That extra reach is included at the same rate."},
+  {key:"simulcast",head:"Simulcast",  w:100, longOnly:true, tip:"Also published to Spotify Video, Apple Podcasts, Amazon Music, iHeartRadio and other podcast apps. That extra reach is included at the same rate."},
   {key:"category",head:"Category",   w:116},
   {key:"host",   head:"Host",        w:138},
   {key:"adEx",   head:"Ad Examples", w:108},
@@ -558,7 +562,7 @@ const BRAND_COLS=[
   {key:"about",  head:"About the Show", w:460, cls:"wide"}, // renamed and placed next to Stage everywhere (Tom, 16 Oct 2026)
   {key:"hostGender",head:"Host Gender", w:90},
   {key:"hostRead",head:"Host Read",  w:78},
-  {key:"exclusive",head:"Category Exclusive (30 days)", w:130}, // 30-day category exclusivity (Tom, 14 Oct 2026)
+  {key:"exclusive",head:"Category Exclusive (30 days)", w:130, tip:"No competing brand in the same product category on that channel for 30 days after your video goes live."}, // 30-day category exclusivity (Tom, 14 Oct 2026)
   {key:"adTypes",head:"Ad Types",    w:150, cls:"wide"},
   {key:"adLength", head:"Ad length", w:92},
   {key:"kit",    head:"Audience stats", w:130, tip:"The creator's audience: age, gender, countries and how they watch. Live from YouTube Analytics where the creator has connected their channel."},
@@ -1903,6 +1907,12 @@ function applyBrand(p){
     ?`Prices fixed for this campaign (set ${fmtDate(p.list.lock.on)}) · a selection from our roster`
     :`Rates valid for ${p.quarter} · ${p.list?"a selection from our roster":"updated once a quarter"} · click the arrow beside a channel to see its specific shows`;
   if(p.list) $("#title").textContent=p.list.title;
+  const ht=$("#howto");
+  if(ht){
+    const press=!!(p.list&&p.list.press);
+    ht.style.display=press?"none":"";
+    ht.innerHTML=press?"":"<b>How to read this list:</b> YouTube rates are for one 30 to 90 second integration in a long-form video; dedicated videos are priced on their own tab. <b>Simulcast</b> means the video also goes out on Spotify Video, Apple Podcasts, Amazon Music, iHeartRadio and other podcast apps, at no extra cost. <b>Category Exclusive (30 days)</b> means no competing brand in the same product category on that channel for 30 days after your video goes live.";
+  }
   if(mode!=="team"){ PAYLOAD=BRAND; renderBanner(); renderTabs(); render(); }
 }
 async function loadBrand(bust){
