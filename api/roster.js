@@ -2970,8 +2970,8 @@ async function teamDraft(fromEmail, o) {
   const log = o.draftLog = [];
   const found = ((await G("/messages?maxResults=1&q=" + q(o.search)).catch(e => { log.push("forward search failed: " + e.message); return {}; })).messages || [])[0];
   let threadId = "", thread = {};
-  if (found) { threadId = found.threadId; thread = await G("/threads/" + threadId + "?format=metadata&metadataHeaders=Message-ID&metadataHeaders=References&metadataHeaders=In-Reply-To&metadataHeaders=Subject").catch(() => ({})); }
-  log.push(found ? "forward found, thread " + threadId + " (" + ((thread.messages || []).length) + " messages: " + (thread.messages || []).map(m => (m.labelIds || []).filter(l => /^(INBOX|SENT|DRAFT|TRASH)$/.test(l)).join("+") || "other").join(", ") + ")" : "forward NOT found with: " + o.search);
+  if (found) { threadId = found.threadId; thread = await G("/threads/" + threadId + "?format=metadata&metadataHeaders=Message-ID&metadataHeaders=References&metadataHeaders=In-Reply-To&metadataHeaders=Subject&metadataHeaders=From&metadataHeaders=To").catch(() => ({})); }
+  log.push(found ? "forward found, thread " + threadId + " (" + ((thread.messages || []).length) + " messages: " + (thread.messages || []).map(m => (m.labelIds || []).filter(l => /^(INBOX|SENT|DRAFT|TRASH)$/.test(l)).join("+") || "other").join(", ") + "). Last 4: " + (thread.messages || []).slice(-4).map(m => { const hv = n => (((m.payload || {}).headers || []).find(h => h.name.toLowerCase() === n) || {}).value || ""; const at = x => (String(x).match(/[\w.+-]+@[\w.-]+/g) || []).join("/"); return at(hv("from")) + ">" + at(hv("to")); }).join("; ") : "forward NOT found with: " + o.search);
   // The previous draft to this brand in the same thread goes (Tom, 13 Oct 2026). Every draft to the brand is checked,
   // not only the first 20 the search returns, and a stray from an earlier attempt that never joined the thread goes too.
   if (threadId) {
@@ -3006,6 +3006,13 @@ async function teamDraft(fromEmail, o) {
   // so a failed run never makes the forward look as if it had been dealt with.
   if (threadId && ok) { const sent = (await G("/messages?maxResults=25&q=" + q("in:sent {to:pitch@digitalfoxtalent.com to:press@digitalfoxtalent.com} newer_than:7d")).catch(() => ({}))).messages || []; for (const m of sent) if (m.threadId === threadId) await G("/messages/" + m.id + "/trash", { method: "POST" }).catch(() => null); }
   o.draftId = kept && kept.id;
+  // What Gmail actually stored (Tom, 20 Oct 2026: Margot's draft landed in the thread but opened blank).
+  if (kept) {
+    const st = await G("/drafts/" + kept.id + "?format=full").catch(e => ({ err: e.message }));
+    const parts = []; const walk = p => { if (!p) return; if (p.body && p.body.data) parts.push(p.mimeType + " " + Buffer.from(p.body.data, "base64url").length + "b"); (p.parts || []).forEach(walk); };
+    walk(((st || {}).message || {}).payload);
+    log.push("sent to Gmail: html " + String(o.html || "").length + " chars, text " + String(o.text || "").length + " chars. Gmail stored: " + (st.err ? "read failed " + st.err : (parts.join(", ") || "NO BODY") + ", size " + ((st.message || {}).sizeEstimate || "?") + ", snippet \"" + String((st.message || {}).snippet || "").slice(0, 90) + "\""));
+  }
   return threadId && !ok ? DRAFT_OUTSIDE : true;
 }
 // Read a new draft back: Gmail must report it in the thread, and the thread must list its message.
