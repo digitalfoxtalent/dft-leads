@@ -177,8 +177,21 @@ export default async function handler(req, res) {
     // training opt-in). AI assistants' crawlers (GPTBot, OAI-SearchBot, ClaudeBot, PerplexityBot and the like) stay
     // blocked: a separate call for Tom. Not on Wordie or the /subplot preview path.
     const searchAgents = brand().key === "subplot" && !base ? ["Applebot", "DuckDuckBot", "YandexBot"] : [];
+    // AI ASSISTANTS, 20 Oct 2026 (Tom: "Please enable them, and anything else we should enable"). Lets ChatGPT, Claude,
+    // Perplexity, Gemini, Apple Intelligence, Alexa, Meta AI, Mistral and DuckDuckGo's answers read SUBPLOT, so they can
+    // quote and link it. Includes the training tokens (GPTBot, ClaudeBot, Google-Extended, Applebot-Extended, CCBot) as
+    // well as the search and on-demand fetchers. Bytespider stays blocked: it crawls heavily and sends nobody back.
+    // Not on Wordie or the /subplot preview path.
+    const aiAgents = brand().key === "subplot" && !base ? [
+      "GPTBot", "OAI-SearchBot", "ChatGPT-User",                 // OpenAI
+      "ClaudeBot", "Claude-SearchBot", "Claude-User",            // Anthropic
+      "PerplexityBot", "Perplexity-User",                        // Perplexity
+      "Google-Extended", "Applebot-Extended",                    // Gemini, Apple Intelligence (permission tokens)
+      "Amazonbot", "meta-externalagent", "MistralAI-User",       // Alexa and Rufus, Meta AI, Le Chat
+      "DuckAssistBot", "CCBot",                                  // DuckDuckGo answers, Common Crawl
+    ] : [];
     return res.status(200).send([
-      ...[...googleAgents, ...bingAgents, ...searchAgents, ...feedAgents].flatMap(a => ["User-agent: " + a, "Allow: /", ""]),
+      ...[...googleAgents, ...bingAgents, ...searchAgents, ...aiAgents, ...feedAgents].flatMap(a => ["User-agent: " + a, "Allow: /", ""]),
       "User-agent: *", "Allow: /ads.txt", "Disallow: /", "",
       // Absolute by spec, and it names the sitemap even to crawlers that never see
       // Search Console. This is the line that says "the site is here".
