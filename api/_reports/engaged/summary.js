@@ -8,9 +8,10 @@
 // "dft-engaged-views", record "summary". The page only reads that copy, so it opens instantly and
 // YouTube is asked once a night, not on every visit. A team member can rebuild it from the page.
 //
-// ROSTER AVERAGE. The average of each creator's own average, so every creator counts the same and
-// one big channel does not swamp the smaller ones. Each creator's figures cover their latest 12
-// long-form videos at least 7 days old (Channel Connect's rule). A creator whose figures could not
+// ROSTER AVERAGE. The average of each creator's own average, so every creator counts once however
+// often they post. A very big channel still pulls it up, so the middle creator (median) sits beside it.
+// Each creator's figures cover their latest 12 long-form videos at least a week old (Channel Connect,
+// ?mature=1). A creator whose figures could not
 // be read is listed with the reason and left out of the averages.
 //
 // READ ONLY on monday and YouTube. The only write is the saved copy in the Apify store.
@@ -49,7 +50,7 @@ export function creatorRow(c, d) {
     videos: num(S.videos) || 0,
     asOf: d.asOf || "",
   });
-  if (row.avgEngaged == null || !row.videos) row.unavailable = "No long-form videos at least 7 days old yet.";
+  if (row.avgEngaged == null || !row.videos) row.unavailable = d.note || "No long-form videos at least a week old found.";
   return row;
 }
 

@@ -24,7 +24,7 @@ assert.match(creatorRow({ name: "X", channel: "c" }, { unavailable: "This creato
 assert.match(creatorRow({ name: "X", channel: "c" }, null).unavailable, /No answer/);
 assert.match(creatorRow({ name: "X", channel: "c" }, { summary: { avgEngagedViews: null, videos: 0 }, videos: [] }).unavailable, /No long-form/);
 
-// Roster: every creator counts the same (average of averages), so a giant does not swamp the rest.
+// Roster: every creator counts once (average of averages); the median sits beside it.
 const rows = [
   { name: "Big", channel: "1", avgEngaged: 100000, medianEngaged: 90000, avgViews: 150000, share: 0.6, videos: 12 },
   { name: "Mid", channel: "2", avgEngaged: 10000, medianEngaged: 9000, avgViews: 20000, share: 0.5, videos: 12 },
@@ -63,6 +63,7 @@ globalThis.fetch = async (url, opt = {}) => {
   }
   if (url.startsWith("https://connect.digitalfoxtalent.com/api/views")) {
     connectCalls++;
+    assert.ok(url.includes("&mature=1"), "asks for week-old videos");
     const ch = new URL(url).searchParams.get("k");
     if (ch === CH[3]) return json({}, 410); // Cosmic Wonder removed access
     const big = ch === CH[0];
