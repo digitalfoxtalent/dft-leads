@@ -2506,7 +2506,7 @@ async function pitchFromEmail(b) {
     const haySp = spaced(nameTxt), hayTok = new Set(String(nameTxt).toLowerCase().split(/[^a-z0-9_.]+/).map(t => t.replace(/[^a-z0-9]/g, "")).filter(t => t.length >= 5));
     // A multi-word name made of ordinary words counts only when written as a name: each word capitalised, as on the roster, or in capitals.
     const asName = (raw, nm) => { const ws = String(nm).replace(/^@/, "").split(/[^A-Za-z0-9]+/).filter(Boolean); if (ws.length < 2) return true; const re = new RegExp("(^|[^A-Za-z0-9])" + ws.map(w => esc0(w)).join("[^A-Za-z0-9]+") + "(?=$|[^A-Za-z0-9])", "gi"); let m; while ((m = re.exec(raw))) { const hit = m[0].replace(/^[^A-Za-z0-9]/, ""); if (hit.split(/[^A-Za-z0-9]+/).filter(Boolean).every(w => /^[A-Z0-9]/.test(w))) return true; } return false; };
-    const namedPl = Object.keys(cat.byId).filter(id => { const nm = base(cat.byId[id].name), n = spaced(nm), h = norm(cat.byId[id].handle); return (n.trim().length >= 5 && haySp.includes(n) && asName(nameTxt, nm)) || (h.length >= 5 && hayTok.has(h)) || (norm(nm).length >= 8 && hayTok.has(norm(nm))); });
+    const namedPl = Object.keys(cat.byId).filter(id => { const nm = base(cat.byId[id].name), n = spaced(nm), h = norm(cat.byId[id].handle); return (n.trim().length >= 5 && haySp.includes(n) && asName(nameTxt, nm)) || (h.length >= 5 && hayTok.has(h)) || (norm(nm).length >= 8 && [norm(nm), norm(nm).replace(/s$/, ""), norm(nm) + "s"].some(t => hayTok.has(t))); }); // singular or plural run together too (Tom, 20 Oct 2026: "Hi Reelreject & Team!" missed The Reel Rejects)
     const namedNames = []; namedPl.map(id => base(cat.byId[id].name).replace(/^@/, "")).sort((a, b) => b.length - a.length).forEach(nm => { const k = norm(nm); if (!namedNames.some(x => norm(x).startsWith(k) || k.startsWith(norm(x)))) namedNames.push(nm); });
     const nameOf = id => { const k = norm(base(cat.byId[id].name).replace(/^@/, "")); return namedNames.find(x => norm(x).startsWith(k) || k.startsWith(norm(x))) || ""; };
     const fwdName = String(b.fromName || "").replace(/["<>]/g, "").trim() || fromEmail.split("@")[0];
@@ -2535,6 +2535,10 @@ async function pitchFromEmail(b) {
     // "touches on AI but isn't a completely AI focussed product", and got an AI-only list).
     const aiCamp = aiIds.size > 0 && out.ai_product === true;
     const namedIds = new Set((out.picks || []).filter(p => p && p.named === true).map(p => String(p.id)));
+    // A creator the model marks named counts as named even when the email spells them differently (Tom, 20 Oct 2026: a brand
+    // that asked for The Reel Rejects specifically got a generic reply with no Reel Rejects rates in it). Their rates then go in
+    // the email itself, as for any creator the brand asks about.
+    namedIds.forEach(id => { if (!cat.byId[id] || nameOf(id)) return; const nm = base(cat.byId[id].name).replace(/^@/, ""), k = norm(nm); if (k.length < 4) return; namedNames.push(nm); Object.keys(cat.byId).forEach(x => { if (norm(base(cat.byId[x].name).replace(/^@/, "")) === k && !namedPl.includes(x)) namedPl.push(x); }); });
     const ids = [...new Set((out.picks || []).filter(p => p && (p.named === true || !(Number(p.fit) < 3))).map(p => String(p && p.id)).filter(id => cat.byId[id] && (!aiCamp || aiOk(id) || namedIds.has(id))))];
     const picked0 = ids.slice(); // the model's picks before the format, market and pointer checks (for the fallback below)
     // Only formats the enquiry asks for: dedicated and social placements need to be named; integrations and Shorts are the default.
