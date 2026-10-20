@@ -26,11 +26,19 @@ const norm = s => String(s || "").toLowerCase().normalize("NFKD").replace(/[Ì€-Í
 // Same release if the names match after normalising, or one contains the other and they share a type
 // ("Stellar Blade Complete Edition (Switch 2)" vs "Stellar Blade Complete Edition"). When unsure, skip: a duplicate
 // splits the contact work and double-fires the alert.
-function isDupe(name, type, existing) {
+// A trailing bracket is a platform or year tag, not part of the title, so "Ocarina of Time (Switch 2)" and
+// "Ocarina of Time (2026)" are the same release (Tom, 20 Oct 2026: the second one came in as a new row without the
+// Golin contact, so his email to Golin never marked it). Compared within the same type only, so a film and a game
+// that share a name stay separate.
+export const coreName = s => norm(String(s || "").replace(/(\s*\([^()]*\))+\s*$/, ""));
+export function isDupe(name, type, existing) {
   const n = norm(name); if (!n) return true;
+  const core = coreName(name);
   for (const e of existing) {
     if (e.n === n) return true;
     if (e.type === type && (e.n.includes(n) || n.includes(e.n)) && Math.min(e.n.length, n.length) >= 6) return true;
+    const ec = e.core != null ? e.core : e.n;
+    if (e.type === type && core.length >= 6 && ec === core) return true;
   }
   return false;
 }
@@ -62,7 +70,7 @@ export default async function handler(req, res) {
       const d = await monday(q);
       const page = cursor ? (d.data || {}).next_items_page : ((((d.data || {}).boards || [])[0] || {}).items_page);
       if (!page) return res.status(502).json({ error: "Could not read board " + board + " for dedupe; nothing written", detail: d.errors || null });
-      for (const it of page.items || []) existing.push({ n: norm(it.name), type: ((it.column_values || [])[0] || {}).text || "" });
+      for (const it of page.items || []) existing.push({ n: norm(it.name), core: coreName(it.name), type: ((it.column_values || [])[0] || {}).text || "" });
       cursor = page.cursor; if (!cursor) break;
     }
   }
@@ -118,7 +126,7 @@ export default async function handler(req, res) {
     cols[COL.status] = { label: "Not started" };
     cols[COL.window] = { label: days > 120 ? "Too early" : "Prep window" };
     cols[COL.notes] = { text: (approx ? "Date approximate, confirm later. " : "") + "Added by the release finder " + start + (x.source_url ? ". Source: " + String(x.source_url).slice(0, 300) : "") };
-    existing.push({ n: norm(title), type: niche.label });
+    existing.push({ n: norm(title), core: coreName(title), type: niche.label });
     if (dry) { added.push({ title, date, company: cols[COL.studio], approx }); continue; }
     const d = await monday("mutation ($b: ID!, $n: String!, $v: JSON!) { create_item(board_id: $b, group_id: \"topics\", item_name: $n, column_values: $v, create_labels_if_missing: true) { id } }", { b: niche.board, n: title, v: JSON.stringify(cols) });
     if (d.data && d.data.create_item) added.push({ id: d.data.create_item.id, title, date });
