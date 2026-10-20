@@ -562,7 +562,7 @@ const BRAND_COLS=[
   {key:"about",  head:"About the Show", w:460, cls:"wide"}, // renamed and placed next to Stage everywhere (Tom, 16 Oct 2026)
   {key:"hostGender",head:"Host Gender", w:90},
   {key:"hostRead",head:"Host Read",  w:78},
-  {key:"exclusive",head:"Category Exclusive (30 days)", w:130, tip:"No competing brand in the same product category on that channel for 30 days after your video goes live."}, // 30-day category exclusivity (Tom, 14 Oct 2026)
+  {key:"exclusive",head:"Category Exclusive", w:130, tip:"30 days: no competing brand in the same product category on that channel for 30 days after your video goes live."}, // 30-day category exclusivity (Tom, 14 Oct 2026)
   {key:"adTypes",head:"Ad Types",    w:150, cls:"wide"},
   {key:"adLength", head:"Ad length", w:92},
   {key:"kit",    head:"Audience stats", w:130, tip:"The creator's audience: age, gender, countries and how they watch. Live from YouTube Analytics where the creator has connected their channel."},
@@ -1911,7 +1911,7 @@ function applyBrand(p){
   if(ht){
     const press=!!(p.list&&p.list.press);
     ht.style.display=press?"none":"";
-    ht.innerHTML=press?"":"<b>How to read this list:</b> YouTube rates are for one 30 to 90 second integration in a long-form video; dedicated videos are priced on their own tab. <b>Simulcast</b> means the video also goes out on Spotify Video, Apple Podcasts, Amazon Music, iHeartRadio and other podcast apps, at no extra cost. <b>Category Exclusive (30 days)</b> means no competing brand in the same product category on that channel for 30 days after your video goes live.";
+    ht.innerHTML=press?"":"<b>How to read this list:</b> YouTube rates are for one 30 to 90 second integration in a long-form video; dedicated videos are priced on their own tab. <b>Simulcast</b> means the video also goes out on Spotify Video, Apple Podcasts, Amazon Music, iHeartRadio and other podcast apps, at no extra cost. <b>Category Exclusive: 30 days</b> means no competing brand in the same product category on that channel for 30 days after your video goes live.";
   }
   if(mode!=="team"){ PAYLOAD=BRAND; renderBanner(); renderTabs(); render(); }
 }
