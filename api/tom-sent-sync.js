@@ -11,12 +11,30 @@ export const config = { maxDuration: 120 };
 // ?dry=1 to preview. Calls need the Vercel cron user agent or CRON_SECRET.
 // 20 Oct 2026: also reads the Game, Series and Tech rows still on George's Studio board (18415007170) - Tom's
 // categories since the 17 Oct split - so an email Tom sends about one of them (Zelda to Golin, MacBook Pro and iMac to
-// Apple) stops its alert. Film rows stay George's alone. That board has no Tom Last Emailed columns, so
+// Apple) stops its alert. Film rows stay George's alone.
+// 20 Oct 2026, creators: also marks Target Creators rows (18415381478) Tom has emailed, the same way the alert's "I've
+// emailed them" button does - Outreach Status Done plus Outreach Sent (the date it went, Denver) - so the 1:30pm creator
+// alert skips them and the board's own automation moves them to Creators Approached. Matched on the row's exact email
+// address only, and only rows with Outreach Status still blank. Volrusk was emailed at 11:35am and alerted at 4pm, so
+// this also runs at 1:10pm Denver on weekdays (?run=midday), 20 minutes before the creator alerts. That board has no Tom Last Emailed columns, so
 // there it flips Not started to Contacted and posts a note on the row with the email link (once, since the flip
 // removes it from the next run).
 
 const BOARD = "18435939296", STUDIO_BOARD = "18415007170", TOM = "tom@digitalfoxtalent.com";
 const TOM_TYPES = new Set(["Game", "Series", "Tech"]);
+const CREATOR_BOARD = "18415381478", CCOL = { email: "email_mm3t61sv", status: "color_mm3tzck8", sent: "date_mm7g7kp9" };
+const denverDate = ms => new Date(ms).toLocaleDateString("en-CA", { timeZone: "America/Denver" });
+
+// Creator rows Tom has emailed: rows is [{id, name, email}] with Outreach Status blank; sentTo maps each external
+// address Tom wrote to {at, thread} for his latest email to it. Exact address match only.
+export function matchCreators(rows, sentTo) {
+  const out = [];
+  for (const r of rows) {
+    const e = String(r.email || "").trim().toLowerCase();
+    if (e && sentTo[e]) out.push({ id: r.id, name: r.name, email: e, at: sentTo[e].at, thread: sentTo[e].thread });
+  }
+  return out;
+}
 const COL = { status: "color_mm5bmek5", domain: "text_mm5baenw", email: "email_mm5bfw35", alt: "long_text_mm5dn2fx", verified: "long_text_mm7v8xhz", backup: "long_text_mm7vjxdy", last: "date_mm88ncxq", link: "link_mm88t2fs", type: "color_mm5bqrxh" };
 const FREE = /^(gmail|googlemail|icloud|me|mac|yahoo|ymail|hotmail|outlook|live|msn|aol|proton|protonmail|pm|gmx|mail|zoho|yandex|hey|fastmail)\./i;
 const EMAIL_RE = /[A-Za-z0-9._%+'-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
@@ -97,7 +115,7 @@ export default async function handler(req, res) {
   do { const r = await G("/messages?maxResults=100&q=" + encodeURIComponent("in:sent newer_than:" + days + "d") + (pt ? "&pageToken=" + pt : "")); ids = ids.concat(r.messages || []); pt = r.nextPageToken || ""; } while (pt && ids.length < 600);
   const hd = (m, n) => (((m.payload || {}).headers || []).find(h => h.name.toLowerCase() === n) || {}).value || "";
   const bodyText = pl => { let out = ""; const walk = x => { if (!x || out.length > 20000) return; if (x.body && x.body.data && /text\/plain/.test(x.mimeType || "")) out += Buffer.from(x.body.data, "base64url").toString("utf8"); (x.parts || []).forEach(walk); }; walk(pl); return out.split(/\nOn .{10,80} wrote:/)[0]; };
-  const hits = {}; let scanned = 0;
+  const hits = {}, sentTo = {}; let scanned = 0;
   for (let i = 0; i < ids.length; i += 10) {
     const full = await Promise.all(ids.slice(i, i + 10).map(m => G("/messages/" + m.id + "?format=full")));
     for (const m of full) {
@@ -107,6 +125,8 @@ export default async function handler(req, res) {
       scanned++;
       const msg = { to, subject: hd(m, "subject"), body: bodyText(m.payload) || m.snippet || "" };
       const at = new Date(+m.internalDate || 0).toISOString().slice(0, 10);
+      const local = denverDate(+m.internalDate || 0);
+      for (const a of to) if (!sentTo[a] || sentTo[a].at < local) sentTo[a] = { at: local, thread: m.threadId };
       for (const r of matchRows(msg, rows)) {
         if (!hits[r.id] || hits[r.id].at < at) hits[r.id] = { at, thread: m.threadId, subject: msg.subject.slice(0, 120), to: to.join(", ") };
       }
@@ -135,5 +155,16 @@ export default async function handler(req, res) {
     written.push({ title: r.name, date: h.at, to: h.to, subject: h.subject, contacted: !!cols[COL.status] });
     if (!dry) await monday("mutation ($b: ID!, $i: ID!, $v: JSON!) { change_multiple_column_values(board_id: $b, item_id: $i, column_values: $v) { id } }", { b: BOARD, i: r.id, v: JSON.stringify(cols) });
   }
-  return res.json({ dry, days, rows: rows.length, sentScanned: scanned, written });
+  // 4. Target Creators rows Tom has emailed, still with a blank Outreach Status.
+  const cd = await monday(`query { boards(ids:[${CREATOR_BOARD}]) { items_page(limit:500, query_params:{rules:[{column_id:"${CCOL.status}", compare_value:[], operator:is_empty}]}) { items { id name column_values(ids:["${CCOL.email}"]) { text } } } } }`);
+  const cItems = ((((cd.data || {}).boards || [])[0] || {}).items_page || {}).items;
+  const creators = [];
+  if (cItems) {
+    const cRows = cItems.map(it => ({ id: it.id, name: it.name, email: ((it.column_values || [])[0] || {}).text || "" }));
+    for (const c of matchCreators(cRows, sentTo)) {
+      creators.push({ name: c.name, email: c.email, date: c.at });
+      if (!dry) await monday("mutation ($b: ID!, $i: ID!, $v: JSON!) { change_multiple_column_values(board_id: $b, item_id: $i, column_values: $v) { id } }", { b: CREATOR_BOARD, i: c.id, v: JSON.stringify({ [CCOL.status]: { label: "Done" }, [CCOL.sent]: { date: c.at } }) });
+    }
+  }
+  return res.json({ dry, days, rows: rows.length, sentScanned: scanned, written, creators, creatorBoardRead: !!cItems });
 }

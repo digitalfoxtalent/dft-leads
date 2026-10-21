@@ -125,6 +125,10 @@
       "schedule": "20 13 * * *"
     },
     {
+      "path": "/api/tom-sent-sync?run=midday",
+      "schedule": "10 19 * * 1-5"
+    },
+    {
       "path": "/api/recruit-learn",
       "schedule": "50 13 * * *"
     },
