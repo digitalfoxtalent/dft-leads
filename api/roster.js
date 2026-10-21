@@ -741,6 +741,10 @@ function brandPayload(data, list, team, noLock) {
   // Campaign ideas on a paid list (Tom, 16 Oct 2026, Sony's Ghost Soldier: "they want campaign ideas, so I think we
   // might need to add another column"). Ideas for this campaign only, kept on the list; prices stay.
   const ideasOn = !press && !!(list && list.body.ideasOn);
+  // Position on AI (Tom, 21 Oct 2026, Genghis for Authors First: "a column ... which clarifies the creators current
+  // position on AI in film"). A list-only column, shown once any creator on the list has an entry.
+  const aiView = list && list.body.aiView && typeof list.body.aiView === "object" ? list.body.aiView : {};
+  const aiViewOn = Object.keys(aiView).length > 0;
   const groups = {};
   GROUPS.forEach(g => { groups[g.id] = []; });
   data.rows.forEach(r => {
@@ -749,6 +753,7 @@ function brandPayload(data, list, team, noLock) {
     const o = brandRow(r, !!ids, press ? {} : prices, team, list ? (list.body.showVis || {}) : null);
     if (o && press) pressRow(o, r, listIdeas, team);
     if (o && ideasOn) { o.ideas = String(listIdeas[r.id] || ""); if (team && o.ideas) o.ideaOwn = true; }
+    if (o && aiViewOn) o.aiView = String(aiView[r.id] || "");
     if (o && list) {
       // Brands see the whole Stage too (Tom, 10 Oct 2026), read only apart from Brand approved.
       o.confirmed = confirmed.has(r.id); o.stage = o.confirmed ? "confirmed" : approached.has(r.id) ? "approached" : "";
@@ -770,7 +775,7 @@ function brandPayload(data, list, team, noLock) {
     lock: list.body.lock ? { on: list.body.lock.on, quarter: list.body.lock.quarter } : null,
     // Estimated Views (Tom, 10 Oct 2026): a list can call YouTube's View Guarantee
     // "Estimated Views" instead, for pitches where the views are not guaranteed.
-    estViews: !!list.body.estViews, press, ideasOn } : null, groups };
+    estViews: !!list.body.estViews, press, ideasOn, aiViewOn } : null, groups };
 }
 // Press rows: views as typical views (the quarter's average, not a guarantee), every price and
 // pricing note taken out, shows dropped (they are sold separately), ideas added.
@@ -1827,6 +1832,21 @@ async function pendingIdeas() {
     if (done.length >= 2) break;
   }
   return done;
+}
+// Position on AI for creators on a list (see brandPayload). One creator ({ id, text }) or several ({ items: [{ id, text }] });
+// empty text removes the entry, and the column goes away when no creator has one.
+const cleanAiView = t => String(t || "").replace(/\r/g, "").replace(/\s*[\u2014\u2013]\s*/g, ", ").replace(/\s+/g, " ").trim().slice(0, 400);
+async function listAiView(b, email) {
+  const { data, list } = await freshList(b.slug);
+  if (!list) throw new Error("list not found");
+  if (list.bad) throw new Error(LIST_READ_ERROR);
+  const items = Array.isArray(b.items) ? b.items.slice(0, 300) : [{ id: b.id, text: b.text }];
+  const aiView = Object.assign({}, list.body.aiView || {});
+  items.forEach(it => { const id = String((it && it.id) || ""); if (!ROW_ID.test(id)) return; const t = cleanAiView(it.text); if (t) aiView[id] = t; else delete aiView[id]; });
+  const body = Object.assign({}, list.body, { aiView });
+  if (!Object.keys(aiView).length) delete body.aiView;
+  await writeList(list.id, body, { [L.updated]: email + " " + stamp() });
+  return brandPayload(data, Object.assign({}, list, { body }), true);
 }
 async function listType(b, email) {
   const { data, list } = await freshList(b.slug);
@@ -3238,6 +3258,7 @@ export default async function handler(req, res) {
         if (b.op === "list-label") return res.status(200).json(await listLabel(b, email));
         if (b.op === "list-type") return res.status(200).json(await listType(b, email));
         if (b.op === "list-ideas-on") return res.status(200).json(await listIdeasOn(b, email));
+        if (b.op === "list-ai-view") return res.status(200).json(await listAiView(b, email));
         if (b.op === "campaign-ideas") return res.status(200).json(await listCampaignIdeas(b, email));
         if (b.op === "list-libsyn") return res.status(200).json(await listLibsyn(b, email));
         if (b.op === "libsyn-report-url") return res.status(200).json({ url: await libsynReportUrl() });
