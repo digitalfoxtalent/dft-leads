@@ -151,6 +151,9 @@
   .idact{ display:flex; align-items:center; gap:8px; margin-top:6px; }
   .ided{ border:1px solid #e4d8c7; background:#fff; color:#a85f00; font-size:11px; font-weight:700; border-radius:6px; padding:3px 9px; cursor:pointer; }
   .ided:hover{ background:#fff5ea; }
+  .aied{ border:1px solid #e4d8c7; background:#fff; color:#a85f00; font-size:11px; font-weight:700; border-radius:6px; padding:3px 9px; cursor:pointer; }
+  .aied:hover{ background:#fff5ea; }
+  .aiv{ font-size:13px; line-height:1.45; }
   .idown{ font-size:10.5px; font-weight:700; color:#2f7d4f; }
   #fbpop.wide{ width:420px; }
   #fbpop.wide textarea{ min-height:120px; }
@@ -541,6 +544,8 @@ const BRAND_COLS=[
   {key:"subs",   head:"Subscribers", w:112, fmt:"int"},
   // Press packages (Tom, 16 Oct 2026): campaign ideas instead of prices.
   {key:"ideas",  head:"Campaign ideas", w:420, pressOnly:true, cls:"ideas", tip:"The kind of content this creator typically makes for a press partner: early access, product, screenings or invitations."},
+  // Position on AI in film (Tom, 21 Oct 2026): a list-only column, shown once a creator on the list has an entry.
+  {key:"aiView", head:"Position on AI in film", w:300, aiOnly:true, cls:"ideas", tip:"Where this creator currently stands on AI in film and TV, from what they have said publicly."},
   {key:"rate",   head:"Rate",        w:92,  fmt:"money"},
   {key:"vg",     head:"View Guarantee", w:128, fmt:"int", longOnly:true},
   {key:"cpm",    head:"CPM",         w:64,  fmt:"money2", longOnly:true},
@@ -649,6 +654,7 @@ function brandColsFor(){
     // Saved lists: the team's Stage column, which brands see as "Your feedback".
     if(c.listOnly) return !!(BRAND&&BRAND.list&&mode!=="team");
     if(c.pressOnly) return isPress()||paidIdeas();
+    if(c.aiOnly) return !!(BRAND&&BRAND.list&&BRAND.list.aiViewOn);
     if(isPress()&&PRESS_HIDE.has(c.key)) return false;
     if(c.listEditOnly) return listEdit();
     if(c.shortOnly) return k!=="long";
@@ -733,9 +739,9 @@ function sized(cols){ return cols.map(c=>c.key!=="sel"&&colWidths[c.key]?Object.
 // (Tom, 16 Oct 2026: "The About column should be next to the stage on the right hand side ... across all the system").
 function leadCols(cols){
   const out=cols.slice(), take=k=>{ const i=out.findIndex(c=>c.key===k); return i<0?null:out.splice(i,1)[0]; };
-  const ab=take("about"), id=take("ideas");
+  const ab=take("about"), id=take("ideas"), ai=take("aiView");
   let at=out.findIndex(c=>c.key==="confirmed"); at=at<0?0:at+1;
-  const lead=[ab,id].filter(Boolean); out.splice(at,0,...lead);
+  const lead=[ab,id,ai].filter(Boolean); out.splice(at,0,...lead);
   return out;
 }
 function columns(){
@@ -781,6 +787,11 @@ function creatorRow(c,team){
   return `<span class="drow cr"><button class="tri cr ${state}${team?"":" ro"}" data-id="${c.id}" data-s="${state}" title="${tip}"${team?"":' tabindex="-1"'}><span class="bx"></span><span class="lb">${label}</span></button>${noteBtn}</span>`;
 }
 function fmtCell(c,col,isShow){
+  if(col.key==="aiView"){
+    if(isShow) return "";
+    const t=String(c.aiView||"").trim(), canEdit=listEdit();
+    return (t?`<div class="aiv">${esc(t)}</div>`:(canEdit?`<span class="idnone">Not set</span>`:""))+(canEdit?`<div class="idact"><button class="aied" data-id="${c.id}" onclick="event.stopPropagation()">Edit</button></div>`:"");
+  }
   if(col.key==="ideas"&&!isShow){
     const lines=String(c.ideas||"").split("\n").map(x=>x.trim()).filter(Boolean);
     const canEdit=(listEdit()&&(isPress()||paidIdeas()))||(mode==="team"&&!baseLocked()&&!isDed(c));
@@ -1107,6 +1118,7 @@ function wire(){
   sc.querySelectorAll("td.wide").forEach(td=>{ if(!td.textContent.trim()) return; td.classList.add("clickable"); td.addEventListener("click",e=>{e.stopPropagation();td.classList.toggle("exp");}); });
   sc.querySelectorAll(".cshow-t").forEach(b=>b.addEventListener("click",()=>{ const id=b.dataset.id; openSet.has(id)?openSet.delete(id):openSet.add(id); render(); }));
   sc.querySelectorAll(".cabout").forEach(d=>d.addEventListener("click",()=>d.classList.toggle("exp")));
+  sc.querySelectorAll("button.aied").forEach(bt=>bt.addEventListener("click",e=>{ e.stopPropagation(); const f=findListRow(bt.dataset.id); if(f) aiViewPopup(bt,f.row); }));
   sc.querySelectorAll("button.ided").forEach(bt=>bt.addEventListener("click",e=>{ e.stopPropagation();
     if(listEdit()){ const f=findListRow(bt.dataset.id); if(f) ideaPopup(bt,f.row,true); }
     else { const f=findRow(bt.dataset.id); if(f) ideaPopup(bt,f.row,false); } }));
@@ -1312,6 +1324,16 @@ function ideaPopup(anchor,r,inList){
     const text=ta.value.trim(), std=a==="std";
     if(inList){ listSave({op:"list-idea",slug:LIST_SLUG,id:r.id,text,standard:std},std?"Saved as the standard ideas for this creator":"Saved for this list only").catch(()=>{}); return; }
     try{ const j=await post({op:"list-idea",id:r.id,text,standard:true}); r.ideas=j.ideas; render(); toast("Saved. Every press package with this creator uses these"); }catch(e){ toast(e.message,true); }
+  });
+}
+// Position on AI in film, for this list only (Tom, 21 Oct 2026).
+function aiViewPopup(anchor,r){
+  fbPopup(anchor,{fb:{note:""}},true); const p=$("#fbpop"); p.classList.add("wide");
+  p.innerHTML=`<b>Position on AI in film: ${esc(dispHandle(r))}</b><textarea maxlength="400" placeholder="e.g. Open to AI tools; reviewed an AI short with interest">${esc(String(r.aiView||""))}</textarea><div class="acts"><button class="btn" data-a="x">Cancel</button><button class="btn primary" data-a="ok">Save</button></div>`;
+  const ta=p.querySelector("textarea"); ta.focus(); ta.setSelectionRange(ta.value.length,ta.value.length);
+  p.querySelectorAll("button").forEach(bt=>bt.onclick=()=>{
+    const a=bt.dataset.a; p.classList.remove("on"); p.classList.remove("wide"); if(a==="x") return;
+    listSave({op:"list-ai-view",slug:LIST_SLUG,id:r.id,text:ta.value.trim()},"Saved for this list").catch(()=>{});
   });
 }
 function findRow(id){
