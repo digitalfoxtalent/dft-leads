@@ -135,6 +135,18 @@
     {
       "path": "/api/pitch-learn",
       "schedule": "40 13 * * *"
+    },
+    {
+      "path": "/api/china-finder?type=game",
+      "schedule": "30 1 * * 3"
+    },
+    {
+      "path": "/api/china-finder?type=global",
+      "schedule": "40 1 * * 3"
+    },
+    {
+      "path": "/api/china-finder?type=spend",
+      "schedule": "50 1 * * 3"
     }
   ],
   "rewrites": [
