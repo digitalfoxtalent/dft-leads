@@ -92,7 +92,7 @@ const html = (res, code, body) => { res.setHeader("Content-Type", "text/html; ch
 // Request-access pages (see _reports/access-requests.js): they may set the request cookie or redirect an
 // approved visitor to the creator's brand-safe engaged views page.
 const sendAccess = (res, out) => {
-  res.setHeader("X-Frame-Options", "DENY"); res.setHeader("X-Content-Type-Options", "nosniff"); res.setHeader("Referrer-Policy", "no-referrer");
+  res.setHeader("X-Frame-Options", "DENY"); res.setHeader("X-Content-Type-Options", "nosniff"); res.setHeader("Referrer-Policy", "same-origin"); // no-referrer would make the browser send Origin: null on the Approve form
   if (out.cookie) res.setHeader("Set-Cookie", out.cookie);
   if (out.location) { res.setHeader("Location", out.location); return res.status(302).end(); }
   return html(res, out.status, out.html);
