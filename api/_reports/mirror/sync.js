@@ -78,18 +78,30 @@ async function listAll(gql) {
     boards.push(...b);
     if (b.length < 100) break;
   }
+  // A subitems board of an excluded (credential) board is excluded too.
+  const excludedNames = new Set(boards.filter(b => b.type === "board" && isExcluded(b)).map(b => String(b.name)));
   return boards.filter(b => b.type === "board" || b.type === "sub_items_board").map(b => {
     const w = wsById[String(b.workspace && b.workspace.id)] || {};
     const folderPath = b.board_folder_id ? pathOf(b.board_folder_id) : "";
     const department = departmentFor({ workspaceName: w.name, folderPath, boardName: b.name });
-    const acc = accessFor({ boardKind: b.board_kind, workspaceKind: w.kind, workspaceName: w.name, folderPath,
+    const acc = accessFor({ boardType: b.type, boardKind: b.board_kind, workspaceKind: w.kind, workspaceName: w.name, folderPath,
       boardName: b.name, department, owners: b.owners, subscribers: b.subscribers });
     return { id: String(b.id), name: clean(b.name), description: clean(b.description), board_type: b.type,
       board_kind: b.board_kind, workspace_id: w.id || null, workspace_name: w.name || null, workspace_kind: w.kind || null,
       folder_id: b.board_folder_id || null, folder_path: folderPath, department, access: acc.access,
       allowed_emails: acc.allowed, monday_items: b.items_count || 0, monday_updated_at: b.updated_at || null,
-      excluded: isExcluded(b) };
+      excluded: isExcluded(b) || (b.type === "sub_items_board" && excludedNames.has(String(b.name || "").replace(/^Subitems of /, ""))) };
   });
+}
+
+async function saveTeam(gql) {
+  const users = (await gql(`query { users (kind: non_guests, limit: 1000) { email name enabled } }`)).users || [];
+  const active = users.filter(u => u.enabled && /@digitalfoxtalent\.com$/i.test(String(u.email || "")))
+    .map(u => ({ email: String(u.email).toLowerCase(), name: clean(u.name) }));
+  if (!active.length) return; // never empty the list on a bad answer
+  await write(`INSERT INTO mirror.team (email, name, seen_at) SELECT r->>'email', r->>'name', now() FROM jsonb_array_elements($1::jsonb) r
+    ON CONFLICT (email) DO UPDATE SET name = EXCLUDED.name, seen_at = now()`, [JSON.stringify(active)]);
+  await write(`DELETE FROM mirror.team WHERE NOT (email = ANY($1::text[]))`, [active.map(u => u.email)]);
 }
 
 async function saveBoardList(list) {
@@ -191,7 +203,7 @@ export async function syncBoard(client, board, { full, since, deadline, small = 
   if (subs.length) await write(`UPDATE mirror.boards SET parent_board_id = $1::bigint, department = p.department, access = p.access,
       allowed_emails = p.allowed_emails FROM mirror.boards p WHERE p.id = $1::bigint AND mirror.boards.id = ANY($2::bigint[])`, [id, subs]);
 
-  const seen = [];
+  const seen = [], seenUpdates = [];
   let page = b.items_page, n = 0, pos = 0, stop = false, done = true;
   const sinceMs = since ? ms(since) - SAFETY_MS : 0;
   while (true) {
@@ -202,7 +214,9 @@ export async function syncBoard(client, board, { full, since, deadline, small = 
       items = fresh;
     }
     const rows = items.map(it => rowOf(it, id, full ? pos++ : null));
-    await saveItems(rows, updatesOf(items));
+    const ups = updatesOf(items);
+    await saveItems(rows, ups);
+    ups.forEach(u => seenUpdates.push(u.id));
     rows.forEach(r => seen.push(r.id));
     n += rows.length;
     if (stop || !page.cursor) break;
@@ -211,6 +225,8 @@ export async function syncBoard(client, board, { full, since, deadline, small = 
   }
   if (full && done) {
     await write(`UPDATE mirror.items SET deleted = true WHERE board_id = $1::bigint AND NOT deleted AND NOT (id = ANY($2::bigint[]))`, [id, seen]);
+    // Updates deleted in monday (or older than the 10 kept per item) leave the copy too.
+    await write(`DELETE FROM mirror.updates WHERE item_id IN (SELECT id FROM mirror.items WHERE board_id = $1::bigint) AND NOT (id = ANY($2::bigint[]))`, [id, seenUpdates]);
   }
   return { items: n, done };
 }
@@ -221,9 +237,14 @@ export async function runSync(token, { force = false, onlyBoards = null, fetchIm
   await ensureSchema();
   const t0 = now();
   const deadline = t0 + RUN_MS;
+  // One run at a time, at most one start every 20 minutes: claiming the lock row is a single atomic
+  // UPDATE, so a burst of triggers cannot start several runs at once.
   if (!force) {
-    const last = (await read(`SELECT started_at FROM mirror.sync_runs ORDER BY id DESC LIMIT 1`))[0];
-    if (last && t0 - ms(last.started_at) < MIN_GAP_MS) return { skipped: "ran less than 20 minutes ago" };
+    const got = await write(`UPDATE mirror.locks SET until = now() + ($1::int * interval '1 millisecond')
+      WHERE name = 'sync' AND until < now() RETURNING name`, [MIN_GAP_MS]);
+    if (!got.length) return { skipped: "ran less than 20 minutes ago" };
+  } else {
+    await write(`UPDATE mirror.locks SET until = now() + ($1::int * interval '1 millisecond') WHERE name = 'sync'`, [MIN_GAP_MS]);
   }
   const used = (await read(`SELECT COALESCE(sum(api_calls), 0)::int AS n FROM mirror.sync_runs WHERE started_at > now() - interval '24 hours'`))[0].n;
   if (used >= DAY_CALLS) return { skipped: "daily monday call budget used (" + used + ")" };
@@ -231,6 +252,7 @@ export async function runSync(token, { force = false, onlyBoards = null, fetchIm
   const client = makeClient(token, fetchImpl);
   let boardsSynced = 0, itemsWritten = 0, note = "";
   try {
+    await saveTeam(client.gql);
     const list = await listAll(client.gql);
     await saveBoardList(list);
     const rows = await read(`SELECT id::text AS id, name, monday_items, mirror_items, monday_updated_at, synced_at, full_synced_at
@@ -255,7 +277,7 @@ export async function runSync(token, { force = false, onlyBoards = null, fetchIm
           res = await syncBoard(client, r, { full, since: r.synced_at, deadline, small: true });
         }
         itemsWritten += res.items;
-        if (!res.done) { note = "stopped part way through " + r.name + "; continues next run"; break; }
+        if (!res.done) { note = "stopped part way through board " + r.id + "; continues next run"; break; }
         const cnt = (await read(`SELECT count(*)::int AS n FROM mirror.items WHERE board_id = $1::bigint AND NOT deleted`, [r.id]))[0].n;
         await write(`UPDATE mirror.boards SET synced_at = $2::timestamptz, mirror_items = $3,
             full_synced_at = CASE WHEN $4 THEN $2::timestamptz ELSE full_synced_at END, sync_error = NULL WHERE id = $1::bigint`,

@@ -19,6 +19,8 @@ let exec = null;
 function neonExecutor() {
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error("DATABASE_URL is not set");
+  // Preview builds share the connection string; they must never read or write the live copy.
+  if (process.env.VERCEL_ENV && process.env.VERCEL_ENV !== "production") throw new Error("The Ecosystem database is production only");
   const sql = neon(url);
   return {
     read: async (text, params = []) => (await sql.transaction([sql.query(text, params)], { readOnly: true }))[0],
@@ -29,7 +31,7 @@ function neonExecutor() {
 
 function ex() { return exec || (exec = neonExecutor()); }
 export function setExecutor(e) { exec = e; }
-export const hasDatabase = () => !!(exec || process.env.DATABASE_URL);
+export const hasDatabase = () => !!(exec || (process.env.DATABASE_URL && (!process.env.VERCEL_ENV || process.env.VERCEL_ENV === "production")));
 
 export const read = (text, params) => ex().read(text, params);
 export const write = (text, params) => ex().write(text, params);

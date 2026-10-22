@@ -78,6 +78,13 @@ export const SCHEMA_SQL = [
      allowed boolean NOT NULL
    )`,
   `CREATE INDEX IF NOT EXISTS access_log_at ON mirror.access_log (at)`,
+  `CREATE TABLE IF NOT EXISTS mirror.team (
+     email text PRIMARY KEY,                           -- active, non-guest monday users, refreshed each sync
+     name text,
+     seen_at timestamptz NOT NULL DEFAULT now()
+   )`,
+  `CREATE TABLE IF NOT EXISTS mirror.locks (name text PRIMARY KEY, until timestamptz NOT NULL DEFAULT 'epoch')`,
+  `INSERT INTO mirror.locks (name) VALUES ('sync') ON CONFLICT (name) DO NOTHING`,
 ];
 
 let ready = false;

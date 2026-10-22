@@ -59,7 +59,10 @@ const cleanEmails = list => [...new Set((list || [])
   .map(x => String((x && x.email) || x || "").toLowerCase().trim())
   .filter(e => e.endsWith("@" + TEAM_DOMAIN)))];
 
-export function accessFor({ boardKind, workspaceKind, workspaceName, folderPath, boardName, department, owners, subscribers }) {
+export function accessFor({ boardType, boardKind, workspaceKind, workspaceName, folderPath, boardName, department, owners, subscribers }) {
+  // A subitems board has no folder of its own: it stays Tom-only until its parent board's copy hands
+  // down the parent's access (sync.js). Never default it to the whole team.
+  if (boardType === "sub_items_board") return { access: "listed", allowed: [TOM] };
   const top = String(folderPath || "").split(" / ")[0];
   const restricted = boardKind !== "public" || workspaceKind === "closed"
     || RESTRICTED_AREA.test(top) || RESTRICTED_WORKSPACES.test(String(workspaceName || ""))
@@ -70,10 +73,12 @@ export function accessFor({ boardKind, workspaceKind, workspaceName, folderPath,
   return { access: "listed", allowed };
 }
 
-// Can this signed-in email see this board row?
-export function canSee(board, email) {
+// Can this signed-in email see this board row? `team` is the set of active, non-guest monday users
+// (copied on every sync): a Google account that is not, or is no longer, on monday sees nothing.
+export function canSee(board, email, team) {
   const e = String(email || "").toLowerCase();
   if (!e.endsWith("@" + TEAM_DOMAIN)) return false;
+  if (team && !team.has(e)) return false;
   if (!board || board.gone) return false;
   if (board.access === "team") return true;
   return Array.isArray(board.allowed_emails) && board.allowed_emails.includes(e);

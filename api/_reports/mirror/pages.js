@@ -10,6 +10,9 @@
 // viewer may not see looks exactly like a board that does not exist; every view is logged.
 
 import { read, write } from "./db.js";
+
+// Active, non-guest monday users (refreshed by every sync). Someone who leaves monday loses access here too.
+async function teamSet() { return new Set((await read(`SELECT email FROM mirror.team`)).map(r => r.email)); }
 import { canSee } from "./policy.js";
 
 export const DEPT_NAMES = {
@@ -154,7 +157,8 @@ export async function renderDepartment(email, dept, q) {
   if (!DEPT_NAMES[dept]) return notFound();
   const rows = await read(`SELECT id::text AS id, name, folder_path, workspace_name, access, allowed_emails, gone, mirror_items, synced_at
     FROM mirror.boards WHERE department = $1 AND board_type = 'board' AND NOT gone ORDER BY folder_path, name`, [dept]);
-  const mine = rows.filter(b => canSee(b, email)).filter(b => !q || (b.name + " " + b.folder_path + " " + b.workspace_name).toLowerCase().includes(q.toLowerCase()));
+  const team = await teamSet();
+  const mine = rows.filter(b => canSee(b, email, team)).filter(b => !q || (b.name + " " + b.folder_path + " " + b.workspace_name).toLowerCase().includes(q.toLowerCase()));
   await logAccess(email, "/" + dept + "/boards", null, true);
   const byFolder = new Map();
   for (const b of mine) {
@@ -173,7 +177,7 @@ ${mine.length ? `<div class="lists">${[...byFolder.entries()].map(([f, list]) =>
 
 export async function renderBoard(email, id, q, page) {
   const b = await board(id);
-  if (!b || b.board_type !== "board" || !canSee(b, email)) { await logAccess(email, "/boards/" + id, id, false); return notFound(); }
+  if (!b || b.board_type !== "board" || !canSee(b, email, await teamSet())) { await logAccess(email, "/boards/" + id, id, false); return notFound(); }
   await logAccess(email, "/boards/" + id, id, true);
   const p = Math.max(1, Math.min(10000, parseInt(page, 10) || 1));
   const where = `board_id = $1::bigint AND NOT deleted AND parent_id IS NULL` + (q ? ` AND (name ILIKE $2 OR vals::text ILIKE $2)` : ``);
@@ -210,7 +214,7 @@ ${pages > 1 ? `<div class="pager">${p > 1 ? `<a class="btn" href="${qs(p - 1)}">
 
 export async function renderItem(email, boardId, itemId) {
   const b = await board(boardId);
-  if (!b || !isId(itemId) || !canSee(b, email)) { await logAccess(email, "/boards/" + boardId + "/items/" + itemId, boardId, false); return notFound(); }
+  if (!b || b.board_type !== "board" || !isId(itemId) || !canSee(b, email, await teamSet())) { await logAccess(email, "/boards/" + boardId + "/items/" + itemId, boardId, false); return notFound(); }
   const it = (await read(`SELECT id::text AS id, name, group_id, vals, created_at, updated_at, creator FROM mirror.items
     WHERE id = $1::bigint AND board_id = $2::bigint AND NOT deleted`, [itemId, b.id]))[0];
   if (!it) { await logAccess(email, "/boards/" + b.id + "/items/" + itemId, b.id, false); return notFound(); }
@@ -238,12 +242,13 @@ export async function renderStatus(email) {
   const runs = await read(`SELECT started_at, finished_at, boards_synced, items_written, api_calls, ok, note FROM mirror.sync_runs ORDER BY id DESC LIMIT 15`);
   const all = await read(`SELECT id::text AS id, name, department, access, allowed_emails, gone, monday_items, mirror_items, synced_at, sync_error
     FROM mirror.boards WHERE board_type = 'board' AND NOT gone ORDER BY name`);
-  const mine = all.filter(b => canSee(b, email));
-  const copied = all.filter(b => b.synced_at).length;
+  const team = await teamSet();
+  const mine = all.filter(b => canSee(b, email, team));
+  const copied = mine.filter(b => b.synced_at).length;
   const off = mine.filter(b => b.synced_at && b.mirror_items !== b.monday_items);
   const errs = mine.filter(b => b.sync_error);
   const body = `<h1>How the monday copy is doing</h1>
-<div class="sub"><span class="badge">${copied} of ${all.length} boards copied</span><span>${off.length} with a different item count</span><span>${errs.length} with an error</span></div>
+<div class="sub"><span class="badge">${copied} of ${mine.length} boards you can see are copied</span><span>${off.length} with a different item count</span><span>${errs.length} with an error</span></div>
 <h2 class="sec">Recent runs</h2><div class="tw"><table><thead><tr><th>Started</th><th>Result</th><th>Boards</th><th>Items written</th><th>monday calls</th><th>Note</th></tr></thead><tbody>${runs.map(r =>
   `<tr><td>${esc(ago(r.started_at))}</td><td class="${r.ok ? "ok" : r.ok === false ? "bad" : ""}">${r.ok ? "OK" : r.ok === false ? "Failed" : "Running"}</td><td class="num">${esc(r.boards_synced)}</td><td class="num">${esc(r.items_written)}</td><td class="num">${esc(r.api_calls)}</td><td>${esc(r.note || "")}</td></tr>`).join("")}</tbody></table></div>
 <h2 class="sec">Boards whose counts differ</h2>${off.length ? `<div class="tw"><table><thead><tr><th>Board</th><th>monday</th><th>Copy</th><th>Copied</th></tr></thead><tbody>${off.map(b =>

@@ -35,6 +35,8 @@ ok(a.access === "listed" && a.allowed.includes("amy@digitalfoxtalent.com") && !a
 a = accessFor({ boardKind: "private", workspaceKind: "open", workspaceName: "@digitalfoxtalent", folderPath: "Marketing & Publicity (Agency)", boardName: "x", subscribers: [] });
 ok(a.access === "listed" && a.allowed.includes("tom@digitalfoxtalent.com"), "private board listed, Tom always included");
 ok(!canSee({ access: "team" }, "x@gmail.com"), "outside email never sees anything");
+ok(accessFor({ boardType: "sub_items_board", boardKind: "public", workspaceKind: "open", workspaceName: "@digitalfoxtalent", folderPath: "" }).access === "listed", "a subitems board starts Tom-only");
+ok(!canSee({ access: "team" }, "left@digitalfoxtalent.com", new Set(["tom@digitalfoxtalent.com"])), "someone no longer on monday sees nothing");
 ok(!canSee({ access: "listed", allowed_emails: ["tom@digitalfoxtalent.com"] }, "margot@digitalfoxtalent.com"), "listed board hidden from others");
 ok(canSee({ access: "listed", allowed_emails: ["tom@digitalfoxtalent.com"] }, "Tom@digitalfoxtalent.com"), "listed board visible to Tom");
 ok(isMirrorRoute("boards/123") && isMirrorRoute("boards/123/items/45") && isMirrorRoute("marketing/boards") && isMirrorRoute("data/mirror"), "routes");
@@ -73,13 +75,16 @@ const COLS = {
   "18422548864": [{ id: "name", title: "Name", type: "name", settings_str: "{}" }],
 };
 const GROUPS = { "100": [{ id: "g1", title: "Planned", color: "#579bfc", position: "1" }, { id: "g2", title: "Ideas", color: "#ff642e", position: "2" }] };
+const USERS = [{ email: "tom@digitalfoxtalent.com", name: "Tom James", enabled: true }, { email: "margot@digitalfoxtalent.com", name: "Margot", enabled: true },
+  { email: "left@digitalfoxtalent.com", name: "Left", enabled: false }];
 const asked = [];
 async function fakeFetch(url, opts) {
   const { query, variables } = JSON.parse(opts.body);
   assert.ok(!/mutation/.test(query), "the mirror never sends a mutation to monday");
   asked.push(query);
   const data = { complexity: { after: 19000000, reset_in_x_seconds: 30 } };
-  if (/workspaces/.test(query)) data.workspaces = WS;
+  if (/users \(kind: non_guests/.test(query)) data.users = USERS;
+  else if (/workspaces/.test(query)) data.workspaces = WS;
   else if (/folders/.test(query)) data.folders = FOLDERS;
   else if (/boards \(limit: 100, page/.test(query)) data.boards = variables.p === 1 ? BOARDS : [];
   else if (/boards \(ids: \$b\)/.test(query)) {
@@ -126,10 +131,14 @@ page = await renderItem("margot@digitalfoxtalent.com", "100", "1001");
 ok(page.status === 200 && page.html.includes("Write it") && page.html.includes("First note &lt;b&gt;bold&lt;/b&gt;"), "item page shows subitems and escaped updates");
 page = await renderItem("margot@digitalfoxtalent.com", "100", "2001");
 ok(page.status === 404, "an item from another board is not shown through this one");
+page = await renderItem("margot@digitalfoxtalent.com", "101", "5001");
+ok(page.status === 404, "a subitems board cannot be opened directly");
+page = await renderBoard("left@digitalfoxtalent.com", "100", "", "1");
+ok(page.status === 404, "a deactivated monday user sees nothing");
 page = await renderDepartment("margot@digitalfoxtalent.com", "marketing", "");
 ok(page.status === 200 && page.html.includes("Editorial Plan") && !page.html.includes("Brand Invoices"), "department list");
 page = await renderStatus("margot@digitalfoxtalent.com");
-ok(page.status === 200 && page.html.includes("boards copied") && !page.html.includes("Brand Invoices"), "status page hides boards you cannot see");
+ok(page.status === 200 && page.html.includes("boards you can see are copied") && !page.html.includes("Brand Invoices"), "status page hides boards you cannot see");
 const log = await read(`SELECT count(*)::int AS n, count(*) FILTER (WHERE NOT allowed)::int AS denied FROM mirror.access_log`);
 ok(log[0].n > 5 && log[0].denied >= 3, "views logged, refusals included");
 
@@ -148,9 +157,12 @@ page = await renderBoard("tom@digitalfoxtalent.com", "200", "", "1");
 ok(page.status === 404, "gone board not shown");
 // The count differs (1003 deleted in monday) so the next run re-checks fully and marks it deleted.
 await read(`SELECT 1`);
+ITEMS["100"][0] = { ...ITEMS["100"][0], updates: [] };
 const later = Date.now() + 7 * 3600000;
 r = await runSync("tok", { force: true, fetchImpl: fakeFetch, now: () => later });
 ok((await read(`SELECT deleted FROM mirror.items WHERE id = 1003`))[0].deleted === true, "item removed in monday marked deleted, not erased");
+ok(!(await read(`SELECT 1 FROM mirror.updates WHERE id = 9001`)).length, "an update deleted in monday leaves the copy on the next full check");
+ok(!(await read(`SELECT note FROM mirror.sync_runs WHERE note ILIKE '%Invoices%'`)).length, "run notes never carry board names");
 ok(cell({ type: "status", labels: {} }, ["<i>x</i>", null]).includes("&lt;i&gt;"), "status text escaped");
 
 console.log("mirror tests passed:", pass);
