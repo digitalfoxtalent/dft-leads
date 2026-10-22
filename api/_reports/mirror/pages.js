@@ -170,7 +170,7 @@ export async function renderDepartment(email, dept, q) {
 <div class="sub"><span class="badge">Read-only copy of monday, refreshed every 30 minutes</span><span>${mine.length} board${mine.length === 1 ? "" : "s"} you can see</span><a href="/data/mirror">How the copy is doing</a></div>
 <form class="bar" method="get"><input name="q" value="${esc(q || "")}" placeholder="Find a board" aria-label="Find a board"><button type="submit">Search</button></form>
 ${mine.length ? `<div class="lists">${[...byFolder.entries()].map(([f, list]) => `<section class="fold"><h2>${esc(f)}</h2><div class="cards">${list.map(b =>
-  `<a class="card" href="/boards/${esc(b.id)}"><b>${esc(b.name)}</b><span>${b.mirror_items == null ? "Copying soon" : esc(b.mirror_items) + " items"} · ${b.access === "team" ? "Whole team" : "Listed people only"}</span></a>`).join("")}</div></section>`).join("")}</div>`
+  `<a class="card" href="/boards/${esc(b.id)}"><b>${esc(b.name)}</b><span>${b.mirror_items == null ? "Copying soon" : esc(b.mirror_items) + (Number(b.mirror_items) === 1 ? " item" : " items")} · ${b.access === "team" ? "Whole team" : "Listed people only"}</span></a>`).join("")}</div></section>`).join("")}</div>`
   : `<p class="empty">No boards here yet${q ? " match that search" : ""}. The first full copy fills in over the first few hours.</p>`}`;
   return { status: 200, html: frame(DEPT_NAMES[dept] + " boards", [["Ecosystem", "/"], [DEPT_NAMES[dept], "/" + dept], ["Boards", null]], body) };
 }
@@ -205,7 +205,7 @@ export async function renderBoard(email, id, q, page) {
   const dept = DEPT_NAMES[b.department] ? b.department : "data";
   const body = `<h1>${esc(b.name)}</h1>
 <div class="sub"><span class="badge">Read-only copy of monday · copied ${esc(ago(b.synced_at))}</span>${b.access === "team" ? "" : `<span class="badge lock">Listed people only</span>`}
-<span>${esc(total)} items${q ? " match" : ""}</span><a class="btn" href="https://digitalfoxtalent.monday.com/boards/${esc(b.id)}" target="_blank" rel="noopener noreferrer">Open in monday</a></div>
+<span>${esc(total)} ${Number(total) === 1 ? (q ? "item matches" : "item") : (q ? "items match" : "items")}</span><a class="btn" href="https://digitalfoxtalent.monday.com/boards/${esc(b.id)}" target="_blank" rel="noopener noreferrer">Open in monday</a></div>
 <form class="bar" method="get"><input name="q" value="${esc(q || "")}" placeholder="Search this board" aria-label="Search this board"><button type="submit">Search</button>${q ? `<a class="btn" href="/boards/${esc(b.id)}">Clear</a>` : ""}</form>
 ${sections || `<p class="empty">${b.synced_at ? "No items" + (q ? " match that search." : " on this board.") : "This board has not been copied yet. It fills in within the next few runs."}</p>`}
 ${pages > 1 ? `<div class="pager">${p > 1 ? `<a class="btn" href="${qs(p - 1)}">Previous</a>` : ""}<span>Page ${p} of ${pages}</span>${p < pages ? `<a class="btn" href="${qs(p + 1)}">Next</a>` : ""}</div>` : ""}`;
