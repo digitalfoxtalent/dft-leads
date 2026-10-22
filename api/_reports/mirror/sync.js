@@ -173,10 +173,10 @@ const updatesOf = items => items.flatMap(it => (it.updates || []).map(u => ({ id
 
 // Copy one board. full=true copies every item and marks the rest deleted; otherwise only items changed
 // since `since`. Returns { items, done } where done=false means it ran out of time or budget part way.
-export async function syncBoard(client, board, { full, since, deadline }) {
+export async function syncBoard(client, board, { full, since, deadline, small = false }) {
   const { gql, state } = client;
   const id = String(board.id);
-  const pageSize = full ? 100 : 50;
+  const pageSize = small ? 20 : full ? 100 : 50; // wide boards can exceed monday's per-query budget; retried with 20
   const order = full ? "" : `, query_params: { order_by: [{ column_id: "__last_updated__", direction: desc }] }`;
   const first = await gql(`query ($b: [ID!]) { boards (ids: $b) { columns { id title type settings_str }
       groups { id title color position } items_page (limit: ${pageSize}${order}) { cursor items { ${ITEM_FIELDS} } } } }`, { b: [id] });
@@ -248,7 +248,12 @@ export async function runSync(token, { force = false, onlyBoards = null, fetchIm
       if (now() > deadline || client.state.calls >= MAX_CALLS || client.state.lowBudget) { note = "stopped at the run budget; continues next run"; break; }
       const startedAt = new Date(now()).toISOString();
       try {
-        const res = await syncBoard(client, r, { full, since: r.synced_at, deadline });
+        let res;
+        try { res = await syncBoard(client, r, { full, since: r.synced_at, deadline }); }
+        catch (e) {
+          if (!/complexity|budget|too large|timeout/i.test(String(e && e.message))) throw e;
+          res = await syncBoard(client, r, { full, since: r.synced_at, deadline, small: true });
+        }
         itemsWritten += res.items;
         if (!res.done) { note = "stopped part way through " + r.name + "; continues next run"; break; }
         const cnt = (await read(`SELECT count(*)::int AS n FROM mirror.items WHERE board_id = $1::bigint AND NOT deleted`, [r.id]))[0].n;
