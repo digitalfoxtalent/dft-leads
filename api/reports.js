@@ -63,6 +63,7 @@ import { EARNINGS_PAGE } from "./_reports/ecosystem/earnings-page.js";
 import { earningsLookup } from "./_reports/ecosystem/earnings.js";
 import { resolveEco, ADDRESS_OF, REPORTS_HOST_MOVED, DEPARTMENTS, ECO_ORIGIN, carryQuery } from "./_reports/routes.js";
 import { renderSlots, slotsData } from "./_reports/slots/load.js";
+import { mirrorPage, isMirrorRoute } from "./_reports/mirror/route.js";
 
 export const config = { maxDuration: 300 }; // the Reporting refresh write step can take over a minute
 
@@ -177,7 +178,7 @@ export default async function handler(req, res) {
   }
   const partner = authed ? null : partnerCookie(req, token);
   // Keep access alive: every page visit renews the visitor's cookie to its full length.
-  const isPage = route === "home" || route === "campaigns" || route === "platforms" || route === "distribution" || route === "coverage" || route === "engaged" || route === "ecosystem" || route === "marketing/earnings" || route === "slots" || !!pid;
+  const isPage = route === "home" || route === "campaigns" || route === "platforms" || route === "distribution" || route === "coverage" || route === "engaged" || route === "ecosystem" || route === "marketing/earnings" || route === "slots" || (eco && isMirrorRoute(route)) || !!pid;
   if (isPage && authed) res.setHeader("Set-Cookie", setTeamCookie(res, token, teamEmail(req, token)));
   else if (isPage && partner) setPartnerCookie(res, token, partner);
   if (pid && (authed || partner === pid)) return html(res, 200, await renderPartner(token, pid));
@@ -190,12 +191,16 @@ export default async function handler(req, res) {
   }
   if (!authed) {
     if (pid) return html(res, 401, partnerGate(PARTNERS[pid].name, "/campaigns/" + pid));
-    if (route !== "home" && !/^(campaigns|platforms|distribution|coverage|engaged|refresh|ecosystem|marketing\/earnings|slots)$/.test(route)) return res.status(401).json({ error: "Sign in required" });
+    if (route !== "home" && !(eco && isMirrorRoute(route)) && !/^(campaigns|platforms|distribution|coverage|engaged|refresh|ecosystem|marketing\/earnings|slots)$/.test(route)) return res.status(401).json({ error: "Sign in required" });
     const next = eco ? "/" + (rawPath === "home" ? "" : rawPath) : "/" + (route === "home" ? "" : route) + (req.query && req.query.tier ? "?tier=" + encodeURIComponent(String(req.query.tier)) : "");
     const gate = gatePage(next);
     return html(res, 401, eco ? gate.replace(/DFT Reports/g, "DFT Ecosystem").replace("These reports are for the Digital Fox Talent team.", "The Ecosystem is for the Digital Fox Talent team.") : gate);
   }
 
+  if (eco && isMirrorRoute(route)) { // the read-only monday copy (see _reports/mirror/route.js)
+    const out = await mirrorPage(route, req, res, teamEmail(req, token));
+    return html(res, out.status, out.html);
+  }
   if (route === "ecosystem") return html(res, 200, await ecosystemWithLive(ECOSYSTEM_PAGE, token));
   if (route === "marketing/earnings" && eco) return html(res, 200, EARNINGS_PAGE); // creator earnings calculator, internal preview
   if (route === "slots" && eco) return send(200, await renderSlots(token)); // Slot board, from the nightly copy
