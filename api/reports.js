@@ -6,6 +6,8 @@
 //   /reporting/campaign-reach, /reporting/platform-monetization, /reporting/video-distribution,
 //   /reporting/creator-distribution, /reporting/engaged-views, /reporting/refresh -> the reports below
 //   /marketing/earnings-calculator -> the creator earnings calculator (internal preview), reading /earnings-data
+//   /reporting/request-access (outsiders, POST) and /reporting/access-requests (team) -> request access to one
+//     creator's engaged views from a shared link (_reports/access-requests.js)
 //   /partnerships/slot-board -> the Slot board (open sponsor slots per creator, built nightly by api/slots-build.js)
 //   The address book, and every old address that redirects, is _reports/routes.js.
 //   Every other path (data routes the report pages fetch) works as it does on the reports host.
@@ -64,6 +66,7 @@ import { earningsLookup } from "./_reports/ecosystem/earnings.js";
 import { resolveEco, ADDRESS_OF, REPORTS_HOST_MOVED, DEPARTMENTS, ECO_ORIGIN, carryQuery } from "./_reports/routes.js";
 import { renderSlots, slotsData } from "./_reports/slots/load.js";
 import { mirrorPage, isMirrorRoute } from "./_reports/mirror/route.js";
+import { outsiderView, submitRequest, decide, REVIEW_PATH } from "./_reports/access-requests.js";
 
 export const config = { maxDuration: 300 }; // the Reporting refresh write step can take over a minute
 
@@ -86,6 +89,14 @@ const ecoWrap = (body, page) => String(body)
 let probeCache = null;
 
 const html = (res, code, body) => { res.setHeader("Content-Type", "text/html; charset=utf-8"); return res.status(code).send(body); };
+// Request-access pages (see _reports/access-requests.js): they may set the request cookie or redirect an
+// approved visitor to the creator's brand-safe engaged views page.
+const sendAccess = (res, out) => {
+  res.setHeader("X-Frame-Options", "DENY"); res.setHeader("X-Content-Type-Options", "nosniff"); res.setHeader("Referrer-Policy", "no-referrer");
+  if (out.cookie) res.setHeader("Set-Cookie", out.cookie);
+  if (out.location) { res.setHeader("Location", out.location); return res.status(302).end(); }
+  return html(res, out.status, out.html);
+};
 
 export default async function handler(req, res) {
   res.setHeader("Cache-Control", "private, no-store");
@@ -181,6 +192,9 @@ export default async function handler(req, res) {
   const isPage = route === "home" || route === "campaigns" || route === "platforms" || route === "distribution" || route === "coverage" || route === "engaged" || route === "ecosystem" || route === "marketing/earnings" || route === "slots" || (eco && isMirrorRoute(route)) || !!pid;
   if (isPage && authed) res.setHeader("Set-Cookie", setTeamCookie(res, token, teamEmail(req, token)));
   else if (isPage && partner) setPartnerCookie(res, token, partner);
+  // Someone outside DFT with an Engaged views link: ask for access, or open it once a teammate has approved.
+  if (eco && route === "reporting/request-access") return sendAccess(res, await submitRequest(req, token));
+  if (eco && !authed && !partner && route === "engaged") return sendAccess(res, await outsiderView(req, token));
   if (pid && (authed || partner === pid)) return html(res, 200, await renderPartner(token, pid));
   if (partner && route === "videos") { try { return res.status(200).json(await videoDetails(req.query && req.query.ids)); } catch (e) { return res.status(500).json({ error: "unavailable" }); } }
   if (partner) { res.setHeader("Location", "/campaigns/" + partner); return res.status(302).end(); } // a partner link only opens its own page
@@ -191,7 +205,7 @@ export default async function handler(req, res) {
   }
   if (!authed) {
     if (pid) return html(res, 401, partnerGate(PARTNERS[pid].name, "/campaigns/" + pid));
-    if (route !== "home" && !(eco && isMirrorRoute(route)) && !/^(campaigns|platforms|distribution|coverage|engaged|refresh|ecosystem|marketing\/earnings|slots)$/.test(route)) return res.status(401).json({ error: "Sign in required" });
+    if (route !== "home" && !(eco && isMirrorRoute(route)) && !(eco && route === REVIEW_PATH.slice(1)) && !/^(campaigns|platforms|distribution|coverage|engaged|refresh|ecosystem|marketing\/earnings|slots)$/.test(route)) return res.status(401).json({ error: "Sign in required" });
     const next = eco ? "/" + (rawPath === "home" ? "" : rawPath) : "/" + (route === "home" ? "" : route) + (req.query && req.query.tier ? "?tier=" + encodeURIComponent(String(req.query.tier)) : "");
     const gate = gatePage(next);
     return html(res, 401, eco ? gate.replace(/DFT Reports/g, "DFT Ecosystem").replace("These reports are for the Digital Fox Talent team.", "The Ecosystem is for the Digital Fox Talent team.") : gate);
@@ -201,6 +215,7 @@ export default async function handler(req, res) {
     const out = await mirrorPage(route, req, res, teamEmail(req, token));
     return html(res, out.status, out.html);
   }
+  if (eco && route === REVIEW_PATH.slice(1)) return sendAccess(res, await decide(req, token, teamEmail(req, token))); // team only: approve or decline access requests
   if (route === "ecosystem") return html(res, 200, await ecosystemWithLive(ECOSYSTEM_PAGE, token));
   if (route === "marketing/earnings" && eco) return html(res, 200, EARNINGS_PAGE); // creator earnings calculator, internal preview
   if (route === "slots" && eco) return send(200, await renderSlots(token)); // Slot board, from the nightly copy

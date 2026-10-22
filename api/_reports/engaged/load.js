@@ -46,7 +46,7 @@ async function creators(tok) {
     .filter(it => !NOT_CREATORS.test(it.name))
     .map(it => {
       const c = Object.fromEntries(it.column_values.map(v => [v.id, v.text || ""]));
-      return { name: it.name, channel: c[A.chan].trim(), connected: c[A.status] === "Granted", granted: c[A.granted] || "" };
+      return { id: it.id, name: it.name, channel: c[A.chan].trim(), connected: c[A.status] === "Granted", granted: c[A.granted] || "" };
     })
     .filter(r => CH_RE.test(r.channel))
     .sort((a, b) => (b.connected - a.connected) || a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
@@ -101,6 +101,12 @@ export async function engagedForVideos(tok, byChannel, unknown) {
 }
 
 // Connected creators only, for other reports (Campaign reach).
+// The creator's brand-safe engaged views page (the same link each panel offers to copy into a reply).
+// Used by the request-access flow (_reports/access-requests.js) once a teammate approves a request.
+export async function brandLink(tok, ch) {
+  if (!CH_RE.test(String(ch || ""))) throw new Error("bad channel id");
+  return viewsUrl(await readSecret(tok), ch);
+}
 export async function connectedChannels(tok) { return (await creators(tok)).filter(r => r.connected); }
 // Every creator row with a channel id, connected or not (All creators view, summary.js).
 export async function allCreators(tok) { return creators(tok); }
