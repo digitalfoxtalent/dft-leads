@@ -524,6 +524,8 @@ const GROUPS=[
   // YouTube Dedicated (Tom, 13 Oct 2026): a whole video about the brand, at 3x the channel's
   // YouTube rate. Each row follows its channel on the YouTube tab; prices change there.
   {id:"dedicated",      label:"YouTube Dedicated Videos", kind:"long", tip:"A whole video about the brand: 3x the YouTube integration rate, one video, $1,500 minimum. Views are an estimate, not a guarantee."},
+  // YouTube Live (Tom, 22 Oct 2026): one live stream on the channel, priced exactly as a dedicated video.
+  {id:"live",           label:"YouTube Live", kind:"long", tip:"One live stream on the creator's YouTube channel featuring the brand, priced as a dedicated video. Views are an estimate, not a guarantee."},
   {id:"group_mm4av3kr", label:"YouTube Shorts",   kind:"short"},
   {id:"group_mm4a1fe0", label:"Instagram",        kind:"short"},
   {id:"group_mm4bd5tk", label:"TikTok",           kind:"short"},
@@ -532,7 +534,9 @@ const GROUPS=[
 const AFTER={fee:"rate",total:"fee",rights:"total"};
 const FOLLOWER_TABS=new Set(["group_mm4a1fe0","group_mm4bd5tk","group_mm7yw8cy"]);
 const SHORTS_GROUP="group_mm4av3kr";
-const isDed=c=>!!(c&&/^d\d+$/.test(String(c.id)));
+const isDed=c=>!!(c&&/^[dl]\d+$/.test(String(c.id))); // Dedicated and YouTube Live rows
+const DED_TABS=new Set(["dedicated","live"]);
+const isDedTab=()=>DED_TABS.has(activeTab);
 const SHORT_HIDE=new Set(["kit","male","female","a1317","a1824","a2534","a3544","a4554","a5564","us","uk","audience","adTypes","exclusive","host","hostGender"]);
 const RENAME={ "Down To Earth With Kristian Harloff (UAP NEWS)":"Down to Earth" };
 
@@ -661,7 +665,7 @@ function brandColsFor(){
     if(c.key==="vg") return true;
     if(c.key==="cpm"&&k!=="long") return false;
     // Dedicated videos (Tom, 14 Oct 2026): no CPM for brands; the team still sees it, marked DFT only.
-    if(c.key==="cpm"&&activeTab==="dedicated"&&!team&&!listEdit()) return false;
+    if(c.key==="cpm"&&isDedTab()&&!team&&!listEdit()) return false;
     return !(c.longOnly&&k!=="long");
   });
   // Shorts / Instagram / TikTok for brands: no demographics, audience, ad types,
@@ -683,9 +687,9 @@ function brandColsFor(){
   if(k==="long"&&estLong()) cols=cols.map(c=>c.key==="vg"?Object.assign({},c,{head:"Estimated Views",tip:"Estimated views across the videos, based on each channel's recent averages. An estimate, not a guarantee."}):c);
   // Dedicated videos (Tom, 13 Oct 2026) are a flat price with no view guarantee: always
   // shown as Estimated Views, on the main rate card and on every saved list.
-  if(k==="long"&&activeTab==="dedicated") cols=cols.map(c=>c.key==="vg"?Object.assign({},c,{head:"Estimated Views",tip:"Estimated views for a whole video about the brand, based on the channel's recent averages. An estimate, not a guarantee: a dedicated video is a flat price (3x the YouTube integration rate)."}):c);
+  if(k==="long"&&isDedTab()) cols=cols.map(c=>c.key==="vg"?Object.assign({},c,{head:"Estimated Views",tip:"Estimated views for a whole video about the brand, based on the channel's recent averages. An estimate, not a guarantee: a dedicated video is a flat price (3x the YouTube integration rate)."}):c);
   if(team&&!baseLocked()) cols=cols.map(c=>{
-    if(c.key==="vg") return Object.assign({},c,{w:146,edit:"vg",head:k==="long"?(activeTab==="dedicated"?"Estimated Views":"View Guarantee ✎"):"Avg Views ✎",tip:k==="long"?"Click to edit what brands see. Holds until the quarter resets.":"Shown to brands for context only. It sets the production fee tier ($3,000, $5,000 from 100k, $7,500 from 250k); the Publishing Rate is 20% of that fee. Click to edit."});
+    if(c.key==="vg") return Object.assign({},c,{w:146,edit:"vg",head:k==="long"?(isDedTab()?"Estimated Views":"View Guarantee ✎"):"Avg Views ✎",tip:k==="long"?"Click to edit what brands see. Holds until the quarter resets.":"Shown to brands for context only. It sets the production fee tier ($3,000, $5,000 from 100k, $7,500 from 250k); the Publishing Rate is 20% of that fee. Click to edit."});
     if(c.key==="cpm") return Object.assign({},c,{edit:"cpm",head:"CPM ✎",w:84,tip:k==="long"?"Click to edit what brands see. Holds until the quarter resets.":"Not shown to brands. Sets the rate. Click to edit."});
     // Number of videos brands are quoted (Tom, 9 Oct 2026). Clear it to go back to the
     // automatic bundle. Fewer videos than the minimum needs are still priced at $1,500.
@@ -698,7 +702,7 @@ function brandColsFor(){
   // Every tab: View Guarantee / Estimate and CPM; short form also the production fee.
   if(listEdit()) cols=cols.map(c=>{
     const tip="Price for this list only. The roster and other lists are not changed. Clear the box to go back to the roster price.";
-    if(c.key==="vg") return Object.assign({},c,{w:146,edit:"vg",head:k==="long"?(estLong()||activeTab==="dedicated"?"Estimated Views ✎":"View Guarantee ✎"):"Avg Views ✎",tip});
+    if(c.key==="vg") return Object.assign({},c,{w:146,edit:"vg",head:k==="long"?(estLong()||isDedTab()?"Estimated Views ✎":"View Guarantee ✎"):"Avg Views ✎",tip});
     if(c.key==="cpm") return Object.assign({},c,{edit:"cpm",head:k==="long"?"CPM ✎":"CPM ✎ (DFT only)",w:k==="long"?84:130,tip:k==="long"?tip:"Brands do not see this column. "+tip});
     if(c.key==="fee") return Object.assign({},c,{edit:"fee",head:"Production Rate ✎",w:160,tip});
     // Discount by rate on every tab (Tom, 15 Oct 2026): type the price itself, not only the CPM.
@@ -711,7 +715,7 @@ function brandColsFor(){
     if(c.key==="minVideos"&&k==="long") return Object.assign({},c,{edit:"videos",head:"Videos ✎",w:112,tip:"Number of videos for this list only. View Guarantee = views per video x videos, Rate = that x CPM, minimum $1,500. Clear the box to go back to the automatic count."});
     return c;
   });
-  if(activeTab==="dedicated") cols=cols.map(c=>c.key==="cpm"?Object.assign({},c,{t:1,head:c.edit?"CPM ✎ (DFT only)":"CPM (DFT only)",w:c.edit?130:112,tip:"Brands never see the CPM on dedicated videos. "+(c.tip||"")}):c);
+  if(isDedTab()) cols=cols.map(c=>c.key==="cpm"?Object.assign({},c,{t:1,head:c.edit?"CPM ✎ (DFT only)":"CPM (DFT only)",w:c.edit?130:112,tip:"Brands never see the CPM on dedicated videos. "+(c.tip||"")}):c);
   if(paidIdeas()){ // ideas lead, right after the Stage, with the creator's numbers after them
     const pc=finishCols(cols.map(c=>c.key==="ideas"?Object.assign({},c,{w:360,tip:"Ideas for how this creator would feature the campaign in their own content."}):c));
     const i=pc.findIndex(c=>c.key==="ideas"); if(i<0) return pc;
@@ -966,7 +970,7 @@ function totalsRow(list0,cols){
       case "name": return `Total<span class="sub">${list.length} creator${list.length===1?"":"s"}</span>`+(out?`<span class="sub">${out} rejected, not counted</span>`:"");
       case "subs": return int(subs)+`<span class="sub">subscribers</span>`;
       case "rate": { const was=list.reduce((a,c)=>a+(c.wasRate||c.rate||0),0); return money(rate)+`<span class="sub">${long?"total rate":"publishing rate"}</span>`+(long&&was>rate?`<span class="sub">saves ${money(was-rate)}</span>`:""); }
-      case "vg": return vg?int(vg)+`<span class="sub">${isPress()?"typical views":long?(!estLong()&&activeTab!=="dedicated"?"guaranteed views":"estimated views"):"avg views"}</span>`:"";
+      case "vg": return vg?int(vg)+`<span class="sub">${isPress()?"typical views":long?(!estLong()&&!isDedTab()?"guaranteed views":"estimated views"):"avg views"}</span>`:"";
       case "cpm": return long&&vg?money2(Math.round(rate*100000/vg)/100)+`<span class="sub">CPM</span>`:"";
       case "minVideos": return `${int(vids)}<span class="sub">video${vids===1?"":"s"}</span>`;
       case "fee": return money(fee)+`<span class="sub">production rate</span>`;
@@ -990,7 +994,7 @@ function countLine(l,what){
 function tabViews(){
   const g=GROUPS.find(x=>x.id===activeTab)||{}, l=((BRAND&&BRAND.groups[activeTab])||[]).filter(c=>!(c.fb&&c.fb.no)), v=sumBy(l,"vg");
   if(!v) return "";
-  const what=activeTab==="dedicated"?"estimated dedicated video views":g.kind==="long"?(estLong()?"estimated":"guaranteed")+" YouTube views":"average "+(g.label||"short-form")+" views";
+  const what=isDedTab()?(activeTab==="live"?"estimated live stream views":"estimated dedicated video views"):g.kind==="long"?(estLong()?"estimated":"guaranteed")+" YouTube views":"average "+(g.label||"short-form")+" views";
   return `<span><b>${int(v)}</b> ${what}</span>`;
 }
 function packageSummary(){
@@ -1004,7 +1008,7 @@ function packageSummary(){
   if(isPress()){ // no prices on a press package
     return `<span class="pkg">${sizeLine}<span><b>${int(sumBy(all,"subs"))}</b> combined audience</span><span><b>${int(sumBy(all,"vg"))}</b> typical views per post, combined</span>${countLine(ok,"approved")}${countLine(rej,"declined")}${confLine}</span>`;
   }
-  const rate=all.reduce((a,c)=>a+(typeof c.total==="number"?c.total:(typeof c.rate==="number"?c.rate:0)),0), vg=sumBy(all.filter(c=>c.kind==="long"&&c.gid!=="dedicated"),"vg"), ded=sumBy(all.filter(c=>c.gid==="dedicated"),"vg"), est=sumBy(all.filter(c=>c.kind!=="long"),"vg");
+  const rate=all.reduce((a,c)=>a+(typeof c.total==="number"?c.total:(typeof c.rate==="number"?c.rate:0)),0), vg=sumBy(all.filter(c=>c.kind==="long"&&!DED_TABS.has(c.gid)),"vg"), ded=sumBy(all.filter(c=>DED_TABS.has(c.gid)),"vg"), est=sumBy(all.filter(c=>c.kind!=="long"),"vg");
   const vids=all.reduce((a,c)=>a+(c.kind==="long"?(c.minVideos||1):1),0);
   const saved=all.reduce((a,c)=>a+(c.wasTotal?(c.wasTotal-(typeof c.total==="number"?c.total:c.rate||0)):0),0);
   const appr=listEdit()?all.filter(c=>c.stage==="approached"):[], bnotes=listEdit()?every.filter(c=>c.fb&&c.fb.note).length:0;
@@ -1071,7 +1075,7 @@ function totalsCard(list){
   const was=list.reduce((a,c)=>a+(c.wasRate||c.rate||0),0);
   const it=(l,v)=>`<div class="cs"><div class="cl">${l}</div><div class="cv">${v}</div></div>`;
   const body=long
-    ?it("Total rate",money(rate))+(vg?it(!estLong()&&activeTab!=="dedicated"?"Guaranteed views":"Estimated views",int(vg)):"")+(vg&&columns().some(c=>c.key==="cpm")?it("CPM",money2(Math.round(rate*100000/vg)/100)):"")+it("Videos",int(vids))
+    ?it("Total rate",money(rate))+(vg?it(!estLong()&&!isDedTab()?"Guaranteed views":"Estimated views",int(vg)):"")+(vg&&columns().some(c=>c.key==="cpm")?it("CPM",money2(Math.round(rate*100000/vg)/100)):"")+it("Videos",int(vids))
     :it("Publishing rate",money(rate))+it("Production rate",money(fee))+it("Total rate",money(total))+(vg?it("Average views",int(vg)):"");
   return `<div class="card ctot"><div class="ctt">Total · ${list.length} creator${list.length===1?"":"s"}</div><div class="cgrid">${body}${was>rate?it("You save",money(was-rate)):""}</div></div>`;
 }
@@ -1079,11 +1083,11 @@ function render(){
   if(openEdit()){ renderLater=true; return; }
   renderLater=false;
   const cols=columns(), list=currentList();
-  const all=GROUPS.filter(g=>g.id!=="dedicated").reduce((a,g)=>a.concat((PAYLOAD&&PAYLOAD.groups[g.id])||[]),[]);
+  const all=GROUPS.filter(g=>!DED_TABS.has(g.id)).reduce((a,g)=>a.concat((PAYLOAD&&PAYLOAD.groups[g.id])||[]),[]);
   const shown=mode==="team"?all.filter(c=>c.show).length:all.length;
   $("#count").textContent=mode==="team"
     ?`${all.length} profiles · ${shown} shown to brands · ${list.length} in view`
-    :(()=>{ const pl=GROUPS.filter(g=>g.id!=="dedicated"&&(PAYLOAD.groups[g.id]||[]).length).map(g=>g.label); /* creators, not placements (Tom, 16 Oct 2026) */ const nc=new Set(all.map(creatorKey)).size, n=nc+" creator"+(nc===1?"":"s"); return pl.length===1?`${n} on ${pl[0]}`:pl.length&&pl.length<=3?`${n} across ${pl.slice(0,-1).join(", ")} and ${pl[pl.length-1]}`:`${n} across ${pl.length} platforms`; })();
+    :(()=>{ const pl=GROUPS.filter(g=>!DED_TABS.has(g.id)&&(PAYLOAD.groups[g.id]||[]).length).map(g=>g.label); /* creators, not placements (Tom, 16 Oct 2026) */ const nc=new Set(all.map(creatorKey)).size, n=nc+" creator"+(nc===1?"":"s"); return pl.length===1?`${n} on ${pl[0]}`:pl.length&&pl.length<=3?`${n} across ${pl.slice(0,-1).join(", ")} and ${pl[pl.length-1]}`:`${n} across ${pl.length} platforms`; })();
   if(isMobile()){
     $("#scroll").innerHTML=list.length?cardsFor(list,cols):`<div class="state"><div>${query?"No creators match your search.":"No creators on this tab."}</div></div>`;
     wire(); renderSelbar(); return;
@@ -1837,7 +1841,7 @@ function renderBanner(){
   } else if(TEAM){
     if(listEdit()){
       b.className="banner listbar"; b.style.display="";
-      const pr=isPress(), pi=paidIdeas(), missing=(pr||pi)?GROUPS.reduce((n,g)=>n+(g.id==="dedicated"&&pr?0:(BRAND.groups[g.id]||[]).filter(c=>!String(c.ideas||"").trim()).length),0):0;
+      const pr=isPress(), pi=paidIdeas(), missing=(pr||pi)?GROUPS.reduce((n,g)=>n+(DED_TABS.has(g.id)&&pr?0:(BRAND.groups[g.id]||[]).filter(c=>!String(c.ideas||"").trim()).length),0):0;
       b.innerHTML=`<div class="lb-acts"><a class="btn" href="/?edit=${encodeURIComponent(LIST_SLUG)}">Add / remove creators</a>${typeButton()}${pr?"":ideasButton()+viewsButton()+lockButton()}${missing?`<button class="btn" id="draftIdeas" title="${pi?`Claude drafts campaign ideas for the ${missing} creator${missing===1?"":"s"} with none, from the brief and their channels. For this list only.`:`Claude drafts typical ideas for the ${missing} creator${missing===1?"":"s"} with none, from their channels. They become each creator's standard ideas.`}">Draft ideas for ${missing}</button>`:""}${acceptButton()}</div>${packageSummary()}`;
       $$typeWire(); $$ideasWire();
       const di=$("#draftIdeas"); if(di) di.onclick=()=>pi?draftCampaignIdeas(di):draftIdeas(di);
@@ -1930,7 +1934,7 @@ function applyBrand(p){
   if(ht){
     const press=!!(p.list&&p.list.press);
     ht.style.display=press?"none":"";
-    ht.innerHTML=press?"":"<b>How to read this list:</b> YouTube rates are for one 30 to 90 second integration in a long-form video; dedicated videos are priced on their own tab. <b>Simulcast</b> means the video also goes out on Spotify Video, Apple Podcasts, Amazon Music, iHeartRadio and other podcast apps, at no extra cost. <b>Category Exclusive: 30 days</b> means no competing brand in the same product category on that channel for 30 days after your video goes live.";
+    ht.innerHTML=press?"":"<b>How to read this list:</b> YouTube rates are for one 30 to 90 second integration in a long-form video; dedicated videos and YouTube Live streams are priced on their own tabs. <b>Simulcast</b> means the video also goes out on Spotify Video, Apple Podcasts, Amazon Music, iHeartRadio and other podcast apps, at no extra cost. <b>Category Exclusive: 30 days</b> means no competing brand in the same product category on that channel for 30 days after your video goes live.";
   }
   if(mode!=="team"){ PAYLOAD=BRAND; renderBanner(); renderTabs(); render(); }
 }
