@@ -130,7 +130,7 @@ export default async function handler(req, res) {
 
   // Ecosystem sign-in. Google only returns to reports.digitalfoxtalent.com, so the ecosystem signs people in
   // there and gets a 60-second signed handoff back, exactly as the roster site does.
-  const safePath = p => (typeof p === "string" && /^\/(?!\/)[^\s]*$/.test(p) && !p.startsWith("/auth/")) ? p : "/";
+  const safePath = p => (typeof p === "string" && /^\/(?![\/\\])[^\s\\]*$/.test(p) && !p.startsWith("/auth/")) ? p : "/";
   if (eco && route === "auth/login") {
     res.setHeader("Location", "https://reports.digitalfoxtalent.com/eco-signin?next=" + encodeURIComponent(safePath(String(req.query && req.query.next || "/"))));
     return res.status(302).end();

@@ -26,7 +26,7 @@ function readCookie(req, name) {
 }
 // A fresh one-time value for the sign-in page; the token Google returns must carry it.
 // The cookie also remembers where to go afterwards. SameSite=None because Google posts back cross-site.
-const safeNext = n => (typeof n === "string" && /^\/(?!\/)[^\s]*$/.test(n) && !n.startsWith("/auth/")) ? n : "/";
+const safeNext = n => (typeof n === "string" && /^\/(?![\/\\])[^\s\\]*$/.test(n) && !n.startsWith("/auth/")) ? n : "/";
 export function newNonce(next) {
   const n = crypto.randomBytes(18).toString("base64url");
   return { nonce: n, cookie: NONCE_COOKIE + "=" + n + "." + Buffer.from(safeNext(next)).toString("base64url") + "; Path=/auth; Max-Age=900; HttpOnly; Secure; SameSite=None" };
