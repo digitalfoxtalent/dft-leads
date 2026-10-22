@@ -44,7 +44,7 @@ const EMAIL_RE = /^[^\s@<>"]{1,64}@[A-Za-z0-9.-]{1,190}\.[A-Za-z]{2,24}$/;
 const PER_HOUR = 5, MAX_PENDING = 300, NOTIFY_PER_HOUR = 10;
 
 // Swappable for tests.
-let deps = { creators: allCreators, brandLink, notify: mondayNotify, lookupUsers: mondayUsers };
+let deps = { creators: allCreators, brandLink, notify: mondayNotify, lookupUsers: mondayUsers, postUpdate: mondayUpdate };
 export function setDeps(d) { deps = Object.assign({}, deps, d); }
 
 const SCHEMA = [
@@ -191,18 +191,34 @@ export async function submitRequest(req, secret) {
   return { status: 200, cookie: cookieFor(id, secret), html: statusPage(r, { title: "Request sent", body: pendingBody(r) }) };
 }
 
+// The notification text becomes the subject of monday's email, so it is one short sentence. The details and the
+// review link go in an update on the creator's Creator YouTube Access row, which the notification opens.
+export function notificationText(r) {
+  return (clean(r.name, 100) + (r.company ? " from " + clean(r.company, 120) : "") + " wants to see engaged views for " + clean(r.creator, 100)).slice(0, 250);
+}
+export function updateBody(r) {
+  const line = (k, v) => v ? `${k}: ${esc(v)}<br>` : "";
+  return `<p><b>Access request for engaged views</b></p><p>${line("Name", r.name)}${line("Company", r.company)}${line("Email", r.email)}${line("Shared by", r.contact)}</p>`
+    + `<p><a href="${ORIGIN + REVIEW_PATH}">Approve or decline</a></p>`;
+}
 async function notifyTeam(secret, r, itemId) {
   const users = new Set([TOM]);
   const m = String(r.contact || "").toLowerCase().match(/[a-z0-9._%+-]+@digitalfoxtalent\.com/);
   if (m) { try { for (const u of await deps.lookupUsers(secret, m[0])) users.add(Number(u)); } catch (e) {} }
-  const text = ("Access request: " + r.name + " (" + r.email + (r.company ? ", " + r.company : "") + ") wants to see " + r.creator
-    + "'s engaged views" + (r.contact ? ", shared by " + r.contact : "") + ". Approve or decline at " + ORIGIN + REVIEW_PATH).slice(0, 900);
+  let postId = null;
+  try { postId = await deps.postUpdate(secret, itemId, updateBody(r)); } catch (e) {}
+  const text = notificationText(r);
   let n = 0;
-  for (const u of users) { try { await deps.notify(secret, u, itemId, text); n++; } catch (e) {} }
+  for (const u of users) { try { await deps.notify(secret, u, postId || itemId, text, postId ? "Post" : "Project"); n++; } catch (e) {} }
   return n;
 }
-async function mondayNotify(token, user, itemId, text) {
-  await mondayCall(token, "mutation ($u: ID!, $t: ID!, $x: String!) { create_notification(user_id:$u, target_id:$t, target_type:Project, text:$x) { text } }", { u: String(user), t: String(itemId), x: text });
+async function mondayNotify(token, user, targetId, text, type) {
+  const t = type === "Post" ? "Post" : "Project";
+  await mondayCall(token, `mutation ($u: ID!, $t: ID!, $x: String!) { create_notification(user_id:$u, target_id:$t, target_type:${t}, text:$x) { text } }`, { u: String(user), t: String(targetId), x: text });
+}
+async function mondayUpdate(token, itemId, body) {
+  const d = await mondayCall(token, "mutation ($i: ID!, $b: String!) { create_update(item_id:$i, body:$b) { id } }", { i: String(itemId), b: body });
+  return d && d.create_update && d.create_update.id;
 }
 async function mondayUsers(token, email) {
   const d = await mondayCall(token, "query ($e: [String]) { users(emails:$e, kind:non_guests) { id enabled } }", { e: [email] });

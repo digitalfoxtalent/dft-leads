@@ -15,11 +15,12 @@ setExecutor({
 });
 const SECRET = "test-secret-not-real";
 const CH = "UCLJvwQ-173AlbFt7zvPl-CQ", OFF = "UCaaaaaaaaaaaaaaaaaaaaaa";
-const notes = [];
+const notes = [], posts = [];
 setDeps({
   creators: async () => [{ id: "111", name: "The Perfect Mix", channel: CH, connected: true }, { id: "222", name: "Not Connected", channel: OFF, connected: false }],
   brandLink: async (s, ch) => "https://connect.digitalfoxtalent.com/api/views?k=" + ch + "&t=sig",
-  notify: async (s, user, item, text) => { notes.push({ user, item, text }); },
+  notify: async (s, user, item, text, type) => { notes.push({ user, item, text, type }); },
+  postUpdate: async (s, item, body) => { posts.push({ item, body }); return "555"; },
   lookupUsers: async (s, email) => email === "margot@digitalfoxtalent.com" ? [999] : [],
 });
 
@@ -45,7 +46,9 @@ const cookie = cookieVal(out.cookie);
 const id = requestIdFromCookie(reqOf({ cookie }), SECRET);
 let row = (await read(`SELECT * FROM access.requests WHERE id = $1`, [id]))[0];
 ok(row && row.status === "pending" && row.email === "i.popel@zorka.agency" && row.creator === "The Perfect Mix", "row saved, email lowercased, creator named");
-ok(notes.length === 2 && notes.some(n => n.user === 40241658) && notes.some(n => n.user === 999) && notes.every(n => n.item === "111"), "Tom and the named teammate notified on the creator's row");
+ok(notes.length === 2 && notes.some(n => n.user === 40241658) && notes.some(n => n.user === 999) && notes.every(n => n.item === "555" && n.type === "Post"), "Tom and the named teammate notified on the update");
+ok(notes[0].text === "Irina <b>Popel</b> from Zorka.Agency wants to see engaged views for The Perfect Mix" && !/http|@/.test(notes[0].text), "notification is one short sentence: no email, no link");
+ok(posts.length === 1 && posts[0].item === "111" && /Approve or decline/.test(posts[0].body) && /reporting\/access-requests/.test(posts[0].body) && /Irina &lt;b&gt;Popel/.test(posts[0].body) && /i\.popel@zorka\.agency/.test(posts[0].body), "details and the review link in an escaped update on the creator row");
 ok(row.notified === 2, "notification count recorded");
 
 // pending view
