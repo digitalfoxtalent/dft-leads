@@ -61,6 +61,9 @@ const GROUPS = [
   // YouTube Dedicated (Tom, 13 Oct 2026): a whole video about the brand. Not a monday group:
   // each YouTube channel row is shown again here, priced from its own numbers (see dedNumbers).
   { id: "dedicated", kind: "long", virtual: true },
+  // YouTube Live (Tom, 22 Oct 2026, RayNeo x Call of Duty asked for a livestream): one live stream on the channel,
+  // priced exactly as a dedicated video. Shown like Dedicated: each YouTube channel row again, ids l<item id>.
+  { id: "live", kind: "long", virtual: true },
   { id: "group_mm4av3kr", kind: "short" }, // YouTube Shorts
   { id: "group_mm4a1fe0", kind: "short" }, // Instagram
   { id: "group_mm4bd5tk", kind: "short" }, // TikTok
@@ -72,8 +75,8 @@ const CAP = { long: 30, short: 50 };
 // with the same $1,500 minimum. The brand cap scales the same way: hidden over $90 CPM.
 const DED = { mult: 3, minRate: 1500 };
 const REAL_GROUPS = () => GROUPS.filter(g => !g.virtual);
-const isDedId = id => /^d\d+$/.test(String(id));
-const ROW_ID = /^d?\d+$/; // monday item ids, or d<item id> for a channel's Dedicated row
+const isDedId = id => /^[dl]\d+$/.test(String(id)); // Dedicated (d) and YouTube Live (l) rows share the dedicated price
+const ROW_ID = /^[dl]?\d+$/; // monday item ids, d<item id> for a channel's Dedicated row, l<item id> for its YouTube Live row
 // Short form (Shorts, Instagram, TikTok, Snapchat), Tom 8 Oct 2026: the View Estimate x a
 // $25 CPM gives the media rate, with NO $1,500 floor, and a content production fee (tiered,
 // see feeFor) is added on top. Total Rate = rate + fee. 12 months of digital usage and
@@ -503,6 +506,7 @@ async function loadBoard() {
   // The Dedicated tab: every YouTube channel again, sharing the same column values (cv), so a
   // change to the channel on the YouTube tab is a change here too. Shows are not sold this way.
   rows.filter(r => r.group === "topics").forEach(r => rows.push(Object.assign({}, r, { id: "d" + r.id, group: "dedicated", dedicated: true, parentId: r.id, shows: [] })));
+  rows.filter(r => r.group === "topics").forEach(r => rows.push(Object.assign({}, r, { id: "l" + r.id, group: "live", dedicated: true, live: true, parentId: r.id, shows: [] })));
 
   const listItems = ((((lists || {}).boards || [])[0] || {}).items_page || { items: [] }).items.map(it => {
     const cv = {}; (it.column_values || []).forEach(c => { cv[c.id] = c.text || ""; });
@@ -538,7 +542,7 @@ async function freshList(slug) {
 function baseFields(r) {
   const cv = r.cv, o = {
     id: r.id, name: r.name, handle: cv[C.handle] || "", url: cv[C.url] || "", logo: r.logo, kind: r.kind, group: r.group,
-    subs: pos(cv[C.subs]), adLength: r.dedicated ? "Full video" : AD_LENGTH, adEx: r.adEx, kit: r.kit || "", state: r.state,
+    subs: pos(cv[C.subs]), adLength: r.live ? "Live stream" : r.dedicated ? "Full video" : AD_LENGTH, adEx: r.adEx, kit: r.kit || "", state: r.state,
     simulcast: r.simulcast ? "Included" : "",
   };
   if (r.dedicated) o.parentId = r.parentId;
@@ -551,7 +555,7 @@ function baseFields(r) {
   // integration rate and asked which one the price was for). The creator's own note stays on the Rates board.
   // Exclusivity reads "30 days" rather than "Yes" (Tom, 20 Oct 2026: "so it's clearer"). The Rates board keeps Yes / Y / No.
   if (/^\s*(y|yes|true)\s*$/i.test(o.exclusive)) o.exclusive = "30 days";
-  if (r.kind === "long") o.adTypes = r.dedicated ? "Dedicated video" : "Integration (mid-roll)";
+  if (r.kind === "long") o.adTypes = r.live ? "YouTube livestream" : r.dedicated ? "Dedicated video" : "Integration (mid-roll)";
   return o;
 }
 
@@ -1167,7 +1171,7 @@ async function feedbackAlerts() {
 // creator the brand has answered, with the format, price and views the brand sees on the list, newest answers
 // marked NEW (compared with what the last email showed, kept on the list as fbSeen), plus the totals and the
 // next step. Built from brandPayload, so the numbers are exactly the ones on the brand's page.
-const ALERT_FMT = { topics: "YouTube integration", dedicated: "YouTube dedicated", group_mm4av3kr: "YouTube Short", group_mm4a1fe0: "Instagram Reel", group_mm4bd5tk: "TikTok", group_mm7yw8cy: "Snapchat" };
+const ALERT_FMT = { topics: "YouTube integration", dedicated: "YouTube dedicated", live: "YouTube Live", group_mm4av3kr: "YouTube Short", group_mm4a1fe0: "Instagram Reel", group_mm4bd5tk: "TikTok", group_mm7yw8cy: "Snapchat" };
 function feedbackEmail(data, list, submitted) {
   const body = list.body, fb = body.feedback || {}, prev = body.fbSeen || {};
   const sig = f => (f.ok ? "y" : f.no ? "n" : "") + "|" + String(f.note || "");
@@ -1732,6 +1736,7 @@ const PAID_FMT = {
   // About 60 seconds, so the idea must fit a 60 second ad read (Tom, 16 Oct 2026: ideas "might be tough to fit into a 60s ad").
   topics: "YouTube Integrated Ad: an ad read of about 60 seconds inside one of the creator's regular long-form videos. It must fit 60 seconds: one hook, one beat, a call to action. Not a whole video and not a change to the video's topic.",
   dedicated: "YouTube Dedicated Video: a whole long-form video about the campaign, in the creator's own format and voice.",
+  live: "YouTube Live: one live stream on the creator's channel featuring the campaign, in their own live format.",
   group_mm4av3kr: "YouTube Short: one vertical video under 60 seconds.",
   group_mm4a1fe0: "Instagram Reel: one vertical video on the creator's Instagram.",
   group_mm4bd5tk: "TikTok: one vertical video on the creator's TikTok.",
@@ -1777,7 +1782,7 @@ async function campaignIdeas(list, data, opt = {}) {
   const known = Object.keys(have).filter(id => String(have[id] || "").trim() && !todo.some(r => r.id === id)).slice(0, 8).map(id => { const r = data.rows.find(x => x.id === id); return r ? "- " + r.name + ": " + String(have[id]).replace(/\n/g, " / ") : ""; }).filter(Boolean);
   const lines = todo.map(r => JSON.stringify(press
     ? { id: r.id, name: r.name, platform: PAID_FMT[r.group] || "", category: r.cv[C.category] || "", host: r.cv[C.host] || "", about: String(r.cv[C.about] || r.cv[C.audience] || "").slice(0, 500) }
-    : { id: r.id, name: r.name, format: PAID_FMT[r.dedicated ? "dedicated" : r.group] || "", category: r.cv[C.category] || "", host: r.cv[C.host] || "", about: String(r.cv[C.about] || "").slice(0, 700), audience: String(r.cv[C.audience] || "").slice(0, 300), creator_said: seed[r.id] || undefined }));
+    : { id: r.id, name: r.name, format: PAID_FMT[r.live ? "live" : r.dedicated ? "dedicated" : r.group] || "", category: r.cv[C.category] || "", host: r.cv[C.host] || "", about: String(r.cv[C.about] || "").slice(0, 700), audience: String(r.cv[C.audience] || "").slice(0, 300), creator_said: seed[r.id] || undefined }));
   const prompt = press ? [
     "You write press opportunities for Digital Fox Talent, a creator management agency, for an EARNED MEDIA (press) campaign. The partner does not pay the creator; it offers access, and the creator decides what, if anything, to make from it.",
     "Campaign (title of the press package and the partner's brief):", "Title: " + list.name, brief ? "Brief: " + brief : "Brief: not given, work from the title.",
@@ -2013,7 +2018,7 @@ function totalsOf(p) {
     const t = typeof c.total === "number" ? c.total : (typeof c.rate === "number" ? c.rate : 0);
     total += t; was += c.wasTotal ? c.wasTotal - t : 0; profiles++;
     // Dedicated videos carry no view guarantee (Tom, 13 Oct 2026), so their views are counted apart.
-    if (g.id === "dedicated") { dedViews += c.vg || 0; videos += c.minVideos || 1; }
+    if (g.id === "dedicated" || g.id === "live") { dedViews += c.vg || 0; videos += c.minVideos || 1; }
     else if (g.kind === "long") { ytViews += c.vg || 0; videos += c.minVideos || 1; } else { shortViews += c.vg || 0; videos += 1; }
   }));
   return { total, discount: was, ytViews, dedViews, shortViews, videos, profiles };
@@ -2071,7 +2076,7 @@ const PB = { by: "text_mm83t28h", contact: "text_mm83nbr6", result: "text_mm83dz
 const PITCH_LESSONS_ITEM = 13327548036; // Pitch Requests item "Standing lessons for pitch replies"
 const PITCH_MODELS = ["claude-opus-5-5", "claude-sonnet-4-5", "claude-haiku-4-5-20251001"]; // strongest first (Tom, 14 Oct 2026), older models only as a fallback
 const FACTS_ITEM = 13283766377; // Pitch Requests item "Standing facts for pitch replies": the only facts a reply may state
-const PITCH_LABEL = { topics: "YouTube integration", dedicated: "YouTube dedicated video", group_mm4av3kr: "YouTube Shorts", group_mm4a1fe0: "Instagram", group_mm4bd5tk: "TikTok", group_mm7yw8cy: "Snapchat" };
+const PITCH_LABEL = { topics: "YouTube integration", dedicated: "YouTube dedicated video", live: "YouTube livestream", group_mm4av3kr: "YouTube Shorts", group_mm4a1fe0: "Instagram", group_mm4bd5tk: "TikTok", group_mm7yw8cy: "Snapchat" };
 // The model's opening line is used only when it reads like Tom (19 Oct 2026): a thank-you, one sentence, no stock
 // opinion of the product, nothing that could be a promise or a figure.
 function pitchOpener(o) {
@@ -2149,11 +2154,11 @@ function parseForward(b) {
 function pitchCatalogue(data, press) {
   const p = brandPayload(data, null, false), lines = [], byId = {};
   GROUPS.forEach(g => (p.groups[g.id] || []).forEach(c => {
-    if (press && g.id === "dedicated") return;
+    if (press && (g.id === "dedicated" || g.id === "live")) return;
     byId[String(c.id)] = Object.assign({ gid: g.id }, c);
     const price = press ? 0 : typeof c.total === "number" ? c.total : c.rate;
     const typical = g.kind === "long" ? (c.vgPer || c.vg || 0) / PRICE.long.mult : c.vg;
-    const views = press ? (typical ? kfmt(Math.round(typical)) + " typical views" : "") : c.vg ? kfmt(c.vg) + (g.kind !== "long" ? " avg views" : g.id === "dedicated" ? " est views" : " guaranteed views") : "";
+    const views = press ? (typical ? kfmt(Math.round(typical)) + " typical views" : "") : c.vg ? kfmt(c.vg) + (g.kind !== "long" ? " avg views" : g.id === "dedicated" || g.id === "live" ? " est views" : " guaranteed views") : "";
     lines.push([c.id, PITCH_LABEL[g.id], c.name, c.handle, c.category || "", c.subs ? kfmt(c.subs) + " subs" : "", views, price ? "$" + price : "", c.location ? "based in " + c.location : "", c.us ? "US audience " + c.us : "", c.uk ? "UK audience " + c.uk : "", c.male ? "male " + c.male : "", String(c.about || "").replace(/\s+/g, " ").slice(0, 140)].join(" | "));
   }));
   return { lines, byId };
@@ -2286,7 +2291,7 @@ function pitchPrompt(f, lines, fwdName, aiNames, namedNames, pointers, facts, re
     "- How many: every creator who genuinely fits, with no upper limit (the whole roster is fine if the brief truly suits everyone). Aim for at least 10 creators, topping up with the next-best real fits, unless a pointer, a market limit or the AI rule leaves fewer. Mix the closest fits with adjacent angles so the brand sees options it would not have thought of.",
     "- Be considerate about fit, creator by creator: leave out anyone whose audience, tone or content would jar with this brand or product, even if the category looks close (for example an edgy, mature or horror-led channel on a family or kids brief, a hardcore gaming channel on a beauty brief, an adult-skewing audience for a toy). Check age split, gender split and location against who the product is for. When unsure, leave them out.",
     "- Give each pick a fit score from 1 to 5 (5 = obvious fit, 4 = strong, 3 = solid adjacent fit). Do not pick anyone below 3. Named creators are always included whatever their fit.",
-    "- Formats: strictly the ones the brand explicitly asks for in this campaign. A passing mention of a platform (e.g. 'as we grow on TikTok') is not a request. List them in formats using only: integration, dedicated, shorts, instagram, tiktok, snapchat (a general 'YouTube video' means integration). If the brand does not define formats, leave formats empty and DFT offers YouTube: integration plus Shorts. Integration = YouTube integration; dedicated or full video = YouTube dedicated video; Shorts = YouTube Shorts; TikTok, Instagram and Snapchat as named. Give each creator every requested format they have; skip formats they lack.",
+    "- Formats: strictly the ones the brand explicitly asks for in this campaign. A passing mention of a platform (e.g. 'as we grow on TikTok') is not a request. List them in formats using only: integration, dedicated, livestream, shorts, instagram, tiktok, snapchat (a general 'YouTube video' means integration; a live stream on YouTube or Twitch means livestream). If the brand does not define formats, leave formats empty and DFT offers YouTube: integration plus Shorts. Integration = YouTube integration; dedicated or full video = YouTube dedicated video; Shorts = YouTube Shorts; TikTok, Instagram and Snapchat as named. Give each creator every requested format they have; skip formats they lack.",
     "- Leave out short-form placements under 5K avg views and YouTube placements under 20K views unless the creator is named.",
     "- Never invent ids.",
     "",
@@ -2564,10 +2569,11 @@ async function pitchFromEmail(b) {
     const ids = [...new Set((out.picks || []).filter(p => p && (p.named === true || !(Number(p.fit) < 3))).map(p => String(p && p.id)).filter(id => cat.byId[id] && (!aiCamp || aiOk(id) || namedIds.has(id))))];
     const picked0 = ids.slice(); // the model's picks before the format, market and pointer checks (for the fallback below)
     // Only formats the enquiry asks for: dedicated and social placements need to be named; integrations and Shorts are the default.
-    const wantF = { dedicated: /dedicated|full video|standalone video/i, group_mm4a1fe0: /instagram|\binsta\b|\bIG\b|\breels?\b/i, group_mm4bd5tk: /tik ?tok/i, group_mm7yw8cy: /snap ?chat/i };
+    const wantF = { dedicated: /dedicated|full video|standalone video/i, live: /live ?stream|\blive\b|twitch/i, group_mm4a1fe0: /instagram|\binsta\b|\bIG\b|\breels?\b/i, group_mm4bd5tk: /tik ?tok/i, group_mm7yw8cy: /snap ?chat/i };
     // Formats strictly as the brand states them; nothing stated means YouTube, integration plus Shorts (Tom, 14 Oct 2026).
-    const FMAP = { integration: "topics", youtube: "topics", youtubeintegration: "topics", dedicated: "dedicated", shorts: "group_mm4av3kr", youtubeshorts: "group_mm4av3kr", instagram: "group_mm4a1fe0", reels: "group_mm4a1fe0", ig: "group_mm4a1fe0", tiktok: "group_mm4bd5tk", snapchat: "group_mm7yw8cy" };
+    const FMAP = { integration: "topics", youtube: "topics", youtubeintegration: "topics", dedicated: "dedicated", live: "live", livestream: "live", youtubelive: "live", twitch: "live", shorts: "group_mm4av3kr", youtubeshorts: "group_mm4av3kr", instagram: "group_mm4a1fe0", reels: "group_mm4a1fe0", ig: "group_mm4a1fe0", tiktok: "group_mm4bd5tk", snapchat: "group_mm7yw8cy" };
     const askedG = new Set((Array.isArray(out.formats) ? out.formats : []).map(x => FMAP[String(x || "").toLowerCase().replace(/[^a-z]/g, "")]).filter(Boolean));
+    if (press && askedG.delete("live")) askedG.add("topics");
     if (press && askedG.delete("dedicated")) askedG.add("topics"); // press packages have no dedicated videos: the channel itself stands in
     if (!askedG.size) { askedG.add("topics"); askedG.add("group_mm4av3kr"); }
     for (let k = ids.length - 1; k >= 0; k--) if (!askedG.has(cat.byId[ids[k]].gid)) ids.splice(k, 1);
@@ -2725,7 +2731,7 @@ async function pitchFromEmail(b) {
     const howTo = "";
     // A brand asking about a specific creator (Tom, 15 Oct 2026, Gidues and CyberGhost): thank them for reaching out to
     // that creator, put that creator's rates in the email itself, then offer the wider list (the creator is on it too).
-    const FMT = { topics: "YouTube integration", dedicated: "YouTube dedicated video", group_mm4av3kr: "YouTube Short", group_mm4a1fe0: "Instagram Reel", group_mm4bd5tk: "TikTok", group_mm7yw8cy: "Snapchat" };
+    const FMT = { topics: "YouTube integration", dedicated: "YouTube dedicated video", live: "YouTube livestream", group_mm4av3kr: "YouTube Short", group_mm4a1fe0: "Instagram Reel", group_mm4bd5tk: "TikTok", group_mm7yw8cy: "Snapchat" };
     const usd = n => "$" + Number(n).toLocaleString("en-US");
     const rateLine = id => { const c = cat.byId[id] || {}; const ll = libsyn && c.gid === "topics" ? (data.rows.find(x => x.id === id) || {}).libsyn : null; const lv = ll ? ll.reach : libsyn && c.gid === "topics" && c.vg ? Math.round(c.vg / PRICE.long.mult * LIBSYN_VIEWS) : 0; const price = lv ? Math.round(lv * LIBSYN_CPM / 1000) : typeof c.total === "number" ? c.total : c.rate; if (!price || !FMT[c.gid]) return ""; const lm = String(c.adLength || "").match(/^(\d+)\s*-\s*(\d+)\s*s/i); const len = c.gid === "topics" && lm ? " (" + lm[1] + " to " + lm[2] + " sec)" : ""; const vg = c.gid === "topics" && c.vg ? " with a " + Number(lv || c.vg).toLocaleString("en-US") + " view guarantee" : ""; return FMT[c.gid] + len + ": " + usd(price) + vg; };
     const askedFor = !b.outreach && out.stage !== "shortlist" && !expanded && !shortOnly && solo.length > 1 ? listNames : [];
