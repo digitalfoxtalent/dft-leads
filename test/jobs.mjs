@@ -99,23 +99,23 @@ const svc = async (url, o = {}) => {
 const mon = { data: { app: [{ items_page: { items: [app] } }], pitch: [{ items_page: { items: [] } }], rp: [{ items_page: { items: [{ id: "1", column_values: [{ id: "text_mm3t6g60", text: "Acme" }, { id: "numeric_mm3tqsff", text: "5000" }, { id: "date_mm3t55tj", text: "2026-01-01" }] }] } }] } };
 const empty = JSON.stringify({ data: { next_items_page: { items: [] } } });
 const input = { hook: JSON.stringify({ key: hookKey, mode: "dry", hook: { application_item_id: "777" } }), key: hookKey, mon: JSON.stringify(mon), p2: empty, p3: empty, p4: empty, today: "2026-10-23", src: "x" };
-const r = await runJob("code-H", input, { env, realFetch: svc, lookup });
+const r = await runJob("code-H", input, { keysImpl: async () => ({ anthropic: ANT, youtube: YT, hunter: HUN }), realFetch: svc, lookup });
 const body = JSON.parse(r.raw);
 ok(r.status === 200 && body.ok && /TEST: Test Channel has joined/.test(body.result.subject) && body.result.to === "tom@digitalfoxtalent.com", "the alert program runs here and returns what Make expects");
 ok(sent.find(s => s.url.startsWith("https://www.googleapis.com")).url.includes("key=" + YT) && sent.find(s => s.url.startsWith("https://api.anthropic.com")).o.headers["x-api-key"] === ANT, "it used the keys from Vercel");
 ok(!r.raw.includes(ANT) && !r.raw.includes(YT) && /\[key\]/.test(r.raw), "a key echoed back by the AI is scrubbed from the answer");
 ok(/Acme/.test(body.result.html), "brand picks made it into the email");
-const bad = await runJob("code-H", Object.assign({}, input, { key: "wrong" }), { env, realFetch: svc, lookup });
+const bad = await runJob("code-H", Object.assign({}, input, { key: "wrong" }), { keysImpl: async () => ({ anthropic: ANT, youtube: YT, hunter: HUN }), realFetch: svc, lookup });
 ok(JSON.parse(bad.raw).result.subject === "", "the program's own checks still apply");
 ok(withKeys("code-F", { cap: "100000" }, keys).cap === "50" && withKeys("code-F", { cap: "7" }, keys).cap === "7", "the email finder batch is capped at 50");
-ok((await runJob("rm-rf", {}, { env })).status === 404 && (await runJob("code-H", null, { env })).status === 400, "unknown jobs and missing inputs refused");
+ok((await runJob("rm-rf", {})).status === 404 && (await runJob("code-H", null)).status === 400, "unknown jobs and missing inputs refused");
 
 // ---------- the program's world holds no secrets ----------
 {
   const { JOB_CODE: J } = await import("../api/_reports/mirror/jobs-code.js");
   const saved = J["code-E"];
   J["code-E"] = "return { p: typeof process, e: typeof require, g: typeof globalThis.process, f: typeof fetch, ev: (() => { try { return eval('1'); } catch (e) { return 'no eval'; } })() };";
-  const probe = JSON.parse((await runJob("code-E", {}, { env, lookup })).raw).result;
+  const probe = JSON.parse((await runJob("code-E", {}, { keysImpl: async () => ({}), lookup })).raw).result;
   J["code-E"] = saved;
   ok(probe.p === "undefined" && probe.e === "undefined" && probe.g === "undefined" && probe.f === "function" && probe.ev === "no eval", "programs cannot see process, require or eval: " + JSON.stringify(probe));
 }

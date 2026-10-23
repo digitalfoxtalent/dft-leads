@@ -20,6 +20,7 @@ const JS_VER = crypto.createHash("sha256").update(BOARD_JS).digest("hex").slice(
 // Active, non-guest monday users (refreshed by every sync). Someone who leaves monday loses access here too.
 async function teamSet() { return new Set((await read(`SELECT email FROM mirror.team`)).map(r => r.email)); }
 import { canSee } from "./policy.js";
+import { vaultStatus } from "./vault.js";
 import { backupStatus } from "./backup.js";
 import { listKeys, isOwner, adminToken, newNonce } from "./apikeys.js";
 export { INBOX_SCHEMA } from "./inbox-schema.js";
@@ -798,6 +799,11 @@ export async function renderSearch(email, raw = {}) {
   return { status: 200, html: frame("Search: " + q, [["Search", null]], body, side) };
 }
 
+async function vaultHtml() {
+  const v = await vaultStatus();
+  return `<h2 class="sec">Key vault for Make</h2><div class="sub">${v.map(k => `<span class="badge${k.held || k.override ? "" : " lock"}">${esc(k.name)}: ${k.override ? "Vercel setting" : k.held ? "held, copied " + esc(ago(k.fetched_at)) : "not held yet"}</span>`).join("")}</div><p class="sm muted">Service keys Make reaches through the Ecosystem. Values are encrypted and never shown.</p>`;
+}
+
 async function backupHtml() {
   const b = await backupStatus();
   const mb = n => (Number(n) / 1048576).toLocaleString("en-US", { maximumFractionDigits: 0 }) + " MB";
@@ -849,6 +855,7 @@ export async function renderStatus(email) {
 <h2 class="sec">Recent runs</h2><div class="tw plain"><table><thead><tr><th>Started</th><th>Stage</th><th>Result</th><th>Boards</th><th>Items written</th><th>monday calls</th><th>Note</th></tr></thead><tbody>${runs.map(r =>
   `<tr><td>${esc(ago(r.started_at))}</td><td>${r.stage === "files" ? "Files" : "Updates and docs"}</td><td class="${r.ok ? "ok" : r.ok === false ? "bad" : ""}">${r.ok ? "OK" : r.ok === false ? "Failed" : "Running"}</td><td class="num">${esc(r.boards_synced)}</td><td class="num">${esc(r.items_written)}</td><td class="num">${esc(r.api_calls)}</td><td>${esc(r.note || "")}</td></tr>`).join("")}</tbody></table></div>
 ${await backupHtml()}
+${await vaultHtml()}
 <h2 class="sec">Boards whose counts differ</h2>${off.length ? `<div class="tw plain"><table><thead><tr><th>Board</th><th>monday</th><th>Copy</th><th>Copied</th></tr></thead><tbody>${off.map(b =>
   `<tr><td class="nm"><a href="/boards/${esc(b.id)}">${esc(b.name)}</a></td><td class="num">${esc(b.monday_items)}</td><td class="num">${esc(b.mirror_items)}</td><td>${esc(ago(b.synced_at))}</td></tr>`).join("")}</tbody></table></div>` : `<p class="muted">None. Every copied board you can see matches monday.</p>`}
 ${errs.length ? `<h2 class="sec">Errors</h2><div class="tw"><table><tbody>${errs.map(b => `<tr><td class="nm">${esc(b.name)}</td><td>${esc(b.sync_error)}</td></tr>`).join("")}</tbody></table></div>` : ""}`;

@@ -11,6 +11,7 @@ import { INBOX_SCHEMA } from "./inbox-schema.js";
 import { BACKUP_SCHEMA } from "./backup-schema.js";
 import { API_SCHEMA } from "./apikeys.js";
 import { GATEWAY_SCHEMA } from "./gateway.js";
+import { VAULT_SCHEMA } from "./vault.js";
 
 export const SCHEMA_SQL = [
   `CREATE SCHEMA IF NOT EXISTS mirror`,
@@ -98,6 +99,7 @@ export const SCHEMA_SQL = [
   ...BACKUP_SCHEMA, // the nightly full backup (backup.js)
   ...API_SCHEMA, // Ecosystem API keys and call log (apikeys.js)
   ...GATEWAY_SCHEMA, // the monday gateway (gateway.js)
+  ...VAULT_SCHEMA, // encrypted service keys for Make jobs and the relay (vault.js)
 ];
 
 let ready = false;

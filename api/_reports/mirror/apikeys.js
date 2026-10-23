@@ -12,6 +12,7 @@ import { OWNERS } from "./switch.js";
 import { editLocked } from "./policy.js";
 import { gatewayCall } from "./gateway.js";
 import { runJob, JOB_NAMES } from "./jobs.js";
+import { relay } from "./relay.js";
 
 export const API_SCHEMA = [
   `CREATE TABLE IF NOT EXISTS mirror.api_keys (
@@ -124,6 +125,13 @@ export async function serveApi(req, path, mondayToken) {
     await finish(out.status, out.blocked && out.blocked.length ? out.blocked.slice(0, 3).join(" | ") : null);
     await write(`UPDATE mirror.api_keys SET last_used_at = now() WHERE id = $1::bigint`, [key.id]).catch(() => {});
     return out.raw != null ? { status: out.status, raw: out.raw } : json(out.status, out.body);
+  }
+  if (/^relay\//.test(path)) { // the relay (relay.js): Make calls YouTube, Claude, Apify or Hunter through the Ecosystem
+    if (!key.jobs) return done(403, { error: "This key may not use the relay." });
+    let out;
+    try { out = await relay(req, path); } catch (e) { out = { status: 502, raw: JSON.stringify({ error: { type: "relay", message: String(e && e.message || e).slice(0, 200) } }) }; }
+    await done(out.status, null);
+    return { status: out.status, raw: out.raw };
   }
   try { return await answer(req, path, key, done); }
   catch (e) { console.error("eco-api", e); return done(500, { error: "Something went wrong." }); }
