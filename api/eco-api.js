@@ -6,7 +6,7 @@ import { ensureSchema } from "./_reports/mirror/schema.js";
 import { hasDatabase } from "./_reports/mirror/db.js";
 import { mondayToken } from "./_reports/monday.js";
 
-export const config = { maxDuration: 120 }; // gateway calls wait for monday
+export const config = { maxDuration: 300 }; // gateway calls wait for monday; Make jobs can take a few minutes
 
 export default async function handler(req, res) {
   res.setHeader("Cache-Control", "no-store");
