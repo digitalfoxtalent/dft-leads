@@ -30,7 +30,7 @@ const one = v => String(Array.isArray(v) ? v[0] : v == null ? "" : v);
 export async function mirrorPage(route, req, res, email, token) {
   securityHeaders(res);
   const act = route.match(ACT), cellRoute = route.match(CELL), postRoute = route.match(POSTU), panelRoute = route.match(PANEL);
-  if (route === ASSET) return { status: 200, type: "text/javascript; charset=utf-8", body: BOARD_JS, cache: "private, max-age=300" };
+  if (route === ASSET) return { status: 200, type: "text/javascript; charset=utf-8", body: BOARD_JS, cache: "private, max-age=86400" } // safe to keep: every page asks for ?v=<hash of this script>;
   if (req.method && req.method !== "GET" && req.method !== "HEAD" && !((act || cellRoute || postRoute) && req.method === "POST")) return { status: 405, html: "Method not allowed" };
   if (!email) return { status: 401, html: "Sign in required" };
   if (!hasDatabase()) return { status: 503, html: "The Ecosystem database is not connected yet." };

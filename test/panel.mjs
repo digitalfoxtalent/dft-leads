@@ -171,10 +171,10 @@ ok(!d.ok && /Too many updates/.test(d.message), "30 updates an hour per person")
 
 // ---------- board rows ----------
 out = await get("boards/100", MARGOT);
-ok(/<script src="\/assets\/eco-board.js" defer>/.test(out.html) && /class="ub has"[^>]*>.*?<span>\d+\+?<\/span>/.test(out.html), "board row shows the update count bubble");
+ok(/<script src="\/assets\/eco-board.js\?v=[0-9a-f]{10}" defer>/.test(out.html) && /class="ub has"[^>]*>.*?<span>\d+\+?<\/span>/.test(out.html), "board row shows the update count bubble");
 ok(/1 subitem/.test(out.html), "subitem count still shown");
 out = await get("boards/300", MARGOT);
-ok(/<script src="\/assets\/eco-board.js" defer>/.test(out.html) && !/data-k=/.test(out.html) && /data-eco-board data-b="300"/.test(out.html), "read-only boards get the panel but no edit token");
+ok(/<script src="\/assets\/eco-board.js\?v=[0-9a-f]{10}" defer>/.test(out.html) && !/data-k=/.test(out.html) && /data-eco-board data-b="300"/.test(out.html), "read-only boards get the panel but no edit token");
 out = await get("assets/eco-board.js", MARGOT);
 ok(/\/panel"/.test(out.body) && /history\.replaceState/.test(out.body) && /if \(!ED\) return;/.test(out.body), "script opens the panel and only edits where allowed");
 
