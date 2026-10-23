@@ -529,6 +529,8 @@ ${pages > 1 ? `<div class="pager">${p > 1 ? `<a class="btn" href="${qs(p - 1)}">
     `<script src="/assets/eco-board.js?v=${JS_VER}" defer></script>`) };
 }
 
+const fileSize = n => { const v = Number(n) || 0; return v >= 1048576 ? (v / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(v / 1024)) + " KB"; };
+
 export async function renderItem(email, boardId, itemId, opts = {}) {
   const b = await board(boardId);
   const team = await teamSet();
@@ -541,6 +543,8 @@ export async function renderItem(email, boardId, itemId, opts = {}) {
     WHERE i.parent_id = $1::bigint AND NOT i.deleted ORDER BY i.pos NULLS LAST, i.created_at`, [it.id]);
   const subBoard = subs.length ? await board(subs[0].board_id) : null;
   const upd = await copiedUpdates(it.id, 50);
+  const files = await read(`SELECT id::text AS id, name, size_bytes, stored_at FROM mirror.backup_files WHERE item_id = ANY($1::bigint[]) ORDER BY created_at DESC NULLS LAST LIMIT 100`,
+    [[it.id, ...subs.map(x => x.id)]]);
   const cols = (b.columns || []).filter(c => c.type !== "name" && c.type !== "subtasks");
   const group = (b.groups || []).find(g => g.id === it.group_id);
   const scols = subBoard ? (subBoard.columns || []).filter(c => c.type !== "name") : [];
@@ -555,6 +559,7 @@ ${note}${editable ? `<h2 class="sec">Edit</h2>${editForm(b, it, email, opts.secr
 ${subs.length ? `<h2 class="sec">Subitems</h2><div class="tw"><table>${colgroup(scols)}<thead><tr><th>Subitem</th>${scols.map(c => `<th>${esc(c.title)}</th>`).join("")}</tr></thead><tbody>${subs.map(s =>
   `<tr><td class="nm">${esc(s.name)}</td>${scols.map(c => `<td${c.type === "numbers" ? ' class="num"' : ""}>${cell(c, s.vals && s.vals[c.id])}</td>`).join("")}</tr>`).join("")}</tbody></table></div>` : ""}
 ${editable ? `<h2 class="sec">Changes made in the Ecosystem</h2>${await historyHtml(b, it, email, opts.secret)}` : ""}
+${files.length ? `<h2 class="sec">Files</h2><ul class="files">${files.map(f => `<li>${f.stored_at ? `<a href="/files/${esc(f.id)}" target="_blank" rel="noopener">${esc(f.name || "file")}</a>` : esc(f.name || "file")}<span class="muted sm"> ${esc(fileSize(f.size_bytes))}${f.stored_at ? "" : " · not in the backup yet"}</span></li>`).join("")}</ul>` : ""}
 <h2 class="sec">Updates</h2><div class="upd-list">${updatesList(upd)}</div>`;
   return { status: 200, html: frame(it.name, [[DEPT_NAMES[dept], "/" + dept + "/boards"], [b.name, "/boards/" + b.id], [it.name, null]], body, await sidebar(email, b.id)) };
 }
@@ -796,9 +801,9 @@ export async function renderSearch(email, raw = {}) {
 async function backupHtml() {
   const b = await backupStatus();
   const mb = n => (Number(n) / 1048576).toLocaleString("en-US", { maximumFractionDigits: 0 }) + " MB";
-  return `<h2 class="sec">Nightly full backup</h2><div class="sub"><span class="badge">${esc(b.updates)} updates and replies</span><span class="badge">${esc(b.docs)} docs</span><span class="badge">${esc(b.files)} files registered (${esc(mb(b.bytes))}), ${esc(b.stored)} copied</span><span>${esc(b.fresh)} of ${esc(b.units)} boards and the docs backed up in the last 24 hours</span><span class="badge${Number(b.db_bytes) > 800 * 1048576 ? " lock" : ""}">Database ${esc(mb(b.db_bytes))} of 1,024 MB (free plan)</span></div>
-${b.runs.length ? `<div class="tw plain" style="margin-top:10px"><table><thead><tr><th>Started</th><th>Result</th><th>Updates</th><th>Docs</th><th>Files</th><th>monday calls</th><th>Note</th></tr></thead><tbody>${b.runs.map(r =>
-  `<tr><td>${esc(ago(r.started_at))}</td><td class="${r.ok ? "ok" : r.ok === false ? "bad" : ""}">${r.ok ? "OK" : r.ok === false ? "Failed" : "Running"}</td><td class="num">${esc(r.updates_written)}</td><td class="num">${esc(r.docs_written)}</td><td class="num">${esc(r.files_seen)}</td><td class="num">${esc(r.api_calls)}</td><td>${esc(r.note || "")}</td></tr>`).join("")}</tbody></table></div>` : `<p class="muted">The first backup run starts within the hour.</p>`}`;
+  return `<h2 class="sec">Nightly full backup</h2><div class="sub"><span class="badge">${esc(b.updates)} updates and replies</span><span class="badge">${esc(b.docs)} docs</span><span class="badge">${esc(b.files)} files registered (${esc(mb(b.bytes))})</span><span class="badge">${esc(b.stored)} copied to the private file store (${esc(mb(b.stored_bytes))})${Number(b.skipped) ? ", " + esc(b.skipped) + " not copied" : ""}</span><span>${esc(b.fresh)} of ${esc(b.units)} boards and the docs backed up in the last 24 hours</span><span class="badge${Number(b.db_bytes) > 800 * 1048576 ? " lock" : ""}">Database ${esc(mb(b.db_bytes))} of 1,024 MB (free plan)</span></div>
+${b.runs.length ? `<div class="tw plain" style="margin-top:10px"><table><thead><tr><th>Started</th><th>Stage</th><th>Result</th><th>Updates</th><th>Docs</th><th>Files</th><th>monday calls</th><th>Note</th></tr></thead><tbody>${b.runs.map(r =>
+  `<tr><td>${esc(ago(r.started_at))}</td><td>${r.stage === "files" ? "Files" : "Updates and docs"}</td><td class="${r.ok ? "ok" : r.ok === false ? "bad" : ""}">${r.ok ? "OK" : r.ok === false ? "Failed" : "Running"}</td><td class="num">${esc(r.updates_written)}</td><td class="num">${esc(r.docs_written)}</td><td class="num">${esc(r.files_seen)}${r.stage === "files" && Number(r.bytes_stored) ? " (" + esc(mb(r.bytes_stored)) + ")" : ""}</td><td class="num">${esc(r.api_calls)}</td><td>${esc(r.note || "")}</td></tr>`).join("")}</tbody></table></div>` : `<p class="muted">The first backup run starts within the hour.</p>`}`;
 }
 
 // ---------- /data/api-keys: Ecosystem API keys (Tom only) ----------
@@ -840,8 +845,8 @@ export async function renderStatus(email) {
   const errs = mine.filter(b => b.sync_error);
   const body = `<h1>How the monday copy is doing</h1>
 <div class="sub"><a class="btn" href="/data/editing">Editing switch</a>${isOwner(email) ? `<a class="btn" href="/data/api-keys">API keys</a>` : ""}<span class="badge">${copied} of ${mine.length} boards you can see are copied</span><span>${off.length} with a different item count</span><span>${errs.length} with an error</span></div>
-<h2 class="sec">Recent runs</h2><div class="tw plain"><table><thead><tr><th>Started</th><th>Result</th><th>Boards</th><th>Items written</th><th>monday calls</th><th>Note</th></tr></thead><tbody>${runs.map(r =>
-  `<tr><td>${esc(ago(r.started_at))}</td><td class="${r.ok ? "ok" : r.ok === false ? "bad" : ""}">${r.ok ? "OK" : r.ok === false ? "Failed" : "Running"}</td><td class="num">${esc(r.boards_synced)}</td><td class="num">${esc(r.items_written)}</td><td class="num">${esc(r.api_calls)}</td><td>${esc(r.note || "")}</td></tr>`).join("")}</tbody></table></div>
+<h2 class="sec">Recent runs</h2><div class="tw plain"><table><thead><tr><th>Started</th><th>Stage</th><th>Result</th><th>Boards</th><th>Items written</th><th>monday calls</th><th>Note</th></tr></thead><tbody>${runs.map(r =>
+  `<tr><td>${esc(ago(r.started_at))}</td><td>${r.stage === "files" ? "Files" : "Updates and docs"}</td><td class="${r.ok ? "ok" : r.ok === false ? "bad" : ""}">${r.ok ? "OK" : r.ok === false ? "Failed" : "Running"}</td><td class="num">${esc(r.boards_synced)}</td><td class="num">${esc(r.items_written)}</td><td class="num">${esc(r.api_calls)}</td><td>${esc(r.note || "")}</td></tr>`).join("")}</tbody></table></div>
 ${await backupHtml()}
 <h2 class="sec">Boards whose counts differ</h2>${off.length ? `<div class="tw plain"><table><thead><tr><th>Board</th><th>monday</th><th>Copy</th><th>Copied</th></tr></thead><tbody>${off.map(b =>
   `<tr><td class="nm"><a href="/boards/${esc(b.id)}">${esc(b.name)}</a></td><td class="num">${esc(b.monday_items)}</td><td class="num">${esc(b.mirror_items)}</td><td>${esc(ago(b.synced_at))}</td></tr>`).join("")}</tbody></table></div>` : `<p class="muted">None. Every copied board you can see matches monday.</p>`}

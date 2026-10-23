@@ -157,6 +157,10 @@
       "schedule": "15 * * * *"
     },
     {
+      "path": "/api/mirror-files",
+      "schedule": "45 * * * *"
+    },
+    {
       "path": "/api/route-enquiry",
       "schedule": "* * * * *"
     },
