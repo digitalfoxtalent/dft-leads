@@ -108,6 +108,9 @@ export const BOARD_JS = String.raw`(function () {
       var f = e.target.closest("form[data-eco-post]"); if (!f) return;
       e.preventDefault(); postUpdate(f);
     });
+    panel.addEventListener("change", function (e) {
+      var sel = e.target.closest("select[data-eco-move]"); if (sel && ED) moveTo(sel);
+    });
     panel.addEventListener("keydown", function (e) {
       if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && e.target.closest("form[data-eco-post]")) { e.preventDefault(); postUpdate(e.target.closest("form")); }
     });
@@ -136,6 +139,48 @@ export const BOARD_JS = String.raw`(function () {
     try { history.replaceState(null, "", location.pathname + location.search); } catch (e) {}
     return true;
   }
+  function groupCount(det) {
+    if (!det) return; var n = det.querySelectorAll("tbody tr[data-i]").length, sp = det.querySelector(".gn");
+    if (sp) sp.textContent = n + (n === 1 ? " item" : " items");
+  }
+  function send(path, body) {
+    return fetch("/boards/" + B + path, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then(function (r) { return r.json(); });
+  }
+  // Move an item to another group (the group menu at the top of the side panel).
+  function moveTo(sel) {
+    var id = cur, from = sel.getAttribute("data-f"), to = sel.value;
+    if (!id || to === from) return;
+    sel.disabled = true;
+    send("/items/" + id + "/move", { k: K, g: to, f: from }).then(function (d) {
+      if (typeof d.g === "string" && (d.ok || d.g !== from)) { // moved, or monday says it is somewhere else now
+        sel.value = d.g;
+        sel.setAttribute("data-f", d.g);
+        var tr = root.querySelector('tr[data-i="' + id + '"]'), det = root.querySelector('details.group[data-g="' + CSS.escape(d.g) + '"]');
+        if (tr) {
+          var old = tr.closest("details.group");
+          if (det) { var tb = det.querySelector("tbody"); tb.insertBefore(tr, tb.querySelector("tr.add")); det.open = true; groupCount(det); }
+          else tr.remove();
+          groupCount(old);
+          var lab = sel.closest(".mv"); if (lab && det) lab.style.setProperty("--gc", det.style.getPropertyValue("--gc"));
+        }
+      } else sel.value = from;
+      toast(d.message || (d.ok ? "Moved" : "Not moved"), !d.ok);
+    }).catch(function () { sel.value = from; toast("Could not reach the Ecosystem. Check the item in monday before trying again.", true); })
+      .then(function () { sel.disabled = false; });
+  }
+  // "+ Add item" at the bottom of each group: Enter adds it to monday and draws the new row; focus stays for the next one.
+  root.addEventListener("submit", function (e) {
+    var f = e.target.closest("form[data-eco-add]"); if (!f) return;
+    e.preventDefault();
+    var inp = f.querySelector("input"), name = inp.value.trim();
+    if (!ED || !name || inp.disabled) return;
+    inp.disabled = true;
+    send("/items/new", { k: K, g: f.getAttribute("data-g"), name: name }).then(function (d) {
+      if (d.ok && typeof d.html === "string") { f.closest("tr").insertAdjacentHTML("beforebegin", d.html); inp.value = ""; groupCount(f.closest("details.group")); }
+      toast(d.message || (d.ok ? "Added" : "Not added"), !d.ok);
+    }).catch(function () { toast("Could not reach the Ecosystem. Check the board in monday before adding it again.", true); })
+      .then(function () { inp.disabled = false; inp.focus(); });
+  });
   function postUpdate(f) {
     var ta = f.querySelector("textarea"), btn = f.querySelector("button[type=submit]"), id = cur;
     var text = ta.value; if (!text.trim() || !id) return;
@@ -157,7 +202,7 @@ export const BOARD_JS = String.raw`(function () {
   }
   root.addEventListener("click", function (e) {
     var nm = e.target.closest("td.nm");
-    if (!nm || !root.contains(nm) || e.target.closest(".ren")) return;
+    if (!nm || !root.contains(nm) || e.target.closest(".ren") || e.target.closest("tr.add")) return;
     if (e.target.closest("a") && (e.metaKey || e.ctrlKey || e.shiftKey || e.button === 1)) return; // new tab still opens the full page
     e.preventDefault();
     close();
