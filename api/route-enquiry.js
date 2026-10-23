@@ -29,6 +29,7 @@ export const config = { maxDuration: 60 };
 const SOURCE = "tom@digitalfoxtalent.com";
 const START = 1792522200; // 20 Oct 2026 19:03 UTC: Tom asked for more test copies (22 Oct), so the shadow run covers the last two days.
 const MODE_ITEM = "13365313505";
+const LIVE_AT = 1792778400; // 23 Oct 2026 12:00 Denver (18:00 UTC): the first live trial, used by "[mode: auto]".
 const OWNERS = {
   margot: { name: "Margot", email: "margot@digitalfoxtalent.com", label: "Label_32" },
   george: { name: "George", email: "george@digitalfoxtalent.com", label: "Label_33" },
@@ -232,7 +233,13 @@ export default async function handler(req, res) {
     // Mode switch and advertisers, read once per run.
     const mq = `query { mode: items(ids:[${MODE_ITEM}]) { name } boards(ids:[6162879609]) { a: items_page(limit:500, query_params:{order_by:[{column_id:"__creation_log__", direction: desc}]}) { items { created_at cv: column_values(ids:["dropdown_mm1a3tqp","deal_owner"]) { id text } } } b: items_page(limit:500, query_params:{order_by:[{column_id:"__creation_log__", direction: asc}]}) { items { created_at cv: column_values(ids:["dropdown_mm1a3tqp","deal_owner"]) { id text } } } } }`;
     const md = await (await fetch("https://api.monday.com/v2", { method: "POST", headers: { "Content-Type": "application/json", Authorization: MK }, body: JSON.stringify({ query: mq }) })).json();
-    const mode = /\[mode:\s*live\]/i.test(((((md.data || {}).mode) || [])[0] || {}).name || "") ? "live" : "shadow";
+    // Switch: "[mode: shadow]" test copies to Tom; "[mode: live]" to the team; "[mode: auto]" shadow until LIVE_AT, then live,
+    // and only for mail that arrived after LIVE_AT (Tom, 22 Oct 2026: "trial it at midday tomorrow, so the morning emails
+    // don't flow through"). Anything else counts as shadow.
+    const sw = ((String(((((md.data || {}).mode) || [])[0] || {}).name || "").match(/\[mode:\s*(\w+)\]/i) || [])[1] || "shadow").toLowerCase();
+    const nowS = Math.floor(Date.now() / 1000);
+    const modeFor = internalMs => sw === "live" ? "live" : (sw === "auto" && nowS >= LIVE_AT && Number(internalMs || 0) / 1000 >= LIVE_AT) ? "live" : "shadow";
+    const mode = sw === "auto" ? (nowS >= LIVE_AT ? "auto (live)" : "auto (shadow until noon)") : sw;
     const bd = ((((md.data || {}).boards) || [])[0]) || {};
     const items = [].concat(((bd.a || {}).items) || [], ((bd.b || {}).items) || []).sort((x, y) => String(y.created_at).localeCompare(String(x.created_at)));
     const last = {};
@@ -263,9 +270,10 @@ export default async function handler(req, res) {
         const d = decide(v, last);
         Object.assign(r, { kind: v.kind, brand: v.brand, owner: d.owner ? OWNERS[d.owner].name : null, why: d.why });
         if (d.owner && !dry) {
-          const out = await deliver(tok, me.id, d.owner, mode);
-          Object.assign(r, out, { mode });
-          await gmail(tok, "/gmail/v1/users/me/threads/" + threadId + "/modify", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ addLabelIds: [OWNERS[d.owner].label], removeLabelIds: mode === "live" ? ["INBOX"] : [] }) });
+          const m1 = modeFor(me.internalDate);
+          const out = await deliver(tok, me.id, d.owner, m1);
+          Object.assign(r, out, { mode: m1 });
+          await gmail(tok, "/gmail/v1/users/me/threads/" + threadId + "/modify", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ addLabelIds: [OWNERS[d.owner].label], removeLabelIds: m1 === "live" ? ["INBOX"] : [] }) });
         }
         await mark();
       } catch (e) {
