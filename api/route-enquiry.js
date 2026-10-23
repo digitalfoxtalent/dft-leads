@@ -18,7 +18,8 @@ export const config = { maxDuration: 60 };
 // 5. Delivery: the brand's ORIGINAL email is copied, byte for byte, into the owner's own Gmail inbox through the
 //    domain-wide delegation used for pitch drafts (service account pitch-drafts@dft-pitch-drafts.iam.gserviceaccount.com,
 //    scope gmail.modify, key in GMAIL_DELEGATE_KEY). It arrives from the brand, unread, so Reply and Reply all thread
-//    under the brand's message on both sides. Tom's copy gets the label "c) Brand Partnerships/Routed to <owner>".
+//    under the brand's message on both sides. Tom's copy gets the label "c) Brand Partnerships/Routed to <owner>" and, in live
+//    mode, leaves his inbox (Tom, 22 Oct 2026: routed mail should sit only in that folder).
 // MODE lives in the NAME of monday item 13365313505 on API Keys (Private) 18422548864, e.g. "... [mode: shadow]".
 //    shadow: the copy goes to Tom instead, subject "[Test: <owner>] ...", with a fresh Message-ID. live: to the owner.
 // Nothing is ever sent. Only tom@ is read, only the four owners can receive, and the same message is never copied twice.
@@ -228,7 +229,7 @@ export default async function handler(req, res) {
         if (d.owner && !dry) {
           const out = await deliver(tok, me.id, d.owner, mode);
           Object.assign(r, out, { mode });
-          await gmail(tok, "/gmail/v1/users/me/threads/" + threadId + "/modify", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ addLabelIds: [OWNERS[d.owner].label] }) });
+          await gmail(tok, "/gmail/v1/users/me/threads/" + threadId + "/modify", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ addLabelIds: [OWNERS[d.owner].label], removeLabelIds: mode === "live" ? ["INBOX"] : [] }) });
         }
         await mark();
       } catch (e) {
