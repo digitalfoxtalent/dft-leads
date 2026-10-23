@@ -22,9 +22,9 @@ const TOKEN = "monday-token-test", MARGOT = "margot@digitalfoxtalent.com";
 const SITE = "https://ecosystem.digitalfoxtalent.com";
 
 // ---------- fake monday ----------
-const USERS = { "11": "Margot Smith", "12": "Tom James", "13": "Guest Person" }, TEAMS = { "90": "Sales Team" };
+const USERS = { "11": "Margot Smith", "12": "Tom James", "13": "Guest Person", "21": "Alex Smith", "22": "Alex Smith" }, TEAMS = { "90": "Sales Team" };
 const live = { name: "Kikoff", vals: { p1: ["Tom James", JSON.stringify({ personsAndTeams: [{ id: 12, kind: "person" }] })], dd: ["Site, LinkedIn", JSON.stringify({ ids: [1, 2] })] } };
-const sent = []; let userCalls = 0;
+const sent = []; let userCalls = 0, ignore = null;
 setFetch(async (url, opts) => {
   const body = JSON.parse(opts.body), v = body.variables;
   const reply = data => ({ ok: true, json: async () => ({ data }) });
@@ -32,8 +32,9 @@ setFetch(async (url, opts) => {
   if (/change_multiple_column_values/.test(body.query)) {
     const vals = JSON.parse(v.v); sent.push(vals);
     for (const [k, x] of Object.entries(vals)) {
+      if (k === ignore) continue; // monday says OK but does not apply it
       if (!x || !Object.keys(x).length) { delete live.vals[k]; continue; }
-      const text = x.personsAndTeams ? x.personsAndTeams.map(p => p.kind === "team" ? TEAMS[p.id] : USERS[p.id]).join(", ") : x.labels ? x.labels.join(", ") : x.from ? x.from + " - " + x.to : x.rating != null ? String(x.rating) : "";
+      const text = x.personsAndTeams ? x.personsAndTeams.map(p => p.kind === "team" ? TEAMS[p.id] : USERS[p.id] || NAMES[p.id]).join(", ") : x.labels ? x.labels.join(", ") : x.from ? x.from + " - " + x.to : x.rating != null ? String(x.rating) : "";
       live.vals[k] = [text, JSON.stringify(x)];
     }
     return reply({ change_multiple_column_values: { id: "500" } });
@@ -83,6 +84,25 @@ d = await cellPost("p1", "Guest Person, Sales Team, Margot Smith");
 ok(d.ok && /No change/.test(d.message) && sent.length === before, "same people in another order is no change");
 d = await cellPost("p1", "");
 ok(d.ok && JSON.stringify(sent.at(-1).p1) === "{}", "clear the people");
+
+// namesakes, and people who have left monday, are kept by id
+const NAMES = { "99": "Old Leaver" };
+const setCell = async (text, ids) => { live.vals.p1 = [text, JSON.stringify({ personsAndTeams: ids.map(id => ({ id, kind: "person" })) })];
+  await write(`UPDATE mirror.items SET vals = jsonb_set(vals, '{p1}', $1::jsonb) WHERE id = 500`, [JSON.stringify(live.vals.p1)]); };
+await setCell("Alex Smith, Alex Smith, Old Leaver", [21, 22, 99]);
+d = await cellPost("p1", "Alex Smith, Old Leaver, Margot Smith");
+ok(d.ok && JSON.stringify(sent.at(-1).p1.personsAndTeams.map(p => p.id)) === "[21,22,99,11]", "adding someone keeps both Alex Smiths and the person who has left, by id");
+d = await cellPost("p1", "Margot Smith");
+ok(d.ok && JSON.stringify(sent.at(-1).p1.personsAndTeams.map(p => p.id)) === "[11]", "removing names removes exactly those people");
+const n0 = sent.length;
+d = await cellPost("p1", "Margot Smith, Alex Smith");
+ok(!d.ok && /more than one Alex Smith/.test(d.message) && sent.length === n0, "adding a name two people share is refused, not guessed");
+
+// a change monday accepts but does not apply is reported, not called saved
+ignore = "p1";
+d = await cellPost("p1", "Margot Smith, Tom James");
+ok(!d.ok && /did not apply/.test(d.message), "unapplied change reported");
+ignore = null;
 
 // ---------- dropdown ----------
 d = await cellPost("dd", "Pitch, YouTube");

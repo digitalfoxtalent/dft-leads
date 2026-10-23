@@ -8,7 +8,8 @@
 // GUARDS
 //   - Only signed-in teammates who can see the board (same rules as reading), only sections whose editing switch is
 //     on (switch.js, re-read before every write), only
-//     plain column types (EDITABLE). Formula, mirror, connect, people, file and subitem columns stay read-only.
+//     plain column types (EDITABLE: text, numbers, status, dates, people, dropdowns and so on). Formula, mirror,
+//     connect and file columns stay read-only.
 //   - A form carries a fingerprint of each field as the editor saw it. If someone changed that field in monday
 //     since, the edit is refused and the page shows the newer value instead of overwriting it.
 //   - Posts must come from this site (Origin check, SameSite cookie) and carry a signed form token.
@@ -133,7 +134,8 @@ export function mondayValue(col, input) {
     default: throw new Error(col.title + " cannot be edited here.");
   }
 }
-const same = (col, a, b) => MULTI.has(col.type) ? JSON.stringify(splitList(a).map(x => x.toLowerCase()).sort()) === JSON.stringify(splitList(b).map(x => x.toLowerCase()).sort()) : col.type === "numbers" ? (a === "" && b === "") || (a !== "" && b !== "" && Number(String(a).replace(/,/g, "")) === Number(String(b).replace(/,/g, ""))) : String(a) === String(b);
+const uniq = t => [...new Set(splitList(t).map(x => x.toLowerCase()))].sort();
+const same = (col, a, b) => MULTI.has(col.type) ? JSON.stringify(uniq(a)) === JSON.stringify(uniq(b)) : col.type === "rating" ? String(a || "0") === String(b || "0") : col.type === "numbers" ? (a === "" && b === "") || (a !== "" && b !== "" && Number(String(a).replace(/,/g, "")) === Number(String(b).replace(/,/g, ""))) : String(a) === String(b);
 
 async function monday(token, query, variables, ms) {
   const r = await fetchImpl(API, { method: "POST", headers: { "Content-Type": "application/json", Authorization: token, "API-Version": VERSION }, body: JSON.stringify({ query, variables }),
@@ -164,28 +166,41 @@ async function saveLive(live) {
 // guest or a renamed person still resolves; anyone monday does not know is refused rather than dropped.
 let peopleCache = { at: 0, map: null };
 async function peopleIds(token, names) {
-  const want = names.map(n => n.toLowerCase());
-  const map = new Map((await read(`SELECT lower(name) AS n, monday_id::text AS id FROM mirror.team WHERE monday_id IS NOT NULL AND name IS NOT NULL`)).map(r => [r.n, { id: r.id, kind: "person" }]));
-  if (want.some(n => !map.has(n))) {
+  // name -> every { id, kind } with that name, so a name shared by two people is refused rather than guessed
+  const map = new Map();
+  const add = (n, v) => { const k = String(n).toLowerCase(); const l = map.get(k) || []; if (!l.some(x => x.id === v.id && x.kind === v.kind)) l.push(v); map.set(k, l); };
+  for (const r of await read(`SELECT name, monday_id::text AS id FROM mirror.team WHERE monday_id IS NOT NULL AND name IS NOT NULL`)) add(r.name, { id: r.id, kind: "person" });
+  if (names.some(n => !map.has(n.toLowerCase()))) {
     if (!peopleCache.map || Date.now() - peopleCache.at > 600000) {
       const d = await monday(token, `query { users (limit: 1000) { id name enabled } teams { id name } }`, {}, 8000);
-      const m = new Map((d.teams || []).filter(t => t.name).map(t => [String(t.name).toLowerCase(), { id: String(t.id), kind: "team" }]));
-      for (const u of (d.users || []).filter(u => u.enabled !== false && u.name)) m.set(String(u.name).toLowerCase(), { id: String(u.id), kind: "person" });
-      peopleCache = { at: Date.now(), map: m };
+      peopleCache = { at: Date.now(), map: [...(d.users || []).filter(u => u.enabled !== false && u.name).map(u => [u.name, { id: String(u.id), kind: "person" }]),
+        ...(d.teams || []).filter(t => t.name).map(t => [t.name, { id: String(t.id), kind: "team" }])] };
     }
-    for (const [k, v] of peopleCache.map) if (!map.has(k)) map.set(k, v);
+    for (const [n, v] of peopleCache.map) if (!map.has(String(n).toLowerCase()) || map.get(String(n).toLowerCase())[0].kind === v.kind) add(n, v);
   }
-  const bad = names.filter(n => !map.has(n.toLowerCase()));
-  if (bad.length) throw new Error(bad[0] + " is not a monday user. Pick people from the list.");
-  return want.map(n => map.get(n));
+  return names.map(n => {
+    const l = map.get(n.toLowerCase());
+    if (!l) throw new Error(n + " is not a monday user. Pick people from the list.");
+    if (l.length > 1) throw new Error("There is more than one " + n + " in monday. Change this one in monday.");
+    return l[0];
+  });
 }
-async function peopleValue(token, col, input) {
-  const names = splitList(input);
-  if (!names.length) return {};
-  if (names.length > 20) throw new Error(col.title + ": 20 people at most.");
-  return { personsAndTeams: (await peopleIds(token, names)).map(p => ({ id: Number(p.id), kind: p.kind })) };
+// People already in the cell keep their monday ids (so namesakes, guests and people who have left are never lost
+// or swapped); only names being added are looked up.
+async function peopleValue(token, col, input, live) {
+  const names = [...new Map(splitList(input).map(n => [n.toLowerCase(), n])).values()];
+  const raw = live ? parse((live.vals[col.id] || [])[1]) : null;
+  const have = (raw && Array.isArray(raw.personsAndTeams)) ? raw.personsAndTeams : [];
+  const haveNames = live ? splitList(currentText(col, live)) : [];
+  if (have.length !== haveNames.length) throw new Error(col.title + ": monday lists these people in a way the Ecosystem cannot match up. Change them in monday.");
+  const want = new Set(names.map(n => n.toLowerCase())), had = new Set(haveNames.map(n => n.toLowerCase()));
+  const kept = have.filter((p, i) => want.has(haveNames[i].toLowerCase())).map(p => ({ id: Number(p.id), kind: p.kind || "person" }));
+  const added = names.filter(n => !had.has(n.toLowerCase()));
+  if (kept.length + added.length > 25) throw new Error(col.title + ": 25 people at most.");
+  if (!kept.length && !added.length) return {};
+  return { personsAndTeams: kept.concat((added.length ? await peopleIds(token, added) : []).map(p => ({ id: Number(p.id), kind: p.kind }))) };
 }
-export const valueFor = async (token, col, input) => col.type === "people" ? peopleValue(token, col, input) : mondayValue(col, input);
+export const valueFor = async (token, col, input, live) => col.type === "people" ? peopleValue(token, col, input, live) : mondayValue(col, input);
 
 // Checked again immediately before every monday write, so a section Tom has just turned off stops even a write
 // that was already past its first check.
@@ -270,7 +285,7 @@ async function apply(token, board, item, email, changes, undoOf) {
     return { ok: false, message: "Someone changed " + moved.map(c => c.col.title).join(", ") + " in monday since you opened this item. The page now shows the latest values; make your change again if it is still needed." };
   }
   const values = {};
-  try { for (const c of changes) values[c.col.id] = await valueFor(token, c.col, c.to); }
+  try { for (const c of changes) values[c.col.id] = await valueFor(token, c.col, c.to, live); }
   catch (e) { return { ok: false, message: String(e.message || e) }; }
   if (!(await stillOn(board))) return { ok: false, message: OFF };
   let err = null;
@@ -280,9 +295,11 @@ async function apply(token, board, item, email, changes, undoOf) {
   } catch (e) { err = String(e.message || e).slice(0, 300); }
   const after = await liveItem(token, item.id).catch(() => null);
   // A timeout or odd reply can arrive after monday applied the change: trust what monday now holds.
-  const landed = c => after && same(c.col, currentText(c.col, after), mondayText(c.col, c.to));
-  const done = err ? changes.filter(landed) : changes;
-  const failed = err ? changes.filter(c => !landed(c)) : [];
+  // Always check what monday now holds: a write monday accepted but did not apply is reported, never called saved.
+  const landed = c => !!after && same(c.col, currentText(c.col, after), mondayText(c.col, c.to));
+  const done = after ? changes.filter(landed) : (err ? [] : changes);
+  const failed = changes.filter(c => !done.includes(c));
+  if (failed.length && !err) err = "monday accepted the change but did not apply it";
   await logEdits(done.map(c => Object.assign({ column_id: c.col.id, column_title: c.col.title, old_text: c.from, new_text: after ? currentText(c.col, after) : c.to, ok: true }, base))
     .concat(failed.map(c => Object.assign({ column_id: c.col.id, column_title: c.col.title, old_text: c.from, new_text: c.to, ok: false, error: err }, base))));
   if (after) await saveLive(after).catch(() => {});
