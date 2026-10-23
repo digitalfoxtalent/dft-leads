@@ -212,7 +212,7 @@ export default async function handler(req, res) {
   }
 
   if (eco && isMirrorRoute(route)) { // the read-only monday copy (see _reports/mirror/route.js)
-    const out = await mirrorPage(route, req, res, teamEmail(req, token));
+    const out = await mirrorPage(route, req, res, teamEmail(req, token), token);
     return html(res, out.status, out.html);
   }
   if (eco && route === REVIEW_PATH.slice(1)) return sendAccess(res, await decide(req, token, teamEmail(req, token))); // team only: approve or decline access requests

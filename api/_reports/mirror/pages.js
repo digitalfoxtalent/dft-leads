@@ -14,6 +14,7 @@ import { read, write } from "./db.js";
 // Active, non-guest monday users (refreshed by every sync). Someone who leaves monday loses access here too.
 async function teamSet() { return new Set((await read(`SELECT email FROM mirror.team`)).map(r => r.email)); }
 import { canSee } from "./policy.js";
+import { canEdit, editForm, historyHtml } from "./edit.js";
 
 export const DEPT_NAMES = {
   partnerships: "Brand Partnerships", platforms: "Platform Monetization", shows: "Show Development", talent: "Talent",
@@ -40,7 +41,7 @@ export function securityHeaders(res) {
     "font-src https://fonts.gstatic.com; img-src 'self' data:; form-action 'self'; base-uri 'none'; frame-ancestors 'none'");
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("X-Frame-Options", "DENY");
-  res.setHeader("Referrer-Policy", "no-referrer");
+  res.setHeader("Referrer-Policy", "same-origin"); // no-referrer makes browsers post Origin: null, which the edit check refuses
   res.setHeader("Strict-Transport-Security", "max-age=63072000; includeSubDomains");
   res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()");
   res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
@@ -100,6 +101,15 @@ h2.sec{font-size:16px;font-weight:600;margin:34px 0 10px}
 .pager{display:flex;gap:10px;align-items:center;margin-top:20px;color:var(--muted)}
 .empty{padding:40px 0;color:var(--faint)}
 .ok{color:#3ecf8e} .bad{color:#ff7a59}
+.badge.edit{border-color:rgba(245,130,32,.55);color:var(--fox)}
+.note{margin:18px 0 0;padding:12px 16px;border-radius:10px;border:1px solid var(--line);background:var(--panel)}
+form.edit{border:1px solid var(--line);border-radius:12px;background:var(--panel);padding:20px 22px}
+form.edit .fields{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px 20px}
+form.edit label{display:flex;flex-direction:column;gap:6px;font-size:12.5px;color:var(--muted)}
+form.edit input,form.edit select,form.edit textarea{min-height:40px;padding:8px 12px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--fg);font:inherit;font-size:13.5px;width:100%}
+form.edit textarea{resize:vertical}
+form.edit .acts{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin-top:20px}
+.btn.sm{min-height:30px;padding:0 10px;font-size:12px}
 @media (max-width:640px){dl{grid-template-columns:1fr} dt{border-bottom:0}}
 `;
 
@@ -212,9 +222,10 @@ ${pages > 1 ? `<div class="pager">${p > 1 ? `<a class="btn" href="${qs(p - 1)}">
   return { status: 200, html: frame(b.name, [["Ecosystem", "/"], [DEPT_NAMES[dept], "/" + dept], ["Boards", "/" + dept + "/boards"], [b.name, null]], body) };
 }
 
-export async function renderItem(email, boardId, itemId) {
+export async function renderItem(email, boardId, itemId, opts = {}) {
   const b = await board(boardId);
-  if (!b || b.board_type !== "board" || !isId(itemId) || !canSee(b, email, await teamSet())) { await logAccess(email, "/boards/" + boardId + "/items/" + itemId, boardId, false); return notFound(); }
+  const team = await teamSet();
+  if (!b || b.board_type !== "board" || !isId(itemId) || !canSee(b, email, team)) { await logAccess(email, "/boards/" + boardId + "/items/" + itemId, boardId, false); return notFound(); }
   const it = (await read(`SELECT id::text AS id, name, group_id, vals, created_at, updated_at, creator FROM mirror.items
     WHERE id = $1::bigint AND board_id = $2::bigint AND NOT deleted`, [itemId, b.id]))[0];
   if (!it) { await logAccess(email, "/boards/" + b.id + "/items/" + itemId, b.id, false); return notFound(); }
@@ -227,12 +238,16 @@ export async function renderItem(email, boardId, itemId) {
   const group = (b.groups || []).find(g => g.id === it.group_id);
   const scols = subBoard ? (subBoard.columns || []).filter(c => c.type !== "name") : [];
   const dept = DEPT_NAMES[b.department] ? b.department : "data";
+  const editable = !!opts.secret && canEdit(b, email, team);
+  const note = opts.note ? `<p class="note ${opts.note.ok ? "ok" : "bad"}">${esc(opts.note.message)}</p>` : "";
   const body = `<h1>${esc(it.name)}</h1>
-<div class="sub"><span class="badge">Read-only copy of monday</span>${group ? `<span>Group: ${esc(group.title)}</span>` : ""}<span>Created ${esc(iso(it.created_at).slice(0, 10))}${it.creator ? " by " + esc(it.creator) : ""}</span>
+<div class="sub"><span class="badge${editable ? " edit" : ""}">${editable ? "Editable here · saves to monday" : "Read-only copy of monday"}</span>${group ? `<span>Group: ${esc(group.title)}</span>` : ""}<span>Created ${esc(iso(it.created_at).slice(0, 10))}${it.creator ? " by " + esc(it.creator) : ""}</span>
 <a class="btn" href="https://digitalfoxtalent.monday.com/boards/${esc(b.id)}/pulses/${esc(it.id)}" target="_blank" rel="noopener noreferrer">Open in monday</a></div>
+${note}${editable ? `<h2 class="sec">Edit</h2>${editForm(b, it, email, opts.secret)}<h2 class="sec">All fields</h2>` : ""}
 <dl>${cols.map(c => `<dt>${esc(c.title)}</dt><dd>${c.type === "long_text" ? esc((it.vals && it.vals[c.id] && it.vals[c.id][0]) || "") : cell(c, it.vals && it.vals[c.id])}</dd>`).join("")}</dl>
 ${subs.length ? `<h2 class="sec">Subitems</h2><div class="tw"><table>${colgroup(scols)}<thead><tr><th>Subitem</th>${scols.map(c => `<th>${esc(c.title)}</th>`).join("")}</tr></thead><tbody>${subs.map(s =>
   `<tr><td class="nm">${esc(s.name)}</td>${scols.map(c => `<td${c.type === "numbers" ? ' class="num"' : ""}>${cell(c, s.vals && s.vals[c.id])}</td>`).join("")}</tr>`).join("")}</tbody></table></div>` : ""}
+${editable ? `<h2 class="sec">Changes made in the Ecosystem</h2>${await historyHtml(b, it, email, opts.secret)}` : ""}
 <h2 class="sec">Updates</h2>${upd.length ? upd.map(u => `<div class="upd"><b>${esc(u.creator || "Someone")} · ${esc(iso(u.created_at).slice(0, 16).replace("T", " "))}</b>${esc(u.body)}</div>`).join("") : `<p class="muted">No updates.</p>`}`;
   return { status: 200, html: frame(it.name, [["Ecosystem", "/"], [DEPT_NAMES[dept], "/" + dept], ["Boards", "/" + dept + "/boards"], [b.name, "/boards/" + b.id], [it.name, null]], body) };
 }

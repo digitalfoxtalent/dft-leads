@@ -5,6 +5,7 @@
 // so every board can be shown the way the team already knows it, and moved back if ever needed.
 
 import { batch } from "./db.js";
+import { EDIT_SCHEMA } from "./edit.js";
 
 export const SCHEMA_SQL = [
   `CREATE SCHEMA IF NOT EXISTS mirror`,
@@ -85,6 +86,7 @@ export const SCHEMA_SQL = [
    )`,
   `CREATE TABLE IF NOT EXISTS mirror.locks (name text PRIMARY KEY, until timestamptz NOT NULL DEFAULT 'epoch')`,
   `INSERT INTO mirror.locks (name) VALUES ('sync') ON CONFLICT (name) DO NOTHING`,
+  ...EDIT_SCHEMA, // the edit log (edit.js)
 ];
 
 let ready = false;
