@@ -298,21 +298,26 @@ async function listAll(tok, q, max) {
   return out;
 }
 
-// ONGOING DEALS (Tom, 23 Oct 2026): a conversation a salesperson is already running with an outside party, where Tom
-// is only copied, goes into that salesperson's "Routed to" folder instead of Tom's inbox. Who runs it = the last person
-// at DFT to write in it. It stays with Tom when that is Tom, when only DFT people are on it, or when the new email is a
-// salesperson writing to Tom alone (a question for him).
+// ONGOING DEALS (Tom, 23 Oct 2026): a conversation with an outside party that a salesperson is on goes into that
+// salesperson's "Routed to" folder instead of Tom's inbox. The owner is the last SALES LEAD on it, not whoever wrote
+// last ("It's who was the last sales lead on the campaign"): the last salesperson to write in the thread, Tom's own
+// replies ignored; failing that, the salesperson copied on it (Alex only when nobody else is, as he is copied on
+// everything). It stays with Tom when only DFT people are on it, or when a salesperson writes to Tom alone.
 const emailsIn = s => (String(s || "").match(/[\w.+'-]+@[\w-]+(?:\.[\w-]+)+/g) || []).map(x => x.toLowerCase());
+const ownerByEmail = e => Object.keys(OWNERS).find(k => OWNERS[k].email === e) || null;
 function ongoingOwner(msgs, me) {
   const people = m => emailsIn([hdr(m, "from"), hdr(m, "to"), hdr(m, "cc"), hdr(m, "reply-to")].join(","));
   if (!msgs.some(m => people(m).some(a => !DFT.test(a)))) return null;
-  let last = "";
-  for (const m of msgs) { const s = realSender(m); if (DFT.test(s) && s !== ALERT_FROM) last = s; }
-  const key = Object.keys(OWNERS).find(k => OWNERS[k].email === last);
-  if (!key) return null;
   const to = emailsIn(hdr(me, "to"));
   if (DFT.test(realSender(me)) && to.length && to.every(a => a === SOURCE)) return null;
-  return key;
+  let key = null;
+  for (const m of msgs) { const k = ownerByEmail(realSender(m)); if (k) key = k; }
+  if (key) return key;
+  for (const m of msgs.slice().reverse()) {
+    const copied = [...new Set(emailsIn(hdr(m, "to") + "," + hdr(m, "cc")).map(ownerByEmail).filter(Boolean))];
+    if (copied.length) return copied.find(k => k !== "alex") || copied[0];
+  }
+  return null;
 }
 
 // ---------- delivery ----------
