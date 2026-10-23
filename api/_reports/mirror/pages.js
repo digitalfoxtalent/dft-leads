@@ -184,6 +184,8 @@ tr.add td{background:var(--surface)}tr.add td.nm{padding:0}tr.add form{margin:0}
 tr.add input{width:100%;height:35px;border:0;outline:0;background:none;color:var(--fg);font:inherit;font-size:13px;padding:0 10px}
 tr.add input::placeholder{color:var(--faint)}tr.add input:focus{box-shadow:inset 0 0 0 1px var(--primary)}tbody tr.add:hover td{background:var(--surface)}
 .pn-body dl{margin-top:0}
+.ibxl{max-width:860px;margin-top:14px}.ibx header{align-items:flex-start}.ibx header>div{flex:1;font-size:13.5px}.ibx header a{font-weight:500}
+.ibx.new{border-color:var(--primary);box-shadow:inset 3px 0 0 var(--primary)}.nw{font-size:11px;font-weight:600;color:#fff;background:var(--primary);border-radius:4px;padding:2px 6px}
 .bar form.srch{display:flex;gap:8px;margin:0}
 details.menu{position:relative}details.menu>summary{list-style:none}details.menu>summary::-webkit-details-marker{display:none}
 details.menu.on>summary{border-color:var(--primary);color:var(--primary);background:var(--sel)}
@@ -227,7 +229,7 @@ export async function sidebar(email, current) {
       : bs.map(link).join("")).join("");
     return `<details${curDept === d ? " open" : ""}><summary><span class="ws" style="background:${WS_COLOURS[d]}">${esc(DEPT_NAMES[d][0])}</span>${esc(DEPT_NAMES[d])}</summary>${inner}<a class="bd" href="/${esc(d)}/boards">All ${esc(DEPT_NAMES[d])} boards</a></details>`;
   }).join("");
-  return `<aside class="side"><form method="get" action="/${esc(curDept || "marketing")}/boards"><input name="q" placeholder="Search boards" aria-label="Search boards"></form><a class="bd mw${current === "my-work" ? " on" : ""}" href="/my-work">My work</a><h3>Workspaces</h3>${out}</aside>`;
+  return `<aside class="side"><form method="get" action="/${esc(curDept || "marketing")}/boards"><input name="q" placeholder="Search boards" aria-label="Search boards"></form><a class="bd mw${current === "my-work" ? " on" : ""}" href="/my-work">My work</a><a class="bd mw${current === "inbox" ? " on" : ""}" href="/inbox">Inbox</a><h3>Workspaces</h3>${out}</aside>`;
 }
 
 function frame(title, crumbs, body, nav, extraHead) {
@@ -560,7 +562,7 @@ ${subs.length ? `<h2 class="sec">Subitems</h2><ul class="pn-sub">${subs.map(s =>
 // ---------- My work: everything with your name on it, across every board you can see (like monday's) ----------
 
 // A status or group that means the work is finished ("Done", "Commission Paid", "Complete - commission paid", ...).
-const DONE = /\b(done|complete|completed|paid|published|closed|cancell?ed|archived?|delivered|finished|declined|rejected|lost|won)\b/i;
+const DONE = /\b(done|complete|completed|paid|published|closed|cancell?ed|archived?|delivered|finished|declined|rejected|lost|won|resolved|cleared)\b/i;
 const isoDay = d => d.toISOString().slice(0, 10);
 export async function renderMyWork(email, raw = {}, today = new Date()) {
   await logAccess(email, "/my-work", null, true);
@@ -636,6 +638,54 @@ ${note ? `<p class="note ${note.ok ? "ok" : "bad"}">${esc(note.message)}</p>` : 
 <h2 class="sec">Recent changes</h2>${log.length ? `<div class="tw plain"><table><thead><tr><th>When</th><th>Who</th><th>Section</th><th>Change</th></tr></thead><tbody>${log.map(l =>
   `<tr><td>${when(l.at)}</td><td>${esc(l.email)}</td><td>${esc(DEPT_NAMES[l.department] || l.department)}</td><td>${l.turned_on ? "Turned on" : "Turned off"}</td></tr>`).join("")}</tbody></table></div>` : `<p class="muted">No changes yet. Marketing was turned on for the editing pilot.</p>`}`;
   return { status: note && !note.ok ? 400 : 200, html: frame("Editing switch", [["Data Engine", "/data"], ["Editing switch", null]], body, await sidebar(email, "data")) };
+}
+
+// ---------- Inbox: recent updates on your items, and updates that mention you (like monday's notifications) ----------
+
+export const INBOX_SCHEMA = [
+  `CREATE TABLE IF NOT EXISTS mirror.inbox_seen (email text PRIMARY KEY, seen_at timestamptz NOT NULL DEFAULT now())`,
+];
+const INBOX_DAYS = 14;
+export async function renderInbox(email) {
+  await logAccess(email, "/inbox", null, true);
+  const side = await sidebar(email, "inbox");
+  const me = ((await read(`SELECT name FROM mirror.team WHERE email = $1`, [email]))[0] || {}).name || "";
+  if (!me) return { status: 200, html: frame("Inbox", [["Inbox", null]], `<h1>Inbox</h1><p class="empty">Your monday name is not in the copy yet. It appears after the next copy, within 30 minutes.</p>`, side) };
+  const team = await teamSet();
+  const boards = (await read(`SELECT id::text AS id, name, department, access, allowed_emails, gone, board_type, columns
+    FROM mirror.boards WHERE board_type = 'board' AND NOT gone`)).filter(b => canSee(b, email, team));
+  const byId = new Map(boards.map(b => [b.id, b]));
+  const esc1 = t => t.replace(/[%_\\]/g, m => "\\" + m);
+  // Recent updates on items of boards you can see; narrowed in SQL to those naming you anywhere on the item or in
+  // the update, then checked properly below (a person column, or an @mention in the update).
+  const rows = boards.length ? await read(`SELECT u.id::text AS id, u.body, u.creator, u.posted_by, u.created_at, i.id::text AS item_id, i.name AS item_name,
+      i.board_id::text AS board_id, i.vals
+    FROM mirror.updates u JOIN mirror.items i ON i.id = u.item_id AND NOT i.deleted
+    WHERE i.board_id = ANY($1::bigint[]) AND u.created_at > now() - interval '${INBOX_DAYS} days'
+      AND (u.body ILIKE $2 OR i.vals::text ILIKE $3)
+    ORDER BY u.created_at DESC LIMIT 400`, [boards.map(b => b.id), "%@" + esc1(me) + "%", "%" + esc1(me) + "%"]) : [];
+  const lc = me.toLowerCase();
+  const by = await authors(rows.map(r => r.id));
+  const seen = (await read(`SELECT seen_at FROM mirror.inbox_seen WHERE email = $1`, [email]))[0];
+  const list = [];
+  for (const r of rows) {
+    const b = byId.get(r.board_id); if (!b) continue;
+    const who = by[r.id] || r.posted_by || r.creator || "";
+    if (who.toLowerCase() === lc) continue; // your own updates are not news to you
+    const mention = String(r.body || "").toLowerCase().includes("@" + lc);
+    const assigned = (b.columns || []).some(c => PEOPLE_T.has(c.type) && r.vals[c.id] && String(r.vals[c.id][0] || "").split(",").some(n => n.trim().toLowerCase() === lc));
+    if (!mention && !assigned) continue;
+    list.push(Object.assign(r, { who, posted_by: by[r.id] || r.posted_by, mention, b, fresh: !seen || Date.parse(iso(r.created_at)) > Date.parse(iso(seen.seen_at)) }));
+    if (list.length >= 100) break;
+  }
+  await write(`INSERT INTO mirror.inbox_seen (email, seen_at) VALUES ($1, now()) ON CONFLICT (email) DO UPDATE SET seen_at = now()`, [email]).catch(() => {});
+  const fresh = list.filter(x => x.fresh).length;
+  const card = x => `<article class="ibx${x.fresh ? " new" : ""}"><header>${avatar(x.who || "?")}<div><b>${esc(x.who || "Someone")}</b> ${x.mention ? "mentioned you on" : "updated"} <a href="/boards/${esc(x.b.id)}#item-${esc(x.item_id)}">${esc(x.item_name)}</a><div class="sm muted">${esc(x.b.name)} · <time title="${esc(iso(x.created_at).slice(0, 16).replace("T", " "))} UTC">${esc(ago(x.created_at))}</time></div></div>${x.fresh ? `<span class="nw">New</span>` : ""}</header><div class="ubody">${esc(cleanBody(x).slice(0, 600))}${cleanBody(x).length > 600 ? "..." : ""}</div></article>`;
+  const body = `<h1>Inbox</h1>
+<p class="desc">Updates from the last ${INBOX_DAYS} days on items with your name in a person column, and updates that @mention you, on boards you can see. Your own updates are left out. Copied from monday every 30 minutes; opening an item shows its latest updates live.</p>
+<div class="bar"><span class="count">${list.length} update${list.length === 1 ? "" : "s"}${fresh ? ` · ${fresh} new since you last looked` : ""}</span></div>
+<div class="upd-list ibxl">${list.length ? list.map(card).join("") : `<p class="empty">Nothing new in the last ${INBOX_DAYS} days.</p>`}</div>`;
+  return { status: 200, html: frame("Inbox", [["Inbox", null]], body, side) };
 }
 
 export async function renderStatus(email) {
