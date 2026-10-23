@@ -4,11 +4,13 @@
 
 import { ensureSchema } from "./schema.js";
 import { hasDatabase } from "./db.js";
-import { securityHeaders, renderDepartment, renderBoard, renderItem, renderStatus, renderMyWork, renderInbox, renderSearch, renderSwitch, renderPanel, itemUpdates, updatesList, newRowHtml, newSubRowHtml, subCellHtml, DEPT_NAMES, cellHtml } from "./pages.js";
+import { securityHeaders, renderDepartment, renderBoard, renderItem, renderStatus, renderMyWork, renderInbox, renderSearch, renderApiKeys, renderSwitch, renderPanel, itemUpdates, updatesList, newRowHtml, newSubRowHtml, subCellHtml, DEPT_NAMES, cellHtml } from "./pages.js";
 import { BOARD_JS } from "./client.js";
 import { read } from "./db.js";
 import { saveEdit, undoEdit, saveCell, saveSubCell, createSubitem, postUpdate, createItem, moveItem, canEdit, currentText, editableColumns, fp, fromSite } from "./edit.js";
 import { loadSwitches, flip } from "./switch.js";
+import { createKey, revokeKey, isOwner, adminToken } from "./apikeys.js";
+import crypto from "node:crypto";
 
 const BOARD = /^boards\/(\d{1,19})$/;
 const ITEM = /^boards\/(\d{1,19})\/items\/(\d{1,19})$/;
@@ -25,7 +27,7 @@ const DEPT = /^([a-z]+)\/boards$/;
 
 export function isMirrorRoute(route) {
   const r = String(route || "");
-  if (BOARD.test(r) || ITEM.test(r) || ACT.test(r) || CELL.test(r) || PANEL.test(r) || POSTU.test(r) || NEWI.test(r) || MOVE.test(r) || SUBCELL.test(r) || SUBNEW.test(r) || r === ASSET || r === "data/mirror" || r === "my-work" || r === "inbox" || r === "search" || r === "data/editing") return true;
+  if (BOARD.test(r) || ITEM.test(r) || ACT.test(r) || CELL.test(r) || PANEL.test(r) || POSTU.test(r) || NEWI.test(r) || MOVE.test(r) || SUBCELL.test(r) || SUBNEW.test(r) || r === ASSET || r === "data/mirror" || r === "my-work" || r === "inbox" || r === "search" || r === "data/editing" || r === "data/api-keys") return true;
   const m = r.match(DEPT);
   return !!(m && DEPT_NAMES[m[1]]);
 }
@@ -36,7 +38,7 @@ export async function mirrorPage(route, req, res, email, token) {
   securityHeaders(res);
   const act = route.match(ACT), cellRoute = route.match(CELL), postRoute = route.match(POSTU), panelRoute = route.match(PANEL), newRoute = route.match(NEWI), moveRoute = route.match(MOVE), subCell = route.match(SUBCELL), subNew = route.match(SUBNEW);
   if (route === ASSET) return { status: 200, type: "text/javascript; charset=utf-8", body: BOARD_JS, cache: "private, max-age=86400" } // safe to keep: every page asks for ?v=<hash of this script>;
-  if (req.method && req.method !== "GET" && req.method !== "HEAD" && !((act || cellRoute || postRoute || newRoute || moveRoute || subCell || subNew || route === "data/editing") && req.method === "POST")) return { status: 405, html: "Method not allowed" };
+  if (req.method && req.method !== "GET" && req.method !== "HEAD" && !((act || cellRoute || postRoute || newRoute || moveRoute || subCell || subNew || route === "data/editing" || route === "data/api-keys") && req.method === "POST")) return { status: 405, html: "Method not allowed" };
   if (!email) return { status: 401, html: "Sign in required" };
   if (!hasDatabase()) return { status: 503, html: "The Ecosystem database is not connected yet." };
   await ensureSchema();
@@ -146,6 +148,28 @@ export async function mirrorPage(route, req, res, email, token) {
   if (route === "my-work") return renderMyWork(email, req.query || {});
   if (route === "inbox") return renderInbox(email);
   if (route === "search") return renderSearch(email, req.query || {});
+  if (route === "data/api-keys") {
+    if (req.method !== "POST") return renderApiKeys(email, token);
+    if (!token) return { status: 405, html: "Method not allowed" };
+    const b = typeof req.body === "string" ? Object.fromEntries(new URLSearchParams(req.body)) : (req.body || {});
+    const one = v => String(Array.isArray(v) ? v[0] : v == null ? "" : v);
+    const tok = one(b.t), want = adminToken(token, email);
+    if (!isOwner(email)) return renderApiKeys(email, token);
+    if (!fromSite(req) || tok.length !== want.length || !crypto.timingSafeEqual(Buffer.from(tok), Buffer.from(want))) return renderApiKeys(email, token, { ok: false, message: "That page has expired. Open it again." });
+    if (one(b.do) === "revoke") return renderApiKeys(email, token, (await revokeKey(one(b.id))) ? { ok: true, message: "Key revoked. Anything using it stops working now." } : { ok: false, message: "That key was already revoked." });
+    const depts = (Array.isArray(b.d) ? b.d : b.d ? [b.d] : []).map(String).filter(d => DEPT_NAMES[d] && d !== "reporting");
+    const name = one(b.name).trim();
+    if (!name) return renderApiKeys(email, token, { ok: false, message: "Give the key a name, so you know what uses it." });
+    if (!depts.length && !one(b.boards).trim()) return renderApiKeys(email, token, { ok: false, message: "Tick at least one section, or name the boards the key may read." });
+    const ids = [...new Set(one(b.boards).split(/[\s,]+/).filter(Boolean))];
+    if (ids.some(x => !/^\d{1,19}$/.test(x)) || ids.length > 30) return renderApiKeys(email, token, { ok: false, message: "Extra boards must be board numbers separated by commas (30 at most)." });
+    const known = ids.length ? (await read(`SELECT id::text AS id FROM mirror.boards WHERE id = ANY($1::bigint[]) AND board_type = 'board' AND NOT gone`, [ids])).map(r => r.id) : [];
+    const missing = ids.filter(x => !known.includes(x));
+    if (missing.length) return renderApiKeys(email, token, { ok: false, message: "Board " + missing[0] + " is not in the Ecosystem's copy." });
+    const key = await createKey(name, depts, ids, email, one(b.n).slice(0, 40));
+    if (!key) return renderApiKeys(email, token, { ok: false, message: "That form already made a key; it is listed below. Open the page again to make another." });
+    return renderApiKeys(email, token, { ok: true, message: "Key made for " + name + "." }, key);
+  }
   if (route === "data/editing") {
     if (req.method !== "POST") return renderSwitch(email, token);
     if (!token) return { status: 405, html: "Method not allowed" };

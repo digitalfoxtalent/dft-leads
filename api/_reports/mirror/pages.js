@@ -21,6 +21,7 @@ const JS_VER = crypto.createHash("sha256").update(BOARD_JS).digest("hex").slice(
 async function teamSet() { return new Set((await read(`SELECT email FROM mirror.team`)).map(r => r.email)); }
 import { canSee } from "./policy.js";
 import { backupStatus } from "./backup.js";
+import { listKeys, isOwner, adminToken, newNonce } from "./apikeys.js";
 export { INBOX_SCHEMA } from "./inbox-schema.js";
 import { isOn, NEVER, OWNERS, switchRows, switchLog, switchToken } from "./switch.js";
 import { canEdit, editForm, historyHtml, editableColumns, currentText, fp, boardToken, liveUpdates, authors } from "./edit.js";
@@ -185,7 +186,7 @@ form.upd-new .acts{display:flex;gap:10px;align-items:center;justify-content:flex
 tr.add td{background:var(--surface)}tr.add td.nm{padding:0}tr.add form{margin:0}
 tr.add input{width:100%;height:35px;border:0;outline:0;background:none;color:var(--fg);font:inherit;font-size:13px;padding:0 10px}
 tr.add input::placeholder{color:var(--faint)}tr.add input:focus{box-shadow:inset 0 0 0 1px var(--primary)}tbody tr.add:hover td{background:var(--surface)}
-.pn-body dl{margin-top:0}
+.pn-body dl{margin-top:0}.checks{display:flex;flex-wrap:wrap;gap:8px 18px}.ck{display:inline-flex;align-items:center;gap:6px;font-size:13.5px}pre.key{user-select:all;font-size:13px;padding:10px;background:var(--bg);border-radius:6px;overflow-x:auto;margin:8px 0}
 tfoot td.sum{background:var(--surface);border-bottom:0;height:34px}tfoot td.sum.num{text-align:right}tfoot td.sum b{font-weight:600}tfoot td.sum span{display:block;font-size:10.5px;color:var(--faint);line-height:1}
 .bat{display:flex;height:22px;border-radius:3px;overflow:hidden;margin:0 2px}.bat i{display:block;height:100%}
 ul.hits{list-style:none;margin:0;padding:0;display:grid;gap:4px}ul.hits li{padding:6px 10px;border-radius:6px;background:var(--surface);border:1px solid var(--line2)}ul.hits a{text-decoration:none}mark{background:#ffcb00;color:#323338;border-radius:2px}
@@ -800,6 +801,31 @@ ${b.runs.length ? `<div class="tw plain" style="margin-top:10px"><table><thead><
   `<tr><td>${esc(ago(r.started_at))}</td><td class="${r.ok ? "ok" : r.ok === false ? "bad" : ""}">${r.ok ? "OK" : r.ok === false ? "Failed" : "Running"}</td><td class="num">${esc(r.updates_written)}</td><td class="num">${esc(r.docs_written)}</td><td class="num">${esc(r.files_seen)}</td><td class="num">${esc(r.api_calls)}</td><td>${esc(r.note || "")}</td></tr>`).join("")}</tbody></table></div>` : `<p class="muted">The first backup run starts within the hour.</p>`}`;
 }
 
+// ---------- /data/api-keys: Ecosystem API keys (Tom only) ----------
+
+export async function renderApiKeys(email, secret, note, newKey) {
+  await logAccess(email, "/data/api-keys", null, isOwner(email));
+  if (!isOwner(email)) return { status: 403, html: frame("API keys", [["Data Engine", "/data"], ["API keys", null]], `<h1>API keys</h1><p class="empty">Only Tom can see and manage Ecosystem API keys.</p>`, await sidebar(email, "data")) };
+  const keys = await listKeys();
+  const tok = adminToken(secret, email);
+  const when = t => t ? esc(iso(t).slice(0, 16).replace("T", " ")) + " UTC" : "never";
+  const depts = Object.keys(DEPT_NAMES).filter(d => d !== "reporting");
+  const body = `<h1>Ecosystem API keys</h1>
+<p class="desc">Keys let Make and other systems read the Ecosystem's copy of monday at <code>https://ecosystem.digitalfoxtalent.com/api/v1/</code>, so scenarios can move off monday one at a time. Version 1 is read only. Each key sees only the sections you tick. A new key is shown once: copy it into Make straight away.</p>
+${note ? `<p class="note ${note.ok ? "ok" : "bad"}">${esc(note.message)}</p>` : ""}
+${newKey ? `<div class="note ok"><b>New key (shown once):</b><pre class="key">${esc(newKey)}</pre>In Make, use an HTTP module with the header <code>Authorization: Bearer</code> followed by this key.</div>` : ""}
+<h2 class="sec">Make a key</h2>
+<form class="edit" method="post" action="/data/api-keys"><input type="hidden" name="t" value="${esc(tok)}"><input type="hidden" name="do" value="create"><input type="hidden" name="n" value="${esc(newNonce())}">
+<div class="fields"><label><span>Name (what uses it)</span><input name="name" maxlength="80" required placeholder="Make: renewal pipeline"></label></div>
+<p class="sm muted" style="margin:14px 0 6px">Sections it can read</p><div class="checks">${depts.map(d => `<label class="ck"><input type="checkbox" name="d" value="${esc(d)}"> ${esc(DEPT_NAMES[d])}</label>`).join("")}</div>
+<p class="sm muted" style="margin:14px 0 6px">Money, legal and private boards are never included by section. If a scenario needs one, name it here by its board number (from its address), separated by commas.</p>
+<div class="fields"><label><span>Extra boards (optional)</span><input name="boards" maxlength="400" placeholder="18424308602, 18424308590"></label></div>
+<div class="acts"><button class="btn fox" type="submit">Make key</button></div></form>
+<h2 class="sec">Keys</h2>${keys.length ? `<div class="tw plain"><table><thead><tr><th>Name</th><th>Ends</th><th>Sections</th><th>Made</th><th>Last used</th><th>Calls (24 h)</th><th></th></tr></thead><tbody>${keys.map(k =>
+  `<tr${k.revoked_at ? ' class="muted"' : ""}><td>${esc(k.name)}</td><td>...${esc(k.key_hint)}</td><td>${esc(k.departments.map(d => DEPT_NAMES[d] || d).join(", "))}${k.boards && k.boards.length ? " + boards " + esc(k.boards.join(", ")) : ""}</td><td>${when(k.created_at)}</td><td>${when(k.last_used_at)}</td><td class="num">${esc(k.calls_24h)}</td><td>${k.revoked_at ? "Revoked" : `<form method="post" action="/data/api-keys"><input type="hidden" name="t" value="${esc(tok)}"><input type="hidden" name="do" value="revoke"><input type="hidden" name="id" value="${esc(k.id)}"><button class="btn sm" type="submit">Revoke</button></form>`}</td></tr>`).join("")}</tbody></table></div>` : `<p class="muted">No keys yet.</p>`}`;
+  return { status: note && !note.ok ? 400 : 200, html: frame("API keys", [["Data Engine", "/data"], ["API keys", null]], body, await sidebar(email, "data")) };
+}
+
 export async function renderStatus(email) {
   await logAccess(email, "/data/mirror", null, true);
   const runs = await read(`SELECT started_at, finished_at, boards_synced, items_written, api_calls, ok, note FROM mirror.sync_runs ORDER BY id DESC LIMIT 15`);
@@ -811,7 +837,7 @@ export async function renderStatus(email) {
   const off = mine.filter(b => b.synced_at && b.mirror_items !== b.monday_items);
   const errs = mine.filter(b => b.sync_error);
   const body = `<h1>How the monday copy is doing</h1>
-<div class="sub"><a class="btn" href="/data/editing">Editing switch</a><span class="badge">${copied} of ${mine.length} boards you can see are copied</span><span>${off.length} with a different item count</span><span>${errs.length} with an error</span></div>
+<div class="sub"><a class="btn" href="/data/editing">Editing switch</a>${isOwner(email) ? `<a class="btn" href="/data/api-keys">API keys</a>` : ""}<span class="badge">${copied} of ${mine.length} boards you can see are copied</span><span>${off.length} with a different item count</span><span>${errs.length} with an error</span></div>
 <h2 class="sec">Recent runs</h2><div class="tw plain"><table><thead><tr><th>Started</th><th>Result</th><th>Boards</th><th>Items written</th><th>monday calls</th><th>Note</th></tr></thead><tbody>${runs.map(r =>
   `<tr><td>${esc(ago(r.started_at))}</td><td class="${r.ok ? "ok" : r.ok === false ? "bad" : ""}">${r.ok ? "OK" : r.ok === false ? "Failed" : "Running"}</td><td class="num">${esc(r.boards_synced)}</td><td class="num">${esc(r.items_written)}</td><td class="num">${esc(r.api_calls)}</td><td>${esc(r.note || "")}</td></tr>`).join("")}</tbody></table></div>
 ${await backupHtml()}
