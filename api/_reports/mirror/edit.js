@@ -411,18 +411,23 @@ export async function createItem(req, token, email, board, team) {
   let name;
   try { name = mondayValue({ id: "name", title: "Name", type: "name" }, b.name); } catch (e) { return { ok: false, message: String(e.message || e) }; }
   const base = { email, board_id: board.id, column_id: "_create", column_title: "Item added", old_text: null, new_text: name };
+  const LOOK = `query ($b: ID!, $n: String!) { items_page_by_column_values (board_id: $b, limit: 25, columns: [{ column_id: "name", column_values: [$n] }]) { items { id created_at group { id } } } }`;
+  const same = async () => ((await monday(token, LOOK, { b: String(board.id), n: name }, 5000)).items_page_by_column_values || {}).items || [];
+  // Items with this name that already exist, so a lost reply can only ever be matched to the item this call made.
+  let existing;
+  try { existing = new Set((await same()).map(x => String(x.id))); } catch (e) { return { ok: false, message: "Could not reach monday. Nothing was added; try again in a moment." }; }
   let id = null, err = null;
   try {
     const d = await monday(token, `mutation ($b: ID!, $g: String!, $n: String!) { create_item (board_id: $b, group_id: $g, item_name: $n) { id } }`,
       { b: String(board.id), g: g.id, n: name }, 15000);
     id = d.create_item && d.create_item.id;
   } catch (e) { err = String(e.message || e).slice(0, 300); }
-  if (!isId(id)) {
-    // A timeout can arrive after monday made it: look for a just-made item with this name before saying it failed.
+  if (!isId(id) && err && !/^monday:/.test(err)) {
+    // The connection dropped or timed out (not a refusal from monday): it may have made the item anyway. Only an
+    // item that was not there before this call, in this group, made in the last two minutes, counts.
     try {
-      const d = await monday(token, `query ($b: ID!, $n: String!) { items_page_by_column_values (board_id: $b, limit: 10, columns: [{ column_id: "name", column_values: [$n] }]) { items { id created_at group { id } } } }`,
-        { b: String(board.id), n: name }, 5000);
-      const hit = ((d.items_page_by_column_values || {}).items || []).find(x => x.group && x.group.id === g.id && Date.now() - Date.parse(x.created_at) < 120000);
+      const known = new Set((await read(`SELECT id::text AS id FROM mirror.items WHERE board_id = $1::bigint AND name = $2`, [board.id, name])).map(r => r.id));
+      const hit = (await same()).find(x => !existing.has(String(x.id)) && !known.has(String(x.id)) && x.group && x.group.id === g.id && Date.now() - Date.parse(x.created_at) < 120000);
       if (hit) id = hit.id;
     } catch (e) { /* fall through */ }
   }
@@ -431,10 +436,12 @@ export async function createItem(req, token, email, board, team) {
     return { ok: false, message: "monday did not confirm the new item. Check the board in monday before adding it again." };
   }
   await logEdits([Object.assign({ item_id: id, ok: true }, base)]);
-  const live = await liveItem(token, id).catch(() => null);
-  await insertLive(live || { id: String(id), name, vals: {}, group_id: g.id }, board);
-  const item = (await read(`SELECT id::text AS id, name, group_id, vals FROM mirror.items WHERE id = $1::bigint`, [id]))[0];
-  return { ok: true, message: "Added to monday: " + name + ".", item };
+  try { // monday has it now: whatever happens to our copy, report it as added so nobody adds it twice
+    const live = await liveItem(token, id).catch(() => null);
+    await insertLive(live || { id: String(id), name, vals: {}, group_id: g.id }, board);
+    const item = (await read(`SELECT id::text AS id, name, group_id, vals FROM mirror.items WHERE id = $1::bigint`, [id]))[0];
+    return { ok: true, message: "Added to monday: " + name + ".", item };
+  } catch (e) { console.error("create copy", e); return { ok: true, message: "Added to monday: " + name + ". Refresh to see it here." }; }
 }
 
 export async function moveItem(req, token, email, board, item, team) {

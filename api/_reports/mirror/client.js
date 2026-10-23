@@ -152,7 +152,8 @@ export const BOARD_JS = String.raw`(function () {
     if (!id || to === from) return;
     sel.disabled = true;
     send("/items/" + id + "/move", { k: K, g: to, f: from }).then(function (d) {
-      if (d.ok && typeof d.g === "string") {
+      if (typeof d.g === "string" && (d.ok || d.g !== from)) { // moved, or monday says it is somewhere else now
+        sel.value = d.g;
         sel.setAttribute("data-f", d.g);
         var tr = root.querySelector('tr[data-i="' + id + '"]'), det = root.querySelector('details.group[data-g="' + CSS.escape(d.g) + '"]');
         if (tr) {

@@ -52,7 +52,8 @@ export async function mirrorPage(route, req, res, email, token) {
     try {
       if (newRoute) {
         const note = await createItem(req, token, email, b, team);
-        return json(note.ok && note.item ? { ok: true, message: note.message, html: await newRowHtml(b, note.item) } : { ok: note.ok, message: note.message });
+        let html; if (note.ok && note.item) { try { html = await newRowHtml(b, note.item); } catch (e) { note.message += " Refresh to see it here."; } }
+        return json({ ok: note.ok, message: note.message, html });
       }
       const it = (await read(`SELECT id::text AS id, name, group_id, vals FROM mirror.items WHERE id = $1::bigint AND board_id = $2::bigint AND NOT deleted`, [moveRoute[2], b.id]))[0];
       if (!it) return json({ ok: false, message: "This item cannot be edited here." });

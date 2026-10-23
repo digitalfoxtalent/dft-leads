@@ -31,6 +31,7 @@ setFetch(async (url, opts) => {
   const reply = data => ({ ok: true, json: async () => ({ data }) });
   if (/create_item/.test(body.query)) {
     if (mode === "reject") throw new Error("socket hang up");
+    if (mode === "graphql") return { ok: true, json: async () => ({ errors: [{ message: "Complexity budget exhausted" }] }) };
     const id = String(nextId++);
     items[id] = { board: v.b, group: v.g, name: v.n, created: new Date().toISOString() };
     if (mode === "lost") throw new Error("timeout after monday made it");
@@ -116,6 +117,16 @@ mode = "lost";
 const before = Object.keys(items).length;
 d = J(await postJ("boards/100/items/new", { k: K, g: "topics", name: "Lost reply item" }));
 ok(d.ok && Object.keys(items).length === before + 1, "reply lost but monday made it: found, reported as added, not duplicated");
+// a same-named item made a moment ago (by someone else, or an earlier add) is never claimed as this add
+items["8800"] = { board: "100", group: "topics", name: "Twin", created: new Date().toISOString() };
+mode = "lost";
+d = J(await postJ("boards/100/items/new", { k: K, g: "topics", name: "Twin" }));
+ok(d.ok && new RegExp(`data-i="${nextId - 1}"`).test(d.html) && !/data-i="8800"/.test(d.html), "lost reply: only the item this add made is matched, not an older twin");
+mode = "graphql";
+items["8801"] = { board: "100", group: "topics", name: "Refused twin", created: new Date().toISOString() };
+d = J(await postJ("boards/100/items/new", { k: K, g: "topics", name: "Refused twin" }));
+ok(!d.ok && /did not confirm/.test(d.message), "monday refused the add: reported as not added");
+ok((await read(`SELECT count(*)::int AS n FROM mirror.edits WHERE column_id = '_create' AND item_id = 8801`))[0].n === 0, "a refusal never claims someone else's same-named item");
 mode = "reject";
 d = J(await postJ("boards/100/items/new", { k: K, g: "topics", name: "Rejected item" }));
 ok(!d.ok && /did not confirm/.test(d.message) && !/socket/.test(d.message), "monday error: not claimed as added, raw error kept out");
@@ -147,6 +158,24 @@ mode = "reject";
 d = J(await postJ("boards/100/items/500/move", { k: K, g: "topics", f: "later" }));
 ok(!d.ok && /did not move/.test(d.message) && items["500"].group === "later", "monday error on move reported");
 mode = "ok";
+
+// a conflicted move puts the menu where monday says the item is
+items["500"].group = "topics";
+d = J(await postJ("boards/100/items/500/move", { k: K, g: "later", f: "later" }));
+ok(!d.ok && d.g === "topics", "conflict reply carries the item's real group");
+out = await get("assets/eco-board.js");
+ok(/d\.ok \|\| d\.g !== from/.test(out.body), "script follows monday's group after a conflict");
+
+// an item whose group is not on the board (renamed or deleted in monday) shows "(no group)", not the first group
+await write(`INSERT INTO mirror.items (id, board_id, group_id, name, vals) VALUES (900, 100, 'gone', 'Orphan', '{}')`);
+d = J(await get("boards/100/items/900/panel"));
+ok(/<option value="" selected disabled>\(no group\)<\/option>/.test(d.html), "unknown current group shown as (no group)");
+
+// on a board split over pages, empty groups are not shown (their items may be on another page)
+await write(`INSERT INTO mirror.items (id, board_id, group_id, name, vals, pos) SELECT 10000 + g, 100, 'topics', 'Filler ' || g, '{}', 100 + g FROM generate_series(1, 210) g`);
+await write(`DELETE FROM mirror.items WHERE board_id = 100 AND group_id = 'later'`);
+out = await get("boards/100");
+ok(!/data-g="later"/.test(out.html) && /Page 1 of 2/.test(out.html), "paginated board: no empty groups");
 
 // ---------- shared hourly limit ----------
 await write(`INSERT INTO mirror.edits (email, board_id, item_id, column_id, ok) SELECT $1, 100, 500, 't1', true FROM generate_series(1, 60)`, [MARGOT]);

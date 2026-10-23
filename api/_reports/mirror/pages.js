@@ -349,7 +349,8 @@ export async function renderBoard(email, id, q, page, opts = {}) {
   const gInfo = Object.fromEntries(groups.map(g => [g.id, g]));
   const table = (list, g, title) => `<div class="tw"><table style="width:${tableWidth(cols)}px">${colgroup(cols)}<thead><tr><th class="nm">Item</th>${cols.map(c => `<th title="${esc(c.title)}">${esc(c.title)}</th>`).join("")}</tr></thead><tbody>${list.map(it => rowHtml(b, it, ctx)).join("")}${editable && g !== "_" ? addRow(g, title, cols.length) : ""}</tbody></table></div>`;
   // Empty groups show on boards you can edit (so you can add to them), as on monday.
-  const sections = [...byGroup.entries()].filter(([g, l]) => l.length || (editable && !q && g !== "_")).map(([g, l]) => {
+  const onePage = total <= PAGE_SIZE; // on a board split over pages, an empty-looking group may just have its items on another page
+  const sections = [...byGroup.entries()].filter(([g, l]) => l.length || (editable && !q && onePage && g !== "_")).map(([g, l]) => {
     const gi = gInfo[g] || { title: "Other" }; const col = hexOk(gi.color);
     return `<details class="group" open data-g="${esc(g)}"${col ? ` style="--gc:${col}"` : ""}><summary>${esc(gi.title)} <span class="gn">${l.length} item${l.length === 1 ? "" : "s"}</span></summary>${table(l, g, gi.title)}</details>`;
   }).join("");
@@ -439,7 +440,7 @@ export async function renderPanel(email, boardId, itemId, opts = {}) {
   const cols = (b.columns || []).filter(c => c.type !== "name" && c.type !== "subtasks");
   const group = (b.groups || []).find(g => g.id === it.group_id); const gc = group && hexOk(group.color);
   const groupBit = editable && (b.groups || []).length > 1
-    ? `<label class="grp mv"${gc ? ` style="--gc:${gc}"` : ""}><i></i><select data-eco-move data-f="${esc(it.group_id || "")}" aria-label="Move to group">${(b.groups || []).map(g => `<option value="${esc(g.id)}"${g.id === it.group_id ? " selected" : ""}>${esc(g.title)}</option>`).join("")}</select></label>`
+    ? `<label class="grp mv"${gc ? ` style="--gc:${gc}"` : ""}><i></i><select data-eco-move data-f="${esc(it.group_id || "")}" aria-label="Move to group">${group ? "" : `<option value="" selected disabled>(no group)</option>`}${(b.groups || []).map(g => `<option value="${esc(g.id)}"${g.id === it.group_id ? " selected" : ""}>${esc(g.title)}</option>`).join("")}</select></label>`
     : group ? `<span class="grp"${gc ? ` style="--gc:${gc}"` : ""}><i></i>${esc(group.title)}</span>` : "";
   const html = `<div class="pn-head"><h2>${esc(it.name)}</h2><div class="pn-meta">${groupBit}
 <a class="btn sm" href="/boards/${esc(b.id)}/items/${esc(it.id)}">${editable ? "Full page and change log" : "Full page"}</a>
