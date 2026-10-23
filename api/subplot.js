@@ -10,6 +10,7 @@ import { flipboardFeed, newsSitemap } from "./_subplot/feeds.js";
 import { setDesign } from "./_subplot/design.js";
 import { listMonths, readMonth } from "./_subplot/archive.js";
 import { llmsTxt } from "./_subplot/llms.js";
+import { recordHit, stats as aiStats } from "./_subplot/aistats.js";
 import { homePage, articlePage, snippetsPage, creatorPage, joinPage, aboutPage, threadPage, rssFeed, notFound, legalPage, artPath, revenuePage, sitemap } from "./_subplot/render.js";
 import { CAST } from "./_subplot/cast.js";
 import { faviconSvg, assetKey } from "./_subplot/brand.js";
@@ -125,6 +126,19 @@ export default async function handler(req, res) {
     }
   }
 
+  // AI assistant referrals (aistats.js). The beacon POSTs here; /__ai-stats is the 30-day summary SUBPLOT HQ reads.
+  if (path === "/__ai-hit" && brand().key === "subplot" && !base) {
+    res.setHeader("Cache-Control", "no-store");
+    if (req.method !== "POST") return res.status(405).send("");
+    let raw = typeof req.body === "string" ? req.body : req.body && typeof req.body === "object" ? JSON.stringify(req.body) : "";
+    if (!raw && req.on) raw = await new Promise(r => { let b = ""; req.on("data", c => { if (b.length < 2000) b += c; }); req.on("end", () => r(b)); req.on("error", () => r("")); });
+    try { await recordHit(raw); } catch (e) { console.log("ai-hit failed:", e.message); }
+    return res.status(204).end();
+  }
+  if (path === "/__ai-stats" && brand().key === "subplot" && !base) {
+    res.setHeader("Cache-Control", "no-store");
+    try { return res.status(200).json(await aiStats()); } catch (e) { return res.status(500).json({ error: String(e.message || e) }); }
+  }
   if (path === "/favicon.svg") { res.setHeader("Content-Type", "image/svg+xml"); res.setHeader("Cache-Control", "public, max-age=3600"); return res.status(200).send(faviconSvg() || CAST.favicon); }
   if (path === "/apple-touch-icon.png") { res.setHeader("Content-Type", "image/png"); res.setHeader("Cache-Control", "public, max-age=86400"); const b = TOUCH[assetKey()]; if (!b) return res.status(404).end(); return res.status(200).send(Buffer.from(b, "base64")); }
   if (path === "/smartnews-logo.png" || path === "/smartnews-logo-dark.png") { res.setHeader("Content-Type", "image/png"); res.setHeader("Cache-Control", "public, max-age=86400"); return res.status(200).send(Buffer.from(path.includes("dark") ? SN_LOGO_DARK : SN_LOGO, "base64")); }
