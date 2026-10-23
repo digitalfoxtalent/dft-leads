@@ -351,11 +351,19 @@ function jsonBody(req) {
 }
 
 export async function saveCell(req, token, email, board, item, team) {
+  return cellChange(req, token, email, board, board, item, team);
+}
+// A subitem is edited with its parent board's permission and token; the write goes to the subitems board.
+export async function saveSubCell(req, token, email, parent, subBoard, sub, team) {
+  if (!subBoard || subBoard.board_type !== "sub_items_board") return { ok: false, message: "This subitem cannot be edited here." };
+  return cellChange(req, token, email, parent, Object.assign({}, subBoard, { department: parent.department }), sub, team);
+}
+async function cellChange(req, token, email, gate, board, item, team) {
   if (req.method !== "POST") return { ok: false, message: "Not allowed." };
   if (!fromSite(req)) return { ok: false, message: "That request did not come from the Ecosystem." };
   await loadSwitches(true);
-  if (!canEdit(board, email, team)) return { ok: false, message: "This board cannot be edited here yet." };
-  const b = jsonBody(req), tok = one(b.k), want = boardToken(token, email, board.id);
+  if (!canEdit(gate, email, team)) return { ok: false, message: "This board cannot be edited here yet." };
+  const b = jsonBody(req), tok = one(b.k), want = boardToken(token, email, gate.id);
   if (tok.length !== want.length || !crypto.timingSafeEqual(Buffer.from(tok), Buffer.from(want))) return { ok: false, message: "This page has expired. Refresh it and try again." };
   const col = editableColumns(board).find(c => c.id === one(b.c));
   if (!col) return { ok: false, message: "This field cannot be edited here." };
@@ -545,4 +553,45 @@ export async function moveItem(req, token, email, board, item, team) {
   await logEdits([Object.assign({ ok: !!landed, error: landed ? null : (err || "not moved") }, base)]);
   if (after) await saveLive(after).catch(() => {});
   return landed ? { ok: true, message: "Moved to " + to.title + "." } : { ok: false, message: "monday did not move the item. Check it in monday before trying again." };
+}
+
+// ---------- add a subitem (side panel), with the parent board's permission ----------
+
+const SUBS_Q = `query ($i: [ID!]) { items (ids: $i) { id state board { id } subitems { id name created_at board { id } } } }`;
+export async function createSubitem(req, token, email, parent, parentItem, team) {
+  const bad = await boardGuard(req, token, email, parent, team);
+  if (bad) return { ok: false, message: bad };
+  let name;
+  try { name = mondayValue({ id: "name", title: "Name", type: "name" }, jsonBody(req).name); } catch (e) { return { ok: false, message: String(e.message || e) }; }
+  const look = async ms => { const p = ((await monday(token, SUBS_Q, { i: [String(parentItem.id)] }, ms)).items || [])[0]; return p && p.state !== "deleted" ? p : null; };
+  let before;
+  try { before = await look(5000); } catch (e) { return { ok: false, message: "Could not reach monday. Nothing was added; try again in a moment." }; }
+  if (!before || String(before.board && before.board.id) !== String(parent.id)) return { ok: false, message: "This item is no longer on this board in monday." };
+  const had = new Set((before.subitems || []).map(x => String(x.id)));
+  if (!(await stillOn(parent))) return { ok: false, message: OFF };
+  const base = { email, board_id: parent.id, column_id: "_create", column_title: "Subitem added", old_text: null, new_text: name };
+  let made = null, err = null;
+  try { made = (await monday(token, `mutation ($p: ID!, $n: String!) { create_subitem (parent_item_id: $p, item_name: $n) { id board { id } } }`, { p: String(parentItem.id), n: name }, 15000)).create_subitem; }
+  catch (e) { err = String(e.message || e).slice(0, 300); }
+  if ((!made || !isId(made.id)) && err && !/^monday:/.test(err)) {
+    try { const after = await look(5000); const hit = after && (after.subitems || []).find(x => !had.has(String(x.id)) && x.name === name); if (hit) made = { id: hit.id, board: hit.board }; } catch (e) { /* fall through */ }
+  }
+  if (!made || !isId(made.id)) {
+    await logEdits([Object.assign({ item_id: parentItem.id, ok: false, error: err || "no subitem id returned" }, base)]);
+    return { ok: false, message: "monday did not confirm the new subitem. Check the item in monday before adding it again." };
+  }
+  await logEdits([Object.assign({ item_id: made.id, ok: true }, base)]);
+  const sbId = made.board && isId(made.board.id) ? String(made.board.id) : null;
+  try {
+    if (sbId) await write(`INSERT INTO mirror.boards (id, name, board_type, department, access, allowed_emails, parent_board_id)
+      VALUES ($1::bigint, $2, 'sub_items_board', $3, $4, $5::text[], $6::bigint) ON CONFLICT (id) DO NOTHING`,
+      [sbId, "Subitems of " + String(parent.name || parent.id).slice(0, 200), parent.department, parent.access, parent.allowed_emails || [], parent.id]);
+    const live = await liveItem(token, made.id).catch(() => null);
+    await write(`INSERT INTO mirror.items (id, board_id, parent_id, name, vals, created_at, updated_at, pos)
+      VALUES ($1::bigint, $2::bigint, $3::bigint, $4, $5::jsonb, now(), now(), (SELECT COALESCE(max(pos), 0) + 1 FROM mirror.items WHERE parent_id = $3::bigint))
+      ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, vals = EXCLUDED.vals, deleted = false, synced_at = now()`,
+      [made.id, sbId || (live && live.board_id), parentItem.id, live ? live.name : name, JSON.stringify(live ? live.vals : {})]);
+    const item = (await read(`SELECT id::text AS id, name, vals, board_id::text AS board_id FROM mirror.items WHERE id = $1::bigint`, [made.id]))[0];
+    return { ok: true, message: "Added to monday: " + name + ".", item };
+  } catch (e) { console.error("subitem copy", e); return { ok: true, message: "Added to monday: " + name + ". Reopen the item to see it here." }; }
 }
