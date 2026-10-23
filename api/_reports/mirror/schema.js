@@ -7,6 +7,7 @@
 import { batch } from "./db.js";
 import { EDIT_SCHEMA } from "./edit.js";
 import { SWITCH_SCHEMA } from "./switch.js";
+import { INBOX_SCHEMA } from "./pages.js";
 
 export const SCHEMA_SQL = [
   `CREATE SCHEMA IF NOT EXISTS mirror`,
@@ -89,6 +90,7 @@ export const SCHEMA_SQL = [
   `INSERT INTO mirror.locks (name) VALUES ('sync') ON CONFLICT (name) DO NOTHING`,
   ...EDIT_SCHEMA, // the edit log (edit.js)
   ...SWITCH_SCHEMA, // the editing switch per section (switch.js)
+  ...INBOX_SCHEMA, // when each person last opened their Inbox (pages.js)
 ];
 
 let ready = false;
