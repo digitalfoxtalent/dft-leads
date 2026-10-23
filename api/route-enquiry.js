@@ -198,17 +198,24 @@ async function classify(advertisers, m, msgCount, body, history) {
 }
 
 // ---------- Tom's rules ----------
-function decide(v, last, known, overrides, domain) {
+// The past-client rule beats every specialism: a deal on US Campaigns or a salesperson's own email to the company,
+// whichever is more recent, decides who worked with them last. Tom is not a sales owner, so his replies never count.
+function decide(v, last, known, overrides, domain, history) {
+  history = history || {};
   const brandish = ["brand_enquiry", "press_or_pr"].includes(v.kind);
   if (!brandish || !v.new_enquiry) return { owner: null, held: false, why: "not a new enquiry (" + v.kind + ")" };
   if (v.kind === "brand_enquiry" && v.gifting_only && !v.high_value && !known) return { owner: null, held: true, why: "free product only, not high value" };
   const budget = typeof v.budget_usd === "number" ? v.budget_usd : null;
   if (overrides[domain]) return { owner: overrides[domain], why: "the team moved this company's last lead to " + OWNERS[overrides[domain]].name };
   const ex = String(v.existing_advertiser || "").trim();
+  let deal = null;
   if (ex && last[ex]) {
     const who = String(last[ex].owner || "").split(",").map(s => s.trim()).find(n => BY_MONDAY_NAME[n]);
-    if (who) return { owner: BY_MONDAY_NAME[who], why: "past client " + ex + ", last worked on by " + who.split(" ")[0] };
+    if (who) deal = { owner: BY_MONDAY_NAME[who], at: Date.parse(last[ex].date) || 0, why: "past client " + ex + ", last deal with " + who.split(" ")[0] + " (" + last[ex].date + ")" };
   }
+  const mail = history.lastBy && OWNERS[history.lastBy] ? { owner: history.lastBy, at: history.lastAt, why: "past contact: " + OWNERS[history.lastBy].name + " last emailed this company on " + new Date(history.lastAt).toISOString().slice(0, 10) } : null;
+  const pick = deal && mail ? (mail.at > deal.at ? mail : deal) : (deal || mail);
+  if (pick) return { owner: pick.owner, why: pick.why };
   if (v.china_market) return { owner: "hani", why: "China market" };
   if (v.studio_gaming_pr && !(budget && budget > 5000)) return { owner: "george", why: v.kind === "press_or_pr" ? "press or PR" : "studio or gaming" };
   return { owner: "margot", why: budget && budget > 5000 ? "budget over $5,000" : "brand enquiry" };
@@ -220,16 +227,25 @@ async function senderHistory(email, cache) {
   const dom = email.split("@")[1] || "";
   const target = FREEMAIL.test(dom) ? email : dom;
   if (cache[target]) return cache[target];
-  let count = 0; const who = [];
+  let count = 0, lastBy = "", lastAt = 0; const who = [];
   for (const t of TEAM) {
     try {
       const tok = await tokenFor(t);
       const r = await gmail(tok, "/gmail/v1/users/me/messages?maxResults=20&q=" + encodeURIComponent("in:sent to:" + target));
       const n = (r.messages || []).length;
-      if (n) { count += n; who.push(t.split("@")[0]); }
+      if (n) {
+        count += n; const local = t.split("@")[0]; who.push(local);
+        // Tom, 22 Oct: whoever last worked with a client gets them again, ahead of the specialisms.
+        // Gmail lists newest first, so the first hit is this salesperson's latest email to the company.
+        if (OWNERS[local]) {
+          const m = await gmail(tok, "/gmail/v1/users/me/messages/" + r.messages[0].id + "?format=minimal");
+          const at = Number(m.internalDate || 0);
+          if (at && (!lastAt || at > lastAt)) { lastAt = at; lastBy = local; }
+        }
+      }
     } catch (e) { /* a mailbox we cannot read just does not count */ }
   }
-  return (cache[target] = { count, who, target });
+  return (cache[target] = { count, who, target, lastBy, lastAt });
 }
 
 // ---------- delivery ----------
@@ -353,7 +369,7 @@ async function intake(ctx) {
       if (!(await maybeEnquiry(me, body))) { r.skip = "not an enquiry (quick check)"; await mark(); report.push(r); continue; }
       const history = await senderHistory(sender, histCache);
       const v = await classify(advertisers, me, msgs.length, body, history);
-      const d = decide(v, last, history.count > 0, overrides, history.target);
+      const d = decide(v, last, history.count > 0, overrides, history.target, history);
       Object.assign(r, { kind: v.kind, brand: v.brand, owner: d.owner ? OWNERS[d.owner].name : null, why: d.why, known: history.count });
       if (!d.owner && !d.held) { await mark(); report.push(r); continue; } // not a brand or press approach: stays with Tom
       // ONE PER CAMPAIGN: same company and campaign within 14 days.
