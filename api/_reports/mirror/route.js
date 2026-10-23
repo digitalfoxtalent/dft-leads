@@ -166,7 +166,8 @@ export async function mirrorPage(route, req, res, email, token) {
     const known = ids.length ? (await read(`SELECT id::text AS id FROM mirror.boards WHERE id = ANY($1::bigint[]) AND board_type = 'board' AND NOT gone`, [ids])).map(r => r.id) : [];
     const missing = ids.filter(x => !known.includes(x));
     if (missing.length) return renderApiKeys(email, token, { ok: false, message: "Board " + missing[0] + " is not in the Ecosystem's copy." });
-    const key = await createKey(name, depts, ids, email, one(b.n).slice(0, 40), one(b.gateway) === "1");
+    if (one(b.gateway) === "1" && !ids.length) return renderApiKeys(email, token, { ok: false, message: "A gateway key must name the boards its scenario uses." });
+    const key = await createKey(name, depts, ids, email, one(b.n).slice(0, 40), one(b.gateway) === "1", one(b.linked) === "1");
     if (!key) return renderApiKeys(email, token, { ok: false, message: "That form already made a key; it is listed below. Open the page again to make another." });
     return renderApiKeys(email, token, { ok: true, message: "Key made for " + name + "." }, key);
   }

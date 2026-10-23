@@ -9,6 +9,7 @@
 //   - items a change touched are copied into the Ecosystem straight away instead of within 30 minutes.
 // Later stages answer reads from the Ecosystem's copy, then everything, section by section.
 
+import crypto from "node:crypto";
 import { parse, print, visit, Kind } from "graphql";
 import { read, write } from "./db.js";
 import { refreshItems } from "./edit.js";
@@ -21,6 +22,8 @@ export const MUTATIONS = new Set(["change_multiple_column_values", "change_simpl
 
 export const GATEWAY_SCHEMA = [
   `ALTER TABLE mirror.api_keys ADD COLUMN IF NOT EXISTS gateway boolean NOT NULL DEFAULT false`,
+  `ALTER TABLE mirror.api_keys ADD COLUMN IF NOT EXISTS gateway_linked boolean NOT NULL DEFAULT false`, // may read mirrored and connected column text
+  `CREATE TABLE IF NOT EXISTS mirror.gateway_cursors (key_id bigint NOT NULL, hash text NOT NULL, at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY (key_id, hash))`,
   `CREATE TABLE IF NOT EXISTS mirror.gateway_log (
      id bigserial PRIMARY KEY,
      at timestamptz NOT NULL DEFAULT now(),
@@ -40,6 +43,10 @@ export function setGatewayFetch(f) { fetchImpl = f; }
 
 // Read operations a gateway key may use (no account, teams, workspaces, webhooks or assets).
 export const READS = new Set(["boards", "items", "items_page_by_column_values", "next_items_page", "users", "me", "docs", "complexity"]);
+// Fields refused anywhere in a request: ways from an allowed item to items on other boards, contact details,
+// and account-wide lists. display_value (the text of mirrored and connected columns) only for keys allowed it.
+export const DENY = new Set(["linked_items", "mirrored_items", "linked_item", "email", "phone", "mobile_phone", "account", "owners", "subscribers",
+  "teams", "team_owners", "workspace", "workspaces", "activity_logs", "views", "webhooks", "apps_monetization_status", "is_admin", "is_guest"]);
 
 class Refusal extends Error { constructor(status, message) { super(message); this.status = status; } }
 const no = (status, message) => { throw new Refusal(status, message); };
@@ -47,7 +54,7 @@ const no = (status, message) => { throw new Refusal(status, message); };
 // Parse with the real GraphQL parser and refuse anything whose meaning could differ from what we check: exactly
 // one operation, no named fragments, only plain fields (no fragments or directives) at the top level. The
 // request forwarded to monday is the parser's own re-print of what was checked.
-export function analyse(query) {
+export function analyse(query, opts = {}) {
   let doc;
   try { doc = parse(query, { noLocation: true }); } catch (e) { no(400, "The query is not valid GraphQL."); }
   const ops = doc.definitions.filter(d => d.kind === Kind.OPERATION_DEFINITION);
@@ -61,7 +68,12 @@ export function analyse(query) {
     if (r.directives && r.directives.length) no(400, "Directives are not supported at the top level.");
   }
   // The answer check finds board ids by field name, so those fields may not be renamed anywhere.
-  visit(doc, { Field(node) { if (node.alias && ["id", "board", "boards", "board_id"].includes(node.name.value)) no(400, "Renaming " + node.name.value + " is not supported."); } });
+  visit(doc, { Field(node) {
+    const n = node.name.value;
+    if (node.alias && ["id", "board", "boards", "board_id", "cursor"].includes(n)) no(400, "Renaming " + n + " is not supported.");
+    if (DENY.has(n)) no(403, "The gateway does not allow reading " + n + ".");
+    if (n === "display_value" && !opts.linked) no(403, "This key may not read mirrored or connected column text (display_value).");
+  } });
   const roots = op.selectionSet.selections;
   return { kind: op.operation, roots, fields: roots.map(r => r.name.value), printed: print(doc) };
 }
@@ -80,7 +92,13 @@ function value(node, vars) {
   }
 }
 const arg = (field, name, vars) => { const a = (field.arguments || []).find(x => x.name.value === name); return a ? value(a.value, vars) : undefined; };
-const list = v => (v == null ? [] : Array.isArray(v) ? v : [v]).map(String);
+// Ids from an argument: a single id or a flat list of ids, as strings or numbers; anything else refused.
+const list = v => {
+  const l = v == null ? [] : Array.isArray(v) ? v : [v];
+  for (const x of l) if (!(typeof x === "string" || typeof x === "number")) no(400, "Ids must be strings or numbers.");
+  return l.map(String);
+};
+const hashCursor = c => crypto.createHash("sha256").update(String(c)).digest("hex");
 const isId = v => /^\d{1,19}$/.test(String(v || ""));
 
 // Which boards this key may touch: the boards named on the key, their subitems boards, never a credential board.
@@ -105,7 +123,7 @@ async function itemsOfUpdates(ids) {
 }
 
 // Every top-level operation must name what it touches, and everything it names must be on the key's boards.
-async function checkScope(a, vars, allowed) {
+async function checkScope(a, vars, allowed, key) {
   const need = async (boards, what) => { if (!boards.length || boards.some(b => !b || !allowed(b))) no(403, "This key may not use " + what + " on that board."); };
   for (const f of a.roots) {
     const n = f.name.value;
@@ -123,7 +141,14 @@ async function checkScope(a, vars, allowed) {
         const objects = obj.concat(ids.map(i => (fromIds.find(r => r.id === i) || {}).o || null));
         await need(objects, n); break;
       }
-      case "next_items_page": case "users": case "me": case "complexity": break; // checked on the answer
+      case "next_items_page": { // only a cursor this gateway handed to this key in the last hour (monday cursors last 60 minutes)
+        const c = arg(f, "cursor", vars);
+        if (typeof c !== "string" || !c) no(400, "next_items_page needs a cursor.");
+        const hit = await read(`SELECT 1 FROM mirror.gateway_cursors WHERE key_id = $1::bigint AND hash = $2 AND at > now() - interval '1 hour'`, [key.id, hashCursor(c)]);
+        if (!hit.length) no(403, "That cursor was not issued to this key through the gateway.");
+        break;
+      }
+      case "users": case "me": case "complexity": break; // contact fields are refused anywhere (DENY)
       case "create_item": case "create_group": await need(list(arg(f, "board_id", vars)), n); break;
       case "change_multiple_column_values": case "change_simple_column_value": case "change_column_value":
         await need(list(arg(f, "board_id", vars)), n); await items(arg(f, "item_id", vars), n); break;
@@ -185,7 +210,7 @@ export async function gatewayCall(req, key, token) {
   if (!(key.boards || []).length) return refuse(403, "This gateway key has no boards. Name the boards its scenario uses on /data/api-keys.");
   const vars = body.variables && typeof body.variables === "object" && !Array.isArray(body.variables) ? body.variables : undefined;
   let a, allowed;
-  try { a = analyse(query); allowed = await boardRule(key); await checkScope(a, vars, allowed); }
+  try { a = analyse(query, { linked: !!key.gateway_linked }); allowed = await boardRule(key); await checkScope(a, vars, allowed, key); }
   catch (e) { if (e instanceof Refusal) return refuse(e.status, e.message, a ? { kind: a.kind, fields: a.fields } : {}); throw e; }
   const { kind, fields } = a;
   const version = /^\d{4}-\d{2}$/.test(String((req.headers && req.headers["api-version"]) || "")) ? req.headers["api-version"] : "2025-04";
@@ -200,6 +225,13 @@ export async function gatewayCall(req, key, token) {
   if (parsed && parsed.data) {
     const bad = boardsInAnswer(parsed.data).filter(b => !allowed(b));
     if (bad.length) return refuse(403, "monday's answer included a board this key may not see, so it was withheld.", { kind, fields });
+  }
+  // Remember the page cursors handed out, so next_items_page only follows this key's own pages.
+  if (parsed && parsed.data) {
+    const cursors = []; const walk = v => { if (Array.isArray(v)) v.forEach(walk); else if (v && typeof v === "object") for (const [k, x] of Object.entries(v)) { if (k === "cursor" && typeof x === "string" && x) cursors.push(x); else walk(x); } };
+    walk(parsed.data);
+    if (cursors.length) await write(`INSERT INTO mirror.gateway_cursors (key_id, hash) SELECT $1::bigint, unnest($2::text[]) ON CONFLICT DO NOTHING`, [key.id, cursors.slice(0, 50).map(hashCursor)]).catch(() => {});
+    if (Math.random() < 0.02) await write(`DELETE FROM mirror.gateway_cursors WHERE at < now() - interval '2 hours'`).catch(() => {});
   }
   if (kind === "mutation" && r.ok) {
     if (!parsed) error = "answer was not JSON";

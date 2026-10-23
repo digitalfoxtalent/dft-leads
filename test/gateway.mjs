@@ -32,7 +32,8 @@ setGatewayFetch(async (url, opts) => {
   if (/sneaky/.test(b.query)) return { ok: true, status: 200, text: async () => JSON.stringify({ data: { items: [{ id: "500", board: { id: "999" } }] } }) };
   if (/create_notification/.test(b.query)) return { ok: true, status: 200, text: async () => JSON.stringify({ data: { create_notification: { text: "ok" } } }) };
   if (/users/.test(b.query)) return { ok: true, status: 200, text: async () => JSON.stringify({ data: { users: [{ id: "1", name: "Tom James" }] } }) };
-  return { ok: true, status: 200, text: async () => JSON.stringify({ data: { boards: [{ id: "100", items_page: { items: [{ id: "500", name: "Kikoff" }] } }] }, account_id: 1 }) };
+  if (/next_items_page/.test(b.query)) return { ok: true, status: 200, text: async () => JSON.stringify({ data: { next_items_page: { cursor: null, items: [{ id: "501", name: "Second page" }] } } }) };
+  return { ok: true, status: 200, text: async () => JSON.stringify({ data: { boards: [{ id: "100", items_page: { cursor: "CURSOR-ABC", items: [{ id: "500", name: "Kikoff" }] } }] }, account_id: 1 }) };
 });
 setFetch(async (url, opts) => { // refreshItems reads the item back
   const b = JSON.parse(opts.body), id = b.variables.i[0], it = live[id];
@@ -47,9 +48,10 @@ await write(`INSERT INTO mirror.items (id, board_id, parent_id, group_id, name, 
 await write(`INSERT INTO mirror.team (email, name) VALUES ($1, 'Tom James')`, [TOM]);
 const gk = await createKey("Make: renewal alerts", [], ["100", "18422548864"], TOM, "n1", true);
 const nob = await createKey("Make: no boards", [], [], TOM, "n4", true);
+const linkedKey = await createKey("Make: with mirrors", [], ["100"], TOM, "n5", true, true);
 const plain = await createKey("Make: read only", ["partnerships"], [], TOM, "n2", false);
 const gw = (body, k = gk, method = "POST", headers = {}) => serveApi({ method, headers: Object.assign({ authorization: "Bearer " + k }, headers), query: {}, body }, "monday", TOKEN);
-const Q = `query ($b: [ID!]) { boards (ids: $b) { id items_page (limit: 5) { items { id name column_values { id text ... on MirrorValue { display_value } } } } } }`;
+const Q = `query ($b: [ID!]) { boards (ids: $b) { id items_page (limit: 5) { items { id name column_values { id text ... on StatusValue { label } } } } } }`;
 
 // ---------- parsing ----------
 ok(JSON.stringify(topFields(Q)) === JSON.stringify({ kind: "query", fields: ["boards"], operations: 1 }), "reads the top-level fields of a query with the real GraphQL parser");
@@ -92,7 +94,7 @@ ok(r.status === 500 && r.raw === "oops", "monday's own errors come back as they 
 
 // ---------- the holes the security review found ----------
 const n0 = sent.length;
-const refused = async (body, what, status = 403) => { const x = await gw(body); ok(x.status === status && sent.length === n0, what); };
+const refused = async (body, what, status = 403) => { const before = sent.length; const x = await gw(body); ok(x.status === status && sent.length === before, what + " (got " + x.status + ")"); };
 await refused({ query: `, mutation { delete_board (board_id: 100) { id } }` }, "a leading comma cannot sneak in a mutation");
 await refused({ query: `mutation { create_item (board_id: 100, item_name: "#") { id } delete_board (board_id: 100) { id } }` }, "a # inside a string cannot hide a second change");
 await refused({ query: `query { ...F } fragment F on Query { account { id } }` }, "named fragments refused", 400);
@@ -117,6 +119,24 @@ ok(r.status === 200, "users can be read (scenarios map people)");
 const n1 = sent.length;
 r = await gw({ query: `query { items (ids: [500]) { id sneaky: name board { id } } }` });
 ok(r.status === 403 && /withheld/.test(JSON.stringify(r.body)) && sent.length === n1 + 1, "an answer that includes another board is withheld");
+// nested reads that would leave the key's boards, and contact details
+await refused({ query: `query { items (ids: [500]) { column_values { ... on BoardRelationValue { linked_items { name column_values { text } } } } } }` }, "following connected items to other boards refused");
+await refused({ query: `query { items (ids: [500]) { column_values { ... on MirrorValue { mirrored_items { linked_item { name } } } } } }` }, "following mirrored items refused");
+await refused({ query: `query { items (ids: [500]) { column_values { ... on MirrorValue { display_value } } } }` }, "mirrored column text refused for an ordinary gateway key");
+await refused({ query: `query { items (ids: [500]) { creator { name email } } }` }, "contact details refused anywhere");
+await refused({ query: `query { users { name phone } }` }, "phone numbers refused");
+await refused({ query: `query { me { account { id } } }` }, "account details refused, even nested");
+await refused({ query: `query ($i: [ID!]) { items (ids: $i) { name } }`, variables: { i: [["500"]] } }, "ids must be a flat list", 400);
+r = await gw({ query: `query { items (ids: [500]) { column_values { ... on MirrorValue { display_value } } } }` }, linkedKey);
+ok(r.status === 200, "a key allowed mirrored text can read it");
+// page cursors
+await refused({ query: `query ($c: String!) { next_items_page (cursor: $c) { items { name } } }`, variables: { c: "FORGED" } }, "a cursor this key was never given refused");
+r = await gw({ query: `query ($b: [ID!]) { boards (ids: $b) { items_page (limit: 1) { cursor items { id } } } }`, variables: { b: ["100"] } });
+r = await gw({ query: `query ($c: String!) { next_items_page (cursor: $c) { cursor items { name } } }`, variables: { c: "CURSOR-ABC" } });
+ok(r.status === 200 && /Second page/.test(r.raw), "a cursor the gateway handed this key works");
+const otherKey = await createKey("Make: other", [], ["100"], TOM, "n6", true);
+r = await gw({ query: `query ($c: String!) { next_items_page (cursor: $c) { items { name } } }`, variables: { c: "CURSOR-ABC" } }, otherKey);
+ok(r.status === 403, "but not for another key");
 r = await gw({ query: Q, variables: { b: ["100"] } }, nob);
 ok(r.status === 403 && /no boards/.test(JSON.stringify(r.body)), "a gateway key must name its boards");
 
