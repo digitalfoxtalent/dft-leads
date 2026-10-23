@@ -68,6 +68,15 @@ const BY_MONDAY_ID = Object.fromEntries(Object.entries(OWNERS).map(([k, o]) => [
 const TEAM = ["tom@digitalfoxtalent.com", "margot@digitalfoxtalent.com", "george@digitalfoxtalent.com", "hani@digitalfoxtalent.com", "alex@digitalfoxtalent.com", "theteam@digitalfoxtalent.com"];
 const SEEN = "dft-router-seen"; // the old hidden label, removed by migrateSeenLabel()
 const HELD = "c) Brand Partnerships/Held back";
+const NOISE = "c) Brand Partnerships/Platform noise";
+// STREAMS (Tom, 23 Oct 2026): regular mail that belongs to someone else, filed by sender before any Claude read.
+//   Agentio campaign offers and Rhapsody campaigns: Alex runs both. Paid offers from creator platforms (Faved): Margot.
+//   Pure marketing from creator platforms: the Platform noise folder ("keep an eye on this in case something comes
+//   through here that does need to go to a sales person": it is listed in the 5pm email). Press releases and screener
+//   mailers: George (decided after the Claude read, below). Docusign contracts: the salesperson on that deal.
+//   Sales Desk and router alerts that copy Tom: the salesperson they are for.
+const STREAM_DOMAINS = { "agentio.com": "alex", "rhapsodyvoices.com": "alex", "faved.com": "margot" };
+const NOISE_DOMAINS = /(^|\.)(keepface\.com|socialdb\.xyz|creators\.gg)$/i;
 const ERR = "c) Brand Partnerships/Router could not deliver";
 const REPLIED = "c) Brand Partnerships/Replied";
 const DFT = /@digitalfoxtalent\.com$/i;
@@ -320,6 +329,24 @@ function ongoingOwner(msgs, me) {
   return null;
 }
 
+// An alert from theteam@ (Sales Desk, router nudges) addressed to a salesperson, with Tom only copied.
+function alertOwner(m) {
+  const to = emailsIn(hdr(m, "to"));
+  return to.map(ownerByEmail).find(Boolean) || null;
+}
+// A Docusign email: the salesperson named in it (signer or viewer), else the deal owner of the advertiser it names.
+function contractOwner(text, last) {
+  const t = String(text || "");
+  for (const [n, k] of Object.entries(BY_MONDAY_NAME)) if (t.includes(n)) return k;
+  const low = t.toLowerCase();
+  for (const [adv, info] of Object.entries(last || {})) {
+    if (adv.length < 4 || !low.includes(adv.toLowerCase())) continue;
+    const who = String(info.owner || "").split(",").map(x => x.trim()).find(n => BY_MONDAY_NAME[n]);
+    if (who) return BY_MONDAY_NAME[who];
+  }
+  return null;
+}
+
 // ---------- delivery ----------
 async function rawMessage(tok, id) {
   const m = await gmail(tok, "/gmail/v1/users/me/messages/" + id + "?format=raw");
@@ -453,6 +480,10 @@ async function intake(ctx) {
         if (mode === "live" && !dry && ownerKey) for (const x of msgs) if (!byDft(x) && !hdr(x, "x-dft-routed")) await deliver(tok, x.id, ownerKey);
         if (!dry) await modify(tok, "messages", id, [routedLabel], ["INBOX"]);
       } else if (hdr(me, "x-dft-routed")) r.skip = "router copy";
+      else if (realSender(me) === ALERT_FROM && !isBrief(me) && alertOwner(me)) {
+        const k = alertOwner(me);
+        r.skip = "alert for " + OWNERS[k].name; if (!dry) await modify(tok, "threads", threadId, [OWNERS[k].label], ["INBOX"]);
+      }
       else if (byDft(me) || msgs.some(byDft)) {
         const k = ongoingOwner(msgs, me);
         if (k) { r.skip = "ongoing deal, filed to " + OWNERS[k].name; if (!dry) await modify(tok, "threads", threadId, [OWNERS[k].label], ["INBOX"]); }
@@ -464,12 +495,27 @@ async function intake(ctx) {
       if (isBrief(me)) { const em = body.match(/Email:\s*([^\s<]+@[^\s<]+)/i); if (em) sender = em[1].toLowerCase(); }
       const domain = sender.split("@")[1] || "";
       const local = sender.split("@")[0] || "";
+      // STREAMS: filed by sender. Offers go to the owner too in live mode (once only, by Message-ID).
+      const fileTo = async (to, why, give) => {
+        r.skip = why;
+        if (!dry) { if (give && mode === "live") await deliver(tok, me.id, give); await modify(tok, "threads", threadId, [to], ["INBOX"]); }
+        await mark(); report.push(r);
+      };
+      const streamKey = STREAM_DOMAINS[baseDomain(domain)];
+      if (!isBrief(me) && streamKey) { await fileTo(OWNERS[streamKey].label, "stream: " + baseDomain(domain) + " to " + OWNERS[streamKey].name, streamKey); continue; }
+      if (!isBrief(me) && NOISE_DOMAINS.test(domain)) { await fileTo(await labelId(NOISE), "platform noise"); continue; }
+      if (/(^|\.)docusign\.(net|com)$/i.test(domain)) {
+        const k = contractOwner(hdr(me, "subject") + "\n" + body, last);
+        if (k) { await fileTo(OWNERS[k].label, "contract for " + OWNERS[k].name, k); continue; }
+      }
       if (!isBrief(me) && (SKIP_DOMAINS.test(domain) || SKIP_LOCAL.test(local))) { r.skip = "system sender"; await mark(); report.push(r); continue; }
       if (!(await maybeEnquiry(me, body))) { r.skip = "not an enquiry (quick check)"; await mark(); report.push(r); continue; }
       const history = await senderHistory(sender, histCache);
       const v = await classify(advertisers, me, msgs.length, body, history);
       const d = decide(v, last, history.count > 0, overrides, history.target, history);
       Object.assign(r, { kind: v.kind, brand: v.brand, owner: d.owner ? OWNERS[d.owner].name : null, why: d.why, known: history.count });
+      // Press releases and screener mailers (press or PR, but not a fresh approach): George's folder, and his inbox once live.
+      if (!d.owner && !d.held && v.kind === "press_or_pr") { await fileTo(OWNERS.george.label, "press mailer to George", "george"); continue; }
       if (!d.owner && !d.held) { await mark(); report.push(r); continue; } // not a brand or press approach: stays with Tom
       // ONE PER CAMPAIGN: same company and campaign within 14 days.
       const key = history.target + "|" + String(v.campaign || v.brand || r.subject).toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().slice(0, 80);
@@ -629,12 +675,25 @@ async function digest(ctx) {
   const website = rows.filter(r => denver(new Date(r.created)).date === today && r.v[C.source] && !/^email$/i.test(r.v[C.source]));
   const sec = (title, arr, fn) => arr.length ? "<p style=\"margin:18px 0 6px\"><b>" + title + "</b></p><ul style=\"margin:0;padding-left:18px\">" + arr.map(fn).join("") + "</ul>" : "";
   const routedCount = Object.values(by).reduce((a, x) => a + x.length, 0);
+  // Platform noise filed today, so anything real that lands there is still seen (Tom, 23 Oct 2026).
+  const noise = [];
+  try {
+    const nl = (ctx.labels || []).find(l => l.name === NOISE);
+    if (nl) {
+      const ids = (await gmail(ctx.tok, "/gmail/v1/users/me/messages?maxResults=15&labelIds=" + nl.id + "&q=" + encodeURIComponent("newer_than:1d"))).messages || [];
+      for (const m of ids) {
+        const x = await gmail(ctx.tok, "/gmail/v1/users/me/messages/" + m.id + "?format=metadata&metadataHeaders=Subject&metadataHeaders=From");
+        noise.push(addr(hdr(x, "from")) + ": " + hdr(x, "subject").slice(0, 90));
+      }
+    }
+  } catch (e) { /* the list is a courtesy; the digest still goes */ }
   const html = "<div style=\"font:14px/1.5 Arial,sans-serif;color:#222;max-width:620px\">" +
     "<p><b>" + routedCount + " enquir" + (routedCount === 1 ? "y" : "ies") + " " + (mode === "live" ? "routed" : "would have been routed (test mode)") + " today, " + held.length + " held back, " + waiting.length + " waiting on a reply.</b></p>" +
     sec("Waiting on a reply for over a working day", waiting, r => li(r, (ownerOf(r) ? OWNERS[ownerOf(r)].name : "") + ", " + r.v[C.status])) +
     Object.entries(by).map(([n, arr]) => sec(n, arr, r => li(r, String(r.v[C.why]).replace(/^Router: \w[\w ]*? \(|\)$/g, "")))).join("") +
     sec("From the website", website, r => li(r, r.v[C.source] + (ownerOf(r) ? ", " + OWNERS[ownerOf(r)].name : ", no owner yet"))) +
     sec("Held back (to send one on: pick an Owner and set Router decision to Routed on its row)", held, r => li(r, String(r.v[C.why]).replace(/^Router: held back \(|\)$/g, ""))) +
+    sec("Platform noise filed today (in the Platform noise folder; forward anything real to the right person)", noise, n => "<li>" + esc(n) + "</li>") +
     "<p style=\"margin-top:18px;color:#777;font-size:12px\">Everything is on the <a href=\"https://digitalfoxtalent.monday.com/boards/" + BOARD + "\">Brand Enquiries board</a>.</p></div>";
   if (!dry && !ctx.force) {
     const t = await tokenFor(ALERT_FROM);
