@@ -4,7 +4,7 @@
 
 import { ensureSchema } from "./schema.js";
 import { hasDatabase } from "./db.js";
-import { securityHeaders, renderDepartment, renderBoard, renderItem, renderStatus, renderPanel, itemUpdates, updatesList, newRowHtml, DEPT_NAMES, cellHtml } from "./pages.js";
+import { securityHeaders, renderDepartment, renderBoard, renderItem, renderStatus, renderMyWork, renderPanel, itemUpdates, updatesList, newRowHtml, DEPT_NAMES, cellHtml } from "./pages.js";
 import { BOARD_JS } from "./client.js";
 import { read } from "./db.js";
 import { saveEdit, undoEdit, saveCell, postUpdate, createItem, moveItem, canEdit, currentText, editableColumns, fp } from "./edit.js";
@@ -22,7 +22,7 @@ const DEPT = /^([a-z]+)\/boards$/;
 
 export function isMirrorRoute(route) {
   const r = String(route || "");
-  if (BOARD.test(r) || ITEM.test(r) || ACT.test(r) || CELL.test(r) || PANEL.test(r) || POSTU.test(r) || NEWI.test(r) || MOVE.test(r) || r === ASSET || r === "data/mirror") return true;
+  if (BOARD.test(r) || ITEM.test(r) || ACT.test(r) || CELL.test(r) || PANEL.test(r) || POSTU.test(r) || NEWI.test(r) || MOVE.test(r) || r === ASSET || r === "data/mirror" || r === "my-work") return true;
   const m = r.match(DEPT);
   return !!(m && DEPT_NAMES[m[1]]);
 }
@@ -113,6 +113,7 @@ export async function mirrorPage(route, req, res, email, token) {
   if ((m = route.match(ITEM))) return renderItem(email, m[1], m[2], { secret: token });
   if ((m = route.match(BOARD))) return renderBoard(email, m[1], q, page, { secret: token, params: req.query || {} });
   if (route === "data/mirror") return renderStatus(email);
+  if (route === "my-work") return renderMyWork(email, req.query || {});
   if ((m = route.match(DEPT))) return renderDepartment(email, m[1], q);
   return { status: 404, html: "Not found" };
 }

@@ -84,7 +84,7 @@ a{color:inherit}
 .side .fold{padding-left:14px}.side .fold summary{font-weight:400;font-size:13px;color:var(--muted)}
 .side a.bd{display:flex;align-items:center;gap:8px;padding:5px 8px 5px 24px;border-radius:6px;font-size:13px;text-decoration:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .side a.bd:before{content:"";width:12px;height:10px;border:1.5px solid var(--faint);border-radius:2px;flex:none}
-.side a.bd:hover{background:var(--hover)}.side a.bd.on{background:var(--sel);font-weight:500}
+.side a.bd:hover{background:var(--hover)}.side a.bd.mw{padding-left:8px;font-weight:500;margin-bottom:4px}.side a.bd.mw:before{border-radius:50%}.side a.bd.on{background:var(--sel);font-weight:500}
 .main{padding:22px 32px 80px;min-width:0}
 h1{margin:0 0 4px;font-size:26px;font-weight:600;letter-spacing:-.01em;line-height:1.2}
 .desc{color:var(--muted);font-size:13.5px;margin:0 0 6px;max-width:900px}
@@ -226,7 +226,7 @@ export async function sidebar(email, current) {
       : bs.map(link).join("")).join("");
     return `<details${curDept === d ? " open" : ""}><summary><span class="ws" style="background:${WS_COLOURS[d]}">${esc(DEPT_NAMES[d][0])}</span>${esc(DEPT_NAMES[d])}</summary>${inner}<a class="bd" href="/${esc(d)}/boards">All ${esc(DEPT_NAMES[d])} boards</a></details>`;
   }).join("");
-  return `<aside class="side"><form method="get" action="/${esc(curDept || "marketing")}/boards"><input name="q" placeholder="Search boards" aria-label="Search boards"></form><h3>Workspaces</h3>${out}</aside>`;
+  return `<aside class="side"><form method="get" action="/${esc(curDept || "marketing")}/boards"><input name="q" placeholder="Search boards" aria-label="Search boards"></form><a class="bd mw${current === "my-work" ? " on" : ""}" href="/my-work">My work</a><h3>Workspaces</h3>${out}</aside>`;
 }
 
 function frame(title, crumbs, body, nav, extraHead) {
@@ -556,6 +556,61 @@ ${live ? "" : `<p class="muted sm">monday did not answer in time, so this is the
 ${subs.length ? `<h2 class="sec">Subitems</h2><ul class="pn-sub">${subs.map(s => `<li>${esc(s.name)}</li>`).join("")}</ul>` : ""}</section>`;
   return { ok: true, html, count: ups.length };
 }
+
+// ---------- My work: everything with your name on it, across every board you can see (like monday's) ----------
+
+const DONE = /^(done|complete|completed|published|paid|closed|cancelled|canceled|archived|delivered|finished)$/i;
+const isoDay = d => d.toISOString().slice(0, 10);
+export async function renderMyWork(email, raw = {}, today = new Date()) {
+  await logAccess(email, "/my-work", null, true);
+  const showDone = String(Array.isArray(raw.done) ? raw.done[0] : raw.done || "") === "1";
+  const me = ((await read(`SELECT name FROM mirror.team WHERE email = $1`, [email]))[0] || {}).name || "";
+  const frameIt = body => ({ status: 200, html: frame("My work", [["My work", null]], body, null) });
+  const team = await teamSet();
+  const boards = (await read(`SELECT id::text AS id, name, department, access, allowed_emails, gone, board_type, columns, groups
+    FROM mirror.boards WHERE board_type = 'board' AND NOT gone`)).filter(b => canSee(b, email, team));
+  const side = await sidebar(email, "my-work");
+  if (!me) return { status: 200, html: frame("My work", [["My work", null]], `<h1>My work</h1><p class="empty">Your monday name is not in the copy yet. It appears after the next copy, within 30 minutes.</p>`, side) };
+  const info = new Map(boards.map(b => {
+    const cols = b.columns || [];
+    return [b.id, { b, people: new Set(cols.filter(c => PEOPLE_T.has(c.type)).map(c => c.id)), date: cols.find(c => c.type === "date"), status: cols.find(c => c.type === "status") }];
+  }));
+  const withPeople = [...info.values()].filter(x => x.people.size);
+  const keys = [...new Set(withPeople.flatMap(x => [...x.people]))];
+  const pat = "%, " + me.replace(/[%_\\]/g, m => "\\" + m) + ",%";
+  const rows = withPeople.length ? await read(`SELECT id::text AS id, board_id::text AS board_id, name, group_id, vals FROM mirror.items i
+    WHERE i.board_id = ANY($1::bigint[]) AND NOT i.deleted AND i.parent_id IS NULL
+      AND EXISTS (SELECT 1 FROM jsonb_each(i.vals) e WHERE e.key = ANY($2::text[]) AND (', ' || (e.value->>0) || ',') ILIKE $3)
+    LIMIT 2000`, [withPeople.map(x => x.b.id), keys, pat]) : [];
+  const lc = me.toLowerCase();
+  const mine = rows.filter(it => { const x = info.get(it.board_id); return x && [...x.people].some(k => it.vals[k] && String(it.vals[k][0] || "").split(",").some(n => n.trim().toLowerCase() === lc)); });
+  const t0 = isoDay(today), dow = (today.getUTCDay() + 6) % 7; // Monday = 0
+  const endWeek = isoDay(new Date(Date.parse(t0) + (6 - dow) * 864e5)), endNext = isoDay(new Date(Date.parse(t0) + (13 - dow) * 864e5));
+  const B = { overdue: [], today: [], week: [], next: [], later: [], none: [] };
+  let done = 0;
+  for (const it of mine) {
+    const x = info.get(it.board_id);
+    const st = x.status ? currentText({ id: x.status.id, type: "status" }, it) : "";
+    if (DONE.test(st)) { done++; if (!showDone) continue; }
+    const d = x.date ? String((it.vals[x.date.id] || [])[0] || "").slice(0, 10) : "";
+    const k = !/^\d{4}-\d{2}-\d{2}$/.test(d) ? "none" : d < t0 ? (DONE.test(st) ? "later" : "overdue") : d === t0 ? "today" : d <= endWeek ? "week" : d <= endNext ? "next" : "later";
+    B[k].push({ it, x, st, d });
+  }
+  for (const k of Object.keys(B)) B[k].sort((a, b) => (a.d || "9999").localeCompare(b.d || "9999") || a.it.name.localeCompare(b.it.name));
+  const TITLES = { overdue: ["Overdue", "#e2445c"], today: ["Today", "#00c875"], week: ["This week", "#579bfc"], next: ["Next week", "#a25ddc"], later: ["Later", "#fdab3d"], none: ["Without a date", "#c4c4c4"] };
+  const row = ({ it, x, st, d }) => {
+    const g = (x.b.groups || []).find(g => g.id === it.group_id);
+    return `<tr><td class="nm"><a href="/boards/${esc(x.b.id)}#item-${esc(it.id)}">${esc(it.name)}</a></td><td class="txt"><a href="/boards/${esc(x.b.id)}">${esc(x.b.name)}</a></td><td class="txt">${esc(g ? g.title : "")}</td><td class="st">${x.status ? cell(x.status, it.vals[x.status.id]) : ""}</td><td>${esc(d)}</td></tr>`;
+  };
+  const sections = Object.keys(B).filter(k => B[k].length).map(k => `<details class="group" open style="--gc:${TITLES[k][1]}"><summary>${TITLES[k][0]} <span>${B[k].length} item${B[k].length === 1 ? "" : "s"}</span></summary><div class="tw"><table style="width:1060px"><colgroup><col style="width:420px"><col style="width:240px"><col style="width:180px"><col style="width:120px"><col style="width:100px"></colgroup><thead><tr><th class="nm">Item</th><th>Board</th><th>Group</th><th>Status</th><th>Date</th></tr></thead><tbody>${B[k].map(row).join("")}</tbody></table></div></details>`).join("");
+  const total = Object.values(B).reduce((n, l) => n + l.length, 0);
+  const body = `<h1>My work</h1>
+<p class="desc">Everything with ${esc(me)} in a person column, across the ${esc(boards.length)} boards you can see. Dates come from each board's first date column. Click an item to open it on its board.</p>
+<div class="bar"><span class="count">${esc(total)} item${total === 1 ? "" : "s"}</span>${done ? `<a class="btn" href="/my-work${showDone ? "" : "?done=1"}">${showDone ? "Hide done" : "Show " + esc(done) + " done"}</a>` : ""}</div>
+${sections || `<p class="empty">Nothing assigned to you${done && !showDone ? " that is still open" : ""}.</p>`}`;
+  return { status: 200, html: frame("My work", [["My work", null]], body, side) };
+}
+const PEOPLE_T = new Set(["people", "multiple_person"]);
 
 export async function renderStatus(email) {
   await logAccess(email, "/data/mirror", null, true);
