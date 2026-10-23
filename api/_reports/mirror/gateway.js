@@ -23,6 +23,7 @@ export const MUTATIONS = new Set(["change_multiple_column_values", "change_simpl
 export const GATEWAY_SCHEMA = [
   `ALTER TABLE mirror.api_keys ADD COLUMN IF NOT EXISTS gateway boolean NOT NULL DEFAULT false`,
   `ALTER TABLE mirror.api_keys ADD COLUMN IF NOT EXISTS gateway_linked boolean NOT NULL DEFAULT false`, // may read mirrored and connected column text
+  `ALTER TABLE mirror.api_keys ADD COLUMN IF NOT EXISTS jobs boolean NOT NULL DEFAULT false`, // may run Make jobs (jobs.js)
   `CREATE TABLE IF NOT EXISTS mirror.gateway_cursors (key_id bigint NOT NULL, hash text NOT NULL, at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY (key_id, hash))`,
   `CREATE TABLE IF NOT EXISTS mirror.gateway_log (
      id bigserial PRIMARY KEY,
