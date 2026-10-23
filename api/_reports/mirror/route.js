@@ -4,7 +4,7 @@
 
 import { ensureSchema } from "./schema.js";
 import { hasDatabase } from "./db.js";
-import { securityHeaders, renderDepartment, renderBoard, renderItem, renderStatus, renderMyWork, renderInbox, renderSwitch, renderPanel, itemUpdates, updatesList, newRowHtml, DEPT_NAMES, cellHtml } from "./pages.js";
+import { securityHeaders, renderDepartment, renderBoard, renderItem, renderStatus, renderMyWork, renderInbox, renderSearch, renderSwitch, renderPanel, itemUpdates, updatesList, newRowHtml, DEPT_NAMES, cellHtml } from "./pages.js";
 import { BOARD_JS } from "./client.js";
 import { read } from "./db.js";
 import { saveEdit, undoEdit, saveCell, postUpdate, createItem, moveItem, canEdit, currentText, editableColumns, fp, fromSite } from "./edit.js";
@@ -23,7 +23,7 @@ const DEPT = /^([a-z]+)\/boards$/;
 
 export function isMirrorRoute(route) {
   const r = String(route || "");
-  if (BOARD.test(r) || ITEM.test(r) || ACT.test(r) || CELL.test(r) || PANEL.test(r) || POSTU.test(r) || NEWI.test(r) || MOVE.test(r) || r === ASSET || r === "data/mirror" || r === "my-work" || r === "inbox" || r === "data/editing") return true;
+  if (BOARD.test(r) || ITEM.test(r) || ACT.test(r) || CELL.test(r) || PANEL.test(r) || POSTU.test(r) || NEWI.test(r) || MOVE.test(r) || r === ASSET || r === "data/mirror" || r === "my-work" || r === "inbox" || r === "search" || r === "data/editing") return true;
   const m = r.match(DEPT);
   return !!(m && DEPT_NAMES[m[1]]);
 }
@@ -117,6 +117,7 @@ export async function mirrorPage(route, req, res, email, token) {
   if (route === "data/mirror") return renderStatus(email);
   if (route === "my-work") return renderMyWork(email, req.query || {});
   if (route === "inbox") return renderInbox(email);
+  if (route === "search") return renderSearch(email, req.query || {});
   if (route === "data/editing") {
     if (req.method !== "POST") return renderSwitch(email, token);
     if (!token) return { status: 405, html: "Method not allowed" };
