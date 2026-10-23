@@ -447,7 +447,9 @@ async function intake(ctx) {
   for (const it of items) {
     const cv = {}; for (const c of it.cv || []) cv[c.id] = c.text || "";
     const a = String(cv.dropdown_mm1a3tqp || "").split(",")[0].trim();
-    if (a && !last[a]) last[a] = { owner: String(cv.deal_owner || "").trim() };
+    // The deal's date (when it was booked) so a newer email can win over an older deal and vice versa (23 Oct 2026: it was
+    // missing, so every deal counted as oldest and the reason read "(undefined)").
+    if (a && !last[a]) last[a] = { owner: String(cv.deal_owner || "").trim(), date: String(it.created_at || "").slice(0, 10) };
   }
   const advertisers = Object.keys(last).sort();
   // LEARNING: when someone changes a routed row's Owner on the board, that company's next lead goes to the new owner.
