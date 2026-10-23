@@ -527,20 +527,50 @@ function editorNote(a, data, base) {
       </aside>`;
 }
 
+// KEY POINTS, 23 Oct 2026 (Tom: "let's optimize for AI search as much as possible"). Every long-form article's
+// section headings are written as claims, so the first few make an honest summary of the piece with no extra
+// writing and no AI cost. Shown in a box under the standfirst and repeated as the Article's "abstract" in the
+// structured data, which is the part AI answers and search snippets lift most readily. Generic headings are
+// skipped; fewer than three usable headings means no box. Snippets never get one.
+const KP_SKIP = /^(about this article|watch the original|more from|also on|final thoughts|conclusion|wrap(ping)? up|the bottom line|sources?)\b/i;
+export function keyPoints(html) {
+  const out = [];
+  for (const m of String(html || "").matchAll(/<h2[^>]*>([\s\S]*?)<\/h2>/gi)) {
+    const t = m[1].replace(/<[^>]+>/g, "").replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#39;|&rsquo;/g, "'").replace(/\s+/g, " ").trim();
+    if (t.length < 12 || KP_SKIP.test(t) || out.includes(t)) continue;
+    out.push(/[.!?]$/.test(t) ? t : t + ".");
+    if (out.length === 5) break;
+  }
+  return out.length >= 3 ? out : [];
+}
+
 export function articlePage(a, data, base) {
   wire3Deps({ esc, artPath, dayKey, dayLabel, adSlot, fmt, fmtViews, rail, band, avatars: data.avatars || {} });
   const more = data.arts.filter(x => x.c === a.c && x.id !== a.id).slice(0, 3);
   const inThread = Object.values(data.subjects || {}).filter(s => s.items.includes(a.id)).sort((x, y) => y.n - x.n)[0];
   const thr = inThread ? inThread.items.filter(id => id !== a.id).map(id => data.arts.find(x => x.id === id)).filter(Boolean).filter(x => x.c !== a.c).slice(0, 3) : [];
-  const jsonld = `<script type="application/ld+json">${JSON.stringify({
-    "@context": "https://schema.org", "@type": "Article", headline: a.h, description: a.s,
+  const kp = a.short ? [] : keyPoints(a.body);
+  const jsonld = `<script type="application/ld+json">${JSON.stringify({ "@context": "https://schema.org", "@graph": [{
+    "@type": "Article", "@id": siteUrl() + base + artPath(a) + "#article", headline: a.h, description: a.s,
     datePublished: a.p, dateModified: a.p, image: [a.thumb], wordCount: a.w, articleSection: CATS[a.k], keywords: a.t.join(", "),
-    author: { "@type": "Person", name: a.b, alternateName: a.c, url: "https://www.youtube.com/" + a.c, ...(bioFor(a.c) ? { description: bioFor(a.c) } : {}) },
+    author: { "@type": "Person", name: a.b, alternateName: a.c, url: siteUrl() + base + "/c/" + slugH(a.c), sameAs: ["https://www.youtube.com/" + a.c], ...(bioFor(a.c) ? { description: bioFor(a.c) } : {}) },
     publisher: { "@type": "Organization", name: BRAND_(), url: siteUrl() + base + "/", ...(brand().key === "subplot" ? { logo: siteUrl() + base + "/apple-touch-icon.png", parentOrganization: { "@type": "Organization", "@id": "https://digitalfoxtalent.com/#organization", name: "Digital Fox Talent", url: "https://digitalfoxtalent.com" } } : {}) },
     ...(NOTES[a.id] ? { editor: { "@type": "Person", name: NOTE_SIGNOFF.split(",")[0] } } : brand().key === "subplot" ? { editor: { "@type": "Organization", name: "Digital Fox Talent Editorial Team" } } : {}),
-    isBasedOn: "https://www.youtube.com/watch?v=" + a.v,
+    isBasedOn: { "@id": siteUrl() + base + artPath(a) + "#video" },
+    ...(kp.length ? { abstract: kp.join(" ") } : {}),
     mainEntityOfPage: siteUrl() + base + artPath(a),
-  }).replace(/</g, "\\u003c")}</script>`;
+  }, {
+    "@type": "VideoObject", "@id": siteUrl() + base + artPath(a) + "#video",
+    name: a.h, description: a.s, thumbnailUrl: [a.thumb], ...(a.u || a.p ? { uploadDate: a.u || a.p } : {}),
+    url: (a.short ? "https://www.youtube.com/shorts/" : "https://www.youtube.com/watch?v=") + a.v, embedUrl: "https://www.youtube.com/embed/" + a.v,
+    author: { "@type": "Person", name: a.b, url: "https://www.youtube.com/" + a.c },
+  }, {
+    "@type": "BreadcrumbList", itemListElement: [
+      { "@type": "ListItem", position: 1, name: BRAND_(), item: siteUrl() + base + "/" },
+      { "@type": "ListItem", position: 2, name: a.b || a.c, item: siteUrl() + base + "/c/" + slugH(a.c) },
+      { "@type": "ListItem", position: 3, name: a.h, item: siteUrl() + base + artPath(a) },
+    ],
+  }] }).replace(/</g, "\\u003c")}</script>`;
   const body = `
 <article class="artview" style="display:block">
   <div class="wrap">
@@ -554,6 +584,10 @@ export function articlePage(a, data, base) {
         <span class="nm"><b><a href="${base}/c/${esc(slugH(a.c))}" style="color:inherit;text-decoration:none">${esc(a.b || a.c)}</a> <span style="font-weight:400">(AI-assisted)</span></b><span>${esc(fmt(a.p))}${brand().key === "subplot" ? " &middot; Editor: Digital Fox Talent Editorial Team" : ""}</span></span>
         <span class="meta">${a.w.toLocaleString("en-GB")} words · ${a.rt} min read</span></div>
       ${editorNote(a, data, base)}
+      ${kp.length ? `<aside class="keypoints" aria-label="Key points" style="margin:1.4rem 0 2rem;padding:1.1rem 1.3rem;border:1px solid var(--rule-2);border-radius:4px">
+        <p style="margin:0 0 .55rem;font-size:.72rem;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3)">Key points</p>
+        <ul style="margin:0;padding-left:1.1rem">${kp.map(t => `<li style="margin:.25rem 0">${esc(t)}</li>`).join("")}</ul>
+      </aside>` : ""}
       <div class="prose">${withInArticleAds(splitDisclosure(endNote(siteContacts(a.body), a, base))[0])}</div>
       ${a.short ? `<p class="deckacts" style="margin:1.2rem 0 0"><a href="https://www.youtube.com/shorts/${esc(a.v)}" target="_blank" rel="noopener" style="color:${(FORMATS[a.f] || FORMATS.breakdown).ink}">Watch the Short</a><a class="ghost" href="${base}/snippets#s-${esc(a.id)}">More Snippets</a></p>` : ""}
       <div class="rule-h" style="margin-top:2.6rem"><h2>Watch the original</h2><span class="note">${esc(a.c)} · YouTube</span></div>
@@ -621,7 +655,13 @@ export function creatorPage(handle, data, base) {
     </div>
   </div>
 </main>`;
-  return shell({ base, title: `${name} - ${BRAND_()}`, desc: `${name}'s videos, in writing.`, body, trending: data.threads })
+  // Creator as a named entity (23 Oct 2026, AI search): ties the SUBPLOT page to the creator's YouTube channel so
+  // AI answers and search engines credit the right person.
+  const jsonld = `<script type="application/ld+json">${JSON.stringify({
+    "@context": "https://schema.org", "@type": "ProfilePage", url: siteUrl() + base + "/c/" + slugH(h),
+    mainEntity: { "@type": "Person", name, alternateName: h, url: siteUrl() + base + "/c/" + slugH(h), sameAs: ["https://www.youtube.com/" + h], ...(bioFor(h) ? { description: bioFor(h) } : {}) },
+  }).replace(/</g, "\\u003c")}</script>`;
+  return shell({ base, title: `${name} - ${BRAND_()}`, desc: `${name}'s videos, in writing.`, body, trending: data.threads, jsonld })
     .replace('<span id="panelcount-slot"></span>', `<span>${data.panel.length} creators writing here</span>`);
 }
 
