@@ -5,16 +5,17 @@
 //   /boards/<board id>/items/<id>     one item: every field, its subitems and its updates
 //   /data/mirror                      how the copy is doing: runs, and boards whose counts differ
 //
-// SECURITY: every value is escaped before it reaches the page; only http(s) links are ever linked; the
-// pages carry no script at all and a strict Content-Security-Policy (see securityHeaders); a board the
-// viewer may not see looks exactly like a board that does not exist; every view is logged.
+// SECURITY: every value is escaped before it reaches the page; only http(s) links are ever linked; the only
+// script is our own /assets/eco-board.js (client.js), which inserts nothing but server-escaped HTML, under a
+// strict Content-Security-Policy (see securityHeaders); a board the viewer may not see looks exactly like a
+// board that does not exist; every view is logged.
 
 import { read, write } from "./db.js";
 
 // Active, non-guest monday users (refreshed by every sync). Someone who leaves monday loses access here too.
 async function teamSet() { return new Set((await read(`SELECT email FROM mirror.team`)).map(r => r.email)); }
 import { canSee } from "./policy.js";
-import { canEdit, editForm, historyHtml, editableColumns, currentText, fp, boardToken, liveUpdates } from "./edit.js";
+import { canEdit, editForm, historyHtml, editableColumns, currentText, fp, boardToken, liveUpdates, authors } from "./edit.js";
 
 export const DEPT_NAMES = {
   partnerships: "Brand Partnerships", platforms: "Platform Monetization", shows: "Show Development", talent: "Talent",
@@ -362,7 +363,7 @@ export async function renderItem(email, boardId, itemId, opts = {}) {
   const subs = await read(`SELECT i.id::text AS id, i.name, i.vals, i.board_id::text AS board_id FROM mirror.items i
     WHERE i.parent_id = $1::bigint AND NOT i.deleted ORDER BY i.pos NULLS LAST, i.created_at`, [it.id]);
   const subBoard = subs.length ? await board(subs[0].board_id) : null;
-  const upd = await read(`SELECT body, creator, created_at, posted_by FROM mirror.updates WHERE item_id = $1::bigint ORDER BY created_at DESC LIMIT 50`, [it.id]);
+  const upd = await copiedUpdates(it.id, 50);
   const cols = (b.columns || []).filter(c => c.type !== "name" && c.type !== "subtasks");
   const group = (b.groups || []).find(g => g.id === it.group_id);
   const scols = subBoard ? (subBoard.columns || []).filter(c => c.type !== "name") : [];
@@ -394,11 +395,15 @@ const oneUpdate = (u, cls) => { const who = u.posted_by || u.creator || "Someone
 export const updatesList = ups => ups.length ? ups.map(u => oneUpdate(u)).join("") : `<p class="muted">No updates yet.</p>`;
 
 // Latest updates: live from monday when it answers within 3 seconds, otherwise our copy.
-export async function itemUpdates(b, it, secret) {
-  const live = secret ? await liveUpdates(secret, b, it) : null;
+export async function itemUpdates(b, it, secret, opts = {}) {
+  const live = secret && !opts.copyOnly ? await liveUpdates(secret, b, it, opts.fresh) : null;
   if (live) return { ups: live, live: true };
-  const ups = await read(`SELECT id::text AS id, body, creator, created_at, posted_by FROM mirror.updates WHERE item_id = $1::bigint ORDER BY created_at DESC LIMIT 25`, [it.id]);
-  return { ups, live: false };
+  return { ups: await copiedUpdates(it.id, 25), live: false };
+}
+async function copiedUpdates(itemId, limit) {
+  const ups = await read(`SELECT id::text AS id, body, creator, created_at, posted_by FROM mirror.updates WHERE item_id = $1::bigint ORDER BY created_at DESC LIMIT ${limit}`, [itemId]);
+  const by = await authors(ups.map(u => u.id));
+  return ups.map(u => (by[u.id] ? Object.assign(u, { posted_by: by[u.id] }) : u));
 }
 
 export async function renderPanel(email, boardId, itemId, opts = {}) {

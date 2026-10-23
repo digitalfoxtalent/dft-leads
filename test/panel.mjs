@@ -22,7 +22,7 @@ const TOM = "tom@digitalfoxtalent.com", MARGOT = "margot@digitalfoxtalent.com";
 const SITE = "https://ecosystem.digitalfoxtalent.com";
 
 // ---------- fake monday ----------
-let down = false, nextId = 9000;
+let down = false, nextId = 9000, createMode = "ok", calls = 0;
 const created = [];
 const liveUpd = {
   "500": { board: "100", updates: [{ id: "8001", text_body: "Draft is in the doc <script>alert(1)</script>", created_at: "2026-10-22T10:00:00Z", creator: { name: "Vivianne Lee" },
@@ -31,13 +31,16 @@ const liveUpd = {
 };
 setFetch(async (url, opts) => {
   if (down) throw new Error("timeout");
+  calls++;
   const body = JSON.parse(opts.body);
   assert.equal(opts.headers.Authorization, TOKEN);
   if (/create_update/.test(body.query)) {
+    if (createMode === "reject") throw new Error("socket hang up");
     const id = String(nextId++);
     created.push(body.variables);
     liveUpd[body.variables.i].updates.unshift({ id, text_body: body.variables.b.replace(/<br>/g, "\n").replace(/<\/p><p>/g, "\n").replace(/<[^>]+>/g, "").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&"),
       created_at: new Date().toISOString(), creator: { name: "Tom James" }, replies: [] });
+    if (createMode === "lost") throw new Error("timeout after monday saved it");
     return { ok: true, json: async () => ({ data: { create_update: { id, created_at: new Date().toISOString() } } }) };
   }
   if (/updates \(limit/.test(body.query)) {
@@ -120,11 +123,47 @@ await write(`UPDATE mirror.updates SET creator = 'Tom James', body = 'Margot <M>
 out = await get("boards/100/items/500", MARGOT);
 ok(/Margot &lt;M&gt;/.test(out.html) && !/via the Ecosystem/.test(out.html), "after the sync rewrites it, the item page still shows the real author");
 
+// authorship comes from the post log, so it survives the sync trimming our copy of updates
+await write(`DELETE FROM mirror.updates WHERE id = $1`, [nextId - 1]);
+d = J(await get("boards/100/items/500/panel", MARGOT));
+ok(/Margot &lt;M&gt;/.test(d.html) && !/via the Ecosystem/.test(d.html), "author still shown after our copy of the update is gone");
+
+let postsBefore = (await read(`SELECT count(*)::int AS n FROM mirror.posts`))[0].n;
 down = true;
 d = J(await postJ("boards/100/items/500/update", MARGOT, { k: K, t: "while down" }));
-ok(!d.ok && /Check the item in monday/.test(d.message), "monday failure reported, not claimed as posted");
-ok((await read(`SELECT ok, error FROM mirror.posts ORDER BY id DESC LIMIT 1`))[0].ok === false, "failed post logged");
+ok(!d.ok && /Nothing was posted/.test(d.message) && created.length === 1, "monday unreachable: refused before posting, said plainly");
 down = false;
+ok((await read(`SELECT count(*)::int AS n FROM mirror.posts`))[0].n === postsBefore, "nothing logged when nothing was attempted");
+
+createMode = "reject";
+d = J(await postJ("boards/100/items/500/update", MARGOT, { k: K, t: "rejected one" }));
+ok(!d.ok && /did not confirm/.test(d.message) && !/socket/.test(d.message + d.html), "monday error: not claimed as posted, raw error kept out of the page");
+row = (await read(`SELECT ok, error FROM mirror.posts ORDER BY id DESC LIMIT 1`))[0];
+ok(row.ok === false && /socket hang up/.test(row.error), "failed post logged with the reason");
+
+createMode = "lost";
+d = J(await postJ("boards/100/items/500/update", MARGOT, { k: K, t: "it's saved even though the reply was lost" }));
+ok(d.ok && created.length === 2 && /it&#39;s saved/.test(d.html), "reply lost but monday saved it: found and reported as posted, not duplicated");
+ok(created[1].b.includes("it's saved") && !created[1].b.includes("&#39;"), "apostrophes go to monday as apostrophes");
+row = (await read(`SELECT ok, update_id FROM mirror.posts ORDER BY id DESC LIMIT 1`))[0];
+ok(row.ok && String(row.update_id) === String(nextId - 1), "the found update is logged as the post");
+createMode = "ok";
+
+liveUpd["500"].board = "200";
+d = J(await postJ("boards/100/items/500/update", MARGOT, { k: K, t: "item moved" }));
+ok(!d.ok && /no longer on this board/.test(d.message) && created.length === 2, "item moved to another board in monday: nothing posted");
+liveUpd["500"].board = "100";
+
+d = J(await postJ("boards/100/items/500/update", MARGOT, { k: K, t: "null\u0000byte" }));
+ok(d.ok && !created[2].b.includes("\u0000"), "null bytes stripped");
+
+// panels read monday at most once a minute per item; refused posts do not read monday at all
+let c0 = calls;
+await get("boards/300/items/700/panel", MARGOT); await get("boards/300/items/700/panel", MARGOT);
+ok(calls - c0 <= 1, "second panel open within a minute uses the cached read");
+c0 = calls;
+await postJ("boards/100/items/500/update", MARGOT, { k: K, t: "   " });
+ok(calls === c0, "a refused post makes no monday call");
 
 await write(`INSERT INTO mirror.posts (email, board_id, item_id, ok) SELECT $1, 100, 500, true FROM generate_series(1, 30)`, [MARGOT]);
 d = J(await postJ("boards/100/items/500/update", MARGOT, { k: K, t: "one more" }));
@@ -132,7 +171,7 @@ ok(!d.ok && /Too many updates/.test(d.message), "30 updates an hour per person")
 
 // ---------- board rows ----------
 out = await get("boards/100", MARGOT);
-ok(/<script src="\/assets\/eco-board.js" defer>/.test(out.html) && /class="ub has"[^>]*>.*?<span>2<\/span>/.test(out.html), "board row shows the update count bubble");
+ok(/<script src="\/assets\/eco-board.js" defer>/.test(out.html) && /class="ub has"[^>]*>.*?<span>\d+\+?<\/span>/.test(out.html), "board row shows the update count bubble");
 ok(/1 subitem/.test(out.html), "subitem count still shown");
 out = await get("boards/300", MARGOT);
 ok(/<script src="\/assets\/eco-board.js" defer>/.test(out.html) && !/data-k=/.test(out.html) && /data-eco-board data-b="300"/.test(out.html), "read-only boards get the panel but no edit token");

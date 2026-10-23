@@ -49,8 +49,8 @@ export async function mirrorPage(route, req, res, email, token) {
     if (!b || !it || !canEdit(b, email, team)) return json({ ok: false, message: "Updates cannot be posted on this item here." });
     let note;
     try { note = await postUpdate(req, token, email, b, it, team); }
-    catch (e) { note = { ok: false, message: "Something went wrong. Check the item in monday before posting again. " + String(e.message || e).slice(0, 160) }; }
-    const { ups } = await itemUpdates(b, it, token);
+    catch (e) { console.error("post update", e); note = { ok: false, message: "Something went wrong. Check the item in monday before posting again." }; }
+    const { ups } = await itemUpdates(b, it, token, note.ok ? { fresh: true } : { copyOnly: true }); // monday is read again only after a real post
     return json(Object.assign({}, note, { html: updatesList(ups), count: ups.length }));
   }
   if (cellRoute) {

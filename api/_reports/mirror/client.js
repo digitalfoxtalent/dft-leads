@@ -86,7 +86,12 @@ export const BOARD_JS = String.raw`(function () {
   }
 
   // ---------- the item side panel, as on monday: click an item to see its updates and fields ----------
-  var panel = null, cur = null;
+  var panel = null, cur = null, drafts = {}; // an unsent update is kept per item until it is posted
+  function keepDraft() {
+    if (!panel || !cur) return;
+    var ta = panel.querySelector("form[data-eco-post] textarea");
+    if (ta && !ta.disabled) { if (ta.value.trim()) drafts[cur] = ta.value; else delete drafts[cur]; }
+  }
   function shell() {
     if (panel) return panel;
     panel = document.createElement("aside"); panel.id = "eco-panel"; panel.setAttribute("aria-label", "Item");
@@ -115,19 +120,19 @@ export const BOARD_JS = String.raw`(function () {
   function openPanel(id, tab) {
     if (!/^\d{1,19}$/.test(id)) return;
     var p = shell(), body = p.querySelector(".pn-body");
-    cur = id; markRow(id);
+    keepDraft(); cur = id; markRow(id);
     body.textContent = "Loading...";
     p.classList.add("open");
     try { history.replaceState(null, "", "#item-" + id); } catch (e) {}
     fetch("/boards/" + B + "/items/" + id + "/panel", { credentials: "same-origin" }).then(function (r) { return r.json(); }).then(function (d) {
       if (cur !== id) return;
-      if (d.ok && typeof d.html === "string") { body.innerHTML = d.html; if (tab === "f") { var t = body.querySelector('[data-tab="f"]'); if (t) t.click(); } var ta = body.querySelector("form[data-eco-post] textarea"); if (ta && tab !== "f") ta.focus(); }
+      if (d.ok && typeof d.html === "string") { body.innerHTML = d.html; if (tab === "f") { var t = body.querySelector('[data-tab="f"]'); if (t) t.click(); } var ta = body.querySelector("form[data-eco-post] textarea"); if (ta) { ta.value = drafts[id] || ""; if (tab !== "f") ta.focus(); } }
       else body.textContent = d.message || "This item is not available.";
     }).catch(function () { if (cur === id) body.textContent = "Could not reach the Ecosystem. Try again in a moment."; });
   }
   function closePanel() {
     if (!panel || !panel.classList.contains("open")) return false;
-    panel.classList.remove("open"); cur = null; markRow(null);
+    keepDraft(); panel.classList.remove("open"); cur = null; markRow(null);
     try { history.replaceState(null, "", location.pathname + location.search); } catch (e) {}
     return true;
   }
@@ -144,7 +149,7 @@ export const BOARD_JS = String.raw`(function () {
       }
       var ub = root.querySelector('tr[data-i="' + id + '"] .ub');
       if (ub && typeof d.count === "number" && d.count > 0) { ub.classList.add("has"); var sp = ub.querySelector("span"); if (!sp) { sp = document.createElement("span"); ub.appendChild(sp); } sp.textContent = d.count >= 10 ? "10+" : String(d.count); }
-      if (d.ok) ta.value = "";
+      if (d.ok) { delete drafts[id]; ta.value = ""; }
       toast(d.message || (d.ok ? "Posted" : "Not posted"), !d.ok);
     }).catch(function () {
       toast("Could not reach the Ecosystem. Check the item in monday before posting again.", true);
