@@ -29,6 +29,9 @@ setGatewayFetch(async (url, opts) => {
   if (/create_item/.test(b.query)) return { ok: true, status: 200, text: async () => JSON.stringify({ data: { create_item: { id: "501" } }, account_id: 1 }) };
   if (/archive_item/.test(b.query)) { live["500"] = { state: "archived" }; return { ok: true, status: 200, text: async () => JSON.stringify({ data: { archive_item: { id: "500" } } }) }; }
   if (/boom/.test(b.query)) return { ok: false, status: 500, text: async () => "oops" };
+  if (/sneaky/.test(b.query)) return { ok: true, status: 200, text: async () => JSON.stringify({ data: { items: [{ id: "500", board: { id: "999" } }] } }) };
+  if (/create_notification/.test(b.query)) return { ok: true, status: 200, text: async () => JSON.stringify({ data: { create_notification: { text: "ok" } } }) };
+  if (/users/.test(b.query)) return { ok: true, status: 200, text: async () => JSON.stringify({ data: { users: [{ id: "1", name: "Tom James" }] } }) };
   return { ok: true, status: 200, text: async () => JSON.stringify({ data: { boards: [{ id: "100", items_page: { items: [{ id: "500", name: "Kikoff" }] } }] }, account_id: 1 }) };
 });
 setFetch(async (url, opts) => { // refreshItems reads the item back
@@ -38,26 +41,28 @@ setFetch(async (url, opts) => { // refreshItems reads the item back
 });
 
 await ensureSchema();
-await write(`INSERT INTO mirror.boards (id, name, board_type, department, access, allowed_emails) VALUES (100, 'Renewal Pipeline', 'board', 'partnerships', 'team', '{}')`);
-await write(`INSERT INTO mirror.items (id, board_id, group_id, name, vals) VALUES (500, 100, 'g1', 'Kikoff', '{}')`);
+await write(`INSERT INTO mirror.boards (id, name, board_type, department, access, allowed_emails, parent_board_id) VALUES (100, 'Renewal Pipeline', 'board', 'partnerships', 'team', '{}', NULL),
+  (150, 'Subitems of Renewal Pipeline', 'sub_items_board', 'partnerships', 'team', '{}', 100), (200, 'Pay Cap', 'board', 'finance', 'listed', '{}', NULL)`);
+await write(`INSERT INTO mirror.items (id, board_id, parent_id, group_id, name, vals) VALUES (500, 100, NULL, 'g1', 'Kikoff', '{}'), (510, 150, 500, NULL, 'Sub', '{}'), (600, 200, NULL, NULL, 'Cap', '{}')`);
 await write(`INSERT INTO mirror.team (email, name) VALUES ($1, 'Tom James')`, [TOM]);
-const gk = await createKey("Make: renewal alerts", [], [], TOM, "n1", true);
+const gk = await createKey("Make: renewal alerts", [], ["100", "18422548864"], TOM, "n1", true);
+const nob = await createKey("Make: no boards", [], [], TOM, "n4", true);
 const plain = await createKey("Make: read only", ["partnerships"], [], TOM, "n2", false);
 const gw = (body, k = gk, method = "POST", headers = {}) => serveApi({ method, headers: Object.assign({ authorization: "Bearer " + k }, headers), query: {}, body }, "monday", TOKEN);
 const Q = `query ($b: [ID!]) { boards (ids: $b) { id items_page (limit: 5) { items { id name column_values { id text ... on MirrorValue { display_value } } } } } }`;
 
 // ---------- parsing ----------
-ok(JSON.stringify(topFields(Q)) === JSON.stringify({ kind: "query", fields: ["boards"], operations: 1 }), "reads the top-level fields of a query");
-ok(JSON.stringify(topFields(`mutation { a: create_item (board_id: 1, item_name: "x { y }") { id } create_update (item_id: 2, body: "z") { id } }`).fields) === '["create_item","create_update"]', "aliases resolved; braces inside strings ignored");
-ok(topFields(`{ me { id } }`).kind === "query" && topFields(`query A { me { id } } query B { me { id } }`).operations === 2, "shorthand queries; several operations counted");
+ok(JSON.stringify(topFields(Q)) === JSON.stringify({ kind: "query", fields: ["boards"], operations: 1 }), "reads the top-level fields of a query with the real GraphQL parser");
+ok(JSON.stringify(topFields(`mutation { a: create_item (board_id: 1, item_name: "x { y } # z") { id } create_update (item_id: 2, body: "z") { id } }`).fields) === '["create_item","create_update"]', "aliases resolved; braces and # inside strings are just text");
+ok(topFields(`{ me { id } }`).kind === "query" && topFields(`, mutation { delete_board (board_id: 1) { id } }`).kind === "mutation", "shorthand queries; leading commas cannot disguise a mutation");
 
 // ---------- pass-through ----------
 let r = await gw({ query: Q, variables: { b: ["100"] } });
 ok(r.status === 200 && JSON.parse(r.raw).data.boards[0].items_page.items[0].name === "Kikoff" && /"account_id":1/.test(r.raw), "a query goes to monday unchanged and monday's answer comes back unchanged");
-ok(sent.at(-1).body.query === Q && JSON.stringify(sent.at(-1).body.variables) === '{"b":["100"]}' && sent.at(-1).version === "2025-04", "same query and variables sent; default API version");
-r = await gw({ query: Q }, gk, "POST", { "api-version": "2024-10" });
+ok(sent.at(-1).body.query.replace(/\s+/g, " ").includes("items_page(limit: 5)") && JSON.stringify(sent.at(-1).body.variables) === '{"b":["100"]}' && sent.at(-1).version === "2025-04", "same query and variables sent; default API version");
+r = await gw({ query: Q, variables: { b: ["100"] } }, gk, "POST", { "api-version": "2024-10" });
 ok(sent.at(-1).version === "2024-10", "the caller's API version is passed on");
-r = await gw(JSON.stringify({ query: Q }));
+r = await gw(JSON.stringify({ query: Q, variables: { b: ["100"] } }));
 ok(r.status === 200, "a body sent as text works too");
 
 // ---------- changes ----------
@@ -82,8 +87,36 @@ r = await gw({ query: "x".repeat(100001) });
 ok(r.status === 400, "huge query refused");
 r = await gw({ query: Q }, gk, "GET");
 ok(r.status === 405, "GET refused");
-r = await gw({ query: `query { boom }` });
+r = await gw({ query: `query { me { id boom: name } }` });
 ok(r.status === 500 && r.raw === "oops", "monday's own errors come back as they are");
+
+// ---------- the holes the security review found ----------
+const n0 = sent.length;
+const refused = async (body, what, status = 403) => { const x = await gw(body); ok(x.status === status && sent.length === n0, what); };
+await refused({ query: `, mutation { delete_board (board_id: 100) { id } }` }, "a leading comma cannot sneak in a mutation");
+await refused({ query: `mutation { create_item (board_id: 100, item_name: "#") { id } delete_board (board_id: 100) { id } }` }, "a # inside a string cannot hide a second change");
+await refused({ query: `query { ...F } fragment F on Query { account { id } }` }, "named fragments refused", 400);
+await refused({ query: `query { ... on Query { account { id } } }` }, "fragments at the top level refused", 400);
+await refused({ query: `query { account { id name } }` }, "account details refused");
+await refused({ query: `query { boards { id name } }` }, "listing every board refused");
+await refused({ query: `query { boards (ids: [18422548864]) { items_page { items { name } } } }` }, "the API Keys board is refused even if named on the key");
+await refused({ query: `query { boards (ids: [200]) { id } }` }, "a board not on the key refused");
+await refused({ query: `query ($i: [ID!]) { items (ids: $i) { name } }`, variables: { i: ["600"] } }, "items on a board not on the key refused");
+await refused({ query: `query { items (ids: [999999]) { name } }` }, "items not in the copy refused");
+await refused({ query: `mutation { create_item (board_id: 200, item_name: "x") { id } }` }, "creating on a board not on the key refused");
+await refused({ query: `mutation { change_column_value (board_id: 100, item_id: 600, column_id: "t", value: "1") { id } }` }, "changing an item that is not on the named board refused");
+await refused({ query: `mutation { create_notification (user_id: 1, target_id: 777, target_type: Post, text: "hi") { text } }` }, "a notification about something unknown refused");
+r = await gw({ query: `mutation { create_notification (user_id: 1, target_id: 500, target_type: Project, text: "hi") { text } }` });
+ok(r.status === 200, "a notification about an item on the key's board is allowed");
+r = await gw({ query: `mutation { create_update (item_id: 510, body: "on a subitem") { id } }` });
+ok(r.status === 200, "subitems of a named board are allowed");
+r = await gw({ query: `query { users { id name } }` });
+ok(r.status === 200, "users can be read (scenarios map people)");
+const n1 = sent.length;
+r = await gw({ query: `query { items (ids: [500]) { id sneaky: name board { id } } }` });
+ok(r.status === 403 && /withheld/.test(JSON.stringify(r.body)) && sent.length === n1 + 1, "an answer that includes another board is withheld");
+r = await gw({ query: Q, variables: { b: ["100"] } }, nob);
+ok(r.status === 403 && /no boards/.test(JSON.stringify(r.body)), "a gateway key must name its boards");
 
 // ---------- keys ----------
 r = await gw({ query: Q }, plain);
@@ -102,7 +135,7 @@ r = await gw({ query: Q });
 ok(r.status === 429, "10,000 gateway calls an hour per key");
 
 // ---------- the key page ----------
-const page = await mirrorPage("data/api-keys", { method: "POST", headers: { origin: "https://ecosystem.digitalfoxtalent.com" }, query: {}, body: { t: adminToken("tok", TOM), do: "create", name: "Make: gateway only", gateway: "1", n: "n3" } }, { setHeader() {} }, TOM, "tok");
+const page = await mirrorPage("data/api-keys", { method: "POST", headers: { origin: "https://ecosystem.digitalfoxtalent.com" }, query: {}, body: { t: adminToken("tok", TOM), do: "create", name: "Make: gateway only", gateway: "1", boards: "100", n: "n3" } }, { setHeader() {} }, TOM, "tok");
 ok(page.status === 200 && (await read(`SELECT gateway FROM mirror.api_keys WHERE name = 'Make: gateway only'`))[0].gateway === true, "Tom can make a gateway key");
 ok(/Gateway \(24 h\)/.test(page.html), "gateway use shown per key");
 
