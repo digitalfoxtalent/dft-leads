@@ -559,7 +559,8 @@ ${subs.length ? `<h2 class="sec">Subitems</h2><ul class="pn-sub">${subs.map(s =>
 
 // ---------- My work: everything with your name on it, across every board you can see (like monday's) ----------
 
-const DONE = /^(done|complete|completed|published|paid|closed|cancelled|canceled|archived|delivered|finished)$/i;
+// A status or group that means the work is finished ("Done", "Commission Paid", "Complete - commission paid", ...).
+const DONE = /\b(done|complete|completed|paid|published|closed|cancell?ed|archived?|delivered|finished|declined|rejected|lost|won)\b/i;
 const isoDay = d => d.toISOString().slice(0, 10);
 export async function renderMyWork(email, raw = {}, today = new Date()) {
   await logAccess(email, "/my-work", null, true);
@@ -568,7 +569,7 @@ export async function renderMyWork(email, raw = {}, today = new Date()) {
   const frameIt = body => ({ status: 200, html: frame("My work", [["My work", null]], body, null) });
   const team = await teamSet();
   const boards = (await read(`SELECT id::text AS id, name, department, access, allowed_emails, gone, board_type, columns, groups
-    FROM mirror.boards WHERE board_type = 'board' AND NOT gone`)).filter(b => canSee(b, email, team));
+    FROM mirror.boards WHERE board_type = 'board' AND NOT gone`)).filter(b => canSee(b, email, team) && !/archive/i.test(b.name));
   const side = await sidebar(email, "my-work");
   if (!me) return { status: 200, html: frame("My work", [["My work", null]], `<h1>My work</h1><p class="empty">Your monday name is not in the copy yet. It appears after the next copy, within 30 minutes.</p>`, side) };
   const info = new Map(boards.map(b => {
@@ -586,26 +587,29 @@ export async function renderMyWork(email, raw = {}, today = new Date()) {
   const mine = rows.filter(it => { const x = info.get(it.board_id); return x && [...x.people].some(k => it.vals[k] && String(it.vals[k][0] || "").split(",").some(n => n.trim().toLowerCase() === lc)); });
   const t0 = isoDay(today), dow = (today.getUTCDay() + 6) % 7; // Monday = 0
   const endWeek = isoDay(new Date(Date.parse(t0) + (6 - dow) * 864e5)), endNext = isoDay(new Date(Date.parse(t0) + (13 - dow) * 864e5));
-  const B = { overdue: [], today: [], week: [], next: [], later: [], none: [] };
+  const B = { overdue: [], today: [], week: [], next: [], later: [], none: [], old: [] };
+  const longAgo = isoDay(new Date(Date.parse(t0) - 60 * 864e5));
   let done = 0;
   for (const it of mine) {
     const x = info.get(it.board_id);
     const st = x.status ? currentText({ id: x.status.id, type: "status" }, it) : "";
-    if (DONE.test(st)) { done++; if (!showDone) continue; }
+    const grp = (x.b.groups || []).find(g => g.id === it.group_id);
+    const fin = DONE.test(st) || (grp && DONE.test(grp.title));
+    if (fin) { done++; if (!showDone) continue; }
     const d = x.date ? String((it.vals[x.date.id] || [])[0] || "").slice(0, 10) : "";
-    const k = !/^\d{4}-\d{2}-\d{2}$/.test(d) ? "none" : d < t0 ? (DONE.test(st) ? "later" : "overdue") : d === t0 ? "today" : d <= endWeek ? "week" : d <= endNext ? "next" : "later";
+    const k = !/^\d{4}-\d{2}-\d{2}$/.test(d) ? "none" : d < t0 ? (fin ? "later" : d < longAgo ? "old" : "overdue") : d === t0 ? "today" : d <= endWeek ? "week" : d <= endNext ? "next" : "later";
     B[k].push({ it, x, st, d });
   }
   for (const k of Object.keys(B)) B[k].sort((a, b) => (a.d || "9999").localeCompare(b.d || "9999") || a.it.name.localeCompare(b.it.name));
-  const TITLES = { overdue: ["Overdue", "#e2445c"], today: ["Today", "#00c875"], week: ["This week", "#579bfc"], next: ["Next week", "#a25ddc"], later: ["Later", "#fdab3d"], none: ["Without a date", "#c4c4c4"] };
+  const TITLES = { overdue: ["Overdue", "#e2445c"], today: ["Today", "#00c875"], week: ["This week", "#579bfc"], next: ["Next week", "#a25ddc"], later: ["Later", "#fdab3d"], none: ["Without a date", "#c4c4c4"], old: ["Overdue by more than two months", "#9699a6"] };
   const row = ({ it, x, st, d }) => {
     const g = (x.b.groups || []).find(g => g.id === it.group_id);
     return `<tr><td class="nm"><a href="/boards/${esc(x.b.id)}#item-${esc(it.id)}">${esc(it.name)}</a></td><td class="txt"><a href="/boards/${esc(x.b.id)}">${esc(x.b.name)}</a></td><td class="txt">${esc(g ? g.title : "")}</td><td class="st">${x.status ? cell(x.status, it.vals[x.status.id]) : ""}</td><td>${esc(d)}</td></tr>`;
   };
-  const sections = Object.keys(B).filter(k => B[k].length).map(k => `<details class="group" open style="--gc:${TITLES[k][1]}"><summary>${TITLES[k][0]} <span>${B[k].length} item${B[k].length === 1 ? "" : "s"}</span></summary><div class="tw"><table style="width:1060px"><colgroup><col style="width:420px"><col style="width:240px"><col style="width:180px"><col style="width:120px"><col style="width:100px"></colgroup><thead><tr><th class="nm">Item</th><th>Board</th><th>Group</th><th>Status</th><th>Date</th></tr></thead><tbody>${B[k].map(row).join("")}</tbody></table></div></details>`).join("");
+  const sections = Object.keys(B).filter(k => B[k].length).map(k => `<details class="group"${k === "old" ? "" : " open"} style="--gc:${TITLES[k][1]}"><summary>${TITLES[k][0]} <span>${B[k].length} item${B[k].length === 1 ? "" : "s"}</span></summary><div class="tw"><table style="width:1060px"><colgroup><col style="width:420px"><col style="width:240px"><col style="width:180px"><col style="width:120px"><col style="width:100px"></colgroup><thead><tr><th class="nm">Item</th><th>Board</th><th>Group</th><th>Status</th><th>Date</th></tr></thead><tbody>${B[k].map(row).join("")}</tbody></table></div></details>`).join("");
   const total = Object.values(B).reduce((n, l) => n + l.length, 0);
   const body = `<h1>My work</h1>
-<p class="desc">Everything with ${esc(me)} in a person column, across the ${esc(boards.length)} boards you can see. Dates come from each board's first date column. Click an item to open it on its board.</p>
+<p class="desc">Everything with ${esc(me)} in a person column, across the ${esc(boards.length)} boards you can see (archive boards left out). Dates come from each board's first date column. Click an item to open it on its board.</p>
 <div class="bar"><span class="count">${esc(total)} item${total === 1 ? "" : "s"}</span>${done ? `<a class="btn" href="/my-work${showDone ? "" : "?done=1"}">${showDone ? "Hide done" : "Show " + esc(done) + " done"}</a>` : ""}</div>
 ${sections || `<p class="empty">Nothing assigned to you${done && !showDone ? " that is still open" : ""}.</p>`}`;
   return { status: 200, html: frame("My work", [["My work", null]], body, side) };

@@ -44,7 +44,14 @@ const items = [
   [10, 200, "Private finance row", { o1: ["Margot Smith", null] }],
   [11, 300, "On a gone board", { o1: ["Margot Smith", null] }],
 ];
+items.push([13, 100, "Ancient task", { o1: ["Margot Smith", null], d1: ["2026-06-01", null] }]);
+items.push([14, 100, "Commission paid row", { o1: ["Margot Smith", null], s1: st("Commission Paid", 0), d1: ["2026-09-01", null] }]);
+items.push([15, 500, "On an archive board", { o1: ["Margot Smith", null] }]);
+items.push([16, 100, "In a done group", { o1: ["Margot Smith", null], d1: ["2026-10-01", null] }]);
+await write(`INSERT INTO mirror.boards (id, name, board_type, department, access, allowed_emails, columns, groups) VALUES (500, '2024-2025 Archive US campaigns', 'board', 'partnerships', 'team', '{}', $1::jsonb, '[]')`, [JSON.stringify(COLS)]);
+await write(`UPDATE mirror.boards SET groups = '[{"id":"g1","title":"Priority"},{"id":"g9","title":"Complete - commission paid"}]' WHERE id = 100`);
 for (const [id, b, name, vals] of items) await write(`INSERT INTO mirror.items (id, board_id, group_id, name, vals) VALUES ($1, $2, 'g1', $3, $4::jsonb)`, [id, b, name, JSON.stringify(vals)]);
+await write(`UPDATE mirror.items SET group_id = 'g9' WHERE id = 16`);
 await write(`INSERT INTO mirror.items (id, board_id, group_id, name, vals, deleted) VALUES (12, 100, 'g1', 'Deleted row', '{"o1":["Margot Smith",null]}', true)`);
 await write(`INSERT INTO mirror.team (email, name) VALUES ($1, 'Margot Smith'), ($2, 'Amy Lee'), ($3, NULL)`, [MARGOT, AMY, NEW]);
 
@@ -58,13 +65,15 @@ ok(JSON.stringify(section(h, "This week")) === '["This week"]', "this week (to S
 ok(JSON.stringify(section(h, "Next week")) === '["Next week"]', "next week");
 ok(JSON.stringify(section(h, "Later")) === '["Later on"]', "later");
 ok(JSON.stringify(section(h, "Without a date")) === '["No date"]', "without a date");
-ok(!/Done and dusted/.test(h) && /Show 1 done/.test(h), "done items hidden, with a Show done button");
+ok(!/Done and dusted/.test(h) && !/Commission paid row/.test(h) && !/In a done group/.test(h) && /Show 3 done/.test(h), "done items hidden (Done, Commission Paid, done-style groups), with a Show done button");
+ok(!/On an archive board/.test(h), "archive boards left out");
+ok(JSON.stringify(section(h, "Overdue by more than two months")) === '["Ancient task"]' && /<details class="group" style="--gc:#9699a6"><summary>Overdue by more than two months/.test(h), "very old overdue items folded away");
 ok(!/Someone else/.test(h), "a longer name that starts the same does not match");
 ok(!/Name only in a text column/.test(h), "only person columns count");
 ok(!/Private finance row/.test(h) && !/Pay Cap/.test(h), "boards you cannot see stay hidden, names included");
 ok(!/On a gone board/.test(h) && !/Deleted row/.test(h), "archived boards and deleted items left out");
 ok(/href="\/boards\/100#item-1"/.test(h), "items open in the board's side panel");
-ok(/6 items/.test(h), "count of open items");
+ok(/7 items/.test(h), "count of open items");
 h = (await renderMyWork(MARGOT, { done: "1" }, TODAY)).html;
 ok(/Done and dusted/.test(h) && /Hide done/.test(h) && !section(h, "Overdue").includes("Done and dusted"), "Show done includes them, never as overdue");
 h = (await renderMyWork(AMY, {}, TODAY)).html;
