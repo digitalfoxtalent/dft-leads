@@ -27,9 +27,9 @@ export const BOARD_JS = String.raw`(function () {
   }
 
   function save(td, value) {
-    var tr = td.closest("tr");
+    var tr = td.closest("tr"), si = tr.getAttribute("data-si"), pi = si ? td.closest("table").getAttribute("data-pi") : null;
     td.classList.add("saving");
-    fetch("/boards/" + B + "/items/" + tr.getAttribute("data-i") + "/cell", {
+    fetch("/boards/" + B + "/items/" + (si ? pi + "/sub/" + si : tr.getAttribute("data-i")) + "/cell", {
       method: "POST", credentials: "same-origin", keepalive: true, headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ k: K, c: td.getAttribute("data-c"), f: td.getAttribute("data-f"), v: value })
     }).then(function (r) { return r.json(); }).then(function (d) {
@@ -155,8 +155,15 @@ export const BOARD_JS = String.raw`(function () {
       panel.querySelectorAll("[data-pane]").forEach(function (p) { p.hidden = p.getAttribute("data-pane") !== t.getAttribute("data-tab"); });
     });
     panel.addEventListener("submit", function (e) {
-      var f = e.target.closest("form[data-eco-post]"); if (!f) return;
-      e.preventDefault(); postUpdate(f);
+      var f = e.target.closest("form[data-eco-post]");
+      if (f) { e.preventDefault(); postUpdate(f); return; }
+      var a = e.target.closest("form[data-eco-addsub]");
+      if (a) { e.preventDefault(); addSub(a); }
+    });
+    panel.addEventListener("click", function (e) {
+      var td = e.target.closest("table[data-sub] td[data-c]"); if (!td || !ED) return;
+      var cols = {}; try { cols = JSON.parse(td.closest("table").getAttribute("data-cols") || "{}"); } catch (x) {}
+      editCell(e, td, cols);
     });
     panel.addEventListener("change", function (e) {
       var sel = e.target.closest("select[data-eco-move]"); if (sel && ED) moveTo(sel);
@@ -273,6 +280,19 @@ export const BOARD_JS = String.raw`(function () {
     }).catch(function () { toast("Could not reach the Ecosystem. Check the board in monday before adding it again.", true); })
       .then(function () { inp.disabled = false; inp.focus(); });
   });
+  function addSub(f) {
+    var inp = f.querySelector("input"), name = inp.value.trim(), id = cur;
+    if (!ED || !name || inp.disabled || !id) return;
+    inp.disabled = true;
+    send("/items/" + id + "/sub/new", { k: K, name: name }).then(function (d) {
+      if (d.ok && typeof d.html === "string" && cur === id) {
+        f.closest("tr").insertAdjacentHTML("beforebegin", d.html); inp.value = "";
+        var n = panel.querySelector('[data-tab="s"] .n'); if (n) n.textContent = String(f.closest("tbody").querySelectorAll("tr[data-si]").length);
+      }
+      toast(d.message || (d.ok ? "Added" : "Not added"), !d.ok);
+    }).catch(function () { toast("Could not reach the Ecosystem. Check the item in monday before adding it again.", true); })
+      .then(function () { inp.disabled = false; inp.focus(); });
+  }
   function postUpdate(f) {
     var ta = f.querySelector("textarea"), btn = f.querySelector("button[type=submit]"), id = cur;
     var text = ta.value; if (!text.trim() || !id) return;
@@ -313,20 +333,23 @@ export const BOARD_JS = String.raw`(function () {
     if (!ED) return;
     var td = e.target.closest("td[data-c]");
     if (!td || !root.contains(td)) return;
-    var t = td.getAttribute("data-t");
-    if (t === "name" && !e.target.closest(".ren")) return;        // the name opens the item; Rename edits it
+    editCell(e, td, COLS);
+  });
+  function editCell(e, td, cols) {
+    var t = td.getAttribute("data-t"), inSub = !!td.closest("table[data-sub]");
+    if (t === "name" && !inSub && !e.target.closest(".ren")) return; // the name opens the item; Rename edits it
     if (t !== "name" && e.target.closest("a")) return;             // links in cells still open
     if (td.classList.contains("saving")) return;
     e.preventDefault();
     close();
     if (t === "long") { location.href = td.getAttribute("data-href"); return; }
-    var col = COLS[td.getAttribute("data-c")] || { t: t };
+    var col = cols[td.getAttribute("data-c")] || { t: t };
     if (t === "status") return statusPicker(td, col);
     if (t === "checkbox") return save(td, td.getAttribute("data-v") ? "" : "true");
     if (t === "people" || t === "dropdown") return multiPicker(td, col);
     if (t === "timeline") return timelinePicker(td);
     inputEditor(td, t);
-  });
+  }
   document.addEventListener("keydown", function (e) { if (e.key !== "Escape") return; if (open) close(); else closePanel(); });
 })();
 `;

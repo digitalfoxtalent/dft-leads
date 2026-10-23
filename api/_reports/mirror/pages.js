@@ -187,6 +187,7 @@ tr.add input::placeholder{color:var(--faint)}tr.add input:focus{box-shadow:inset
 tfoot td.sum{background:var(--surface);border-bottom:0;height:34px}tfoot td.sum.num{text-align:right}tfoot td.sum b{font-weight:600}tfoot td.sum span{display:block;font-size:10.5px;color:var(--faint);line-height:1}
 .bat{display:flex;height:22px;border-radius:3px;overflow:hidden;margin:0 2px}.bat i{display:block;height:100%}
 ul.hits{list-style:none;margin:0;padding:0;display:grid;gap:4px}ul.hits li{padding:6px 10px;border-radius:6px;background:var(--surface);border:1px solid var(--line2)}ul.hits a{text-decoration:none}mark{background:#ffcb00;color:#323338;border-radius:2px}
+.tw.sub{border-left-color:var(--faint)}.tw.sub td.nm{cursor:text}
 .ppl{display:inline-flex;align-items:center;gap:0;max-width:100%}.ppl .av{width:24px;height:24px;font-size:10px;margin-right:-6px;box-shadow:0 0 0 2px var(--surface)}
 .ppl .more{font-size:11px;color:var(--muted);margin-left:10px}.ppl .pn{margin-left:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pop.multi{width:280px}.pop.multi .mlist{max-height:260px;overflow:auto;margin:8px 0;display:grid;gap:2px}.pop.multi label{display:flex;align-items:center;gap:8px;padding:5px 6px;border-radius:4px;font-size:13px;cursor:pointer}
@@ -445,6 +446,21 @@ function summaryRow(cols, list) {
   return `<tfoot><tr><td class="nm sum"></td>${tds}</tr></tfoot>`;
 }
 
+// Choices for the cell pickers: status labels, dropdown options (the column's own list, or values already used),
+// everyone on the team for people columns, and the rating scale.
+async function pickerData(b, ecols) {
+  const teamNames = [...ecols.values()].some(c => c.type === "people") ? (await read(`SELECT name FROM mirror.team WHERE name IS NOT NULL ORDER BY name`)).map(r => r.name) : [];
+  const out = {};
+  for (const c of ecols.values()) {
+    let o;
+    if (c.type === "dropdown") o = c.options && c.options.length ? c.options : (await read(`SELECT DISTINCT trim(x) AS v FROM mirror.items i, regexp_split_to_table(i.vals->$2->>0, ',') x
+      WHERE i.board_id = $1::bigint AND NOT i.deleted AND trim(x) <> '' ORDER BY 1 LIMIT 300`, [b.id, c.id])).map(r => r.v);
+    else if (c.type === "people") o = teamNames;
+    out[c.id] = { t: c.type, n: c.title, l: c.type === "status" ? Object.values(c.labels || {}).filter(x => x && x[0]).map(x => [x[0], hexOk(x[1]) || "#c4c4c4"]) : undefined, o, m: c.type === "rating" ? c.max || 5 : undefined };
+  }
+  return out;
+}
+
 export async function renderBoard(email, id, q, page, opts = {}) {
   const b = await board(id);
   const team = await teamSet();
@@ -493,16 +509,7 @@ export async function renderBoard(email, id, q, page, opts = {}) {
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const qs = n => { const l = viewLink(b, v, {}); return l + (l.includes("?") ? "&" : "?") + "page=" + n; };
   const dept = DEPT_NAMES[b.department] ? b.department : "data";
-  // Choices for the pickers: status labels, dropdown options (the column's own list plus values already used),
-  // everyone on the team for people columns, and the rating scale.
-  const teamNames = editable && [...ecols.values()].some(c => c.type === "people") ? (await read(`SELECT name FROM mirror.team WHERE name IS NOT NULL ORDER BY name`)).map(r => r.name) : [];
-  const ddUsed = {};
-  for (const c of [...ecols.values()].filter(c => c.type === "dropdown")) ddUsed[c.id] = (await read(`SELECT DISTINCT trim(x) AS v FROM mirror.items i, regexp_split_to_table(i.vals->$2->>0, ',') x
-    WHERE i.board_id = $1::bigint AND NOT i.deleted AND trim(x) <> '' ORDER BY 1 LIMIT 300`, [b.id, c.id])).map(r => r.v);
-  const colsJson = editable ? JSON.stringify(Object.fromEntries([...ecols.values()].map(c => [c.id, { t: c.type, n: c.title,
-    l: c.type === "status" ? Object.values(c.labels || {}).filter(x => x && x[0]).map(x => [x[0], hexOk(x[1]) || "#c4c4c4"]) : undefined,
-    o: c.type === "dropdown" ? [...new Set([...(c.options || []), ...(c.options && c.options.length ? [] : ddUsed[c.id] || [])])] : c.type === "people" ? teamNames : undefined,
-    m: c.type === "rating" ? c.max || 5 : undefined }]))).replace(/</g, "\\u003c") : "";
+  const colsJson = editable ? JSON.stringify(await pickerData(b, ecols)).replace(/</g, "\\u003c") : "";
   const body = `<div data-eco-board data-b="${esc(b.id)}"${editable ? ` data-k="${esc(boardToken(opts.secret, email, b.id))}"` : ""}>
 <h1>${esc(b.name)}</h1>${b.description ? `<p class="desc">${esc(b.description)}</p>` : ""}
 <div class="tabs"><a class="${v.view === "table" ? "on" : ""}" href="${esc(viewLink(b, v, { view: "table" }))}">Main table</a>${v.kc ? `<a class="${v.view === "kanban" ? "on" : ""}" href="${esc(viewLink(b, v, { view: "kanban" }))}">Kanban</a>` : ""}</div>
@@ -573,6 +580,35 @@ async function copiedUpdates(itemId, limit) {
   return ups.map(u => (by[u.id] ? Object.assign(u, { posted_by: by[u.id] }) : u));
 }
 
+// ---------- subitems in the side panel (edited with the parent board's permission) ----------
+const SUB_COLS = 6;
+const subCols = sb => (sb ? (sb.columns || []) : []).filter(c => c.type !== "name" && c.type !== "subtasks").slice(0, SUB_COLS);
+export function subCellHtml(col, it) { return col.id === "name" ? esc(it.name) : cell(col, it.vals && it.vals[col.id]); }
+function subRowHtml(sb, s, ecols, editable) {
+  const attrs = c => { const a = editable ? edAttrs(sb, ecols, c, s) : ""; return a.includes('data-t="long"') ? "" : a; }; // very long text: edit in monday
+  const td = c => { const cls = c.type === "status" ? "st" : c.type === "numbers" ? "num" : LEFT.has(c.type) ? "txt" : "";
+    return `<td${cls ? ` class="${cls}"` : ""}${attrs(c)}>${cell(c, s.vals && s.vals[c.id])}</td>`; };
+  return `<tr data-si="${esc(s.id)}"><td class="nm"${editable ? edAttrs(sb, ecols, NAME_COL, s) : ""}>${esc(s.name)}</td>${subCols(sb).map(td).join("")}</tr>`;
+}
+export async function newSubRowHtml(sbId, s) {
+  const sb = await board(sbId);
+  return subRowHtml(sb || { id: sbId, columns: [] }, s, new Map(editableColumns(sb || { columns: [] }).map(c => [c.id, c])), true);
+}
+async function subitemsPane(b, it, editable) {
+  const subCol = (b.columns || []).find(c => c.type === "subtasks");
+  const subs = await read(`SELECT id::text AS id, name, vals, board_id::text AS board_id FROM mirror.items WHERE parent_id = $1::bigint AND NOT deleted ORDER BY pos NULLS LAST, created_at LIMIT 100`, [it.id]);
+  if (!subCol && !subs.length) return null;
+  const sbId = subs.length ? subs[0].board_id : subCol.subBoards && subCol.subBoards[0];
+  const sb = sbId ? await board(sbId) : null;
+  const canSub = editable && !!sb;
+  const ecols = canSub ? new Map(editableColumns(sb).map(c => [c.id, c])) : new Map();
+  const cols = subCols(sb);
+  const data = canSub ? esc(JSON.stringify(await pickerData(sb, ecols))) : "";
+  const width = 300 + cols.reduce((n, c) => n + (WIDTH[c.type] || 180), 0);
+  const html = `<div class="tw sub"><table data-sub data-pi="${esc(it.id)}"${canSub ? ` data-cols="${data}"` : ""} style="width:${width}px"><colgroup><col style="width:300px">${cols.map(c => `<col style="width:${WIDTH[c.type] || 180}px">`).join("")}</colgroup><thead><tr><th class="nm">Subitem</th>${cols.map(c => `<th>${esc(c.title)}</th>`).join("")}</tr></thead><tbody>${subs.map(s => subRowHtml(sb, s, ecols, canSub)).join("")}${editable && subCol ? `<tr class="add"><td class="nm"><form data-eco-addsub><input name="n" maxlength="255" autocomplete="off" placeholder="+ Add subitem" aria-label="Add subitem"></form></td>${cols.length ? `<td colspan="${cols.length}"></td>` : ""}</tr>` : ""}</tbody></table></div>${subs.length || editable ? "" : `<p class="muted">No subitems.</p>`}`;
+  return { html, count: subs.length };
+}
+
 export async function renderPanel(email, boardId, itemId, opts = {}) {
   const b = await board(boardId);
   const team = await teamSet();
@@ -583,7 +619,7 @@ export async function renderPanel(email, boardId, itemId, opts = {}) {
   await logAccess(email, "/boards/" + b.id + "/items/" + it.id + "/panel", b.id, true);
   const editable = !!opts.secret && canEdit(b, email, team);
   const { ups, live } = await itemUpdates(b, it, opts.secret);
-  const subs = await read(`SELECT name FROM mirror.items WHERE parent_id = $1::bigint AND NOT deleted ORDER BY pos NULLS LAST, created_at LIMIT 50`, [it.id]);
+  const sub = await subitemsPane(b, it, editable);
   const cols = (b.columns || []).filter(c => c.type !== "name" && c.type !== "subtasks");
   const group = (b.groups || []).find(g => g.id === it.group_id); const gc = group && hexOk(group.color);
   const groupBit = editable && (b.groups || []).length > 1
@@ -592,11 +628,11 @@ export async function renderPanel(email, boardId, itemId, opts = {}) {
   const html = `<div class="pn-head"><h2>${esc(it.name)}</h2><div class="pn-meta">${groupBit}
 <a class="btn sm" href="/boards/${esc(b.id)}/items/${esc(it.id)}">${editable ? "Full page and change log" : "Full page"}</a>
 <a class="btn sm" href="https://digitalfoxtalent.monday.com/boards/${esc(b.id)}/pulses/${esc(it.id)}" target="_blank" rel="noopener noreferrer">Open in monday</a></div></div>
-<div class="pn-tabs" role="tablist"><button type="button" role="tab" data-tab="u" class="on">Updates<span class="n">${esc(ups.length)}</span></button><button type="button" role="tab" data-tab="f">Fields</button></div>
+<div class="pn-tabs" role="tablist"><button type="button" role="tab" data-tab="u" class="on">Updates<span class="n">${esc(ups.length)}</span></button><button type="button" role="tab" data-tab="f">Fields</button>${sub ? `<button type="button" role="tab" data-tab="s">Subitems<span class="n">${esc(sub.count)}</span></button>` : ""}</div>
 <section data-pane="u">${editable ? `<form class="upd-new" data-eco-post><textarea name="t" maxlength="5000" placeholder="Write an update..." aria-label="Write an update"></textarea><div class="acts"><span class="muted sm sp">Posts to monday with your name at the top.</span><button class="btn primary" type="submit">Update</button></div></form>` : ""}
 ${live ? "" : `<p class="muted sm">monday did not answer in time, so this is the copy from the last half hour.</p>`}<div class="upd-list">${updatesList(ups)}</div></section>
 <section data-pane="f" hidden><dl>${cols.map(c => `<dt>${esc(c.title)}</dt><dd>${c.type === "long_text" ? esc((it.vals && it.vals[c.id] && it.vals[c.id][0]) || "") : cell(c, it.vals && it.vals[c.id])}</dd>`).join("")}</dl>
-${subs.length ? `<h2 class="sec">Subitems</h2><ul class="pn-sub">${subs.map(s => `<li>${esc(s.name)}</li>`).join("")}</ul>` : ""}</section>`;
+</section>${sub ? `<section data-pane="s" hidden>${sub.html}</section>` : ""}`;
   return { ok: true, html, count: ups.length };
 }
 

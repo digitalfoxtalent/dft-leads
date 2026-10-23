@@ -155,7 +155,7 @@ async function liveItem(token, itemId) {
     if ((text == null || text === "") && v.value == null) continue;
     vals[v.id] = [text, v.value];
   }
-  return { id: String(it.id), board_id: String(it.board && it.board.id), name: it.name, vals, group_id: it.group && it.group.id, updated_at: it.updated_at };
+  return { id: String(it.id), board_id: String(it.board && it.board.id), parent_id: it.parent_item ? String(it.parent_item.id) : null, name: it.name, vals, group_id: it.group && it.group.id, updated_at: it.updated_at };
 }
 async function saveLive(live) {
   await write(`UPDATE mirror.items SET name = $2, vals = $3::jsonb, group_id = COALESCE($4, group_id), updated_at = $5::timestamptz, synced_at = now() WHERE id = $1::bigint`,
@@ -233,15 +233,17 @@ ${note || ""}
 }
 
 export async function historyHtml(board, item, email, secret) {
-  const rows = await read(`SELECT id::text AS id, at, email, column_id, column_title, old_text, new_text, ok, error, undo_of::text AS undo_of, undone_by::text AS undone_by
-    FROM mirror.edits WHERE item_id = $1::bigint AND board_id = $2::bigint ORDER BY at DESC LIMIT 25`, [item.id, board.id]);
+  const rows = await read(`SELECT e.id::text AS id, e.at, e.email, e.column_id, e.column_title, e.old_text, e.new_text, e.ok, e.error, e.undo_of::text AS undo_of, e.undone_by::text AS undone_by,
+      s.name AS sub_name
+    FROM mirror.edits e LEFT JOIN mirror.items s ON s.id = e.item_id AND s.parent_id = $1::bigint
+    WHERE (e.item_id = $1::bigint AND e.board_id = $2::bigint) OR s.id IS NOT NULL ORDER BY e.at DESC LIMIT 25`, [item.id, board.id]);
   if (!rows.length) return `<p class="muted">No edits made in the Ecosystem yet.</p>`;
   const tok = formToken(secret, email, item.id);
   const clip = s => esc(String(s == null || s === "" ? "(empty)" : s).slice(0, 140));
   return `<div class="tw"><table><thead><tr><th>When</th><th>Who</th><th>Field</th><th>From</th><th>To</th><th></th></tr></thead><tbody>${rows.map(r => `<tr>
-<td>${esc(new Date(r.at).toISOString().slice(0, 16).replace("T", " "))} UTC</td><td>${esc(r.email)}</td><td>${esc(r.column_title)}${r.undo_of ? " (undo)" : ""}</td>
+<td>${esc(new Date(r.at).toISOString().slice(0, 16).replace("T", " "))} UTC</td><td>${esc(r.email)}</td><td>${r.sub_name ? "Subitem " + esc(r.sub_name) + ": " : ""}${esc(r.column_title)}${r.undo_of ? " (undo)" : ""}</td>
 <td>${clip(r.old_text)}</td><td>${r.ok ? clip(r.new_text) : `<span class="bad">Not saved: ${esc(r.error || "")}</span>`}</td>
-<td>${r.ok && !r.undone_by && !r.undo_of && !String(r.column_id).startsWith("_") ? `<form method="post" action="/boards/${esc(board.id)}/items/${esc(item.id)}/undo"><input type="hidden" name="t" value="${esc(tok)}"><input type="hidden" name="e" value="${esc(r.id)}"><button class="btn sm" type="submit">Undo</button></form>` : r.undone_by ? `<span class="muted sm">Undone</span>` : ""}</td></tr>`).join("")}</tbody></table></div>`;
+<td>${r.ok && !r.undone_by && !r.undo_of && !r.sub_name && !String(r.column_id).startsWith("_") ? `<form method="post" action="/boards/${esc(board.id)}/items/${esc(item.id)}/undo"><input type="hidden" name="t" value="${esc(tok)}"><input type="hidden" name="e" value="${esc(r.id)}"><button class="btn sm" type="submit">Undo</button></form>` : r.undone_by ? `<span class="muted sm">Undone</span>` : ""}</td></tr>`).join("")}</tbody></table></div>`;
 }
 
 // ---------- saving ----------
@@ -278,6 +280,7 @@ async function apply(token, board, item, email, changes, undoOf) {
   if (n + changes.length > PER_HOUR) return { ok: false, message: "Too many changes in the last hour. Please wait a little." };
   const live = await liveItem(token, item.id);
   if (!live || live.board_id !== String(board.id)) return { ok: false, message: "This item is no longer on this board in monday." };
+  if (board._parentItem && live.parent_id !== String(board._parentItem)) return { ok: false, message: "This subitem has moved to another item in monday. Nothing was changed." };
   const moved = changes.filter(c => !same(c.col, currentText(c.col, live), c.from));
   if (moved.length) {
     await logEdits(moved.map(c => Object.assign({ column_id: c.col.id, column_title: c.col.title, old_text: currentText(c.col, live), new_text: c.to, ok: false, error: "changed in monday first; not overwritten" }, base)));
@@ -351,11 +354,19 @@ function jsonBody(req) {
 }
 
 export async function saveCell(req, token, email, board, item, team) {
+  return cellChange(req, token, email, board, board, item, team);
+}
+// A subitem is edited with its parent board's permission and token; the write goes to the subitems board.
+export async function saveSubCell(req, token, email, parent, subBoard, sub, team) {
+  if (!subBoard || subBoard.board_type !== "sub_items_board" || String(subBoard.parent_board_id || "") !== String(parent.id)) return { ok: false, message: "This subitem cannot be edited here." };
+  return cellChange(req, token, email, parent, Object.assign({}, subBoard, { department: parent.department, _parentItem: String(sub.parent_id || "") }), sub, team);
+}
+async function cellChange(req, token, email, gate, board, item, team) {
   if (req.method !== "POST") return { ok: false, message: "Not allowed." };
   if (!fromSite(req)) return { ok: false, message: "That request did not come from the Ecosystem." };
   await loadSwitches(true);
-  if (!canEdit(board, email, team)) return { ok: false, message: "This board cannot be edited here yet." };
-  const b = jsonBody(req), tok = one(b.k), want = boardToken(token, email, board.id);
+  if (!canEdit(gate, email, team)) return { ok: false, message: "This board cannot be edited here yet." };
+  const b = jsonBody(req), tok = one(b.k), want = boardToken(token, email, gate.id);
   if (tok.length !== want.length || !crypto.timingSafeEqual(Buffer.from(tok), Buffer.from(want))) return { ok: false, message: "This page has expired. Refresh it and try again." };
   const col = editableColumns(board).find(c => c.id === one(b.c));
   if (!col) return { ok: false, message: "This field cannot be edited here." };
@@ -545,4 +556,45 @@ export async function moveItem(req, token, email, board, item, team) {
   await logEdits([Object.assign({ ok: !!landed, error: landed ? null : (err || "not moved") }, base)]);
   if (after) await saveLive(after).catch(() => {});
   return landed ? { ok: true, message: "Moved to " + to.title + "." } : { ok: false, message: "monday did not move the item. Check it in monday before trying again." };
+}
+
+// ---------- add a subitem (side panel), with the parent board's permission ----------
+
+const SUBS_Q = `query ($i: [ID!]) { items (ids: $i) { id state board { id } subitems { id name created_at board { id } } } }`;
+export async function createSubitem(req, token, email, parent, parentItem, team) {
+  const bad = await boardGuard(req, token, email, parent, team);
+  if (bad) return { ok: false, message: bad };
+  let name;
+  try { name = mondayValue({ id: "name", title: "Name", type: "name" }, jsonBody(req).name); } catch (e) { return { ok: false, message: String(e.message || e) }; }
+  const look = async ms => { const p = ((await monday(token, SUBS_Q, { i: [String(parentItem.id)] }, ms)).items || [])[0]; return p && p.state !== "deleted" ? p : null; };
+  let before;
+  try { before = await look(5000); } catch (e) { return { ok: false, message: "Could not reach monday. Nothing was added; try again in a moment." }; }
+  if (!before || String(before.board && before.board.id) !== String(parent.id)) return { ok: false, message: "This item is no longer on this board in monday." };
+  const had = new Set((before.subitems || []).map(x => String(x.id)));
+  if (!(await stillOn(parent))) return { ok: false, message: OFF };
+  const base = { email, board_id: parent.id, column_id: "_create", column_title: "Subitem added", old_text: null, new_text: name };
+  let made = null, err = null;
+  try { made = (await monday(token, `mutation ($p: ID!, $n: String!) { create_subitem (parent_item_id: $p, item_name: $n) { id board { id } } }`, { p: String(parentItem.id), n: name }, 15000)).create_subitem; }
+  catch (e) { err = String(e.message || e).slice(0, 300); }
+  if ((!made || !isId(made.id)) && err && !/^monday:/.test(err)) {
+    try { const after = await look(5000); const hit = after && (after.subitems || []).find(x => !had.has(String(x.id)) && x.name === name); if (hit) made = { id: hit.id, board: hit.board }; } catch (e) { /* fall through */ }
+  }
+  if (!made || !isId(made.id)) {
+    await logEdits([Object.assign({ item_id: parentItem.id, ok: false, error: err || "no subitem id returned" }, base)]);
+    return { ok: false, message: "monday did not confirm the new subitem. Check the item in monday before adding it again." };
+  }
+  await logEdits([Object.assign({ item_id: parentItem.id, ok: true }, base)]);
+  const sbId = made.board && isId(made.board.id) ? String(made.board.id) : null;
+  try {
+    if (sbId) await write(`INSERT INTO mirror.boards (id, name, board_type, department, access, allowed_emails, parent_board_id)
+      VALUES ($1::bigint, $2, 'sub_items_board', $3, $4, $5::text[], $6::bigint) ON CONFLICT (id) DO NOTHING`,
+      [sbId, "Subitems of " + String(parent.name || parent.id).slice(0, 200), parent.department, parent.access, parent.allowed_emails || [], parent.id]);
+    const live = await liveItem(token, made.id).catch(() => null);
+    await write(`INSERT INTO mirror.items (id, board_id, parent_id, name, vals, created_at, updated_at, pos)
+      VALUES ($1::bigint, $2::bigint, $3::bigint, $4, $5::jsonb, now(), now(), (SELECT COALESCE(max(pos), 0) + 1 FROM mirror.items WHERE parent_id = $3::bigint))
+      ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, vals = EXCLUDED.vals, deleted = false, synced_at = now()`,
+      [made.id, sbId || (live && live.board_id), parentItem.id, live ? live.name : name, JSON.stringify(live ? live.vals : {})]);
+    const item = (await read(`SELECT id::text AS id, name, vals, board_id::text AS board_id FROM mirror.items WHERE id = $1::bigint`, [made.id]))[0];
+    return { ok: true, message: "Added to monday: " + name + ".", item };
+  } catch (e) { console.error("subitem copy", e); return { ok: true, message: "Added to monday: " + name + ". Reopen the item to see it here." }; }
 }
