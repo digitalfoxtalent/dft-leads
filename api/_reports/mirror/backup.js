@@ -39,7 +39,7 @@ const FILES_Q = `query ($b: [ID!], $c: String) { boards (ids: $b) { items_page (
 async function backupBoard(gql, boardId, page, deadline, budgetLeft, incremental) {
   let updates = 0, files = 0, calls = 0;
   for (;;) {
-    if (Date.now() > deadline || calls >= budgetLeft()) return { page, done: false, updates, files, calls };
+    if (Date.now() > deadline || budgetLeft() <= 0) return { page, done: false, updates, files, calls };
     const list = (((await gql(UPD_Q, { b: [String(boardId)], l: PAGE, p: page })).boards || [])[0] || {}).updates || [];
     calls++;
     const rows = [], fileRows = [];
@@ -65,7 +65,7 @@ async function backupBoard(gql, boardId, page, deadline, budgetLeft, incremental
   // Files on file columns, from the items' assets.
   let cursor = null;
   for (let guard = 0; guard < 50; guard++) {
-    if (Date.now() > deadline || calls >= budgetLeft()) return { page, done: false, updates, files, calls };
+    if (Date.now() > deadline || budgetLeft() <= 0) return { page, done: false, updates, files, calls };
     const ip = ((((await gql(FILES_Q, { b: [String(boardId)], c: cursor })).boards || [])[0] || {}).items_page) || {};
     calls++;
     const fileRows = [];
@@ -105,7 +105,7 @@ export function blockText(content) {
 async function backupDocs(gql, page, deadline, budgetLeft) {
   let docs = 0, calls = 0;
   for (;;) {
-    if (Date.now() > deadline || calls >= budgetLeft()) return { page, done: false, docs, calls };
+    if (Date.now() > deadline || budgetLeft() <= 0) return { page, done: false, docs, calls };
     const list = (await gql(DOCS_Q, { l: 25, p: page })).docs || [];
     calls++;
     for (const d of list) {
@@ -114,7 +114,7 @@ async function backupDocs(gql, page, deadline, budgetLeft) {
       if (known && ms(known.updated_at) >= ms(d.updated_at)) continue; // unchanged since the last backup
       const blocks = [];
       for (let bp = 1; bp < 40; bp++) {
-        if (Date.now() > deadline || calls >= budgetLeft()) return { page, done: false, docs, calls };
+        if (Date.now() > deadline || budgetLeft() <= 0) return { page, done: false, docs, calls };
         const bl = (((await gql(BLOCKS_Q, { d: [String(d.id)], l: 100, p: bp })).docs || [])[0] || {}).blocks || [];
         calls++;
         blocks.push(...bl.map(b => ({ id: b.id, type: b.type, content: clean(b.content), parent: b.parent_block_id || null, position: b.position })));
