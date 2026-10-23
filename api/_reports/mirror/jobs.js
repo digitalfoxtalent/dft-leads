@@ -26,7 +26,9 @@ import { vaultKeys, SECRETS } from "./vault.js";
 // Where each program read its keys from in the monday reply it was given.
 const KEY_SLOT = { "code-A": "items", "code-B": "items", "code-C": "items", "code-E": "items", "code-F": "items", "code-H": "keys" };
 export const JOB_NAMES = Object.keys(KEY_SLOT);
-const RUN_MS = 280000, FETCH_MS = 20000, MAX_BYTES = 5 * 1024 * 1024, MAX_CAP = 50;
+// Claude calls get longer: screening 20 channels in one request takes well over 20 seconds (23 Oct 2026).
+const RUN_MS = 280000, FETCH_MS = 20000, AI_FETCH_MS = 150000, MAX_BYTES = 5 * 1024 * 1024, MAX_CAP = 50;
+const AI_HOSTS = new Set(["api.anthropic.com"]);
 
 const parse = v => { if (typeof v === "string") { try { return JSON.parse(v); } catch (e) { return {}; } } return v && typeof v === "object" ? v : {}; };
 
@@ -96,7 +98,8 @@ export function guardedFetch(keys, realFetch = fetch, { lookup = dnsLookup, onBl
     try {
       let { u, carries } = await check(keys, url, opts, lookup);
       for (let hop = 0; ; hop++) {
-        const res = await realFetch(u.toString(), Object.assign({}, opts, { redirect: "manual", signal: opts.signal || AbortSignal.timeout(timeoutMs) }));
+        const ms = AI_HOSTS.has(u.hostname.toLowerCase().replace(/\.+$/, "")) ? Math.max(timeoutMs, AI_FETCH_MS) : timeoutMs;
+        const res = await realFetch(u.toString(), Object.assign({}, opts, { redirect: "manual", signal: opts.signal || AbortSignal.timeout(ms) }));
         const loc = res.status >= 300 && res.status < 400 && res.headers && typeof res.headers.get === "function" ? res.headers.get("location") : null;
         if (!loc || opts.redirect === "manual") return capped(res, maxBytes);
         if (carries) throw new Error("blocked: redirect on a request carrying a key");

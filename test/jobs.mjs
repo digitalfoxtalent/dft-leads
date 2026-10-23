@@ -64,6 +64,9 @@ const huge = async () => ({ ok: true, status: 200, headers: new Headers({ "conte
 await refused(guardedFetch(keys, huge, { lookup })("https://creator.example/"), "a huge page is refused").catch(() => {});
 const stream = async () => new Response(new ReadableStream({ pull(c) { c.enqueue(new Uint8Array(1024 * 1024)); } }));
 ok((await (await guardedFetch(keys, stream, { lookup })("https://creator.example/")).arrayBuffer()).byteLength <= 5 * 1024 * 1024, "an endless page is cut at 5 MB");
+const slow = (url, o) => new Promise((res, rej) => { const t = setTimeout(() => res(new Response("late")), 120); o.signal.addEventListener("abort", () => { clearTimeout(t); rej(o.signal.reason); }); });
+ok(await guardedFetch(keys, slow, { lookup, timeoutMs: 40 })("https://creator.example/").then(() => false, e => /timeout/i.test(e.message)), "a slow page hits the time limit");
+ok((await (await guardedFetch(keys, slow, { lookup, timeoutMs: 40 })("https://api.anthropic.com/v1/messages", { method: "POST", body: "{}" })).text()) === "late", "a slow Claude answer is waited for (Claude calls get a longer limit)");
 // redirects: a key-carrying request is never redirected; a plain read is, but each hop is checked
 const redir = loc => async () => ({ ok: false, status: 302, headers: new Headers({ location: loc }), text: async () => "" });
 await refused(guardedFetch(keys, redir("https://evil.example/"), { lookup })("https://www.googleapis.com/?key=" + YT), "a key request that redirects is stopped");
