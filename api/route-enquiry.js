@@ -298,6 +298,28 @@ async function listAll(tok, q, max) {
   return out;
 }
 
+// ONGOING DEALS (Tom, 23 Oct 2026): a conversation with an outside party that a salesperson is on goes into that
+// salesperson's "Routed to" folder instead of Tom's inbox. The owner is the last SALES LEAD on it, not whoever wrote
+// last ("It's who was the last sales lead on the campaign"): the last salesperson to write in the thread, Tom's own
+// replies ignored; failing that, the salesperson copied on it (Alex only when nobody else is, as he is copied on
+// everything). It stays with Tom when only DFT people are on it, or when a salesperson writes to Tom alone.
+const emailsIn = s => (String(s || "").match(/[\w.+'-]+@[\w-]+(?:\.[\w-]+)+/g) || []).map(x => x.toLowerCase());
+const ownerByEmail = e => Object.keys(OWNERS).find(k => OWNERS[k].email === e) || null;
+function ongoingOwner(msgs, me) {
+  const people = m => emailsIn([hdr(m, "from"), hdr(m, "to"), hdr(m, "cc"), hdr(m, "reply-to")].join(","));
+  if (!msgs.some(m => people(m).some(a => !DFT.test(a)))) return null;
+  const to = emailsIn(hdr(me, "to"));
+  if (DFT.test(realSender(me)) && to.length && to.every(a => a === SOURCE)) return null;
+  let key = null;
+  for (const m of msgs) { const k = ownerByEmail(realSender(m)); if (k) key = k; }
+  if (key) return key;
+  for (const m of msgs.slice().reverse()) {
+    const copied = [...new Set(emailsIn(hdr(m, "to") + "," + hdr(m, "cc")).map(ownerByEmail).filter(Boolean))];
+    if (copied.length) return copied.find(k => k !== "alex") || copied[0];
+  }
+  return null;
+}
+
 // ---------- delivery ----------
 async function rawMessage(tok, id) {
   const m = await gmail(tok, "/gmail/v1/users/me/messages/" + id + "?format=raw");
@@ -431,8 +453,11 @@ async function intake(ctx) {
         if (mode === "live" && !dry && ownerKey) for (const x of msgs) if (!byDft(x) && !hdr(x, "x-dft-routed")) await deliver(tok, x.id, ownerKey);
         if (!dry) await modify(tok, "messages", id, [routedLabel], ["INBOX"]);
       } else if (hdr(me, "x-dft-routed")) r.skip = "router copy";
-      else if (byDft(me)) r.skip = "sent by DFT";
-      else if (msgs.some(byDft)) r.skip = "DFT already in this conversation";
+      else if (byDft(me) || msgs.some(byDft)) {
+        const k = ongoingOwner(msgs, me);
+        if (k) { r.skip = "ongoing deal, filed to " + OWNERS[k].name; if (!dry) await modify(tok, "threads", threadId, [OWNERS[k].label], ["INBOX"]); }
+        else r.skip = byDft(me) ? "sent by DFT" : "DFT already in this conversation";
+      }
       if (r.skip) { await mark(); report.push(r); continue; }
       let sender = realSender(me);
       const body = bodyText(me.payload);
