@@ -62,6 +62,8 @@ async function demo(rowId) {
   return { owner: [tom, "Tom James"], mid, hit: { id: out.id, threadId: out.threadId } };
 }
 
+// A row waiting to retry (see "retry" below) is due again 3 minutes after its last try.
+const retryDue = st => { const m = String(st).match(/^retry \d+ at (\S+)/); return !!m && Date.now() - Date.parse(m[1]) > 180000; };
 const setCols = (id, vals) => monday("mutation($b:ID!,$i:ID!,$v:JSON!){change_multiple_column_values(board_id:$b,item_id:$i,column_values:$v){id}}", { b: BOARD, i: String(id), v: JSON.stringify(vals) });
 
 export default async function handler(req, res) {
@@ -78,12 +80,13 @@ export default async function handler(req, res) {
       await monday("mutation($b:ID!,$i:ID!,$v:String!){change_simple_column_value(board_id:$b,item_id:$i,column_id:\"name\",value:$v){id}}", { b: "18422548864", i: MODE_ITEM, v: modeName.replace(dm[0], "") });
       demoRun = await demo(dm[1]);
     }
-    const d = await monday(`query { boards(ids:[${BOARD}]) { items_page(limit:100, query_params:{rules:[{column_id:"${C.draft}", compare_value:["pending","working"], operator:contains_text}]}) { items { id name column_values(ids:${JSON.stringify(Object.values(C))}) { id text value } } } } }`);
+    const d = await monday(`query { boards(ids:[${BOARD}]) { items_page(limit:100, query_params:{rules:[{column_id:"${C.draft}", compare_value:["pending","working","retry"], operator:contains_text}]}) { items { id name column_values(ids:${JSON.stringify(Object.values(C))}) { id text value } } } } }`);
     const items = ((((d.boards || [])[0] || {}).items_page || {}).items) || [];
     // A claim older than 10 minutes was cut off (time limit or error) and is tried again.
     const state = it => (it.column_values.find(c => c.id === C.draft) || {}).text || "";
-    const row = demoRun ? { id: "demo", name: "demo", column_values: [] } : items.find(it => state(it) === "pending" || (/^working /.test(state(it)) && Date.now() - Date.parse(state(it).slice(8)) > 600000));
+    const row = demoRun ? { id: "demo", name: "demo", column_values: [] } : items.find(it => state(it) === "pending" || (/^working /.test(state(it)) && Date.now() - Date.parse(state(it).slice(8)) > 600000) || retryDue(state(it)));
     if (!row) return res.status(200).json({ ok: true, pending: 0 });
+    const rowState = demoRun ? "" : state(row);
     const cv = {}; let ownerId = "";
     for (const c of row.column_values) { cv[c.id] = c.text || ""; if (c.id === C.owner) { try { ownerId = String(((JSON.parse(c.value || "{}").personsAndTeams) || [])[0].id); } catch (e) {} } }
     const owner = demoRun ? demoRun.owner : OWNERS[ownerId];
@@ -99,7 +102,13 @@ export default async function handler(req, res) {
     const tok = await gmailToken(owner[0]);
     const G = p => fetch("https://gmail.googleapis.com/gmail/v1/users/me" + p, { headers: { Authorization: "Bearer " + tok } }).then(r => r.json());
     const hit = demoRun ? demoRun.hit : ((await G("/messages?maxResults=1&q=" + encodeURIComponent("rfc822msgid:" + mid))).messages || [])[0];
-    if (!hit) { await save({ [C.draft]: "failed: the brand's email is not in " + owner[1].split(" ")[0] + "'s inbox" }); return res.status(200).json({ ok: false }); }
+    // Gmail's search can take a few minutes to find a message that was only just delivered (Tripo 3D, 23 Oct 2026), so a
+    // miss is tried again up to 5 times, 3 minutes apart, before the row says it failed.
+    if (!hit) {
+      const n = (Number((String(rowState || "").match(/^retry (\d+)/) || [])[1]) || 0) + 1;
+      await save({ [C.draft]: n <= 5 ? "retry " + n + " at " + new Date().toISOString() : "failed: the brand's email is not in " + owner[1].split(" ")[0] + "'s inbox" });
+      return res.status(200).json({ ok: false, retry: n });
+    }
     // Never touch a thread the salesperson is already working on: the pitch system replaces drafts in the thread.
     const th = await G("/threads/" + hit.threadId + "?format=minimal");
     if ((th.messages || []).some(x => (x.labelIds || []).some(l => l === "SENT" || l === "DRAFT"))) { await save({ [C.draft]: "skipped: " + owner[1].split(" ")[0] + " is already replying" }); return res.status(200).json({ ok: true, skipped: row.id }); }
