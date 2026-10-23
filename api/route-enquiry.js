@@ -271,7 +271,8 @@ export default async function handler(req, res) {
         Object.assign(r, { kind: v.kind, brand: v.brand, owner: d.owner ? OWNERS[d.owner].name : null, why: d.why });
         if (d.owner && !dry) {
           const m1 = modeFor(me.internalDate);
-          const out = await deliver(tok, me.id, d.owner, m1);
+          // Shadow makes no copy any more (Tom, 22 Oct 2026: "clean up my inbox from the tests"); it only labels his original.
+          const out = m1 === "live" ? await deliver(tok, me.id, d.owner, m1) : { target: "none (test mode)" };
           Object.assign(r, out, { mode: m1 });
           await gmail(tok, "/gmail/v1/users/me/threads/" + threadId + "/modify", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ addLabelIds: [OWNERS[d.owner].label], removeLabelIds: m1 === "live" ? ["INBOX"] : [] }) });
         }
