@@ -91,6 +91,6 @@ const st = await backupStatus();
 ok(st.updates === 153 && st.docs === 1 && st.files === 2 && Number(st.bytes) === 1050624 && st.runs.length >= 3, "status counts");
 await write(`INSERT INTO mirror.team (email, name) VALUES ('tom@digitalfoxtalent.com', 'Tom James')`);
 const page = await mirrorPage("data/mirror", { method: "GET", headers: {}, query: {} }, { setHeader() {} }, "tom@digitalfoxtalent.com", "tok");
-ok(/Nightly full backup/.test(page.html) && /153 updates and replies/.test(page.html) && /2 files registered \(1 MB\), 0 copied/.test(page.html), "shown on the copy status page");
+ok(/Nightly full backup/.test(page.html) && /153 updates and replies/.test(page.html) && /2 files registered \(1 MB\), 0 copied/.test(page.html) && /Database \d+ MB of 1,024 MB/.test(page.html), "shown on the copy status page");
 
 console.log("backup tests passed: " + pass);
