@@ -33,12 +33,14 @@ export const config = { maxDuration: 60 };
 //   rows (roster shortlist, brief form) with no owner get one and the owner is told.
 // NUDGES (weekdays 9am to 5pm Denver). A routed lead with no reply after one working day: the owner gets a short reminder
 //   from theteam@. It also tops Tom's 5pm list.
+// ADVERTISER CHECK (every 5 minutes, working hours). A US Campaigns deal with no ADVERTISER: its sales lead is told what
+//   to set, after one working day, with one reminder. Tom is not copied. See advertiserCheck().
 // DIGEST (5pm Denver, daily). One email from theteam@ to Tom: what came in, who it went to, what was held back, what is
 //   waiting on a reply.
 // MODE: the NAME of monday item 13365313505 on API Keys (Private), "[mode: shadow]" or "[mode: live]". Shadow does
 //   everything except deliver to the owner and assign the row (rows say "Test only"); nudges only run in live mode.
-// Brand and creator email is never sent. The only sends are internal: nudges to the owner and the digest to Tom.
-// GET with the Vercel cron user agent or CRON_SECRET. ?task=intake|track|digest runs one part; ?dry=1 changes nothing.
+// Brand and creator email is never sent. The only sends are internal: nudges and advertiser asks to the owner, and the digest to Tom.
+// GET with the Vercel cron user agent or CRON_SECRET. ?task=intake|track|advertiser|digest runs one part; ?dry=1 changes nothing.
 
 const SOURCE = "tom@digitalfoxtalent.com";
 const ALERT_FROM = "theteam@digitalfoxtalent.com";
@@ -659,6 +661,64 @@ async function track(ctx) {
   }
 }
 
+// ---------- ADVERTISER CHECK: US Campaigns deals with no ADVERTISER (Tom, 23 Oct 2026) ----------
+// Replaces monday workflow 7924291357, which fired the moment a deal changed group, showed the sales lead as
+// "[object Object]" and copied Tom. Tom: make it part of the router, "I don't need to see it, but it does need to be
+// more clear what the sales lead needs to do". So: the sales lead only, never Tom, never in the digest.
+//   - A deal with no ADVERTISER that has existed for one working day: its sales lead gets one email from theteam@
+//     saying exactly what to set and where. One reminder a working day later if it is still empty, then nothing.
+//   - Setting ADVERTISER stops it (the board query only returns empty ones).
+//   - Weekdays 9am to 5pm Denver. Runs in shadow and live mode alike: it is internal, not an enquiry delivery.
+//   - Deals led by Tom (or by nobody the router knows) are skipped. Deals from before 1 Oct 2026 are left alone.
+//   - Sent state lives in router_seen as "adv1:<item id>" and "adv2:<item id>", saved before sending.
+const CAMPAIGNS = "6162879609";
+const ADV_COL = "dropdown_mm1a3tqp";
+const ADV_FROM = "2026-10-01T00:00:00Z";
+const ADV_DONE_GROUPS = /^(complete - creators paid|client paid - no creators paid)$/i;
+async function advertiserCheck(ctx) {
+  const { dry, report } = ctx;
+  const now = Date.now(), dn = denver();
+  const workHours = !["Sat", "Sun"].includes(dn.day) && dn.hour >= 9 && dn.hour < 17;
+  if (!workHours && !ctx.forceAdv) return;
+  const d = await monday(`query { boards(ids:[${CAMPAIGNS}]) { columns(ids:["${ADV_COL}"]) { settings_str } items_page(limit:200, query_params:{rules:[{column_id:"${ADV_COL}", compare_value:[], operator:is_empty}]}) { items { id name created_at group { title } column_values(ids:["deal_owner"]) { value } } } } }`);
+  const board = (d.boards || [])[0] || {};
+  let known = [];
+  try { known = (JSON.parse(((board.columns || [])[0] || {}).settings_str || "{}").labels || []).map(l => l.name); } catch (e) {}
+  const norm = s => String(s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  for (const it of ((board.items_page || {}).items || [])) {
+    if (Date.parse(it.created_at) < Date.parse(ADV_FROM) || ADV_DONE_GROUPS.test((it.group || {}).title || "")) continue;
+    let ids = [];
+    try { ids = ((JSON.parse(((it.column_values || [])[0] || {}).value || "{}").personsAndTeams) || []).map(p => String(p.id)); } catch (e) {}
+    const key = ids.map(i => BY_MONDAY_ID[i]).find(Boolean);
+    if (!key) continue;
+    if (workingHours(Date.parse(it.created_at), now) < 8) continue;
+    const seen = await alreadySeen(["adv1:" + it.id, "adv2:" + it.id]);
+    const first = !seen.has("adv1:" + it.id);
+    if (!first && seen.has("adv2:" + it.id)) continue;
+    if (!first) {
+      const r = await write("SELECT at FROM router_seen WHERE msg_id = $1", ["adv1:" + it.id]);
+      if (!r[0] || workingHours(Date.parse(r[0].at), now) < 8) continue;
+    }
+    const o = OWNERS[key], link = "https://digitalfoxtalent.monday.com/boards/" + CAMPAIGNS + "/pulses/" + it.id;
+    // Deal names follow Advertiser_Creators_Period, so a name part that is already in the list is a good guess.
+    const guess = known.find(n => String(it.name).split(/[_&]/).some(p => norm(p) && norm(p) === norm(n)));
+    const t = { row: it.id, name: it.name, did: (first ? "advertiser ask to " : "advertiser reminder to ") + o.name + (guess ? " (suggests " + guess + ")" : "") };
+    if (!dry) {
+      await write("INSERT INTO router_seen (msg_id, state) VALUES ($1, 'done') ON CONFLICT (msg_id) DO NOTHING", [(first ? "adv1:" : "adv2:") + it.id]);
+      const subject = (first ? "Please add the advertiser: " : "Reminder, advertiser still missing: ") + it.name;
+      const html = "<div style=\"font:14px/1.5 Arial,sans-serif;color:#222;max-width:560px\">" +
+        "<p>Hi " + esc(o.name) + ",</p>" +
+        "<p>" + (first ? "Your deal" : "Your deal still") + " <b>" + esc(it.name) + "</b> has no advertiser set on US Campaigns.</p>" +
+        "<p><b>What to do:</b> open the deal, click the <b>ADVERTISER</b> column and pick the brand that is paying for the campaign" +
+        (guess ? " (from the deal name it looks like <b>" + esc(guess) + "</b>, which is already in the list)" : ". If the brand is not in the list, type its name and press Enter to add it") + ".</p>" +
+        "<p><a href=\"" + link + "\" style=\"display:inline-block;padding:9px 16px;background:#e8590c;color:#fff;text-decoration:none;border-radius:6px\">Open the deal</a></p>" +
+        "<p style=\"color:#666\">Why it matters: two weeks after each creator's video goes live, you get a check-in reminder for this deal, and it names the advertiser from this field.</p></div>";
+      await sendInternal(o.email, subject, noDash(html));
+    }
+    report.push(t);
+  }
+}
+
 // ---------- DIGEST: 5pm Denver ----------
 async function digest(ctx) {
   const { rows, mode, dry } = ctx;
@@ -723,6 +783,10 @@ export default async function handler(req, res) {
     const ctx = { tok, mode, dry, report, labels, rows, t0 };
     const task = String(req.query.task || "");
     if (!task || task === "intake") await intake(ctx);
+    if (task === "advertiser" || (!task && dn.minute % 5 === 2)) {
+      ctx.forceAdv = task === "advertiser" && dry;
+      try { await advertiserCheck(ctx); } catch (e) { report.push({ advertiser: "error", error: String(e && e.message || e).slice(0, 200) }); }
+    }
     if (task === "track" || (!task && dn.minute % 5 === 2)) await track(ctx);
     let dg = null;
     if (task === "digest" || (!task && dn.hour === 17 && dn.minute % 10 === 5)) dg = await digest(Object.assign(ctx, { force: task === "digest" && req.query.force === "1" && !!secret && req.query.key === secret }));
@@ -731,3 +795,4 @@ export default async function handler(req, res) {
     return res.status(502).json({ error: String(e && e.message || e), report });
   }
 }
+export { advertiserCheck }; // for test/route-advertiser.mjs
