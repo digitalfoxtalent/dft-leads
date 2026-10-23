@@ -59,6 +59,15 @@ const cleanEmails = list => [...new Set((list || [])
   .map(x => String((x && x.email) || x || "").toLowerCase().trim())
   .filter(e => e.endsWith("@" + TEAM_DOMAIN)))];
 
+// Boards the Ecosystem never edits, whichever section they sit in: money, legal and private boards (same name,
+// folder and workspace rules as access). A board record without its name is treated as locked (fails closed).
+export function editLocked(b) {
+  if (!b || typeof b.name !== "string") return true;
+  const top = String(b.folder_path || "").split(" / ")[0];
+  return RESTRICTED_AREA.test(String(b.department || "")) || RESTRICTED_AREA.test(top)
+    || RESTRICTED_WORKSPACES.test(String(b.workspace_name || "")) || RESTRICTED_NAME.test(b.name);
+}
+
 export function accessFor({ boardType, boardKind, workspaceKind, workspaceName, folderPath, boardName, department, owners, subscribers }) {
   // A subitems board has no folder of its own: it stays Tom-only until its parent board's copy hands
   // down the parent's access (sync.js). Never default it to the whole team.

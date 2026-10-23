@@ -6,7 +6,8 @@
 //   and report that reads monday sees the change exactly as if it had been made there.
 //
 // GUARDS
-//   - Only signed-in teammates who can see the board (same rules as reading), only boards in EDIT_DEPTS, only
+//   - Only signed-in teammates who can see the board (same rules as reading), only sections whose editing switch is
+//     on (switch.js, re-read before every write), only
 //     plain column types (EDITABLE). Formula, mirror, connect, people, file and subitem columns stay read-only.
 //   - A form carries a fingerprint of each field as the editor saw it. If someone changed that field in monday
 //     since, the edit is refused and the page shows the newer value instead of overwriting it.
@@ -17,9 +18,9 @@
 
 import crypto from "node:crypto";
 import { read, write } from "./db.js";
-import { canSee } from "./policy.js";
+import { canSee, editLocked } from "./policy.js";
+import { isOn, loadSwitches } from "./switch.js";
 
-export const EDIT_DEPTS = new Set(["marketing"]);
 export const EDITABLE = new Set(["name", "text", "long_text", "numbers", "status", "date", "email", "link", "checkbox"]);
 const ORIGIN = "https://ecosystem.digitalfoxtalent.com";
 const API = "https://api.monday.com/v2";
@@ -74,7 +75,7 @@ const sign = (secret, v) => crypto.createHmac("sha256", String(secret) + "|eco-e
 const parse = s => { try { return typeof s === "string" ? JSON.parse(s) : s; } catch (e) { return null; } };
 
 export function canEdit(board, email, team) {
-  return !!board && board.board_type === "board" && EDIT_DEPTS.has(board.department) && canSee(board, email, team);
+  return !!board && board.board_type === "board" && isOn(board.department) && !editLocked(board) && canSee(board, email, team);
 }
 export const editableColumns = board => [{ id: "name", title: "Name", type: "name" }].concat((board.columns || []).filter(c => EDITABLE.has(c.type) && c.type !== "name"));
 const statusLabels = col => Object.values(col.labels || {}).map(l => l && l[0]).filter(Boolean);
@@ -122,7 +123,7 @@ async function monday(token, query, variables, ms) {
 const ITEM_Q = `query ($i: [ID!]) { items (ids: $i) { id name created_at updated_at state group { id } parent_item { id } creator { name } board { id }
   column_values { id type text value ... on MirrorValue { display_value } ... on BoardRelationValue { display_value } ... on FormulaValue { display_value } } } }`;
 async function liveItem(token, itemId) {
-  const it = ((await monday(token, ITEM_Q, { i: [String(itemId)] })).items || [])[0];
+  const it = ((await monday(token, ITEM_Q, { i: [String(itemId)] }, 8000)).items || [])[0];
   if (!it || it.state === "deleted") return null;
   const vals = {};
   for (const v of it.column_values || []) {
@@ -136,6 +137,11 @@ async function saveLive(live) {
   await write(`UPDATE mirror.items SET name = $2, vals = $3::jsonb, group_id = COALESCE($4, group_id), updated_at = $5::timestamptz, synced_at = now() WHERE id = $1::bigint`,
     [live.id, live.name, JSON.stringify(live.vals), live.group_id || null, live.updated_at || null]);
 }
+
+// Checked again immediately before every monday write, so a section Tom has just turned off stops even a write
+// that was already past its first check.
+const OFF = "Editing on this board has just been turned off. Nothing was changed.";
+async function stillOn(board) { await loadSwitches(true); return isOn(board.department); }
 
 // ---------- the form ----------
 
@@ -179,11 +185,12 @@ function formBody(req) {
   if (typeof req.body === "string") return Object.fromEntries(new URLSearchParams(req.body));
   return req.body && typeof req.body === "object" ? req.body : {};
 }
-const fromSite = req => { const o = String(req.headers.origin || ""); return o === ORIGIN || (!o && /^https:\/\/ecosystem\.digitalfoxtalent\.com\//.test(String(req.headers.referer || ""))); };
+export const fromSite = req => { const o = String(req.headers.origin || ""); return o === ORIGIN || (!o && /^https:\/\/ecosystem\.digitalfoxtalent\.com\//.test(String(req.headers.referer || ""))); };
 
 async function guard(req, email, secret, board, item, team) {
   if (req.method !== "POST") return "Use the form on the item page.";
   if (!fromSite(req)) return "That request did not come from the Ecosystem.";
+  await loadSwitches(true);
   if (!canEdit(board, email, team)) return "This board cannot be edited here yet.";
   const b = formBody(req), tok = one(b.t), want = formToken(secret, email, item.id);
   if (tok.length !== want.length || !crypto.timingSafeEqual(Buffer.from(tok), Buffer.from(want))) return "That form has expired. Open the item again.";
@@ -214,6 +221,7 @@ async function apply(token, board, item, email, changes, undoOf) {
   }
   const values = {};
   for (const c of changes) values[c.col.id] = mondayValue(c.col, c.to);
+  if (!(await stillOn(board))) return { ok: false, message: OFF };
   let err = null;
   try {
     await monday(token, `mutation ($b: ID!, $i: ID!, $v: JSON!) { change_multiple_column_values (board_id: $b, item_id: $i, column_values: $v) { id } }`,
@@ -277,6 +285,7 @@ function jsonBody(req) {
 export async function saveCell(req, token, email, board, item, team) {
   if (req.method !== "POST") return { ok: false, message: "Not allowed." };
   if (!fromSite(req)) return { ok: false, message: "That request did not come from the Ecosystem." };
+  await loadSwitches(true);
   if (!canEdit(board, email, team)) return { ok: false, message: "This board cannot be edited here yet." };
   const b = jsonBody(req), tok = one(b.k), want = boardToken(token, email, board.id);
   if (tok.length !== want.length || !crypto.timingSafeEqual(Buffer.from(tok), Buffer.from(want))) return { ok: false, message: "This page has expired. Refresh it and try again." };
@@ -342,6 +351,7 @@ const NOT_TAKEN = "monday did not confirm the update. Check the item in monday b
 export async function postUpdate(req, token, email, board, item, team) {
   if (req.method !== "POST") return { ok: false, message: "Not allowed." };
   if (!fromSite(req)) return { ok: false, message: "That request did not come from the Ecosystem." };
+  await loadSwitches(true);
   if (!canEdit(board, email, team)) return { ok: false, message: "Updates cannot be posted on this board here yet." };
   const b = jsonBody(req), tok = one(b.k), want = boardToken(token, email, board.id);
   if (tok.length !== want.length || !crypto.timingSafeEqual(Buffer.from(tok), Buffer.from(want))) return { ok: false, message: "This page has expired. Refresh it and try again." };
@@ -356,6 +366,7 @@ export async function postUpdate(req, token, email, board, item, team) {
   if (!before || before.board_id !== String(board.id)) return { ok: false, message: "This item is no longer on this board in monday. Nothing was posted." };
   const name = clean(((await read(`SELECT name FROM mirror.team WHERE email = $1`, [email]))[0] || {}).name || email).slice(0, 200);
   // Logged before monday is called, so even a request cut off mid-way leaves a record.
+  if (!(await stillOn(board))) return { ok: false, message: OFF };
   const logId = (await write(`INSERT INTO mirror.posts (email, board_id, item_id, name, ok, error) VALUES ($1, $2::bigint, $3::bigint, $4, false, 'pending') RETURNING id::text AS id`,
     [email, board.id, item.id, name]))[0].id;
   let u = null, err = null;
@@ -388,6 +399,7 @@ const groupOf = (board, g) => (board.groups || []).find(x => x.id === g) || null
 async function boardGuard(req, token, email, board, team) {
   if (req.method !== "POST") return "Not allowed.";
   if (!fromSite(req)) return "That request did not come from the Ecosystem.";
+  await loadSwitches(true);
   if (!canEdit(board, email, team)) return "This board cannot be edited here yet.";
   const b = jsonBody(req), tok = one(b.k), want = boardToken(token, email, board.id);
   if (tok.length !== want.length || !crypto.timingSafeEqual(Buffer.from(tok), Buffer.from(want))) return "This page has expired. Refresh it and try again.";
@@ -416,6 +428,7 @@ export async function createItem(req, token, email, board, team) {
   // Items with this name that already exist, so a lost reply can only ever be matched to the item this call made.
   let existing;
   try { existing = new Set((await same()).map(x => String(x.id))); } catch (e) { return { ok: false, message: "Could not reach monday. Nothing was added; try again in a moment." }; }
+  if (!(await stillOn(board))) return { ok: false, message: OFF };
   let id = null, err = null;
   try {
     const d = await monday(token, `mutation ($b: ID!, $g: String!, $n: String!) { create_item (board_id: $b, group_id: $g, item_name: $n) { id } }`,
@@ -455,6 +468,7 @@ export async function moveItem(req, token, email, board, item, team) {
   if (live.group_id === to.id) return { ok: true, message: "Already in " + to.title + "." };
   const from = groupOf(board, live.group_id);
   const base = { email, board_id: board.id, item_id: item.id, column_id: "_group", column_title: "Group", old_text: from ? from.title : live.group_id, new_text: to.title };
+  if (!(await stillOn(board))) return { ok: false, message: OFF };
   let err = null;
   try { await monday(token, `mutation ($i: ID!, $g: String!) { move_item_to_group (item_id: $i, group_id: $g) { id } }`, { i: String(item.id), g: to.id }, 15000); }
   catch (e) { err = String(e.message || e).slice(0, 300); }

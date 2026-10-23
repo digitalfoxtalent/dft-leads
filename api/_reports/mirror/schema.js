@@ -6,6 +6,7 @@
 
 import { batch } from "./db.js";
 import { EDIT_SCHEMA } from "./edit.js";
+import { SWITCH_SCHEMA } from "./switch.js";
 
 export const SCHEMA_SQL = [
   `CREATE SCHEMA IF NOT EXISTS mirror`,
@@ -87,6 +88,7 @@ export const SCHEMA_SQL = [
   `CREATE TABLE IF NOT EXISTS mirror.locks (name text PRIMARY KEY, until timestamptz NOT NULL DEFAULT 'epoch')`,
   `INSERT INTO mirror.locks (name) VALUES ('sync') ON CONFLICT (name) DO NOTHING`,
   ...EDIT_SCHEMA, // the edit log (edit.js)
+  ...SWITCH_SCHEMA, // the editing switch per section (switch.js)
 ];
 
 let ready = false;
