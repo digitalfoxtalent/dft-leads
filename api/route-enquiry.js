@@ -361,7 +361,31 @@ async function intake(ctx) {
   let list = await listAll(tok, "in:inbox after:" + since + " -from:" + SOURCE, 600);
   // Website brief form emails come from theteam@ and never sit in Tom's inbox, so they are looked for separately.
   for (const b of await search(tok, "from:" + ALERT_FROM + " subject:Brief \"has submitted the brief\" after:" + since, 10)) if (!list.some(x => x.id === b.id)) list.push(b);
+  const labelId = async name => {
+    let x = (labels.find(l => l.name === name) || {}).id;
+    if (!x && dry) return "";
+    if (!x) { x = (await gmail(tok, "/gmail/v1/users/me/labels", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) })).id; labels.push({ id: x, name }); }
+    return x;
+  };
+  const held = await labelId(HELD);
+  const FILED = ROUTED.concat(held ? [held] : []);
   const done = await alreadySeen(list.map(x => x.id));
+  // SELF-HEAL, so this needs no looking after: an enquiry already handled that is somehow still in Tom's inbox (a filing
+  // that failed, a thread moved back by hand) is filed into its folder again. Only messages already read are touched;
+  // anything new in the thread goes through intake below, so a brand's follow-up still reaches the owner.
+  if (!dry) {
+    const byThread = {}, healed = new Set();
+    for (const row of rows) { const t = String(row.v[C.ids] || "").split("|")[2]; if (t && Date.now() - Date.parse(row.created) < 14 * 86400000 && !byThread[t]) byThread[t] = row; }
+    for (const m of list) {
+      const row = byThread[m.threadId];
+      if (!row || !done.has(m.id) || healed.has(m.threadId)) continue;
+      const dd = row.v[C.decision], pick = dd === "Routed" ? row.ownerKey : dd === "Test only" ? ownerOf(row) : null;
+      const to = dd === "Held back" ? held : pick ? OWNERS[pick].label : "";
+      if (!to) continue;
+      healed.add(m.threadId);
+      await modify(tok, "threads", m.threadId, [to], ["INBOX"]).then(() => report.push({ healed: m.threadId, row: row.id }), () => null);
+    }
+  }
   list = list.filter(x => !done.has(x.id)).slice(0, 40);
   if (!list.length) return;
   // Advertisers on US Campaigns and who worked on each most recently; learned owner overrides from the board.
@@ -383,14 +407,6 @@ async function intake(ctx) {
     if (dom && router && r.ownerKey && r.ownerKey !== router) overrides[dom] = r.ownerKey;
   }
   const histCache = {}, doneThreads = new Set();
-  const labelId = async name => {
-    let x = (labels.find(l => l.name === name) || {}).id;
-    if (!x && dry) return "";
-    if (!x) { x = (await gmail(tok, "/gmail/v1/users/me/labels", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) })).id; labels.push({ id: x, name }); }
-    return x;
-  };
-  const held = await labelId(HELD);
-  const FILED = ROUTED.concat(held ? [held] : []);
   for (const { id, threadId } of list.reverse()) {
     if (Date.now() - t0 > 40000) break; // the next run picks up the rest
     if (doneThreads.has(threadId)) continue; // a second new message in the same thread waits for the next run
