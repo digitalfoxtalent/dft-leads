@@ -31,6 +31,8 @@ export const config = { maxDuration: 60 };
 //   Opened; when the owner replies, Status Replied, Replied at, and Tom's copy gets "c) Brand Partnerships/Replied". The
 //   owner's conversation is mirrored into Tom's "Routed to" folder (never his inbox). Rescued rows are delivered. Website
 //   rows (roster shortlist, brief form) with no owner get one and the owner is told.
+// READ SYNC (every 5 minutes, both modes). The unread count on each "Routed to" folder in Tom's Gmail is what that
+//   salesperson has not opened yet: Tom's copy turns read once theirs is read.
 // NUDGES (weekdays 9am to 5pm Denver). A routed lead with no reply after one working day: the owner gets a short reminder
 //   from theteam@. It also tops Tom's 5pm list.
 // DIGEST (5pm Denver, daily). One email from theteam@ to Tom: what came in, who it went to, what was held back, what is
@@ -706,6 +708,35 @@ async function digest(ctx) {
   return { routed: routedCount, held: held.length, waiting: waiting.length };
 }
 
+// READ SYNC (Tom, 23 Oct 2026: "show when the sales person has read the email"). The unread count on each "Routed to"
+// folder means "not opened by that salesperson yet". An unread message in the folder turns read in Tom's mailbox once the
+// owner's own copy (same Message-ID: delivered byte for byte, or the owner was on the thread) is read, sent by them, or
+// binned. It only ever marks read, never unread, so Tom opening one himself simply clears it from the count.
+async function readSync(ctx) {
+  const { tok, dry, report, t0 } = ctx;
+  for (const k of Object.keys(OWNERS)) {
+    if (Date.now() - t0 > 50000) break;
+    const o = OWNERS[k];
+    const list = (await gmail(tok, "/gmail/v1/users/me/messages?maxResults=25&labelIds=" + o.label + "&labelIds=UNREAD").catch(() => ({}))).messages || [];
+    if (!list.length) continue;
+    const otok = await tokenFor(o.email).catch(() => null);
+    if (!otok) continue;
+    const seen = [];
+    for (const m of list) {
+      if (Date.now() - t0 > 52000) break;
+      const full = await gmail(tok, "/gmail/v1/users/me/messages/" + m.id + "?format=metadata&metadataHeaders=Message-ID").catch(() => null);
+      const mid = full ? hdr(full, "message-id").replace(/[<>\s]/g, "") : "";
+      if (!mid) continue;
+      const hit = ((await gmail(otok, "/gmail/v1/users/me/messages?maxResults=1&includeSpamTrash=true&q=" + encodeURIComponent("rfc822msgid:" + mid)).catch(() => ({}))).messages || [])[0];
+      if (!hit) continue; // not with the salesperson (yet): stays bold
+      const om = await gmail(otok, "/gmail/v1/users/me/messages/" + hit.id + "?format=minimal").catch(() => null);
+      if (om && !(om.labelIds || []).includes("UNREAD")) seen.push(m.id);
+    }
+    if (seen.length && !dry) await gmail(tok, "/gmail/v1/users/me/messages/batchModify", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids: seen, removeLabelIds: ["UNREAD"] }) }).catch(() => null);
+    if (seen.length) report.push({ readSync: o.name, marked: seen.length });
+  }
+}
+
 export default async function handler(req, res) {
   const secret = process.env.CRON_SECRET;
   const ok = /vercel-cron/i.test(String(req.headers["user-agent"] || "")) || (secret && (String(req.headers.authorization || "") === "Bearer " + secret || req.query.key === secret));
@@ -724,6 +755,7 @@ export default async function handler(req, res) {
     const task = String(req.query.task || "");
     if (!task || task === "intake") await intake(ctx);
     if (task === "track" || (!task && dn.minute % 5 === 2)) await track(ctx);
+    if (task === "readsync" || (!task && dn.minute % 5 === 4)) await readSync(ctx);
     let dg = null;
     if (task === "digest" || (!task && dn.hour === 17 && dn.minute % 10 === 5)) dg = await digest(Object.assign(ctx, { force: task === "digest" && req.query.force === "1" && !!secret && req.query.key === secret }));
     return res.status(200).json({ ok: true, mode, checked: report.length, report, digest: dg });
