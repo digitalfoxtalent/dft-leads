@@ -7,7 +7,8 @@
 import { batch } from "./db.js";
 import { EDIT_SCHEMA } from "./edit.js";
 import { SWITCH_SCHEMA } from "./switch.js";
-import { INBOX_SCHEMA } from "./pages.js";
+import { INBOX_SCHEMA } from "./inbox-schema.js";
+import { BACKUP_SCHEMA } from "./backup-schema.js";
 
 export const SCHEMA_SQL = [
   `CREATE SCHEMA IF NOT EXISTS mirror`,
@@ -92,6 +93,7 @@ export const SCHEMA_SQL = [
   ...EDIT_SCHEMA, // the edit log (edit.js)
   ...SWITCH_SCHEMA, // the editing switch per section (switch.js)
   ...INBOX_SCHEMA, // when each person last opened their Inbox (pages.js)
+  ...BACKUP_SCHEMA, // the nightly full backup (backup.js)
 ];
 
 let ready = false;

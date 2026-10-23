@@ -20,6 +20,8 @@ const JS_VER = crypto.createHash("sha256").update(BOARD_JS).digest("hex").slice(
 // Active, non-guest monday users (refreshed by every sync). Someone who leaves monday loses access here too.
 async function teamSet() { return new Set((await read(`SELECT email FROM mirror.team`)).map(r => r.email)); }
 import { canSee } from "./policy.js";
+import { backupStatus } from "./backup.js";
+export { INBOX_SCHEMA } from "./inbox-schema.js";
 import { isOn, NEVER, OWNERS, switchRows, switchLog, switchToken } from "./switch.js";
 import { canEdit, editForm, historyHtml, editableColumns, currentText, fp, boardToken, liveUpdates, authors } from "./edit.js";
 
@@ -719,9 +721,6 @@ ${note ? `<p class="note ${note.ok ? "ok" : "bad"}">${esc(note.message)}</p>` : 
 
 // ---------- Inbox: recent updates on your items, and updates that mention you (like monday's notifications) ----------
 
-export const INBOX_SCHEMA = [
-  `CREATE TABLE IF NOT EXISTS mirror.inbox_seen (email text PRIMARY KEY, seen_at timestamptz NOT NULL DEFAULT now())`,
-];
 const INBOX_DAYS = 14;
 export async function renderInbox(email) {
   await logAccess(email, "/inbox", null, true);
@@ -793,6 +792,14 @@ export async function renderSearch(email, raw = {}) {
   return { status: 200, html: frame("Search: " + q, [["Search", null]], body, side) };
 }
 
+async function backupHtml() {
+  const b = await backupStatus();
+  const mb = n => (Number(n) / 1048576).toLocaleString("en-US", { maximumFractionDigits: 0 }) + " MB";
+  return `<h2 class="sec">Nightly full backup</h2><div class="sub"><span class="badge">${esc(b.updates)} updates and replies</span><span class="badge">${esc(b.docs)} docs</span><span class="badge">${esc(b.files)} files registered (${esc(mb(b.bytes))}), ${esc(b.stored)} copied</span><span>${esc(b.fresh)} of ${esc(b.units)} boards and the docs backed up in the last 24 hours</span></div>
+${b.runs.length ? `<div class="tw plain" style="margin-top:10px"><table><thead><tr><th>Started</th><th>Result</th><th>Updates</th><th>Docs</th><th>Files</th><th>monday calls</th><th>Note</th></tr></thead><tbody>${b.runs.map(r =>
+  `<tr><td>${esc(ago(r.started_at))}</td><td class="${r.ok ? "ok" : r.ok === false ? "bad" : ""}">${r.ok ? "OK" : r.ok === false ? "Failed" : "Running"}</td><td class="num">${esc(r.updates_written)}</td><td class="num">${esc(r.docs_written)}</td><td class="num">${esc(r.files_seen)}</td><td class="num">${esc(r.api_calls)}</td><td>${esc(r.note || "")}</td></tr>`).join("")}</tbody></table></div>` : `<p class="muted">The first backup run starts within the hour.</p>`}`;
+}
+
 export async function renderStatus(email) {
   await logAccess(email, "/data/mirror", null, true);
   const runs = await read(`SELECT started_at, finished_at, boards_synced, items_written, api_calls, ok, note FROM mirror.sync_runs ORDER BY id DESC LIMIT 15`);
@@ -807,6 +814,7 @@ export async function renderStatus(email) {
 <div class="sub"><a class="btn" href="/data/editing">Editing switch</a><span class="badge">${copied} of ${mine.length} boards you can see are copied</span><span>${off.length} with a different item count</span><span>${errs.length} with an error</span></div>
 <h2 class="sec">Recent runs</h2><div class="tw plain"><table><thead><tr><th>Started</th><th>Result</th><th>Boards</th><th>Items written</th><th>monday calls</th><th>Note</th></tr></thead><tbody>${runs.map(r =>
   `<tr><td>${esc(ago(r.started_at))}</td><td class="${r.ok ? "ok" : r.ok === false ? "bad" : ""}">${r.ok ? "OK" : r.ok === false ? "Failed" : "Running"}</td><td class="num">${esc(r.boards_synced)}</td><td class="num">${esc(r.items_written)}</td><td class="num">${esc(r.api_calls)}</td><td>${esc(r.note || "")}</td></tr>`).join("")}</tbody></table></div>
+${await backupHtml()}
 <h2 class="sec">Boards whose counts differ</h2>${off.length ? `<div class="tw plain"><table><thead><tr><th>Board</th><th>monday</th><th>Copy</th><th>Copied</th></tr></thead><tbody>${off.map(b =>
   `<tr><td class="nm"><a href="/boards/${esc(b.id)}">${esc(b.name)}</a></td><td class="num">${esc(b.monday_items)}</td><td class="num">${esc(b.mirror_items)}</td><td>${esc(ago(b.synced_at))}</td></tr>`).join("")}</tbody></table></div>` : `<p class="muted">None. Every copied board you can see matches monday.</p>`}
 ${errs.length ? `<h2 class="sec">Errors</h2><div class="tw"><table><tbody>${errs.map(b => `<tr><td class="nm">${esc(b.name)}</td><td>${esc(b.sync_error)}</td></tr>`).join("")}</tbody></table></div>` : ""}`;

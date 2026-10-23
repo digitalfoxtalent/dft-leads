@@ -153,6 +153,10 @@
       "schedule": "*/30 * * * *"
     },
     {
+      "path": "/api/mirror-backup",
+      "schedule": "15 * * * *"
+    },
+    {
       "path": "/api/route-enquiry",
       "schedule": "* * * * *"
     }
