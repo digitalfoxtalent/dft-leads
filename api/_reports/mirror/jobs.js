@@ -8,7 +8,7 @@
 //   back in from Make. A request only supplies inputs.
 // - Programs run in their own JavaScript context (node:vm) that holds only their inputs, a guarded fetch and the
 //   standard built-ins: no process, no environment, no database, no plain fetch.
-// - Keys come from Vercel's encrypted settings and are handed to the program exactly where it used to read them
+// - Keys come from the vault (vault.js, encrypted) and are handed to the program exactly where it used to read them
 //   from the monday API Keys board. Nothing in a request can choose which key goes where.
 // - Every outgoing request is checked: a key may only travel to its own service (YouTube key to Google, Claude key
 //   to Anthropic, Hunter key to Hunter), in any spelling (encoded, split by whitespace). Bodies must be plain text.
@@ -20,13 +20,9 @@
 import vm from "node:vm";
 import dns from "node:dns/promises";
 import { JOB_CODE } from "./jobs-code.js";
+import { vaultKeys, SECRETS } from "./vault.js";
 
-// monday API Keys board item -> Vercel setting, and the services each key may be sent to.
-const KEYS = {
-  "12562178538": { env: "ANTHROPIC_API_KEY", hosts: ["api.anthropic.com"] },
-  "13142175799": { env: "YOUTUBE_API_KEY_JOBS", hosts: ["www.googleapis.com", "youtube.googleapis.com"] },
-  "12561999483": { env: "HUNTER_API_KEY", hosts: ["api.hunter.io"] },
-};
+// Keys come from the vault (vault.js): read once from the monday API Keys board, kept encrypted.
 // Where each program read its keys from in the monday reply it was given.
 const KEY_SLOT = { "code-A": "items", "code-B": "items", "code-C": "items", "code-E": "items", "code-F": "items", "code-H": "keys" };
 export const JOB_NAMES = Object.keys(KEY_SLOT);
@@ -34,10 +30,9 @@ const RUN_MS = 280000, FETCH_MS = 20000, MAX_BYTES = 5 * 1024 * 1024, MAX_CAP = 
 
 const parse = v => { if (typeof v === "string") { try { return JSON.parse(v); } catch (e) { return {}; } } return v && typeof v === "object" ? v : {}; };
 
-function keyValues(env) {
-  const out = [];
-  for (const [id, k] of Object.entries(KEYS)) { const v = String(env[k.env] || "").trim(); if (v.length >= 8) out.push({ id, value: v, hosts: k.hosts }); }
-  return out;
+// { name: value } -> the list the guard and the programs use: monday item id, value, allowed hosts.
+export function keyList(values) {
+  return Object.entries(values || {}).filter(([n, v]) => SECRETS[n] && String(v || "").length >= 8).map(([n, v]) => ({ id: SECRETS[n].item, name: n, value: String(v), hosts: SECRETS[n].hosts }));
 }
 
 const PRIVATE_NAME = /^(localhost|.*\.localhost|.*\.local|.*\.internal|.*\.home\.arpa)$/i;
@@ -78,16 +73,16 @@ async function check(keys, url, opts, lookup) {
   return { u, carries: carries.length > 0 };
 }
 
-async function capped(res) {
+async function capped(res, max = MAX_BYTES) {
   const len = Number(res.headers && res.headers.get && res.headers.get("content-length"));
-  if (len > MAX_BYTES) throw new Error("response too large");
+  if (len > max) throw new Error("response too large");
   if (!res.body || typeof res.body.getReader !== "function") return res;
   const reader = res.body.getReader(); const parts = []; let n = 0;
   for (;;) {
     const { done, value } = await reader.read();
     if (done) break;
     n += value.length;
-    if (n > MAX_BYTES) { try { await reader.cancel(); } catch (e) { /* ignore */ } break; } // keep the first 5 MB
+    if (n > max) { try { await reader.cancel(); } catch (e) { /* ignore */ } break; } // keep the first part only
     parts.push(value);
   }
   const buf = Buffer.concat(parts.map(p => Buffer.from(p)));
@@ -96,14 +91,14 @@ async function capped(res) {
 
 const dnsLookup = host => dns.lookup(host, { all: true });
 
-export function guardedFetch(keys, realFetch = fetch, { lookup = dnsLookup, onBlock = () => {} } = {}) {
+export function guardedFetch(keys, realFetch = fetch, { lookup = dnsLookup, onBlock = () => {}, maxBytes = MAX_BYTES, timeoutMs = FETCH_MS } = {}) {
   return async (url, opts = {}) => {
     try {
       let { u, carries } = await check(keys, url, opts, lookup);
       for (let hop = 0; ; hop++) {
-        const res = await realFetch(u.toString(), Object.assign({}, opts, { redirect: "manual", signal: opts.signal || AbortSignal.timeout(FETCH_MS) }));
+        const res = await realFetch(u.toString(), Object.assign({}, opts, { redirect: "manual", signal: opts.signal || AbortSignal.timeout(timeoutMs) }));
         const loc = res.status >= 300 && res.status < 400 && res.headers && typeof res.headers.get === "function" ? res.headers.get("location") : null;
-        if (!loc || opts.redirect === "manual") return capped(res);
+        if (!loc || opts.redirect === "manual") return capped(res, maxBytes);
         if (carries) throw new Error("blocked: redirect on a request carrying a key");
         if (hop >= 5) throw new Error("too many redirects");
         opts = Object.assign({}, opts, { method: "GET", body: undefined });
@@ -135,10 +130,10 @@ export function withKeys(name, input, keys) {
   return inp;
 }
 
-export async function runJob(name, input, { env = process.env, realFetch = fetch, lookup = dnsLookup } = {}) {
+export async function runJob(name, input, { keysImpl = vaultKeys, realFetch = fetch, lookup = dnsLookup } = {}) {
   if (!Object.prototype.hasOwnProperty.call(JOB_CODE, name)) return { status: 404, body: { error: "No such job." } };
   if (!input || typeof input !== "object" || Array.isArray(input)) return { status: 400, body: { error: "Send JSON: {\"input\": {...the Code module's inputs...}}." } };
-  const keys = keyValues(env);
+  const keys = keyList(await keysImpl());
   const blocked = [];
   const sandbox = vm.createContext({
     input: withKeys(name, input, keys),
