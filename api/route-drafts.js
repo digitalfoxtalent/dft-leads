@@ -11,7 +11,7 @@ export const config = { maxDuration: 300 };
 
 const BOARD = "18430423439";
 const PITCH_BOARD = "18435316650";
-const C = { owner: "multiple_person_mm712vbw", ids: "text_mm8d131d", draft: "text_mm8d6pzp", decision: "color_mm8d23ft", message: "long_text_mm71nh8r", email: "email_mm71btg0", routedAt: "date_mm8d4cqy" };
+const C = { owner: "multiple_person_mm712vbw", ids: "text_mm8d131d", draft: "text_mm8d6pzp", decision: "color_mm8d23ft", why: "text_mm8dj0v0", message: "long_text_mm71nh8r", email: "email_mm71btg0", routedAt: "date_mm8d4cqy" };
 const OWNERS = { 100099218: ["margot@digitalfoxtalent.com", "Margot Grant"], 104886769: ["george@digitalfoxtalent.com", "George Roush"], 119590675: ["hani@digitalfoxtalent.com", "Han Yi"], 54957240: ["alex@digitalfoxtalent.com", "Alex Mackenzie"] };
 
 async function monday(query, variables) {
@@ -110,11 +110,12 @@ export default async function handler(req, res) {
     if (!text) text = part(m.payload, "text/html").replace(/<style[\s\S]*?<\/style>/gi, " ").replace(/<br\s*\/?>/gi, "\n").replace(/<\/p>/gi, "\n").replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&");
     const from = cv[C.email] && !/@digitalfoxtalent\.com$/i.test(cv[C.email]) ? (h("from").replace(/<[^>]*>/, "").replace(/"/g, "").replace(/\s+via\s+.*$/i, "").trim() + " <" + cv[C.email] + ">") : h("from");
     const fwd = "---------- Forwarded message ---------\nFrom: " + from + "\nDate: " + h("date") + "\nSubject: " + h("subject") + "\nTo: " + h("to") + (h("cc") ? "\nCc: " + h("cc") : "") + "\n\n" + text;
+    // Press and PR enquiries get the press package, exactly as if forwarded to press@ (Tom, 23 Oct 2026: "the same result").
     // The pitch system checks a Pitch Requests row made in the last 15 minutes by the same person.
     const pr = await monday("mutation($b:ID!,$n:String!,$v:JSON!){create_item(board_id:$b,item_name:$n,column_values:$v){id}}", { b: PITCH_BOARD, n: "Routed " + new Date().toISOString().slice(5, 16).replace("T", " "), v: JSON.stringify({ text_mm83t28h: owner[0] }) });
     const item = ((pr || {}).create_item || {}).id;
     const r = await fetch("https://roster-viewguarantee.digitalfoxtalent.com/api/roster", { method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ op: "pitch", item, fromEmail: owner[0], fromName: owner[1], subject: h("subject"), text: fwd, html: "", sentTo: h("to"), thread: "", search: "rfc822msgid:" + mid }) });
+      body: JSON.stringify({ op: "pitch", item, fromEmail: owner[0], fromName: owner[1], subject: h("subject"), text: fwd, html: "", sentTo: (/\(press or PR\)/.test(cv[C.why] || "") ? "press@digitalfoxtalent.com, " : "") + h("to"), thread: "", search: "rfc822msgid:" + mid }) });
     const out = await r.json().catch(() => ({}));
     const verdict = !r.ok ? "failed: " + String(out.error || r.status).slice(0, 200)
       : out.draftMade === true ? "ready: " + (out.listUrl || "")
