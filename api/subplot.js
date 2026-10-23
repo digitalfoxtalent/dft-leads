@@ -9,6 +9,7 @@ import { smartnewsFeed, SN_LOGO, SN_LOGO_DARK } from "./_subplot/smartnews.js";
 import { flipboardFeed, newsSitemap } from "./_subplot/feeds.js";
 import { setDesign } from "./_subplot/design.js";
 import { listMonths, readMonth } from "./_subplot/archive.js";
+import { llmsTxt } from "./_subplot/llms.js";
 import { homePage, articlePage, snippetsPage, creatorPage, joinPage, aboutPage, threadPage, rssFeed, notFound, legalPage, artPath, revenuePage, sitemap } from "./_subplot/render.js";
 import { CAST } from "./_subplot/cast.js";
 import { faviconSvg, assetKey } from "./_subplot/brand.js";
@@ -217,6 +218,12 @@ export default async function handler(req, res) {
     res.setHeader("Content-Type", "application/xml; charset=utf-8");
     res.setHeader("Cache-Control", "public, s-maxage=3600");
     return res.status(200).send(sitemap(data, base));
+  }
+  // AI assistants' guide to the site (23 Oct 2026). See llms.js. SUBPLOT's own domain only.
+  if (path === "/llms.txt") {
+    if (brand().key !== "subplot" || base) { res.setHeader("Cache-Control", "no-store"); return res.status(404).send(""); }
+    res.setHeader("Content-Type", "text/plain; charset=utf-8"); res.setHeader("Cache-Control", "public, s-maxage=3600");
+    return res.status(200).send(llmsTxt(data, base));
   }
   // SmartNews (7 Oct 2026): SmartFormat 2.2 feed plus its two 700 x 100 logos. See smartnews.js.
   if (path === "/smartnews.xml") { res.setHeader("Content-Type", "application/rss+xml; charset=utf-8"); res.setHeader("Cache-Control", "public, s-maxage=600"); return res.status(200).send(smartnewsFeed(data, base)); }
