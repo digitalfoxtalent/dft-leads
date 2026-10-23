@@ -93,4 +93,15 @@ await write(`INSERT INTO mirror.team (email, name) VALUES ('tom@digitalfoxtalent
 const page = await mirrorPage("data/mirror", { method: "GET", headers: {}, query: {} }, { setHeader() {} }, "tom@digitalfoxtalent.com", "tok");
 ok(/Nightly full backup/.test(page.html) && /153 updates and replies/.test(page.html) && /2 files registered \(1 MB\)/.test(page.html) && /0 copied to the private file store/.test(page.html) && /Database \d+ MB of 1,024 MB/.test(page.html), "shown on the copy status page");
 
+// ---------- a run uses its whole call budget (it used to stop at half) ----------
+for (let i = 0; i < 200; i++) {
+  docs.push({ id: String(1000 + i), object_id: String(9000 + i), name: "Doc " + i, workspace_id: "1", url: "https://x.monday.com/docs/" + i, created_at: "2026-09-02T00:00:00Z", updated_at: "2026-10-02T00:00:00Z", created_by: { name: "Tom James" } });
+  blocks[String(1000 + i)] = [{ id: "c" + i, type: "normal text", content: JSON.stringify({ deltaFormat: [{ insert: "Doc " + i }] }), parent_block_id: null, position: 1 }];
+}
+await write(`UPDATE mirror.backup_state SET done_at = now() - interval '21 hours', page = 1 WHERE kind = 'docs'`);
+await write(`DELETE FROM mirror.backup_runs`);
+calls = [];
+r = await runBackup("tok", { fetchImpl: fake, force: true });
+ok(r.ok && r.calls === 90 && /part way through the docs/.test(r.note), "a run spends its full 90 calls before stopping: " + r.calls);
+
 console.log("backup tests passed: " + pass);
