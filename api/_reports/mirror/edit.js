@@ -6,7 +6,8 @@
 //   and report that reads monday sees the change exactly as if it had been made there.
 //
 // GUARDS
-//   - Only signed-in teammates who can see the board (same rules as reading), only boards in EDIT_DEPTS, only
+//   - Only signed-in teammates who can see the board (same rules as reading), only sections whose editing switch is
+//     on (switch.js, re-read before every write), only
 //     plain column types (EDITABLE). Formula, mirror, connect, people, file and subitem columns stay read-only.
 //   - A form carries a fingerprint of each field as the editor saw it. If someone changed that field in monday
 //     since, the edit is refused and the page shows the newer value instead of overwriting it.
@@ -18,8 +19,8 @@
 import crypto from "node:crypto";
 import { read, write } from "./db.js";
 import { canSee } from "./policy.js";
+import { isOn, loadSwitches } from "./switch.js";
 
-export const EDIT_DEPTS = new Set(["marketing"]);
 export const EDITABLE = new Set(["name", "text", "long_text", "numbers", "status", "date", "email", "link", "checkbox"]);
 const ORIGIN = "https://ecosystem.digitalfoxtalent.com";
 const API = "https://api.monday.com/v2";
@@ -74,7 +75,7 @@ const sign = (secret, v) => crypto.createHmac("sha256", String(secret) + "|eco-e
 const parse = s => { try { return typeof s === "string" ? JSON.parse(s) : s; } catch (e) { return null; } };
 
 export function canEdit(board, email, team) {
-  return !!board && board.board_type === "board" && EDIT_DEPTS.has(board.department) && canSee(board, email, team);
+  return !!board && board.board_type === "board" && isOn(board.department) && canSee(board, email, team);
 }
 export const editableColumns = board => [{ id: "name", title: "Name", type: "name" }].concat((board.columns || []).filter(c => EDITABLE.has(c.type) && c.type !== "name"));
 const statusLabels = col => Object.values(col.labels || {}).map(l => l && l[0]).filter(Boolean);
@@ -179,11 +180,12 @@ function formBody(req) {
   if (typeof req.body === "string") return Object.fromEntries(new URLSearchParams(req.body));
   return req.body && typeof req.body === "object" ? req.body : {};
 }
-const fromSite = req => { const o = String(req.headers.origin || ""); return o === ORIGIN || (!o && /^https:\/\/ecosystem\.digitalfoxtalent\.com\//.test(String(req.headers.referer || ""))); };
+export const fromSite = req => { const o = String(req.headers.origin || ""); return o === ORIGIN || (!o && /^https:\/\/ecosystem\.digitalfoxtalent\.com\//.test(String(req.headers.referer || ""))); };
 
 async function guard(req, email, secret, board, item, team) {
   if (req.method !== "POST") return "Use the form on the item page.";
   if (!fromSite(req)) return "That request did not come from the Ecosystem.";
+  await loadSwitches(true);
   if (!canEdit(board, email, team)) return "This board cannot be edited here yet.";
   const b = formBody(req), tok = one(b.t), want = formToken(secret, email, item.id);
   if (tok.length !== want.length || !crypto.timingSafeEqual(Buffer.from(tok), Buffer.from(want))) return "That form has expired. Open the item again.";
@@ -277,6 +279,7 @@ function jsonBody(req) {
 export async function saveCell(req, token, email, board, item, team) {
   if (req.method !== "POST") return { ok: false, message: "Not allowed." };
   if (!fromSite(req)) return { ok: false, message: "That request did not come from the Ecosystem." };
+  await loadSwitches(true);
   if (!canEdit(board, email, team)) return { ok: false, message: "This board cannot be edited here yet." };
   const b = jsonBody(req), tok = one(b.k), want = boardToken(token, email, board.id);
   if (tok.length !== want.length || !crypto.timingSafeEqual(Buffer.from(tok), Buffer.from(want))) return { ok: false, message: "This page has expired. Refresh it and try again." };
@@ -342,6 +345,7 @@ const NOT_TAKEN = "monday did not confirm the update. Check the item in monday b
 export async function postUpdate(req, token, email, board, item, team) {
   if (req.method !== "POST") return { ok: false, message: "Not allowed." };
   if (!fromSite(req)) return { ok: false, message: "That request did not come from the Ecosystem." };
+  await loadSwitches(true);
   if (!canEdit(board, email, team)) return { ok: false, message: "Updates cannot be posted on this board here yet." };
   const b = jsonBody(req), tok = one(b.k), want = boardToken(token, email, board.id);
   if (tok.length !== want.length || !crypto.timingSafeEqual(Buffer.from(tok), Buffer.from(want))) return { ok: false, message: "This page has expired. Refresh it and try again." };
@@ -388,6 +392,7 @@ const groupOf = (board, g) => (board.groups || []).find(x => x.id === g) || null
 async function boardGuard(req, token, email, board, team) {
   if (req.method !== "POST") return "Not allowed.";
   if (!fromSite(req)) return "That request did not come from the Ecosystem.";
+  await loadSwitches(true);
   if (!canEdit(board, email, team)) return "This board cannot be edited here yet.";
   const b = jsonBody(req), tok = one(b.k), want = boardToken(token, email, board.id);
   if (tok.length !== want.length || !crypto.timingSafeEqual(Buffer.from(tok), Buffer.from(want))) return "This page has expired. Refresh it and try again.";

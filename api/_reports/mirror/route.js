@@ -4,10 +4,11 @@
 
 import { ensureSchema } from "./schema.js";
 import { hasDatabase } from "./db.js";
-import { securityHeaders, renderDepartment, renderBoard, renderItem, renderStatus, renderMyWork, renderPanel, itemUpdates, updatesList, newRowHtml, DEPT_NAMES, cellHtml } from "./pages.js";
+import { securityHeaders, renderDepartment, renderBoard, renderItem, renderStatus, renderMyWork, renderSwitch, renderPanel, itemUpdates, updatesList, newRowHtml, DEPT_NAMES, cellHtml } from "./pages.js";
 import { BOARD_JS } from "./client.js";
 import { read } from "./db.js";
-import { saveEdit, undoEdit, saveCell, postUpdate, createItem, moveItem, canEdit, currentText, editableColumns, fp } from "./edit.js";
+import { saveEdit, undoEdit, saveCell, postUpdate, createItem, moveItem, canEdit, currentText, editableColumns, fp, fromSite } from "./edit.js";
+import { loadSwitches, flip } from "./switch.js";
 
 const BOARD = /^boards\/(\d{1,19})$/;
 const ITEM = /^boards\/(\d{1,19})\/items\/(\d{1,19})$/;
@@ -22,7 +23,7 @@ const DEPT = /^([a-z]+)\/boards$/;
 
 export function isMirrorRoute(route) {
   const r = String(route || "");
-  if (BOARD.test(r) || ITEM.test(r) || ACT.test(r) || CELL.test(r) || PANEL.test(r) || POSTU.test(r) || NEWI.test(r) || MOVE.test(r) || r === ASSET || r === "data/mirror" || r === "my-work") return true;
+  if (BOARD.test(r) || ITEM.test(r) || ACT.test(r) || CELL.test(r) || PANEL.test(r) || POSTU.test(r) || NEWI.test(r) || MOVE.test(r) || r === ASSET || r === "data/mirror" || r === "my-work" || r === "data/editing") return true;
   const m = r.match(DEPT);
   return !!(m && DEPT_NAMES[m[1]]);
 }
@@ -33,10 +34,11 @@ export async function mirrorPage(route, req, res, email, token) {
   securityHeaders(res);
   const act = route.match(ACT), cellRoute = route.match(CELL), postRoute = route.match(POSTU), panelRoute = route.match(PANEL), newRoute = route.match(NEWI), moveRoute = route.match(MOVE);
   if (route === ASSET) return { status: 200, type: "text/javascript; charset=utf-8", body: BOARD_JS, cache: "private, max-age=86400" } // safe to keep: every page asks for ?v=<hash of this script>;
-  if (req.method && req.method !== "GET" && req.method !== "HEAD" && !((act || cellRoute || postRoute || newRoute || moveRoute) && req.method === "POST")) return { status: 405, html: "Method not allowed" };
+  if (req.method && req.method !== "GET" && req.method !== "HEAD" && !((act || cellRoute || postRoute || newRoute || moveRoute || route === "data/editing") && req.method === "POST")) return { status: 405, html: "Method not allowed" };
   if (!email) return { status: 401, html: "Sign in required" };
   if (!hasDatabase()) return { status: 503, html: "The Ecosystem database is not connected yet." };
   await ensureSchema();
+  await loadSwitches(req.method === "POST"); // writes always see the switch as it is right now
   const q = one(req.query && req.query.q).slice(0, 100).trim();
   const page = one(req.query && req.query.page);
   let m;
@@ -114,6 +116,14 @@ export async function mirrorPage(route, req, res, email, token) {
   if ((m = route.match(BOARD))) return renderBoard(email, m[1], q, page, { secret: token, params: req.query || {} });
   if (route === "data/mirror") return renderStatus(email);
   if (route === "my-work") return renderMyWork(email, req.query || {});
+  if (route === "data/editing") {
+    if (req.method !== "POST") return renderSwitch(email, token);
+    if (!token) return { status: 405, html: "Method not allowed" };
+    let note;
+    try { note = await flip(req, token, email, DEPT_NAMES, fromSite); }
+    catch (e) { console.error("switch", e); note = { ok: false, message: "Something went wrong. Nothing was changed." }; }
+    return renderSwitch(email, token, note);
+  }
   if ((m = route.match(DEPT))) return renderDepartment(email, m[1], q);
   return { status: 404, html: "Not found" };
 }

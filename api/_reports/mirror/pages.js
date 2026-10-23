@@ -20,6 +20,7 @@ const JS_VER = crypto.createHash("sha256").update(BOARD_JS).digest("hex").slice(
 // Active, non-guest monday users (refreshed by every sync). Someone who leaves monday loses access here too.
 async function teamSet() { return new Set((await read(`SELECT email FROM mirror.team`)).map(r => r.email)); }
 import { canSee } from "./policy.js";
+import { isOn, NEVER, OWNERS, switchRows, switchLog, switchToken } from "./switch.js";
 import { canEdit, editForm, historyHtml, editableColumns, currentText, fp, boardToken, liveUpdates, authors } from "./edit.js";
 
 export const DEPT_NAMES = {
@@ -294,14 +295,13 @@ export async function renderDepartment(email, dept, q) {
     byFolder.get(key).push(b);
   }
   const body = `<h1>${esc(DEPT_NAMES[dept])}</h1>
-<p class="desc">${mine.length} board${mine.length === 1 ? "" : "s"} you can see. Copied from monday every 30 minutes${EDIT_NOTE[dept] || ""}. <a href="/data/mirror">How the copy is doing</a></p>
+<p class="desc">${mine.length} board${mine.length === 1 ? "" : "s"} you can see. Copied from monday every 30 minutes${isOn(dept) ? ", and editable here: changes save straight to monday" : ""}. <a href="/data/mirror">How the copy is doing</a></p>
 <form class="bar" method="get"><input name="q" value="${esc(q || "")}" placeholder="Search boards" aria-label="Search boards"><button type="submit">Search</button></form>
 ${mine.length ? `<div class="lists">${[...byFolder.entries()].map(([f, list]) => `<section><h2 class="foldh">${esc(f)}</h2><div class="cards">${list.map(b =>
   `<a class="card" href="/boards/${esc(b.id)}"><b>${esc(b.name)}</b><span>${b.mirror_items == null ? "Copying soon" : esc(b.mirror_items) + (Number(b.mirror_items) === 1 ? " item" : " items")} · ${b.access === "team" ? "Whole team" : "Listed people only"}</span></a>`).join("")}</div></section>`).join("")}</div>`
   : `<p class="empty">No boards here${q ? " match that search" : ""}.</p>`}`;
   return { status: 200, html: frame(DEPT_NAMES[dept], [[DEPT_NAMES[dept], "/" + dept], ["Boards", null]], body, await sidebar(email, dept)) };
 }
-const EDIT_NOTE = { marketing: ", and editable here: changes save straight to monday" };
 
 // The text-like column types, left-aligned as on monday; everything else is centred.
 const LEFT = new Set(["text", "long_text", "link", "email", "people", "multiple_person", "dropdown", "board_relation", "mirror", "tags", "file", "phone", "location"]);
@@ -612,6 +612,28 @@ ${sections || `<p class="empty">Nothing assigned to you${done && !showDone ? " t
 }
 const PEOPLE_T = new Set(["people", "multiple_person"]);
 
+// ---------- /data/editing: the editing switch per section ----------
+
+export async function renderSwitch(email, secret, note) {
+  await logAccess(email, "/data/editing", null, true);
+  const rows = Object.fromEntries((await switchRows()).map(r => [r.department, r]));
+  const owner = OWNERS.has(String(email || "").toLowerCase());
+  const tok = owner ? switchToken(secret, email) : "";
+  const log = await switchLog();
+  const when = t => esc(iso(t).slice(0, 16).replace("T", " ")) + " UTC";
+  const body = `<h1>Editing in the Ecosystem</h1>
+<p class="desc">Turn editing on or off for each section. Off takes effect straight away: no edits, updates, new items or moves from the Ecosystem. monday itself, Make and the copy every 30 minutes are not affected. Finance boards are never editable here.${owner ? "" : " Only Tom can change these."}</p>
+${note ? `<p class="note ${note.ok ? "ok" : "bad"}">${esc(note.message)}</p>` : ""}
+<div class="tw plain"><table><thead><tr><th>Section</th><th>Editing</th><th>Last changed</th>${owner ? "<th></th>" : ""}</tr></thead><tbody>${Object.keys(DEPT_NAMES).map(d => {
+    const r = rows[d], on = isOn(d), never = NEVER.has(d);
+    const btn = owner && !never ? `<form method="post" action="/data/editing"><input type="hidden" name="t" value="${esc(tok)}"><input type="hidden" name="d" value="${esc(d)}"><input type="hidden" name="on" value="${on ? "0" : "1"}"><button class="btn${on ? "" : " primary"}" type="submit">${on ? "Turn editing off" : "Turn editing on"}</button></form>` : "";
+    return `<tr><td class="nm"><a href="/${esc(d)}/boards">${esc(DEPT_NAMES[d])}</a></td><td>${never ? `<span class="muted">Always read-only</span>` : on ? `<span class="pill" style="background:#00c875">On</span>` : `<span class="pill">Read-only</span>`}</td><td class="sm">${r ? esc(r.changed_by || "") + " · " + when(r.changed_at) : `<span class="muted">Never turned on</span>`}</td>${owner ? `<td>${btn}</td>` : ""}</tr>`;
+  }).join("")}</tbody></table></div>
+<h2 class="sec">Recent changes</h2>${log.length ? `<div class="tw plain"><table><thead><tr><th>When</th><th>Who</th><th>Section</th><th>Change</th></tr></thead><tbody>${log.map(l =>
+  `<tr><td>${when(l.at)}</td><td>${esc(l.email)}</td><td>${esc(DEPT_NAMES[l.department] || l.department)}</td><td>${l.turned_on ? "Turned on" : "Turned off"}</td></tr>`).join("")}</tbody></table></div>` : `<p class="muted">No changes yet. Marketing was turned on for the editing pilot.</p>`}`;
+  return { status: note && !note.ok ? 400 : 200, html: frame("Editing switch", [["Data Engine", "/data"], ["Editing switch", null]], body, await sidebar(email, "data")) };
+}
+
 export async function renderStatus(email) {
   await logAccess(email, "/data/mirror", null, true);
   const runs = await read(`SELECT started_at, finished_at, boards_synced, items_written, api_calls, ok, note FROM mirror.sync_runs ORDER BY id DESC LIMIT 15`);
@@ -623,7 +645,7 @@ export async function renderStatus(email) {
   const off = mine.filter(b => b.synced_at && b.mirror_items !== b.monday_items);
   const errs = mine.filter(b => b.sync_error);
   const body = `<h1>How the monday copy is doing</h1>
-<div class="sub"><span class="badge">${copied} of ${mine.length} boards you can see are copied</span><span>${off.length} with a different item count</span><span>${errs.length} with an error</span></div>
+<div class="sub"><a class="btn" href="/data/editing">Editing switch</a><span class="badge">${copied} of ${mine.length} boards you can see are copied</span><span>${off.length} with a different item count</span><span>${errs.length} with an error</span></div>
 <h2 class="sec">Recent runs</h2><div class="tw plain"><table><thead><tr><th>Started</th><th>Result</th><th>Boards</th><th>Items written</th><th>monday calls</th><th>Note</th></tr></thead><tbody>${runs.map(r =>
   `<tr><td>${esc(ago(r.started_at))}</td><td class="${r.ok ? "ok" : r.ok === false ? "bad" : ""}">${r.ok ? "OK" : r.ok === false ? "Failed" : "Running"}</td><td class="num">${esc(r.boards_synced)}</td><td class="num">${esc(r.items_written)}</td><td class="num">${esc(r.api_calls)}</td><td>${esc(r.note || "")}</td></tr>`).join("")}</tbody></table></div>
 <h2 class="sec">Boards whose counts differ</h2>${off.length ? `<div class="tw plain"><table><thead><tr><th>Board</th><th>monday</th><th>Copy</th><th>Copied</th></tr></thead><tbody>${off.map(b =>
