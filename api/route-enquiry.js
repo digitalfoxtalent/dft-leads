@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import { write } from "./_reports/mirror/db.js";
 export const config = { maxDuration: 60 };
 // ENQUIRY ROUTER (Tom, 22 Oct 2026). Vercel cron, every minute.
 // Tom wants new brand and press enquiries to stop reaching him first and to land, natively, with the right salesperson,
@@ -7,8 +8,10 @@ export const config = { maxDuration: 60 };
 //
 // INTAKE (every run). Reads new mail in tom@'s inbox. tom@ also receives theteam@ and every creator address (Gmail
 // routing rule e4566), and brands@ through its Google Group.
-//   1. Skips anything sent by DFT, any conversation DFT is already in, and threads already routed (in live mode a brand's
-//      later reply in a routed thread is filed out of Tom's inbox into its "Routed to" folder).
+//   0. What the router has already read is recorded in the Ecosystem database (table router_seen), never as a Gmail label:
+//      hidden labels still show in Gmail's phone app (Tom, 23 Oct 2026).
+//   1. Skips anything sent by DFT, any conversation DFT is already in, and threads already routed (a brand's later reply
+//      in a routed thread is filed out of Tom's inbox into the same folder, and in live mode goes to the owner too).
 //   2. Free pre-filter: system senders (GitHub, monday, Google, banks, receipts, no-reply addresses) never reach Claude.
 //   3. A quick, cheap Claude check (Haiku): could this be a brand or press approach? If not, it stays in Tom's inbox.
 //   4. REPLY HISTORY (Tom, 22 Oct 2026, after indahash and mediamz, both genuine, were nearly dropped): has anyone at DFT
@@ -21,7 +24,9 @@ export const config = { maxDuration: 60 };
 //   8. Delivery (live): the brand's ORIGINAL email is copied byte for byte into the owner's own Gmail inbox through the
 //      domain-wide delegation used for pitch drafts (pitch-drafts@dft-pitch-drafts.iam.gserviceaccount.com, scope
 //      gmail.modify, key in GMAIL_DELEGATE_KEY). It arrives from the brand, unread; Reply threads with the brand.
-//      Tom's copy gets "c) Brand Partnerships/Routed to <owner>" and leaves his inbox.
+//      Tom's copy gets "c) Brand Partnerships/Routed to <owner>" and leaves his inbox. Held back ones go to
+//      "c) Brand Partnerships/Held back". Tom's copy is filed the same way in test mode (Tom, 23 Oct 2026: "remove them
+//      from my inbox so they only go to Routed to folders"), so he checks the test by opening the folders.
 // TRACK (every 5 minutes). For each routed lead: when the owner opens it, Tom's copy turns read and Status becomes
 //   Opened; when the owner replies, Status Replied, Replied at, and Tom's copy gets "c) Brand Partnerships/Replied". The
 //   owner's conversation is mirrored into Tom's "Routed to" folder (never his inbox). Rescued rows are delivered. Website
@@ -31,7 +36,7 @@ export const config = { maxDuration: 60 };
 // DIGEST (5pm Denver, daily). One email from theteam@ to Tom: what came in, who it went to, what was held back, what is
 //   waiting on a reply.
 // MODE: the NAME of monday item 13365313505 on API Keys (Private), "[mode: shadow]" or "[mode: live]". Shadow does
-//   everything except deliver to the owner (rows say "Test only"); nudges only run in live mode.
+//   everything except deliver to the owner and assign the row (rows say "Test only"); nudges only run in live mode.
 // Brand and creator email is never sent. The only sends are internal: nudges to the owner and the digest to Tom.
 // GET with the Vercel cron user agent or CRON_SECRET. ?task=intake|track|digest runs one part; ?dry=1 changes nothing.
 
@@ -61,7 +66,8 @@ const ROUTED = Object.values(OWNERS).map(o => o.label);
 const BY_MONDAY_NAME = { "Margot Grant": "margot", "George Roush": "george", "Han Yi": "hani", "Alex Mackenzie": "alex" };
 const BY_MONDAY_ID = Object.fromEntries(Object.entries(OWNERS).map(([k, o]) => [String(o.monday), k]));
 const TEAM = ["tom@digitalfoxtalent.com", "margot@digitalfoxtalent.com", "george@digitalfoxtalent.com", "hani@digitalfoxtalent.com", "alex@digitalfoxtalent.com", "theteam@digitalfoxtalent.com"];
-const SEEN = "dft-router-seen";
+const SEEN = "dft-router-seen"; // the old hidden label, removed by migrateSeenLabel()
+const HELD = "c) Brand Partnerships/Held back";
 const ERR = "c) Brand Partnerships/Router could not deliver";
 const REPLIED = "c) Brand Partnerships/Replied";
 const DFT = /@digitalfoxtalent\.com$/i;
@@ -225,7 +231,7 @@ function decide(v, last, known, overrides, domain, history) {
 // Has anyone at DFT replied to this company (or, for gmail-style addresses, this exact sender)? One search per mailbox.
 async function senderHistory(email, cache) {
   const dom = email.split("@")[1] || "";
-  const target = FREEMAIL.test(dom) ? email : dom;
+  const target = FREEMAIL.test(dom) ? email : baseDomain(dom); // net.noxinfluencer.com and creator.noxinfluencer.com are one company
   if (cache[target]) return cache[target];
   let count = 0, lastBy = "", lastAt = 0; const who = [];
   for (const t of TEAM) {
@@ -246,6 +252,50 @@ async function senderHistory(email, cache) {
     } catch (e) { /* a mailbox we cannot read just does not count */ }
   }
   return (cache[target] = { count, who, target, lastBy, lastAt });
+}
+
+const baseDomain = d => { const p = String(d).toLowerCase().split("."); return p.slice(/^(co|com|org|net|ac|gov|edu)\.[a-z]{2}$/.test(p.slice(-2).join(".")) ? -3 : -2).join("."); };
+
+// ---------- what the router has already read ----------
+// The Ecosystem database (Neon, DATABASE_URL). A message is claimed before any work so an overlapping run skips it.
+// States: working, done, retry (tried again after a minute), failed (three tries, then flagged in Tom's mail).
+let tableReady = null;
+const seenTable = () => tableReady || (tableReady = write("CREATE TABLE IF NOT EXISTS router_seen (msg_id text PRIMARY KEY, state text NOT NULL DEFAULT 'working', tries int NOT NULL DEFAULT 0, at timestamptz NOT NULL DEFAULT now())").catch(e => { tableReady = null; throw e; }));
+// A retry waits a minute; a claim older than ten minutes was cut off (time limit) and is open again.
+const OPEN = "(s.state = 'retry' AND s.at < now() - interval '1 minute') OR (s.state = 'working' AND s.at < now() - interval '10 minutes')";
+async function alreadySeen(ids) {
+  if (!ids.length) return new Set();
+  await seenTable();
+  return new Set((await write(`SELECT msg_id FROM router_seen s WHERE msg_id = ANY($1) AND NOT (${OPEN})`, [ids])).map(x => x.msg_id));
+}
+async function claim(id) {
+  await seenTable();
+  return (await write(`INSERT INTO router_seen AS s (msg_id) VALUES ($1) ON CONFLICT (msg_id) DO UPDATE SET state = 'working', at = now() WHERE ${OPEN} RETURNING s.tries`, [id]))[0] || null;
+}
+const setSeen = (id, state, tries) => write("UPDATE router_seen SET state = $2, tries = COALESCE($3, tries), at = now() WHERE msg_id = $1", [id, state, tries == null ? null : tries]);
+// One-off move off the old hidden labels: everything they marked is recorded as read, then the labels are deleted.
+// Returns true while there is still more to move (intake waits, so nothing is read twice).
+async function migrateSeenLabel(tok, labels) {
+  for (const name of ["dft-router-retry1", "dft-router-retry2"]) {
+    const l = labels.find(x => x.name === name);
+    if (l) { await gmail(tok, "/gmail/v1/users/me/labels/" + l.id, { method: "DELETE" }); labels.splice(labels.indexOf(l), 1); }
+  }
+  const old = labels.find(l => l.name === SEEN);
+  if (!old) return false;
+  const ids = ((await gmail(tok, "/gmail/v1/users/me/messages?maxResults=500&labelIds=" + old.id)).messages || []).map(m => m.id);
+  if (!ids.length) { await gmail(tok, "/gmail/v1/users/me/labels/" + old.id, { method: "DELETE" }); labels.splice(labels.indexOf(old), 1); return false; }
+  await seenTable();
+  await write("INSERT INTO router_seen (msg_id, state) SELECT unnest($1::text[]), 'done' ON CONFLICT (msg_id) DO NOTHING", [ids]);
+  await gmail(tok, "/gmail/v1/users/me/messages/batchModify", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids, removeLabelIds: [old.id] }) });
+  return true;
+}
+async function listAll(tok, q, max) {
+  const out = []; let page = "";
+  do {
+    const r = await gmail(tok, "/gmail/v1/users/me/messages?maxResults=100&q=" + encodeURIComponent(q) + (page ? "&pageToken=" + page : ""));
+    out.push(...(r.messages || [])); page = r.nextPageToken || "";
+  } while (page && out.length < max);
+  return out;
 }
 
 // ---------- delivery ----------
@@ -305,11 +355,38 @@ const dateVal = ms => { const d = new Date(ms); return { date: d.toISOString().s
 // ---------- INTAKE ----------
 async function intake(ctx) {
   const { tok, mode, dry, report, labels, rows, t0 } = ctx;
-  let seen = (labels.find(l => l.name === SEEN) || {}).id;
-  if (!seen && !dry) seen = (await gmail(tok, "/gmail/v1/users/me/labels", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: SEEN, labelListVisibility: "labelHide", messageListVisibility: "hide" }) })).id;
-  const list = await search(tok, "in:inbox after:" + START + " -label:" + SEEN + " -from:" + SOURCE, 25);
+  if (!dry && await migrateSeenLabel(tok, labels)) return;
+  // The last two days of Tom's inbox, less what has already been read.
+  const since = Math.max(START, Math.floor(Date.now() / 1000) - 2 * 86400);
+  let list = await listAll(tok, "in:inbox after:" + since + " -from:" + SOURCE, 600);
   // Website brief form emails come from theteam@ and never sit in Tom's inbox, so they are looked for separately.
-  for (const b of await search(tok, "from:" + ALERT_FROM + " subject:Brief \"has submitted the brief\" after:" + START + " -label:" + SEEN, 5)) if (!list.some(x => x.id === b.id)) list.push(b);
+  for (const b of await search(tok, "from:" + ALERT_FROM + " subject:Brief \"has submitted the brief\" after:" + since, 10)) if (!list.some(x => x.id === b.id)) list.push(b);
+  const labelId = async name => {
+    let x = (labels.find(l => l.name === name) || {}).id;
+    if (!x && dry) return "";
+    if (!x) { x = (await gmail(tok, "/gmail/v1/users/me/labels", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) })).id; labels.push({ id: x, name }); }
+    return x;
+  };
+  const held = await labelId(HELD);
+  const FILED = ROUTED.concat(held ? [held] : []);
+  const done = await alreadySeen(list.map(x => x.id));
+  // SELF-HEAL, so this needs no looking after: an enquiry already handled that is somehow still in Tom's inbox (a filing
+  // that failed, a thread moved back by hand) is filed into its folder again. Only messages already read are touched;
+  // anything new in the thread goes through intake below, so a brand's follow-up still reaches the owner.
+  if (!dry) {
+    const byThread = {}, healed = new Set();
+    for (const row of rows) { const t = String(row.v[C.ids] || "").split("|")[2]; if (t && Date.now() - Date.parse(row.created) < 14 * 86400000 && !byThread[t]) byThread[t] = row; }
+    for (const m of list) {
+      const row = byThread[m.threadId];
+      if (!row || !done.has(m.id) || healed.has(m.threadId)) continue;
+      const dd = row.v[C.decision], pick = dd === "Routed" ? row.ownerKey : dd === "Test only" ? ownerOf(row) : null;
+      const to = dd === "Held back" ? held : pick ? OWNERS[pick].label : "";
+      if (!to) continue;
+      healed.add(m.threadId);
+      await modify(tok, "threads", m.threadId, [to], ["INBOX"]).then(() => report.push({ healed: m.threadId, row: row.id }), () => null);
+    }
+  }
+  list = list.filter(x => !done.has(x.id)).slice(0, 40);
   if (!list.length) return;
   // Advertisers on US Campaigns and who worked on each most recently; learned owner overrides from the board.
   const md = await monday(`query { boards(ids:[6162879609]) { a: items_page(limit:500, query_params:{order_by:[{column_id:"__creation_log__", direction: desc}]}) { items { created_at cv: column_values(ids:["dropdown_mm1a3tqp","deal_owner"]) { id text } } } b: items_page(limit:500, query_params:{order_by:[{column_id:"__creation_log__", direction: asc}]}) { items { created_at cv: column_values(ids:["dropdown_mm1a3tqp","deal_owner"]) { id text } } } } }`);
@@ -330,32 +407,29 @@ async function intake(ctx) {
     if (dom && router && r.ownerKey && r.ownerKey !== router) overrides[dom] = r.ownerKey;
   }
   const histCache = {}, doneThreads = new Set();
-  const labelId = async name => {
-    let x = (labels.find(l => l.name === name) || {}).id;
-    if (!x) { x = (await gmail(tok, "/gmail/v1/users/me/labels", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(/^dft-/.test(name) ? { name, labelListVisibility: "labelHide", messageListVisibility: "hide" } : { name }) })).id; labels.push({ id: x, name }); }
-    return x;
-  };
   for (const { id, threadId } of list.reverse()) {
     if (Date.now() - t0 > 40000) break; // the next run picks up the rest
     if (doneThreads.has(threadId)) continue; // a second new message in the same thread waits for the next run
     doneThreads.add(threadId);
-    const mark = () => null;
+    const mark = () => dry ? null : setSeen(id, "done");
     const r = { id, thread: threadId };
+    let tries = 0;
     try {
-      // CLAIM first: the seen label is added before any work, so an overlapping run never picks the same message up.
-      if (!dry) await modify(tok, "messages", id, [seen]);
+      // CLAIM first, before any work, so an overlapping run never picks the same message up.
+      if (!dry) { const c = await claim(id); if (!c) continue; tries = c.tries || 0; }
       const th = await gmail(tok, "/gmail/v1/users/me/threads/" + threadId + "?format=full");
       const msgs = th.messages || [];
       const me = msgs.find(x => x.id === id) || msgs[msgs.length - 1];
       r.subject = hdr(me, "subject").slice(0, 90); r.internalDate = me.internalDate;
-      const routedLabel = (msgs.find(x => (x.labelIds || []).some(l => ROUTED.includes(l))) || { labelIds: [] }).labelIds.find(l => ROUTED.includes(l));
+      const routedLabel = (msgs.find(x => (x.labelIds || []).some(l => FILED.includes(l))) || { labelIds: [] }).labelIds.find(l => FILED.includes(l));
       if (routedLabel) {
         r.skip = "already routed";
-        // A later message from the brand in a routed conversation (e.g. a follow-up to the creator address): it goes to
-        // the owner too, then is filed with the conversation, out of Tom's inbox. Only routed threads carry these labels.
+        // A later message from the brand in a routed conversation (e.g. a follow-up to the creator address) is filed with
+        // the conversation, out of Tom's inbox, and in live mode goes to the owner. Every brand message in the thread is
+        // offered, so a conversation first filed during the test still reaches the owner whole (never twice: by Message-ID).
         const ownerKey = Object.keys(OWNERS).find(k => OWNERS[k].label === routedLabel);
-        if (mode === "live" && !dry && ownerKey && !byDft(me) && !hdr(me, "x-dft-routed")) await deliver(tok, me.id, ownerKey);
-        if (mode === "live" && !dry) await modify(tok, "messages", id, [routedLabel], ["INBOX"]);
+        if (mode === "live" && !dry && ownerKey) for (const x of msgs) if (!byDft(x) && !hdr(x, "x-dft-routed")) await deliver(tok, x.id, ownerKey);
+        if (!dry) await modify(tok, "messages", id, [routedLabel], ["INBOX"]);
       } else if (hdr(me, "x-dft-routed")) r.skip = "router copy";
       else if (byDft(me)) r.skip = "sent by DFT";
       else if (msgs.some(byDft)) r.skip = "DFT already in this conversation";
@@ -374,12 +448,15 @@ async function intake(ctx) {
       if (!d.owner && !d.held) { await mark(); report.push(r); continue; } // not a brand or press approach: stays with Tom
       // ONE PER CAMPAIGN: same company and campaign within 14 days.
       const key = history.target + "|" + String(v.campaign || v.brand || r.subject).toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().slice(0, 80);
-      const dup = rows.find(x => x.v[C.key] === key && Date.now() - Date.parse(x.created) < 14 * 86400000);
+      // Once live, a test-period row no longer counts: the lead is routed for real.
+      const dup = rows.find(x => x.v[C.key] === key && Date.now() - Date.parse(x.created) < 14 * 86400000 && (mode !== "live" || x.v[C.decision] !== "Test only"));
       if (dup) {
         r.duplicateOf = dup.id;
         if (!dry) {
-          // Filed with the original only when that one really went to someone (not a test or held-back row).
-          if (mode === "live" && dup.v[C.decision] === "Routed" && dup.ownerKey) await modify(tok, "messages", id, [OWNERS[dup.ownerKey].label], ["INBOX"]);
+          // Filed with the original: its owner's folder (the router's pick for a test row), or Held back.
+          const dd = dup.v[C.decision], pick = dd === "Routed" ? dup.ownerKey : dd === "Test only" ? ownerOf(dup) : null;
+          const fileTo = dd === "Held back" ? held : pick ? OWNERS[pick].label : "";
+          if (fileTo) await modify(tok, "threads", threadId, [fileTo], ["INBOX"]);
           const creators = [dup.v[C.creators], v.creators].filter(Boolean).join(", ");
           await setCols(dup.id, { [C.creators]: { text: [...new Set(creators.split(/\s*,\s*/).filter(Boolean))].join(", ") } }).catch(() => null);
         }
@@ -408,21 +485,18 @@ async function intake(ctx) {
         const made = await monday("mutation($b:ID!,$n:String!,$v:JSON!){create_item(board_id:$b,item_name:$n,column_values:$v,create_labels_if_missing:true){id}}", { b: BOARD, n: noDash(v.brand || r.subject).slice(0, 120), v: JSON.stringify(vals) });
         r.row = ((made || {}).create_item || {}).id;
         rows.unshift({ id: r.row, created: new Date().toISOString(), v: { [C.key]: key, [C.creators]: v.creators || "", [C.why]: why, [C.decision]: decision }, raw: {}, ownerKey: mode === "live" ? d.owner : null });
-        // Only a real delivery labels Tom's copy (test mode leaves his mail as it is; the board and 5pm list show the pick).
-        if (d.owner && mode === "live") await modify(tok, "threads", threadId, [OWNERS[d.owner].label], ["INBOX"]);
+        // Tom's copy leaves his inbox for the owner's "Routed to" folder, or Held back (test mode too: only delivery differs).
+        await modify(tok, "threads", threadId, [d.held ? held : OWNERS[d.owner].label], ["INBOX"]);
         Object.assign(r, { decision, delivered });
       }
       await mark();
     } catch (e) {
       r.error = String(e && e.message || e).slice(0, 300);
-      // Three tries, a minute or more apart (hidden labels count them), then flagged in Tom's mail so it is never silent.
+      // Three tries, a minute or more apart (counted in router_seen), then flagged in Tom's mail so it is never silent.
       if (!dry) {
         try {
-          const m1 = await gmail(tok, "/gmail/v1/users/me/messages/" + id + "?format=minimal");
-          const has = n => (m1.labelIds || []).includes((labels.find(l => l.name === n) || {}).id);
-          if (!has("dft-router-retry1")) await modify(tok, "messages", id, [await labelId("dft-router-retry1")], [seen]);
-          else if (!has("dft-router-retry2")) await modify(tok, "messages", id, [await labelId("dft-router-retry2")], [seen]);
-          else await modify(tok, "threads", threadId, [await labelId(ERR)]);
+          if (tries < 2) await setSeen(id, "retry", tries + 1);
+          else { await setSeen(id, "failed", tries + 1); await modify(tok, "threads", threadId, [await labelId(ERR)]); }
         } catch (e2) { /* left claimed; flagged by hand if ever needed */ }
       }
     }
