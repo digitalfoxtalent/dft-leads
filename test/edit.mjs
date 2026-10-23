@@ -175,9 +175,9 @@ ok(!/data-c="f1"/.test(out.html), "formula cells are not editable on the board")
 ok(/id="eco-cols">/.test(out.html) && !/id="eco-cols">[^<]*<[^/]/.test(out.html), "column data embedded without raw <");
 ok(/class="side"/.test(out.html) && /Editorial Plan/.test(out.html) && !/Private Marketing/.test(out.html) && !/Partner Pay Cap/.test(out.html), "sidebar lists only boards the viewer can see");
 out = await mirrorPage("boards/200", { method: "GET", headers: {}, query: {} }, resStub, TOM, TOKEN);
-ok(out.status === 200 && !/data-eco-board/.test(out.html) && !/eco-board.js/.test(out.html), "finance board has no editing code at all");
+ok(out.status === 200 && !/data-k=/.test(out.html) && !/data-c=/.test(out.html) && !/class="ren"/.test(out.html) && !/id="eco-cols"/.test(out.html), "read-only board: no edit token, no editable cells, no rename");
 out = await get("assets/eco-board.js");
-ok(out.status === 200 && /javascript/.test(out.type) && /data-eco-board/.test(out.body) && !/innerHTML\s*=\s*[^d]/.test(out.body.replace(/td\.innerHTML = d\.html/, "")), "board script served from our own address; only server HTML goes into cells");
+ok(out.status === 200 && /javascript/.test(out.type) && /data-eco-board/.test(out.body) && (out.body.match(/innerHTML\s*=[^=]/g) || []).length === (out.body.match(/innerHTML = d\.html;/g) || []).length, "board script served from our own address; only server HTML goes into cells");
 const cellPost = (body, who = MARGOT, origin = "https://ecosystem.digitalfoxtalent.com", boardId = "100", itemId = "500") =>
   mirrorPage(`boards/${boardId}/items/${itemId}/cell`, { method: "POST", headers: { origin }, query: {}, body }, resStub, who, TOKEN).then(o => JSON.parse(o.body));
 const { boardToken } = await import("../api/_reports/mirror/edit.js");

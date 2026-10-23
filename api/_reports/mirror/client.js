@@ -6,7 +6,7 @@
 export const BOARD_JS = String.raw`(function () {
   var root = document.querySelector("[data-eco-board]");
   if (!root) return;
-  var B = root.getAttribute("data-b"), K = root.getAttribute("data-k");
+  var B = root.getAttribute("data-b"), K = root.getAttribute("data-k"), ED = !!K; // K only on boards this person can edit
   var COLS = {};
   try { COLS = JSON.parse(document.getElementById("eco-cols").textContent); } catch (e) {}
   var open = null;
@@ -76,16 +76,98 @@ export const BOARD_JS = String.raw`(function () {
       acts.appendChild(cancel); acts.appendChild(ok); pop.appendChild(acts);
     } else {
       el.style.width = Math.max(td.getBoundingClientRect().width, 220) + "px";
-      el.addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); commit(); } if (e.key === "Escape") close(); });
+      el.addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); commit(); } if (e.key === "Escape") { e.stopPropagation(); close(); } });
     }
-    if (long) el.addEventListener("keydown", function (e) { if (e.key === "Escape") close(); if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) commit(); });
+    if (long) el.addEventListener("keydown", function (e) { if (e.key === "Escape") { e.stopPropagation(); close(); } if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) commit(); });
     place(pop, td, long ? 360 : 240);
     open = { pop: pop, td: td, commitOnBlur: long ? null : commit };
     setTimeout(function () { document.addEventListener("mousedown", outside, true); }, 0);
     el.focus(); if (!long && el.select) el.select();
   }
 
+  // ---------- the item side panel, as on monday: click an item to see its updates and fields ----------
+  var panel = null, cur = null;
+  function shell() {
+    if (panel) return panel;
+    panel = document.createElement("aside"); panel.id = "eco-panel"; panel.setAttribute("aria-label", "Item");
+    var x = document.createElement("button"); x.type = "button"; x.className = "pn-x"; x.setAttribute("aria-label", "Close"); x.textContent = "\u00d7";
+    x.addEventListener("click", closePanel);
+    var body = document.createElement("div"); body.className = "pn-body";
+    panel.appendChild(x); panel.appendChild(body); document.body.appendChild(panel);
+    panel.addEventListener("click", function (e) {
+      var t = e.target.closest("[data-tab]"); if (!t) return;
+      panel.querySelectorAll("[data-tab]").forEach(function (b) { b.classList.toggle("on", b === t); });
+      panel.querySelectorAll("[data-pane]").forEach(function (p) { p.hidden = p.getAttribute("data-pane") !== t.getAttribute("data-tab"); });
+    });
+    panel.addEventListener("submit", function (e) {
+      var f = e.target.closest("form[data-eco-post]"); if (!f) return;
+      e.preventDefault(); postUpdate(f);
+    });
+    panel.addEventListener("keydown", function (e) {
+      if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && e.target.closest("form[data-eco-post]")) { e.preventDefault(); postUpdate(e.target.closest("form")); }
+    });
+    return panel;
+  }
+  function markRow(id) {
+    root.querySelectorAll("tr.sel").forEach(function (r) { r.classList.remove("sel"); });
+    if (id) { var r = root.querySelector('tr[data-i="' + id + '"]'); if (r) r.classList.add("sel"); }
+  }
+  function openPanel(id, tab) {
+    if (!/^\d{1,19}$/.test(id)) return;
+    var p = shell(), body = p.querySelector(".pn-body");
+    cur = id; markRow(id);
+    body.textContent = "Loading...";
+    p.classList.add("open");
+    try { history.replaceState(null, "", "#item-" + id); } catch (e) {}
+    fetch("/boards/" + B + "/items/" + id + "/panel", { credentials: "same-origin" }).then(function (r) { return r.json(); }).then(function (d) {
+      if (cur !== id) return;
+      if (d.ok && typeof d.html === "string") { body.innerHTML = d.html; if (tab === "f") { var t = body.querySelector('[data-tab="f"]'); if (t) t.click(); } var ta = body.querySelector("form[data-eco-post] textarea"); if (ta && tab !== "f") ta.focus(); }
+      else body.textContent = d.message || "This item is not available.";
+    }).catch(function () { if (cur === id) body.textContent = "Could not reach the Ecosystem. Try again in a moment."; });
+  }
+  function closePanel() {
+    if (!panel || !panel.classList.contains("open")) return false;
+    panel.classList.remove("open"); cur = null; markRow(null);
+    try { history.replaceState(null, "", location.pathname + location.search); } catch (e) {}
+    return true;
+  }
+  function postUpdate(f) {
+    var ta = f.querySelector("textarea"), btn = f.querySelector("button[type=submit]"), id = cur;
+    var text = ta.value; if (!text.trim() || !id) return;
+    btn.disabled = true; ta.disabled = true;
+    fetch("/boards/" + B + "/items/" + id + "/update", {
+      method: "POST", credentials: "same-origin", keepalive: true, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ k: K, t: text })
+    }).then(function (r) { return r.json(); }).then(function (d) {
+      if (cur === id && typeof d.html === "string") {
+        var list = panel.querySelector(".upd-list"); if (list) list.innerHTML = d.html;
+        var n = panel.querySelector('[data-tab="u"] .n'); if (n && typeof d.count === "number") n.textContent = String(d.count);
+      }
+      var ub = root.querySelector('tr[data-i="' + id + '"] .ub');
+      if (ub && typeof d.count === "number" && d.count > 0) { ub.classList.add("has"); var sp = ub.querySelector("span"); if (!sp) { sp = document.createElement("span"); ub.appendChild(sp); } sp.textContent = d.count >= 10 ? "10+" : String(d.count); }
+      if (d.ok) ta.value = "";
+      toast(d.message || (d.ok ? "Posted" : "Not posted"), !d.ok);
+    }).catch(function () {
+      toast("Could not reach the Ecosystem. Check the item in monday before posting again.", true);
+    }).then(function () { btn.disabled = false; ta.disabled = false; });
+  }
   root.addEventListener("click", function (e) {
+    var nm = e.target.closest("td.nm");
+    if (!nm || !root.contains(nm) || e.target.closest(".ren")) return;
+    if (e.target.closest("a") && (e.metaKey || e.ctrlKey || e.shiftKey || e.button === 1)) return; // new tab still opens the full page
+    e.preventDefault();
+    close();
+    openPanel(nm.closest("tr").getAttribute("data-i"));
+  });
+  document.addEventListener("mousedown", function (e) {
+    if (!panel || !panel.classList.contains("open") || open) return;
+    var t = e.target;
+    if (panel.contains(t) || t.closest("td.nm") || t.closest("#eco-toast")) return;
+    closePanel();
+  });
+  var h = /^#item-(\d{1,19})$/.exec(location.hash); if (h) openPanel(h[1]);
+
+  root.addEventListener("click", function (e) {
+    if (!ED) return;
     var td = e.target.closest("td[data-c]");
     if (!td || !root.contains(td)) return;
     var t = td.getAttribute("data-t");
@@ -100,6 +182,6 @@ export const BOARD_JS = String.raw`(function () {
     if (t === "checkbox") return save(td, td.getAttribute("data-v") ? "" : "true");
     inputEditor(td, t);
   });
-  document.addEventListener("keydown", function (e) { if (e.key === "Escape") close(); });
+  document.addEventListener("keydown", function (e) { if (e.key !== "Escape") return; if (open) close(); else closePanel(); });
 })();
 `;
