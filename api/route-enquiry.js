@@ -298,6 +298,23 @@ async function listAll(tok, q, max) {
   return out;
 }
 
+// ONGOING DEALS (Tom, 23 Oct 2026): a conversation a salesperson is already running with an outside party, where Tom
+// is only copied, goes into that salesperson's "Routed to" folder instead of Tom's inbox. Who runs it = the last person
+// at DFT to write in it. It stays with Tom when that is Tom, when only DFT people are on it, or when the new email is a
+// salesperson writing to Tom alone (a question for him).
+const emailsIn = s => (String(s || "").match(/[\w.+'-]+@[\w-]+(?:\.[\w-]+)+/g) || []).map(x => x.toLowerCase());
+function ongoingOwner(msgs, me) {
+  const people = m => emailsIn([hdr(m, "from"), hdr(m, "to"), hdr(m, "cc"), hdr(m, "reply-to")].join(","));
+  if (!msgs.some(m => people(m).some(a => !DFT.test(a)))) return null;
+  let last = "";
+  for (const m of msgs) { const s = realSender(m); if (DFT.test(s) && s !== ALERT_FROM) last = s; }
+  const key = Object.keys(OWNERS).find(k => OWNERS[k].email === last);
+  if (!key) return null;
+  const to = emailsIn(hdr(me, "to"));
+  if (DFT.test(realSender(me)) && to.length && to.every(a => a === SOURCE)) return null;
+  return key;
+}
+
 // ---------- delivery ----------
 async function rawMessage(tok, id) {
   const m = await gmail(tok, "/gmail/v1/users/me/messages/" + id + "?format=raw");
@@ -431,8 +448,11 @@ async function intake(ctx) {
         if (mode === "live" && !dry && ownerKey) for (const x of msgs) if (!byDft(x) && !hdr(x, "x-dft-routed")) await deliver(tok, x.id, ownerKey);
         if (!dry) await modify(tok, "messages", id, [routedLabel], ["INBOX"]);
       } else if (hdr(me, "x-dft-routed")) r.skip = "router copy";
-      else if (byDft(me)) r.skip = "sent by DFT";
-      else if (msgs.some(byDft)) r.skip = "DFT already in this conversation";
+      else if (byDft(me) || msgs.some(byDft)) {
+        const k = ongoingOwner(msgs, me);
+        if (k) { r.skip = "ongoing deal, filed to " + OWNERS[k].name; if (!dry) await modify(tok, "threads", threadId, [OWNERS[k].label], ["INBOX"]); }
+        else r.skip = byDft(me) ? "sent by DFT" : "DFT already in this conversation";
+      }
       if (r.skip) { await mark(); report.push(r); continue; }
       let sender = realSender(me);
       const body = bodyText(me.payload);
