@@ -22,7 +22,9 @@ export const VAULT_SCHEMA = [
      source text NOT NULL,
      fetched_at timestamptz NOT NULL DEFAULT now()
    )`,
+  `CREATE TABLE IF NOT EXISTS mirror.vault_events (id bigserial PRIMARY KEY, at timestamptz NOT NULL DEFAULT now(), note text NOT NULL)`, // what each refresh found, never values
 ];
+const event = note => write(`INSERT INTO mirror.vault_events (note) VALUES ($1)`, [String(note).slice(0, 300)]).catch(() => {});
 
 // name -> monday API Keys board item, the Vercel setting that overrides it, and where the key may be sent.
 export const SECRETS = {
@@ -72,21 +74,24 @@ async function fromMonday(token, mondayImpl) {
 
 // Returns { name: value } for every key available. Never logs or returns anything else.
 export async function vaultKeys({ env = process.env, now = Date.now, mondayImpl = monday, token = mondayToken() } = {}) {
-  if (memo.values && now() - memo.at < MEMO_MS) return Object.assign({}, memo.values, envOverrides(env));
+  if (memo.values && now() - memo.at < MEMO_MS && (Object.keys(SECRETS).every(n => memo.values[n]) || now() - memo.at < 120000)) return Object.assign({}, memo.values, envOverrides(env)); // retry an incomplete vault after 2 minutes
   const rows = await read(`SELECT name, iv, tag, data, fetched_at FROM mirror.vault`).catch(() => []);
   const stored = {}; let oldest = Infinity;
   for (const r of rows) { const v = open(r); if (v) { stored[r.name] = v; oldest = Math.min(oldest, new Date(r.fetched_at).getTime()); } }
   const missing = Object.keys(SECRETS).some(n => !stored[n] && !envOverrides(env)[n]);
+  if ((missing || now() - oldest > REFRESH_MS) && !vaultKey()) await event("cannot refresh: the Vercel secret used to encrypt the vault is missing or too short");
+  else if ((missing || now() - oldest > REFRESH_MS) && !token) await event("cannot refresh: no monday token");
   if ((missing || now() - oldest > REFRESH_MS) && token && vaultKey()) {
     try {
       const fresh = await fromMonday(token, mondayImpl);
+      await event("monday refresh: " + Object.keys(fresh).length + " of " + Object.keys(SECRETS).length + " keys found" + (Object.keys(fresh).length < Object.keys(SECRETS).length ? " (missing: " + Object.keys(SECRETS).filter(n => !fresh[n]).join(", ") + "; the monday user behind the Ecosystem may not be able to see the API Keys board)" : ""));
       for (const [name, value] of Object.entries(fresh)) {
         const s = seal(value);
         await write(`INSERT INTO mirror.vault (name, iv, tag, data, source, fetched_at) VALUES ($1, $2, $3, $4, 'monday board', now())
           ON CONFLICT (name) DO UPDATE SET iv = EXCLUDED.iv, tag = EXCLUDED.tag, data = EXCLUDED.data, source = EXCLUDED.source, fetched_at = now()`, [name, s.iv, s.tag, s.data]);
         stored[name] = value;
       }
-    } catch (e) { console.warn("vault: monday refresh failed, using the stored keys", String(e && e.message || e).slice(0, 120)); }
+    } catch (e) { const msg = String(e && e.message || e).slice(0, 160); console.warn("vault: monday refresh failed, using the stored keys", msg); await event("monday refresh failed: " + msg); }
   }
   memo = { at: now(), values: stored };
   return Object.assign({}, stored, envOverrides(env));
@@ -101,5 +106,7 @@ function envOverrides(env) {
 // For /data/mirror: which keys the vault holds and how fresh, never the values.
 export async function vaultStatus() {
   const rows = await read(`SELECT name, source, fetched_at FROM mirror.vault ORDER BY name`).catch(() => []);
-  return Object.keys(SECRETS).map(n => { const r = rows.find(x => x.name === n); return { name: n, held: !!r, fetched_at: r ? r.fetched_at : null, override: !!String(process.env[SECRETS[n].env] || "").trim() }; });
+  const keys = Object.keys(SECRETS).map(n => { const r = rows.find(x => x.name === n); return { name: n, held: !!r, fetched_at: r ? r.fetched_at : null, override: !!String(process.env[SECRETS[n].env] || "").trim() }; });
+  const events = await read(`SELECT at, note FROM mirror.vault_events ORDER BY id DESC LIMIT 3`).catch(() => []);
+  return Object.assign(keys, { events });
 }
