@@ -1496,6 +1496,92 @@ function recruitPage(q) {
 <body><div class="c" id="c"><div class="sp"></div><h1>Writing your email${q.name ? " to " + e(q.name) : ""}…</h1><p id="m">Picking similar creators we represent and writing the email. This takes about 20 seconds, then your draft opens in Gmail.</p></div>
 <script>fetch("/api/roster",{method:"POST",headers:{"content-type":"application/json"},credentials:"same-origin",body:${JSON.stringify(args)}}).then(r=>r.json()).then(j=>{ if(j&&j.url){ document.getElementById("m").textContent="Done. Opening your draft…"; location.href=j.url; } else throw new Error((j&&j.error)||"Something went wrong"); }).catch(err=>{ const c=document.getElementById("c"); c.innerHTML="<h1>That didn’t work</h1><p>"+String(err.message||err).replace(/[<>&]/g,"")+"</p><p style=\\"margin-top:14px\\"><a href=\\"javascript:location.reload()\\">Try again</a></p>"; });</script></body></html>`;
 }
+
+// ---------------------------------------------------------------------------
+// Contract amendment draft (Tom, 23 Oct 2026). The Make contract review already
+// writes each flag with client-ready "Ask:" wording into CLAUDE REVIEW. This turns
+// those Asks into a Gmail draft on the brand's own thread, in the sales lead's
+// mailbox, so the team never retypes them. Same shape as the Sales Desk Draft
+// button: ?op=contract&item=<deal> -> sign in if needed -> contractPage -> this.
+const CAMPAIGN_BOARD = "6162879609";                 // US Campaigns
+const CC = { review: "long_text_mm15j0h2", contact: "lookup_mm5z54ns", owner: "deal_owner", advertiser: "dropdown_mm1a3tqp", status: "color_mm1atc11" };
+const CONTRACT_CC = ["tom@digitalfoxtalent.com", "alex@digitalfoxtalent.com", "margot@digitalfoxtalent.com"]; // Tom, 23 Oct 2026
+
+// Pull the flags out of a CLAUDE REVIEW. Each item is "<issue> Ask: <wording>" under a
+// Red/Orange/Yellow heading; the wording after "Ask:" is what the brand reads, the text
+// before it is why we are asking. Yellow flags are questions, not amendments, so the
+// draft carries Red and Orange by default.
+function contractAsks(review) {
+  const out = []; let level = "";
+  for (let line of String(review || "").split(/\r?\n/)) {
+    line = line.trim();
+    const h = /^(Red|Orange|Yellow)\s+Flags?\b/i.exec(line);
+    if (h) { level = h[1].toLowerCase(); continue; }
+    if (!level) continue;
+    const item = /^[*\-•]\s*(.+)$/.exec(line);
+    if (!item) continue;
+    const i = item[1].search(/\bAsk:\s/);
+    if (i < 0) continue;
+    const issue = item[1].slice(0, i).replace(/\s*[.;:]\s*$/, "").trim();
+    const ask = item[1].slice(i).replace(/^Ask:\s*/, "").trim();
+    if (ask) out.push({ level, issue, ask });
+  }
+  return out;
+}
+
+async function contractDraft(b, email) {
+  const item = Number(b.item) || 0;
+  const d = await monday(`query{items(ids:[${item}]){id name board{id} column_values(ids:${JSON.stringify(Object.values(CC))}){id text}}}`);
+  const it = d && d.items && d.items[0];
+  if (!it || String((it.board || {}).id) !== CAMPAIGN_BOARD) throw new Error("Deal not found on US Campaigns");
+  const v = {}; (it.column_values || []).forEach(c => { v[c.id] = c; });
+  const t = id => String((v[id] || {}).text || "").trim();
+
+  const asks = contractAsks(t(CC.review)).filter(a => b.all ? true : a.level !== "yellow");
+  if (!asks.length) throw new Error("No amendments to ask for: this review has no Red or Orange flags with an Ask");
+
+  const to = String(b.to || t(CC.contact)).split(/[,;\s]+/).filter(x => /@/.test(x))[0] || "";
+  if (!to) throw new Error("No brand contact email on this deal. Add one to the CLIENTS row, or pass to=");
+
+  const deal = String(it.name || "").trim();
+  const advertiser = t(CC.advertiser);
+  const me = String(email.split("@")[0] || "").replace(/[._-]+/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+
+  // The brand's own thread, so the amendments land where the deal is being discussed.
+  let threadId = String(b.threadId || "");
+  if (!threadId) {
+    const tok = await gmailToken(email);
+    if (tok) {
+      const q = encodeURIComponent("from:" + to + " OR to:" + to);
+      const r = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/threads?maxResults=1&q=" + q, { headers: { Authorization: "Bearer " + tok } }).then(x => x.json()).catch(() => ({}));
+      threadId = (((r.threads || [])[0]) || {}).id || "";
+    }
+  }
+
+  const esc = s => String(s == null ? "" : s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const lead = asks.length === 1
+    ? "Thanks for sending the agreement over. Before we sign, there is one point we would like to adjust:"
+    : "Thanks for sending the agreement over. Before we sign, there are " + asks.length + " points we would like to adjust:";
+  const html = '<div dir="ltr"><p>Hi,</p><p>' + esc(lead) + "</p><ol>"
+    + asks.map(a => "<li style=\"margin-bottom:10px\">" + esc(a.ask) + "</li>").join("")
+    + "</ol><p>Everything else looks good to us, and we are ready to move as soon as these are in. Happy to jump on a quick call if that is easier.</p>"
+    + "<p>Best,<br>" + esc(me) + "<br>Digital Fox Talent</p></div>";
+  const subject = "Agreement amendments" + (advertiser || deal ? " - " + (advertiser || deal) : "");
+
+  // makeDraft does the threading, the quote, the one-draft-per-thread rule and the link check.
+  const made = await makeDraft({ to, cc: CONTRACT_CC.join(", "), subject, html, threadId }, email);
+  const gmailUrl = "https://mail.google.com/mail/?authuser=" + encodeURIComponent(email) + "#drafts?compose=" + (made.threadId ? "thread-f:" + BigInt("0x" + made.threadId).toString() + "%2Bmsg-a:" + made.draftId : made.draftId);
+  return { ok: true, draft: made.draftId, asks: asks.length, to, threaded: !!made.threadId, url: gmailUrl };
+}
+
+function contractPage(q) {
+  const e = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const args = JSON.stringify({ op: "contract-draft", item: String(q.item || ""), all: q.all === "1" });
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Writing your amendment email</title>
+<style>body{margin:0;background:#f5f3ef;font:15px/1.55 Poppins,Arial,sans-serif;color:#1a1a1a;display:grid;place-items:center;min-height:100vh}.c{background:#fff;border:1px solid #ece9e4;border-radius:16px;padding:40px 44px;max-width:460px;margin:24px;text-align:center}.sp{width:34px;height:34px;border:3px solid #f2dcc6;border-top-color:#f58220;border-radius:50%;animation:s 1s linear infinite;margin:0 auto 18px}@keyframes s{to{transform:rotate(360deg)}}h1{font-size:20px;margin:0 0 8px}p{color:#6b6b76;margin:0}a{color:#0f085e;font-weight:600}</style></head>
+<body><div class="c" id="c"><div class="sp"></div><h1>Writing your amendment email${q.name ? " for " + e(q.name) : ""}…</h1><p id="m">Turning the review's asks into a reply on the brand's thread. Your draft opens in Gmail in a moment.</p></div>
+<script>fetch("/api/roster",{method:"POST",headers:{"content-type":"application/json"},credentials:"same-origin",body:${JSON.stringify(args)}}).then(r=>r.json()).then(j=>{ if(j&&j.url){ document.getElementById("m").textContent="Done. Opening your draft…"; location.href=j.url; } else throw new Error((j&&j.error)||"Something went wrong"); }).catch(err=>{ const c=document.getElementById("c"); c.innerHTML="<h1>That didn’t work</h1><p>"+String(err.message||err).replace(/[<>&]/g,"")+"</p><p style=\\"margin-top:14px\\"><a href=\\"javascript:location.reload()\\">Try again</a></p>"; });</script></body></html>`;
+}
 function outreachPage(q) {
   const e = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const args = JSON.stringify({ op: "outreach-draft", board: String(q.board || ""), item: String(q.item || ""), to: String(q.to || ""), name: String(q.name || ""), last: String(q.last || "") });
@@ -3179,6 +3265,7 @@ function pitchMime(b) {
 }
 
 export { teamDraft, replyHeaderOptions }; // for test/team-draft-thread.mjs
+export { contractAsks }; // for test/contract-asks.mjs
 
 export default async function handler(req, res) {
   try {
@@ -3199,7 +3286,7 @@ export default async function handler(req, res) {
       if (!who) { res.setHeader("Location", "/?signin=failed"); return res.status(302).end(); }
       const nx = decodeURIComponent((String(req.headers.cookie || "").match(/(?:^|;\s*)dft_next=([^;]+)/) || [])[1] || "");
       res.setHeader("Set-Cookie", [setTeamCookie(res, secret, who), "dft_next=; Path=/; Max-Age=0; Secure; SameSite=Lax"]);
-      res.setHeader("Location", /^\/api\/roster\?op=outreach&/.test(nx) ? nx : "/");
+      res.setHeader("Location", /^\/api\/roster\?op=(?:outreach|recruit|contract)&/.test(nx) ? nx : "/");
       return res.status(302).end();
     }
     // The Sales Desk Draft button (Tom, 16 Oct 2026). Signed out, it goes to sign in first and comes back here.
@@ -3208,6 +3295,13 @@ export default async function handler(req, res) {
       if (!email) { res.setHeader("Set-Cookie", "dft_next=" + encodeURIComponent(req.url) + "; Path=/; Max-Age=900; Secure; SameSite=Lax"); res.setHeader("Location", "/signin"); return res.status(302).end(); }
       res.setHeader("Content-Type", "text/html; charset=utf-8");
       return res.status(200).send(recruitPage(q));
+    }
+    // The contract amendment Draft button (Tom, 23 Oct 2026). Signed out, it signs in first and comes back.
+    if (q.op === "contract") {
+      res.setHeader("Cache-Control", "private, no-store");
+      if (!email) { res.setHeader("Set-Cookie", "dft_next=" + encodeURIComponent(req.url) + "; Path=/; Max-Age=900; Secure; SameSite=Lax"); res.setHeader("Location", "/signin"); return res.status(302).end(); }
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      return res.status(200).send(contractPage(q));
     }
     if (q.op === "outreach") {
       res.setHeader("Cache-Control", "private, no-store");
@@ -3283,6 +3377,7 @@ export default async function handler(req, res) {
         if (b.op === "list-thread") { const { list } = await freshList(b.slug); if (!list) throw new Error("list not found"); const t = await listThread(list); return res.status(200).json({ found: !!t, subject: t ? t.subject : "", thread: t ? t.id : "" }); }
         if (b.op === "outreach-draft") return res.status(200).json(await outreachDraft(b, email));
         if (b.op === "recruit-draft") return res.status(200).json(await recruitDraft(b, email));
+        if (b.op === "contract-draft") return res.status(200).json(await contractDraft(b, email));
         if (b.op === "pitch-audit") return res.status(200).json(await pitchAudit(b));
         if (b.op === "list-idea") return res.status(200).json(await listIdea(b, email));
         if (b.op === "ideas-draft") return res.status(200).json(await ideasDraft(b, email));
