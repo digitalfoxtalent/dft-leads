@@ -4,6 +4,9 @@
 import { serveApi } from "./_reports/mirror/apikeys.js";
 import { ensureSchema } from "./_reports/mirror/schema.js";
 import { hasDatabase } from "./_reports/mirror/db.js";
+import { mondayToken } from "./_reports/monday.js";
+
+export const config = { maxDuration: 120 }; // gateway calls wait for monday
 
 export default async function handler(req, res) {
   res.setHeader("Cache-Control", "no-store");
@@ -16,8 +19,8 @@ export default async function handler(req, res) {
   try {
     await ensureSchema();
     const q = Object.assign({}, req.query); delete q.p;
-    const out = await serveApi({ method: req.method, headers: req.headers, query: q }, path);
-    return res.status(out.status).send(JSON.stringify(out.body));
+    const out = await serveApi({ method: req.method, headers: req.headers, query: q, body: req.body }, path, mondayToken());
+    return res.status(out.status).send(out.raw != null ? out.raw : JSON.stringify(out.body));
   } catch (e) {
     console.error("eco-api", e);
     return res.status(500).send(JSON.stringify({ error: "Something went wrong." }));

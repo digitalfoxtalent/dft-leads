@@ -160,13 +160,13 @@ export async function mirrorPage(route, req, res, email, token) {
     const depts = (Array.isArray(b.d) ? b.d : b.d ? [b.d] : []).map(String).filter(d => DEPT_NAMES[d] && d !== "reporting");
     const name = one(b.name).trim();
     if (!name) return renderApiKeys(email, token, { ok: false, message: "Give the key a name, so you know what uses it." });
-    if (!depts.length && !one(b.boards).trim()) return renderApiKeys(email, token, { ok: false, message: "Tick at least one section, or name the boards the key may read." });
+    if (!depts.length && !one(b.boards).trim() && one(b.gateway) !== "1") return renderApiKeys(email, token, { ok: false, message: "Tick at least one section, or name the boards the key may read." });
     const ids = [...new Set(one(b.boards).split(/[\s,]+/).filter(Boolean))];
     if (ids.some(x => !/^\d{1,19}$/.test(x)) || ids.length > 30) return renderApiKeys(email, token, { ok: false, message: "Extra boards must be board numbers separated by commas (30 at most)." });
     const known = ids.length ? (await read(`SELECT id::text AS id FROM mirror.boards WHERE id = ANY($1::bigint[]) AND board_type = 'board' AND NOT gone`, [ids])).map(r => r.id) : [];
     const missing = ids.filter(x => !known.includes(x));
     if (missing.length) return renderApiKeys(email, token, { ok: false, message: "Board " + missing[0] + " is not in the Ecosystem's copy." });
-    const key = await createKey(name, depts, ids, email, one(b.n).slice(0, 40));
+    const key = await createKey(name, depts, ids, email, one(b.n).slice(0, 40), one(b.gateway) === "1");
     if (!key) return renderApiKeys(email, token, { ok: false, message: "That form already made a key; it is listed below. Open the page again to make another." });
     return renderApiKeys(email, token, { ok: true, message: "Key made for " + name + "." }, key);
   }
