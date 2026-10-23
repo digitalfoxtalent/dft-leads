@@ -113,8 +113,9 @@ const byDft = m => DFT.test(realSender(m)) && !isBrief(m);
 const esc = s => String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 const noDash = s => String(s || "").replace(/\s*[—–]\s*/g, ", ");
 const isoDay = d => new Date(d).toISOString().slice(0, 10);
+const DENVER_FMT = new Intl.DateTimeFormat("en-US", { timeZone: "America/Denver", hour12: false, weekday: "short", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
 const denver = (d = new Date()) => {
-  const p = Object.fromEntries(new Intl.DateTimeFormat("en-US", { timeZone: "America/Denver", hour12: false, weekday: "short", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }).formatToParts(d).map(x => [x.type, x.value]));
+  const p = Object.fromEntries(DENVER_FMT.formatToParts(d).map(x => [x.type, x.value]));
   return { day: p.weekday, date: p.year + "-" + p.month + "-" + p.day, hour: Number(p.hour) % 24, minute: Number(p.minute) };
 };
 // Working hours between two times, Mon to Fri 9am to 5pm Denver, counted in half hours. One working day = 8 hours.
@@ -275,12 +276,14 @@ async function readBoard() {
     for (const c of it.column_values || []) { v[c.id] = c.text || ""; raw[c.id] = c.value; }
     let ownerIds = [];
     try { ownerIds = ((JSON.parse(raw[C.owner] || "{}").personsAndTeams) || []).map(p => String(p.id)); } catch (e) {}
-    return { id: it.id, name: it.name, created: it.created_at, v, ownerKey: ownerIds.map(i => BY_MONDAY_ID[i]).find(Boolean) || null };
+    return { id: it.id, name: it.name, created: it.created_at, v, raw, ownerKey: ownerIds.map(i => BY_MONDAY_ID[i]).find(Boolean) || null };
   });
 }
 const setCols = (id, vals) => monday("mutation($b:ID!,$i:ID!,$v:JSON!){change_multiple_column_values(board_id:$b,item_id:$i,column_values:$v,create_labels_if_missing:true){id}}", { b: BOARD, i: String(id), v: JSON.stringify(vals) });
 const ownerOf = r => r.ownerKey || (Object.keys(OWNERS).find(k => String(r.v[C.why]).startsWith("Router: " + OWNERS[k].name + " (")) || null);
 const ownerVal = key => key ? { personsAndTeams: [{ id: OWNERS[key].monday, kind: "person" }] } : { personsAndTeams: [] };
+// A monday date column's stored value is UTC {date, time}; its display text may be in the API user's time zone.
+const whenOf = (r, col) => { try { const x = JSON.parse((r.raw || {})[col] || "null"); if (x && x.date) return Date.parse(x.date + "T" + (x.time || "00:00:00") + "Z"); } catch (e) {} return 0; };
 const dateVal = ms => { const d = new Date(ms); return { date: d.toISOString().slice(0, 10), time: d.toISOString().slice(11, 19) }; };
 
 // ---------- INTAKE ----------
@@ -309,13 +312,20 @@ async function intake(ctx) {
     if (dom && router && r.ownerKey && r.ownerKey !== router) overrides[dom] = r.ownerKey;
   }
   const histCache = {}, doneThreads = new Set();
+  const labelId = async name => {
+    let x = (labels.find(l => l.name === name) || {}).id;
+    if (!x) { x = (await gmail(tok, "/gmail/v1/users/me/labels", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(/^dft-/.test(name) ? { name, labelListVisibility: "labelHide", messageListVisibility: "hide" } : { name }) })).id; labels.push({ id: x, name }); }
+    return x;
+  };
   for (const { id, threadId } of list.reverse()) {
     if (Date.now() - t0 > 40000) break; // the next run picks up the rest
-    const mark = () => dry ? null : modify(tok, "messages", id, [seen]);
+    if (doneThreads.has(threadId)) continue; // a second new message in the same thread waits for the next run
+    doneThreads.add(threadId);
+    // CLAIM first: the seen label is added before any work, so an overlapping run never picks the same message up.
+    if (!dry) await modify(tok, "messages", id, [seen]);
+    const mark = () => null;
     const r = { id, thread: threadId };
     try {
-      if (doneThreads.has(threadId)) { r.skip = "thread handled this run"; await mark(); report.push(r); continue; }
-      doneThreads.add(threadId);
       const th = await gmail(tok, "/gmail/v1/users/me/threads/" + threadId + "?format=full");
       const msgs = th.messages || [];
       const me = msgs.find(x => x.id === id) || msgs[msgs.length - 1];
@@ -323,7 +333,10 @@ async function intake(ctx) {
       const routedLabel = (msgs.find(x => (x.labelIds || []).some(l => ROUTED.includes(l))) || { labelIds: [] }).labelIds.find(l => ROUTED.includes(l));
       if (routedLabel) {
         r.skip = "already routed";
-        // A later message in a routed conversation: filed with it, out of Tom's inbox (live).
+        // A later message from the brand in a routed conversation (e.g. a follow-up to the creator address): it goes to
+        // the owner too, then is filed with the conversation, out of Tom's inbox. Only routed threads carry these labels.
+        const ownerKey = Object.keys(OWNERS).find(k => OWNERS[k].label === routedLabel);
+        if (mode === "live" && !dry && ownerKey && !byDft(me) && !hdr(me, "x-dft-routed")) await deliver(tok, me.id, ownerKey);
         if (mode === "live" && !dry) await modify(tok, "messages", id, [routedLabel], ["INBOX"]);
       } else if (hdr(me, "x-dft-routed")) r.skip = "router copy";
       else if (byDft(me)) r.skip = "sent by DFT";
@@ -347,8 +360,8 @@ async function intake(ctx) {
       if (dup) {
         r.duplicateOf = dup.id;
         if (!dry) {
-          const label = ownerOf(dup) ? OWNERS[ownerOf(dup)].label : null;
-          if (label) await modify(tok, "messages", id, [label], mode === "live" ? ["INBOX"] : []);
+          // Filed with the original only when that one really went to someone (not a test or held-back row).
+          if (mode === "live" && dup.v[C.decision] === "Routed" && dup.ownerKey) await modify(tok, "messages", id, [OWNERS[dup.ownerKey].label], ["INBOX"]);
           const creators = [dup.v[C.creators], v.creators].filter(Boolean).join(", ");
           await setCols(dup.id, { [C.creators]: { text: [...new Set(creators.split(/\s*,\s*/).filter(Boolean))].join(", ") } }).catch(() => null);
         }
@@ -366,7 +379,7 @@ async function intake(ctx) {
           [C.received]: dateVal(Number(me.internalDate)), [C.owner]: ownerVal(mode === "live" ? d.owner : null), // test mode never assigns, so nobody is notified
  [C.status]: { label: "New" }, [C.source]: { label: "Email" },
           [C.decision]: { label: decision }, [C.why]: why.slice(0, 250), [C.history]: (histText + (pastClient ? "; past client " + pastClient : "")).slice(0, 250),
-          [C.key]: key, [C.ids]: [id, hdr(me, "message-id").replace(/[<>\s]/g, ""), threadId].join("|")
+          [C.key]: key, [C.ids]: [id, hdr(me, "message-id").replace(/[<>\s]/g, ""), threadId, "", mode === "live" && d.owner ? d.owner : ""].join("|")
         };
         let delivered = null;
         if (d.owner && mode === "live") {
@@ -376,21 +389,23 @@ async function intake(ctx) {
         }
         const made = await monday("mutation($b:ID!,$n:String!,$v:JSON!){create_item(board_id:$b,item_name:$n,column_values:$v,create_labels_if_missing:true){id}}", { b: BOARD, n: noDash(v.brand || r.subject).slice(0, 120), v: JSON.stringify(vals) });
         r.row = ((made || {}).create_item || {}).id;
-        rows.unshift({ id: r.row, created: new Date().toISOString(), v: { [C.key]: key, [C.creators]: v.creators || "", [C.why]: why }, ownerKey: mode === "live" ? d.owner : null });
-        if (d.owner) await modify(tok, "threads", threadId, [OWNERS[d.owner].label], mode === "live" ? ["INBOX"] : []);
+        rows.unshift({ id: r.row, created: new Date().toISOString(), v: { [C.key]: key, [C.creators]: v.creators || "", [C.why]: why, [C.decision]: decision }, raw: {}, ownerKey: mode === "live" ? d.owner : null });
+        // Only a real delivery labels Tom's copy (test mode leaves his mail as it is; the board and 5pm list show the pick).
+        if (d.owner && mode === "live") await modify(tok, "threads", threadId, [OWNERS[d.owner].label], ["INBOX"]);
         Object.assign(r, { decision, delivered });
       }
       await mark();
     } catch (e) {
       r.error = String(e && e.message || e).slice(0, 300);
-      // Retried each minute for 30 minutes, then flagged in Tom's mail so it is never silent.
-      if (Number(r.internalDate || 0) && Date.now() - Number(r.internalDate) > 1800000 && !dry) {
+      // Three tries, a minute or more apart (hidden labels count them), then flagged in Tom's mail so it is never silent.
+      if (!dry) {
         try {
-          let err = (labels.find(l => l.name === ERR) || {}).id;
-          if (!err) { err = (await gmail(tok, "/gmail/v1/users/me/labels", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: ERR }) })).id; labels.push({ id: err, name: ERR }); }
-          await modify(tok, "threads", threadId, [err]);
-        } catch (e2) {}
-        await mark();
+          const m1 = await gmail(tok, "/gmail/v1/users/me/messages/" + id + "?format=minimal");
+          const has = n => (m1.labelIds || []).includes((labels.find(l => l.name === n) || {}).id);
+          if (!has("dft-router-retry1")) await modify(tok, "messages", id, [await labelId("dft-router-retry1")], [seen]);
+          else if (!has("dft-router-retry2")) await modify(tok, "messages", id, [await labelId("dft-router-retry2")], [seen]);
+          else await modify(tok, "threads", threadId, [await labelId(ERR)]);
+        } catch (e2) { /* left claimed; flagged by hand if ever needed */ }
       }
     }
     report.push(r);
@@ -411,7 +426,8 @@ async function track(ctx) {
     const t = { row: row.id, name: row.name };
     try {
       // Website rows (roster shortlist, brief form) with no owner: Margot by default, and she is told.
-      if (!dec && !row.ownerKey && /roster shortlist|brief form/i.test(v[C.source])) {
+      // (Brief form emails reach tom@ through theteam@ and are routed by intake, so only the other website sources here.)
+      if (mode === "live" && !dec && !row.ownerKey && v[C.source] && !/^(email|brief form)$/i.test(v[C.source]) && Date.parse(row.created) > Date.parse("2026-10-23T00:00:00Z")) {
         if (!dry) {
           await setCols(row.id, { [C.owner]: ownerVal("margot"), [C.decision]: { label: "Routed" }, [C.why]: "Router: Margot (website " + v[C.source].toLowerCase() + ")", [C.routedAt]: dateVal(now) });
           await sendInternal(OWNERS.margot.email, "New brand enquiry: " + row.name, "<p>A brand sent an enquiry through the website (" + esc(v[C.source]) + ").</p><p><b>" + esc(row.name) + "</b><br>" + esc(v[C.contact]) + " " + esc(v[C.email]) + (v[C.budget] ? "<br>Budget: " + esc(v[C.budget]) : "") + (v[C.creators] ? "<br>Creators: " + esc(v[C.creators]) : "") + "</p><p><a href=\"https://digitalfoxtalent.monday.com/boards/" + BOARD + "/pulses/" + row.id + "\">Open it on the Brand Enquiries board</a></p>");
@@ -420,14 +436,24 @@ async function track(ctx) {
       }
       if (mode !== "live") continue;
       if (!["Routed"].includes(dec) || !row.ownerKey || /won|lost|not a brand/i.test(status)) continue;
-      const [tomId, mid, , seenCount] = String(v[C.ids]).split("|");
+      const idParts = String(v[C.ids]).split("|");
+      const [tomId, mid, , seenCount, sentTo] = idParts;
       if (!tomId) continue;
       const o = OWNERS[row.ownerKey];
+      // REASSIGNED on the board after delivery: the new owner gets the brand's email too, and is tracked from now on.
+      if (v[C.routedAt] && sentTo && sentTo !== row.ownerKey && !dry) {
+        await deliver(tok, tomId, row.ownerKey);
+        await modify(tok, "messages", tomId, [o.label], OWNERS[sentTo] ? [OWNERS[sentTo].label] : []).catch(() => null);
+        idParts[3] = ""; idParts[4] = row.ownerKey;
+        await setCols(row.id, { [C.ids]: idParts.join("|"), [C.nudgedAt]: {}, [C.draft]: "pending" });
+        t.did = "re-delivered to " + o.name; report.push(t); continue;
+      }
       // RESCUE: a row set to Routed by hand (held back, or test) that was never delivered.
       if (!v[C.routedAt]) {
         if (!dry) {
           await deliver(tok, tomId, row.ownerKey);
-          await setCols(row.id, { [C.routedAt]: dateVal(now), [C.draft]: "pending" });
+          idParts[4] = row.ownerKey;
+          await setCols(row.id, { [C.routedAt]: dateVal(now), [C.draft]: "pending", [C.ids]: idParts.join("|") });
           await modify(tok, "messages", tomId, [o.label], ["INBOX"]).catch(() => null);
         }
         t.did = "delivered (rescued)"; report.push(t); continue;
@@ -457,11 +483,12 @@ async function track(ctx) {
           t.mirrored = (t.mirrored || 0) + 1;
         }
         // NUDGE: no reply after one working day (weekdays 9 to 5 Denver).
-        if (!answered && !v[C.repliedAt] && !v[C.nudgedAt] && workHours && workingHours(Date.parse(v[C.routedAt] || row.created), now) >= 8) {
+        if (!answered && !v[C.repliedAt] && !v[C.nudgedAt] && workHours && workingHours(whenOf(row, C.routedAt) || Date.parse(row.created), now) >= 8) {
+          await setCols(row.id, { [C.nudgedAt]: dateVal(now) }); // saved before sending, so a failure can never repeat the nudge
           await sendInternal(o.email, "Still waiting on a reply: " + row.name, "<p>Hi " + esc(o.name) + ",</p><p>This enquiry has been in your inbox for a working day without a reply:</p><p><b>" + esc(row.name) + "</b><br>" + esc(String(v[C.message]).split("\n")[0]) + "</p><p>It is in your inbox from " + esc(v[C.email]) + ". If it is not for you, forward it to the right person and copy Tom.</p>");
-          upd[C.nudgedAt] = dateVal(now); t.did = (t.did ? t.did + ", " : "") + "nudged";
+          t.did = (t.did ? t.did + ", " : "") + "nudged";
         }
-        if (String(omsgs.length) !== String(seenCount || "")) upd[C.ids] = String(v[C.ids]).split("|").slice(0, 3).concat([String(omsgs.length)]).join("|");
+        if (String(omsgs.length) !== String(seenCount || "")) { idParts[3] = String(omsgs.length); upd[C.ids] = idParts.join("|"); }
         if (Object.keys(upd).length) await setCols(row.id, upd);
       }
       if (t.did || t.mirrored) report.push(t);
@@ -472,21 +499,24 @@ async function track(ctx) {
 // ---------- DIGEST: 5pm Denver ----------
 async function digest(ctx) {
   const { rows, mode, dry } = ctx;
+  if (Date.now() - ctx.t0 > 45000) return { skipped: "out of time, next slot retries" };
   const today = denver().date;
   const inToday = r => denver(new Date(r.created)).date === today;
   const todays = rows.filter(r => inToday(r) && r.v[C.decision]);
-  const waiting = rows.filter(r => r.v[C.decision] === "Routed" && r.v[C.routedAt] && !r.v[C.repliedAt] && !/won|lost|replied|proposal/i.test(r.v[C.status]) && workingHours(Date.parse(r.v[C.routedAt]), Date.now()) >= 8);
+  const waiting = rows.filter(r => r.v[C.decision] === "Routed" && r.v[C.routedAt] && !r.v[C.repliedAt] && !/won|lost|replied|proposal/i.test(r.v[C.status]) && workingHours(whenOf(r, C.routedAt) || Date.parse(r.created), Date.now()) >= 8);
   const link = r => "https://digitalfoxtalent.monday.com/boards/" + BOARD + "/pulses/" + r.id;
   const li = (r, extra) => "<li><a href=\"" + link(r) + "\">" + esc(r.name) + "</a>" + (extra ? " <span style=\"color:#777\">" + esc(extra) + "</span>" : "") + "</li>";
   const by = {};
   for (const r of todays.filter(r => /routed|test only/i.test(r.v[C.decision]))) { const n = ownerOf(r) ? OWNERS[ownerOf(r)].name : "?"; (by[n] = by[n] || []).push(r); }
   const held = todays.filter(r => r.v[C.decision] === "Held back");
+  const website = rows.filter(r => denver(new Date(r.created)).date === today && r.v[C.source] && !/^email$/i.test(r.v[C.source]));
   const sec = (title, arr, fn) => arr.length ? "<p style=\"margin:18px 0 6px\"><b>" + title + "</b></p><ul style=\"margin:0;padding-left:18px\">" + arr.map(fn).join("") + "</ul>" : "";
   const routedCount = Object.values(by).reduce((a, x) => a + x.length, 0);
   const html = "<div style=\"font:14px/1.5 Arial,sans-serif;color:#222;max-width:620px\">" +
     "<p><b>" + routedCount + " enquir" + (routedCount === 1 ? "y" : "ies") + " " + (mode === "live" ? "routed" : "would have been routed (test mode)") + " today, " + held.length + " held back, " + waiting.length + " waiting on a reply.</b></p>" +
     sec("Waiting on a reply for over a working day", waiting, r => li(r, (ownerOf(r) ? OWNERS[ownerOf(r)].name : "") + ", " + r.v[C.status])) +
     Object.entries(by).map(([n, arr]) => sec(n, arr, r => li(r, String(r.v[C.why]).replace(/^Router: \w[\w ]*? \(|\)$/g, "")))).join("") +
+    sec("From the website", website, r => li(r, r.v[C.source] + (ownerOf(r) ? ", " + OWNERS[ownerOf(r)].name : ", no owner yet"))) +
     sec("Held back (to send one on: pick an Owner and set Router decision to Routed on its row)", held, r => li(r, String(r.v[C.why]).replace(/^Router: held back \(|\)$/g, ""))) +
     "<p style=\"margin-top:18px;color:#777;font-size:12px\">Everything is on the <a href=\"https://digitalfoxtalent.monday.com/boards/" + BOARD + "\">Brand Enquiries board</a>.</p></div>";
   if (!dry && !ctx.force) {
@@ -505,6 +535,7 @@ export default async function handler(req, res) {
   const ok = /vercel-cron/i.test(String(req.headers["user-agent"] || "")) || (secret && (String(req.headers.authorization || "") === "Bearer " + secret || req.query.key === secret));
   if (!ok) return res.status(401).json({ error: "Not allowed" });
   if (!process.env.MONDAY_API_KEY || !process.env.ANTHROPIC_API_KEY) return res.status(500).json({ error: "Missing env vars" });
+  for (const k of Object.keys(tokens)) delete tokens[k]; // Google tokens last an hour; a warm instance must not reuse them
   const dry = req.query.dry === "1", t0 = Date.now(), report = [], dn = denver();
   try {
     const tok = await tokenFor(SOURCE);
@@ -518,7 +549,7 @@ export default async function handler(req, res) {
     if (!task || task === "intake") await intake(ctx);
     if (task === "track" || (!task && dn.minute % 5 === 2)) await track(ctx);
     let dg = null;
-    if (task === "digest" || (!task && dn.hour === 17 && dn.minute % 10 === 5)) dg = await digest(Object.assign(ctx, { force: task === "digest" && req.query.force === "1" }));
+    if (task === "digest" || (!task && dn.hour === 17 && dn.minute % 10 === 5)) dg = await digest(Object.assign(ctx, { force: task === "digest" && req.query.force === "1" && !!secret && req.query.key === secret }));
     return res.status(200).json({ ok: true, mode, checked: report.length, report, digest: dg });
   } catch (e) {
     return res.status(502).json({ error: String(e && e.message || e), report });
