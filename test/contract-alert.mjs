@@ -58,4 +58,17 @@ assert.ok(!/amendment email/.test(clear.html), "nothing to ask for means no butt
 assert.match(make("⚪ NOT REVIEWED · The automatic review did not finish").subject, /^Contract not reviewed: /);
 assert.match(make("NOT REVIEWED · The contract is a .docx file.").html, /Only PDFs can be read automatically/);
 
+// Every ask gathered in one block (Alex, 23 Oct 2026). The cards interleave each ask with its
+// issue, which reads well but is no use when you want to act on all of them at once.
+assert.match(four.html, /Everything to ask for, in one place/);
+assert.match(four.html, /To amend before signing/);
+assert.match(four.html, /Also worth asking/, "yellow asks are listed separately, not lost");
+const summaryBlock = four.html.slice(four.html.indexOf("Everything to ask for"));
+for (const ask of ["Please limit it to 30 days", "Please send the final version", "Would you accept US law"])
+  assert.ok(summaryBlock.includes(ask), "the summary carries every ask, including the yellow one: " + ask);
+// Order matters: the red and orange list is what the button sends, so it comes first.
+assert.ok(summaryBlock.indexOf("To amend before signing") < summaryBlock.indexOf("Also worth asking"));
+// A clear contract has nothing to gather.
+assert.ok(!/Everything to ask for/.test(clear.html));
+
 console.log("contract-alert: all passed");

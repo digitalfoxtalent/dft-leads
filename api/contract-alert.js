@@ -103,6 +103,26 @@ export function alertEmail({ review, label, name, item, lead }) {
     }
   }
 
+  // "What's amazing is when Claude says Ask. What would be great is if it provides a summary of all
+  // the Asks" (Alex, 23 Oct 2026). The cards interleave each ask with its issue, which is right for
+  // reading but wrong for acting, so every ask is gathered again here in one block to copy at once.
+  const askList = (list, title, note) => list.length
+    ? '<div style="margin:16px 0 0"><div style="font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:' + MUTE + ';font-weight:700;margin-bottom:9px">' + E(title) + '</div>'
+      + '<ol style="margin:0;padding-left:20px;font-size:14px;line-height:1.65">'
+      + list.map(f => '<li style="margin-bottom:9px">' + E(f.ask) + '</li>').join("")
+      + '</ol>' + (note ? '<div style="margin-top:9px;font-size:12px;color:' + MUTE + '">' + E(note) + '</div>' : "") + '</div>'
+    : "";
+  const main = flags.filter(f => f.ask && f.level !== "yellow");
+  const extra = flags.filter(f => f.ask && f.level === "yellow");
+  const summary = (main.length || extra.length)
+    ? '<div style="margin:30px 38px 0;padding:22px 24px;border:1px solid ' + LINE + ';border-radius:14px">'
+      + '<div style="font-size:15px;font-weight:700">Everything to ask for, in one place</div>'
+      + '<div style="margin-top:6px;font-size:13px;color:' + MUTE + '">Copy the lot, or use the button below and we will write it for you.</div>'
+      + askList(main, main.length ? "To amend before signing" : "", "")
+      + askList(extra, "Also worth asking", "These are the yellow flags. The button leaves them out, so add them yourself if you want them in.")
+      + '</div>'
+    : "";
+
   const button = askable
     ? '<div style="margin:30px 38px 0;padding:22px 24px;background:' + CREAM + ';border-radius:14px;text-align:center">'
       + '<div style="font-size:14px;color:' + MUTE + ';margin-bottom:14px">We have written the ' + askable + ' amendment' + (askable === 1 ? "" : "s")
@@ -122,10 +142,10 @@ export function alertEmail({ review, label, name, item, lead }) {
     : yellow ? "Review yourself, but probably safe"
     : "Proceed";
   const tally = ["red", "orange", "yellow"].filter(k => n(k)).map(k => n(k) + " " + k).join(", ");
-  const summary = tally
+  const tallyLine = tally
     ? '<div style="margin:16px 38px 0;font-size:13px;color:' + MUTE + '">' + E(tally) + ' to work through.</div>'
     : '<div style="margin:16px 38px 0;font-size:13px;color:' + MUTE + '">Nothing flagged. Read it over and sign when you are happy.</div>';
-  return shell(accent, kicker, summary + cards + button,
+  return shell(accent, kicker, tallyLine + cards + summary + button,
     (red ? "Contract red flag: " : tally ? "Contract reviewed: " : "Contract clear: ") + name + (tally ? " (" + tally + ")" : ""));
 }
 
