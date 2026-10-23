@@ -77,7 +77,7 @@ export function currentText(col, item) {
 
 // The monday value for a field, from what the editor typed. Throws a plain-English reason when it is not valid.
 export function mondayValue(col, input) {
-  const v = String(input == null ? "" : input).replace(/\r\n/g, "\n");
+  const v = String(input == null ? "" : input).replace(/\r\n/g, "\n").replace(/\u0000/g, ""); // Postgres refuses null bytes
   const t = col.type === "long_text" ? v : v.trim();
   if (LIMITS[col.type] && t.length > LIMITS[col.type]) throw new Error(col.title + " is too long.");
   switch (col.type) {
@@ -130,7 +130,7 @@ export function editForm(board, item, email, secret, note) {
     const cur = currentText(c, item), name = "f_" + c.id, base = `<input type="hidden" name="b_${esc(c.id)}" value="${esc(fp(cur))}">`;
     let input;
     if (c.type === "long_text") input = `<textarea name="${esc(name)}" rows="5" maxlength="${LIMITS.long_text}">${esc(cur)}</textarea>`;
-    else if (c.type === "status") input = `<select name="${esc(name)}"><option value=""${cur ? "" : " selected"}>(empty)</option>${statusLabels(c).map(l => `<option${l === cur ? " selected" : ""}>${esc(l)}</option>`).join("")}${cur && !statusLabels(c).includes(cur) ? `<option selected>${esc(cur)}</option>` : ""}</select>`;
+    else if (c.type === "status") input = `<select name="${esc(name)}"><option value=""${cur ? "" : " selected"}>(empty)</option>${statusLabels(c).map(l => `<option value="${esc(l)}"${l === cur ? " selected" : ""}>${esc(l)}</option>`).join("")}${cur && !statusLabels(c).includes(cur) ? `<option value="${esc(cur)}" selected>${esc(cur)}</option>` : ""}</select>`;
     else if (c.type === "checkbox") input = `<select name="${esc(name)}"><option value=""${cur ? "" : " selected"}>No</option><option value="true"${cur ? " selected" : ""}>Yes</option></select>`;
     else input = `<input name="${esc(name)}" value="${esc(cur)}" type="${c.type === "date" ? "date" : c.type === "numbers" ? "text\" inputmode=\"decimal" : c.type === "email" ? "email" : c.type === "link" ? "url" : "text"}"${LIMITS[c.type] ? ` maxlength="${LIMITS[c.type]}"` : ""}>`;
     return `<label><span>${esc(c.title)}</span>${input}${base}</label>`;
@@ -145,7 +145,7 @@ ${note || ""}
 
 export async function historyHtml(board, item, email, secret) {
   const rows = await read(`SELECT id::text AS id, at, email, column_title, old_text, new_text, ok, error, undo_of::text AS undo_of, undone_by::text AS undone_by
-    FROM mirror.edits WHERE item_id = $1::bigint ORDER BY at DESC LIMIT 25`, [item.id]);
+    FROM mirror.edits WHERE item_id = $1::bigint AND board_id = $2::bigint ORDER BY at DESC LIMIT 25`, [item.id, board.id]);
   if (!rows.length) return `<p class="muted">No edits made in the Ecosystem yet.</p>`;
   const tok = formToken(secret, email, item.id);
   const clip = s => esc(String(s == null || s === "" ? "(empty)" : s).slice(0, 140));
@@ -180,27 +180,40 @@ async function logEdits(rows) {
     [r.email, r.board_id, r.item_id, r.column_id, r.column_title, r.old_text, r.new_text, r.ok, r.error || null, r.undo_of || null]);
 }
 
-// Apply a set of { col, from, to } changes: check monday has not moved on, write, re-read, log.
+// Apply a set of { col, from, to } changes: check monday has not moved on, write, log, then refresh our copy.
+// The log is written as soon as monday has the change, so a later failure can never leave an unlogged edit.
 async function apply(token, board, item, email, changes, undoOf) {
+  const base = { email, board_id: board.id, item_id: item.id, undo_of: undoOf || null };
+  const n = (await read(`SELECT count(*)::int AS n FROM mirror.edits WHERE email = $1 AND at > now() - interval '1 hour'`, [email]))[0].n;
+  if (n + changes.length > PER_HOUR) return { ok: false, message: "Too many changes in the last hour. Please wait a little." };
   const live = await liveItem(token, item.id);
   if (!live || live.board_id !== String(board.id)) return { ok: false, message: "This item is no longer on this board in monday." };
   const moved = changes.filter(c => !same(c.col, currentText(c.col, live), c.from));
-  if (moved.length) { await saveLive(live); return { ok: false, message: "Someone changed " + moved.map(c => c.col.title).join(", ") + " in monday since you opened this item. The page now shows the latest values; make your change again if it is still needed." }; }
+  if (moved.length) {
+    await logEdits(moved.map(c => Object.assign({ column_id: c.col.id, column_title: c.col.title, old_text: currentText(c.col, live), new_text: c.to, ok: false, error: "changed in monday first; not overwritten" }, base)));
+    await saveLive(live).catch(() => {});
+    return { ok: false, message: "Someone changed " + moved.map(c => c.col.title).join(", ") + " in monday since you opened this item. The page now shows the latest values; make your change again if it is still needed." };
+  }
   const values = {};
   for (const c of changes) values[c.col.id] = mondayValue(c.col, c.to);
-  const base = { email, board_id: board.id, item_id: item.id, undo_of: undoOf || null };
+  let err = null;
   try {
     await monday(token, `mutation ($b: ID!, $i: ID!, $v: JSON!) { change_multiple_column_values (board_id: $b, item_id: $i, column_values: $v) { id } }`,
       { b: String(board.id), i: String(item.id), v: JSON.stringify(values) });
-  } catch (e) {
-    await logEdits(changes.map(c => Object.assign({ column_id: c.col.id, column_title: c.col.title, old_text: c.from, new_text: c.to, ok: false, error: String(e.message || e).slice(0, 300) }, base)));
-    return { ok: false, message: "monday did not accept the change: " + String(e.message || e).slice(0, 200) };
-  }
+  } catch (e) { err = String(e.message || e).slice(0, 300); }
   const after = await liveItem(token, item.id).catch(() => null);
-  if (after) await saveLive(after);
-  await logEdits(changes.map(c => Object.assign({ column_id: c.col.id, column_title: c.col.title, old_text: c.from, new_text: after ? currentText(c.col, after) : c.to, ok: true }, base)));
+  // A timeout or odd reply can arrive after monday applied the change: trust what monday now holds.
+  const landed = c => after && same(c.col, currentText(c.col, after), mondayText(c.col, c.to));
+  const done = err ? changes.filter(landed) : changes;
+  const failed = err ? changes.filter(c => !landed(c)) : [];
+  await logEdits(done.map(c => Object.assign({ column_id: c.col.id, column_title: c.col.title, old_text: c.from, new_text: after ? currentText(c.col, after) : c.to, ok: true }, base))
+    .concat(failed.map(c => Object.assign({ column_id: c.col.id, column_title: c.col.title, old_text: c.from, new_text: c.to, ok: false, error: err }, base))));
+  if (after) await saveLive(after).catch(() => {});
+  if (failed.length) return { ok: false, message: "monday did not accept " + failed.map(c => c.col.title).join(", ") + (done.length ? " (the other fields were saved)" : "") + ": " + String(err).slice(0, 200) };
   return { ok: true, message: "Saved to monday: " + changes.map(c => c.col.title).join(", ") + "." };
 }
+// What a field should read once monday has the new value (for checking a write landed).
+const mondayText = (col, to) => col.type === "checkbox" ? (to === "true" ? "true" : "") : String(to == null ? "" : to).replace(/\u0000/g, "");
 
 export async function saveEdit(req, token, email, board, item, team) {
   const bad = await guard(req, email, token, board, item, team);
@@ -227,7 +240,7 @@ export async function undoEdit(req, token, email, board, item, team) {
   if (bad) return { ok: false, message: bad };
   const id = one(formBody(req).e);
   if (!isId(id)) return { ok: false, message: "Unknown change." };
-  const e = (await read(`SELECT id::text AS id, column_id, old_text, new_text, ok, undo_of, undone_by FROM mirror.edits WHERE id = $1::bigint AND item_id = $2::bigint`, [id, item.id]))[0];
+  const e = (await read(`SELECT id::text AS id, column_id, old_text, new_text, ok, undo_of, undone_by FROM mirror.edits WHERE id = $1::bigint AND item_id = $2::bigint AND board_id = $3::bigint`, [id, item.id, board.id]))[0];
   if (!e || !e.ok || e.undo_of || e.undone_by) return { ok: false, message: "That change cannot be undone." };
   const col = editableColumns(board).find(c => c.id === e.column_id);
   if (!col) return { ok: false, message: "That field can no longer be edited here." };

@@ -25,7 +25,7 @@ const live = { id: "500", board: "100", name: "Kikoff case study", vals: {
   t1: ["Pitch", "\"Pitch\""], s1: ["Brief ready", JSON.stringify({ index: 1 })], n1: ["88", "\"88\""], d1: ["2026-10-06", JSON.stringify({ date: "2026-10-06" })],
   f1: ["42", null] } };
 const sent = [];
-setFetch(async (url, opts) => {
+const fakeMonday = async (url, opts) => {
   const body = JSON.parse(opts.body);
   assert.equal(opts.headers.Authorization, TOKEN);
   if (/change_multiple_column_values/.test(body.query)) {
@@ -43,7 +43,8 @@ setFetch(async (url, opts) => {
       column_values: Object.entries(live.vals).map(([id, [text, value]]) => ({ id, type: "x", text, value })) }] } }) };
   }
   throw new Error("unexpected monday call " + body.query.slice(0, 60));
-});
+};
+setFetch(fakeMonday);
 
 // ---------- seed ----------
 await ensureSchema();
@@ -74,7 +75,7 @@ const resStub = { setHeader() {} };
 let out = await mirrorPage("boards/100/items/500", { method: "GET", headers: {}, query: {} }, resStub, MARGOT, TOKEN);
 ok(out.status === 200 && /Editable here/.test(out.html) && /action="\/boards\/100\/items\/500\/edit"/.test(out.html), "Marketing item shows the edit form");
 ok(!/name="f_f1"/.test(out.html), "formula column is not editable");
-ok(/<option selected>Brief ready<\/option>/.test(out.html), "status shows as a dropdown with the current label");
+ok(/<option value="Brief ready" selected>Brief ready<\/option>/.test(out.html), "status shows as a dropdown with the current label");
 out = await mirrorPage("boards/200/items/600", { method: "GET", headers: {}, query: {} }, resStub, TOM, TOKEN);
 ok(out.status === 200 && !/class="edit"/.test(out.html) && /Read-only copy/.test(out.html), "Finance board stays read-only");
 out = await mirrorPage("boards/300/items/700", { method: "GET", headers: {}, query: {} }, resStub, MARGOT, TOKEN);
@@ -136,6 +137,22 @@ r = await undoEdit(post({ t: tok, e: numEdit }), TOKEN, MARGOT, b100, await item
 ok(!r.ok, "a change cannot be undone twice");
 r = await undoEdit(post({ t: tok, e: "1; DROP TABLE mirror.edits" }), TOKEN, MARGOT, b100, await item(500), team);
 ok(!r.ok && (await read(`SELECT count(*)::int AS n FROM mirror.edits`))[0].n > 0, "bad undo id refused");
+
+// ---------- null bytes, and a reply that fails after monday applied the change ----------
+ok(mondayValue(COLS[0], "a\u0000b") === "ab", "null bytes stripped before anything is written or logged");
+const realFetch = sent.length;
+setFetch(async (url, opts) => {
+  const body = JSON.parse(opts.body);
+  if (/change_multiple_column_values/.test(body.query)) { const v = JSON.parse(body.variables.v); live.vals.t1 = [v.t1, JSON.stringify(v.t1)]; sent.push(body.variables); return { ok: false, status: 504, json: async () => ({ error_message: "timeout" }) }; }
+  return { ok: true, json: async () => ({ data: { items: [{ id: live.id, name: live.name, state: "active", board: { id: live.board }, group: { id: "topics" }, updated_at: new Date().toISOString(),
+    column_values: Object.entries(live.vals).map(([id, [text, value]]) => ({ id, type: "x", text, value })) }] } }) };
+});
+await write(`UPDATE mirror.items SET vals = $1::jsonb WHERE id = 500`, [JSON.stringify(live.vals)]);
+r = await saveEdit(post({ t: tok, f_t1: "Landed anyway", b_t1: await fpOf(COLS[0], 500) }), TOKEN, MARGOT, b100, await item(500), team);
+const landedRow = (await read(`SELECT ok FROM mirror.edits WHERE new_text = 'Landed anyway'`))[0];
+ok(r.ok && landedRow && landedRow.ok, "a timeout after monday applied the change is logged as saved, so it can be undone");
+
+setFetch(fakeMonday);
 
 // ---------- rate limit ----------
 for (let i = 0; i < 60; i++) await write(`INSERT INTO mirror.edits (email, board_id, item_id, column_id, ok) VALUES ($1, 100, 500, 't1', true)`, [AMY]);
