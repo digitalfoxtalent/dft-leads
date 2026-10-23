@@ -178,6 +178,10 @@ form.upd-new .acts{display:flex;gap:10px;align-items:center;justify-content:flex
 .av{width:28px;height:28px;border-radius:50%;display:inline-grid;place-items:center;color:#fff;font-size:11px;font-weight:600;flex:none}
 .upd-list .ubody{white-space:pre-wrap;overflow-wrap:anywhere;font-size:14px}
 .upd-list .rep{margin:12px 0 0 38px;padding:10px 12px;border-radius:8px;background:var(--bg)}.upd-list .rep header{margin-bottom:4px}.upd-list .rep .av{width:22px;height:22px;font-size:10px}
+.pn-meta .mv select{border:1px solid var(--line);border-radius:6px;background:var(--surface);color:var(--fg);font:inherit;font-size:12.5px;height:26px;padding:0 6px;cursor:pointer;max-width:260px}
+tr.add td{background:var(--surface)}tr.add td.nm{padding:0}tr.add form{margin:0}
+tr.add input{width:100%;height:35px;border:0;outline:0;background:none;color:var(--fg);font:inherit;font-size:13px;padding:0 10px}
+tr.add input::placeholder{color:var(--faint)}tr.add input:focus{box-shadow:inset 0 0 0 1px var(--primary)}tbody tr.add:hover td{background:var(--surface)}
 .pn-body dl{margin-top:0}.pn-sub{margin:18px 0 0}.pn-sub li{margin:4px 0}
 @media (max-width:900px){.shell{grid-template-columns:1fr}.side{position:static;height:auto;border-right:0;border-bottom:1px solid var(--line2)}.main{padding:18px 16px 60px}}
 @media (max-width:640px){dl{grid-template-columns:1fr} dt{border-bottom:0}}
@@ -302,6 +306,26 @@ export async function cellHtml(b, col, it, editable) {
   return cell(col, it.vals && it.vals[col.id]);
 }
 
+// ---------- one board row (used by the board, and by "Add item" to draw the new row) ----------
+const NAME_COL = { id: "name", type: "name", title: "Name" };
+const boardCols = b => (b.columns || []).filter(c => c.type !== "name" && c.type !== "subtasks");
+function edAttrs(b, ecols, c, it) {
+  const ed = ecols.get(c.id); if (!ed) return "";
+  const v = currentText(ed, it);
+  if (ed.type === "long_text" && v.length > LONG_MAX) return ` data-c="${esc(c.id)}" data-t="long" data-href="/boards/${esc(b.id)}/items/${esc(it.id)}"`;
+  return ` data-c="${esc(c.id)}" data-t="${esc(ed.type)}" data-f="${esc(fp(v))}" data-v="${esc(v)}"`;
+}
+function rowHtml(b, it, ctx) {
+  const td = c => { const cls = c.type === "status" ? "st" : c.type === "numbers" ? "num" : LEFT.has(c.type) ? "txt" : "";
+    return `<td${cls ? ` class="${cls}"` : ""}${edAttrs(b, ctx.ecols, c, it)}>${cell(c, it.vals && it.vals[c.id])}</td>`; };
+  return `<tr data-i="${esc(it.id)}"><td class="nm"${ctx.editable ? edAttrs(b, ctx.ecols, NAME_COL, it) : ""}>${nameInner(b, it, ctx.counts.subs[it.id] || 0, ctx.editable, ctx.counts.upd[it.id] || 0)}</td>${ctx.cols.map(td).join("")}</tr>`;
+}
+// The row for an item just added from the Ecosystem (only ever on a board this person can edit).
+export async function newRowHtml(b, it) {
+  return rowHtml(b, it, { editable: true, ecols: new Map(editableColumns(b).map(c => [c.id, c])), cols: boardCols(b), counts: await rowCounts([it.id]) });
+}
+const addRow = (g, title, n) => `<tr class="add"><td class="nm"><form data-eco-add data-g="${esc(g)}"><input name="n" maxlength="255" autocomplete="off" placeholder="+ Add item" aria-label="Add item to ${esc(title)}"></form></td>${n ? `<td colspan="${n}"></td>` : ""}</tr>`;
+
 export async function renderBoard(email, id, q, page, opts = {}) {
   const b = await board(id);
   const team = await teamSet();
@@ -316,28 +340,18 @@ export async function renderBoard(email, id, q, page, opts = {}) {
   const counts = await rowCounts(items.map(i => i.id));
   const editable = !!opts.secret && canEdit(b, email, team);
   const ecols = editable ? new Map(editableColumns(b).map(c => [c.id, c])) : new Map();
-  const cols = (b.columns || []).filter(c => c.type !== "name" && c.type !== "subtasks");
+  const cols = boardCols(b);
+  const ctx = { editable, ecols, cols, counts };
   const groups = (b.groups || []);
   const known = new Set(groups.map(g => g.id));
   const byGroup = new Map(groups.map(g => [g.id, []]));
   for (const it of items) { const g = known.has(it.group_id) ? it.group_id : "_"; if (!byGroup.has(g)) byGroup.set(g, []); byGroup.get(g).push(it); }
   const gInfo = Object.fromEntries(groups.map(g => [g.id, g]));
-  const edAttrs = (c, it) => {
-    const ed = ecols.get(c.id); if (!ed) return "";
-    const v = currentText(ed, it);
-    if (ed.type === "long_text" && v.length > LONG_MAX) return ` data-c="${esc(c.id)}" data-t="long" data-href="/boards/${esc(b.id)}/items/${esc(it.id)}"`;
-    return ` data-c="${esc(c.id)}" data-t="${esc(ed.type)}" data-f="${esc(fp(v))}" data-v="${esc(v)}"`;
-  };
-  const td = (c, it) => {
-    const cls = c.type === "status" ? "st" : c.type === "numbers" ? "num" : LEFT.has(c.type) ? "txt" : "";
-    return `<td${cls ? ` class="${cls}"` : ""}${edAttrs(c, it)}>${cell(c, it.vals && it.vals[c.id])}</td>`;
-  };
-  const nameCol = { id: "name", type: "name", title: "Name" };
-  const table = list => `<div class="tw"><table style="width:${tableWidth(cols)}px">${colgroup(cols)}<thead><tr><th class="nm">Item</th>${cols.map(c => `<th title="${esc(c.title)}">${esc(c.title)}</th>`).join("")}</tr></thead><tbody>${list.map(it =>
-    `<tr data-i="${esc(it.id)}"><td class="nm"${editable ? edAttrs(nameCol, it).replace(/data-t="name"/, 'data-t="name"') : ""}>${nameInner(b, it, counts.subs[it.id] || 0, editable, counts.upd[it.id] || 0)}</td>${cols.map(c => td(c, it)).join("")}</tr>`).join("")}</tbody></table></div>`;
-  const sections = [...byGroup.entries()].filter(([, l]) => l.length).map(([g, l]) => {
+  const table = (list, g, title) => `<div class="tw"><table style="width:${tableWidth(cols)}px">${colgroup(cols)}<thead><tr><th class="nm">Item</th>${cols.map(c => `<th title="${esc(c.title)}">${esc(c.title)}</th>`).join("")}</tr></thead><tbody>${list.map(it => rowHtml(b, it, ctx)).join("")}${editable && g !== "_" ? addRow(g, title, cols.length) : ""}</tbody></table></div>`;
+  // Empty groups show on boards you can edit (so you can add to them), as on monday.
+  const sections = [...byGroup.entries()].filter(([g, l]) => l.length || (editable && !q && g !== "_")).map(([g, l]) => {
     const gi = gInfo[g] || { title: "Other" }; const col = hexOk(gi.color);
-    return `<details class="group" open${col ? ` style="--gc:${col}"` : ""}><summary>${esc(gi.title)} <span>${l.length} item${l.length === 1 ? "" : "s"}</span></summary>${table(l)}</details>`;
+    return `<details class="group" open data-g="${esc(g)}"${col ? ` style="--gc:${col}"` : ""}><summary>${esc(gi.title)} <span class="gn">${l.length} item${l.length === 1 ? "" : "s"}</span></summary>${table(l, g, gi.title)}</details>`;
   }).join("");
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const qs = n => `?${q ? "q=" + encodeURIComponent(q) + "&" : ""}page=${n}`;
@@ -424,7 +438,10 @@ export async function renderPanel(email, boardId, itemId, opts = {}) {
   const subs = await read(`SELECT name FROM mirror.items WHERE parent_id = $1::bigint AND NOT deleted ORDER BY pos NULLS LAST, created_at LIMIT 50`, [it.id]);
   const cols = (b.columns || []).filter(c => c.type !== "name" && c.type !== "subtasks");
   const group = (b.groups || []).find(g => g.id === it.group_id); const gc = group && hexOk(group.color);
-  const html = `<div class="pn-head"><h2>${esc(it.name)}</h2><div class="pn-meta">${group ? `<span class="grp"${gc ? ` style="--gc:${gc}"` : ""}><i></i>${esc(group.title)}</span>` : ""}
+  const groupBit = editable && (b.groups || []).length > 1
+    ? `<label class="grp mv"${gc ? ` style="--gc:${gc}"` : ""}><i></i><select data-eco-move data-f="${esc(it.group_id || "")}" aria-label="Move to group">${(b.groups || []).map(g => `<option value="${esc(g.id)}"${g.id === it.group_id ? " selected" : ""}>${esc(g.title)}</option>`).join("")}</select></label>`
+    : group ? `<span class="grp"${gc ? ` style="--gc:${gc}"` : ""}><i></i>${esc(group.title)}</span>` : "";
+  const html = `<div class="pn-head"><h2>${esc(it.name)}</h2><div class="pn-meta">${groupBit}
 <a class="btn sm" href="/boards/${esc(b.id)}/items/${esc(it.id)}">${editable ? "Full page and change log" : "Full page"}</a>
 <a class="btn sm" href="https://digitalfoxtalent.monday.com/boards/${esc(b.id)}/pulses/${esc(it.id)}" target="_blank" rel="noopener noreferrer">Open in monday</a></div></div>
 <div class="pn-tabs" role="tablist"><button type="button" role="tab" data-tab="u" class="on">Updates<span class="n">${esc(ups.length)}</span></button><button type="button" role="tab" data-tab="f">Fields</button></div>

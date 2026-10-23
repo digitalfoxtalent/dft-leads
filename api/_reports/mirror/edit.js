@@ -162,7 +162,7 @@ ${note || ""}
 }
 
 export async function historyHtml(board, item, email, secret) {
-  const rows = await read(`SELECT id::text AS id, at, email, column_title, old_text, new_text, ok, error, undo_of::text AS undo_of, undone_by::text AS undone_by
+  const rows = await read(`SELECT id::text AS id, at, email, column_id, column_title, old_text, new_text, ok, error, undo_of::text AS undo_of, undone_by::text AS undone_by
     FROM mirror.edits WHERE item_id = $1::bigint AND board_id = $2::bigint ORDER BY at DESC LIMIT 25`, [item.id, board.id]);
   if (!rows.length) return `<p class="muted">No edits made in the Ecosystem yet.</p>`;
   const tok = formToken(secret, email, item.id);
@@ -170,7 +170,7 @@ export async function historyHtml(board, item, email, secret) {
   return `<div class="tw"><table><thead><tr><th>When</th><th>Who</th><th>Field</th><th>From</th><th>To</th><th></th></tr></thead><tbody>${rows.map(r => `<tr>
 <td>${esc(new Date(r.at).toISOString().slice(0, 16).replace("T", " "))} UTC</td><td>${esc(r.email)}</td><td>${esc(r.column_title)}${r.undo_of ? " (undo)" : ""}</td>
 <td>${clip(r.old_text)}</td><td>${r.ok ? clip(r.new_text) : `<span class="bad">Not saved: ${esc(r.error || "")}</span>`}</td>
-<td>${r.ok && !r.undone_by && !r.undo_of ? `<form method="post" action="/boards/${esc(board.id)}/items/${esc(item.id)}/undo"><input type="hidden" name="t" value="${esc(tok)}"><input type="hidden" name="e" value="${esc(r.id)}"><button class="btn sm" type="submit">Undo</button></form>` : r.undone_by ? `<span class="muted sm">Undone</span>` : ""}</td></tr>`).join("")}</tbody></table></div>`;
+<td>${r.ok && !r.undone_by && !r.undo_of && !String(r.column_id).startsWith("_") ? `<form method="post" action="/boards/${esc(board.id)}/items/${esc(item.id)}/undo"><input type="hidden" name="t" value="${esc(tok)}"><input type="hidden" name="e" value="${esc(r.id)}"><button class="btn sm" type="submit">Undo</button></form>` : r.undone_by ? `<span class="muted sm">Undone</span>` : ""}</td></tr>`).join("")}</tbody></table></div>`;
 }
 
 // ---------- saving ----------
@@ -259,7 +259,7 @@ export async function undoEdit(req, token, email, board, item, team) {
   const id = one(formBody(req).e);
   if (!isId(id)) return { ok: false, message: "Unknown change." };
   const e = (await read(`SELECT id::text AS id, column_id, old_text, new_text, ok, undo_of, undone_by FROM mirror.edits WHERE id = $1::bigint AND item_id = $2::bigint AND board_id = $3::bigint`, [id, item.id, board.id]))[0];
-  if (!e || !e.ok || e.undo_of || e.undone_by) return { ok: false, message: "That change cannot be undone." };
+  if (!e || !e.ok || e.undo_of || e.undone_by || String(e.column_id).startsWith("_")) return { ok: false, message: "That change cannot be undone." };
   const col = editableColumns(board).find(c => c.id === e.column_id);
   if (!col) return { ok: false, message: "That field can no longer be edited here." };
   const r = await apply(token, board, item, email, [{ col, from: e.new_text == null ? "" : e.new_text, to: e.old_text == null ? "" : e.old_text }], e.id);
@@ -376,4 +376,84 @@ export async function postUpdate(req, token, email, board, item, team) {
     ON CONFLICT (id) DO UPDATE SET posted_by = EXCLUDED.posted_by`, [u.id, item.id, text, name, u.created_at || null]).catch(() => {});
   liveCache.delete(String(item.id));
   return { ok: true, message: "Update posted to monday." };
+}
+
+// ---------- add an item, move an item to another group (board click-to-edit and side panel) ----------
+// Logged in mirror.edits like any edit (column "_create" or "_group"), so they count towards the hourly limit and
+// show in the item's change log. Neither has an Undo button: an added item is archived in monday, a move is
+// reversed by moving it back.
+
+const groupOf = (board, g) => (board.groups || []).find(x => x.id === g) || null;
+
+async function boardGuard(req, token, email, board, team) {
+  if (req.method !== "POST") return "Not allowed.";
+  if (!fromSite(req)) return "That request did not come from the Ecosystem.";
+  if (!canEdit(board, email, team)) return "This board cannot be edited here yet.";
+  const b = jsonBody(req), tok = one(b.k), want = boardToken(token, email, board.id);
+  if (tok.length !== want.length || !crypto.timingSafeEqual(Buffer.from(tok), Buffer.from(want))) return "This page has expired. Refresh it and try again.";
+  const n = (await read(`SELECT count(*)::int AS n FROM mirror.edits WHERE email = $1 AND at > now() - interval '1 hour'`, [email]))[0].n;
+  if (n >= PER_HOUR) return "Too many changes in the last hour. Please wait a little.";
+  return null;
+}
+async function insertLive(live, board) {
+  const pos = ((await read(`SELECT COALESCE(max(pos), 0)::int + 1 AS p FROM mirror.items WHERE board_id = $1::bigint`, [board.id]))[0] || {}).p || 1;
+  await write(`INSERT INTO mirror.items (id, board_id, group_id, name, vals, created_at, updated_at, pos) VALUES ($1::bigint, $2::bigint, $3, $4, $5::jsonb, now(), $6::timestamptz, $7)
+    ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, vals = EXCLUDED.vals, group_id = EXCLUDED.group_id, deleted = false, synced_at = now()`,
+    [live.id, board.id, live.group_id || null, live.name, JSON.stringify(live.vals), live.updated_at || null, pos]);
+}
+
+// Returns { ok, message, item } where item is our copy of the new row (for the board to draw it).
+export async function createItem(req, token, email, board, team) {
+  const bad = await boardGuard(req, token, email, board, team);
+  if (bad) return { ok: false, message: bad };
+  const b = jsonBody(req), g = groupOf(board, one(b.g));
+  if (!g) return { ok: false, message: "That group is not on this board." };
+  let name;
+  try { name = mondayValue({ id: "name", title: "Name", type: "name" }, b.name); } catch (e) { return { ok: false, message: String(e.message || e) }; }
+  const base = { email, board_id: board.id, column_id: "_create", column_title: "Item added", old_text: null, new_text: name };
+  let id = null, err = null;
+  try {
+    const d = await monday(token, `mutation ($b: ID!, $g: String!, $n: String!) { create_item (board_id: $b, group_id: $g, item_name: $n) { id } }`,
+      { b: String(board.id), g: g.id, n: name }, 15000);
+    id = d.create_item && d.create_item.id;
+  } catch (e) { err = String(e.message || e).slice(0, 300); }
+  if (!isId(id)) {
+    // A timeout can arrive after monday made it: look for a just-made item with this name before saying it failed.
+    try {
+      const d = await monday(token, `query ($b: ID!, $n: String!) { items_page_by_column_values (board_id: $b, limit: 10, columns: [{ column_id: "name", column_values: [$n] }]) { items { id created_at group { id } } } }`,
+        { b: String(board.id), n: name }, 5000);
+      const hit = ((d.items_page_by_column_values || {}).items || []).find(x => x.group && x.group.id === g.id && Date.now() - Date.parse(x.created_at) < 120000);
+      if (hit) id = hit.id;
+    } catch (e) { /* fall through */ }
+  }
+  if (!isId(id)) {
+    await logEdits([Object.assign({ item_id: 0, ok: false, error: err || "no item id returned" }, base)]);
+    return { ok: false, message: "monday did not confirm the new item. Check the board in monday before adding it again." };
+  }
+  await logEdits([Object.assign({ item_id: id, ok: true }, base)]);
+  const live = await liveItem(token, id).catch(() => null);
+  await insertLive(live || { id: String(id), name, vals: {}, group_id: g.id }, board);
+  const item = (await read(`SELECT id::text AS id, name, group_id, vals FROM mirror.items WHERE id = $1::bigint`, [id]))[0];
+  return { ok: true, message: "Added to monday: " + name + ".", item };
+}
+
+export async function moveItem(req, token, email, board, item, team) {
+  const bad = await boardGuard(req, token, email, board, team);
+  if (bad) return { ok: false, message: bad };
+  const b = jsonBody(req), to = groupOf(board, one(b.g));
+  if (!to) return { ok: false, message: "That group is not on this board." };
+  const live = await liveItem(token, item.id).catch(() => null);
+  if (!live || live.board_id !== String(board.id)) return { ok: false, message: "This item is no longer on this board in monday." };
+  if (live.group_id !== one(b.f)) { await saveLive(live).catch(() => {}); return { ok: false, message: "Someone moved this item in monday since the page loaded. Refresh to see where it is now." }; }
+  if (live.group_id === to.id) return { ok: true, message: "Already in " + to.title + "." };
+  const from = groupOf(board, live.group_id);
+  const base = { email, board_id: board.id, item_id: item.id, column_id: "_group", column_title: "Group", old_text: from ? from.title : live.group_id, new_text: to.title };
+  let err = null;
+  try { await monday(token, `mutation ($i: ID!, $g: String!) { move_item_to_group (item_id: $i, group_id: $g) { id } }`, { i: String(item.id), g: to.id }, 15000); }
+  catch (e) { err = String(e.message || e).slice(0, 300); }
+  const after = await liveItem(token, item.id).catch(() => null);
+  const landed = after && after.group_id === to.id;
+  await logEdits([Object.assign({ ok: !!landed, error: landed ? null : (err || "not moved") }, base)]);
+  if (after) await saveLive(after).catch(() => {});
+  return landed ? { ok: true, message: "Moved to " + to.title + "." } : { ok: false, message: "monday did not move the item. Check it in monday before trying again." };
 }
