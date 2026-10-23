@@ -37,10 +37,13 @@ export default async function handler(req, res) {
   const ok = /vercel-cron/i.test(String(req.headers["user-agent"] || "")) || (secret && (String(req.headers.authorization || "") === "Bearer " + secret || req.query.key === secret));
   if (!ok) return res.status(401).json({ error: "Not allowed" });
   const dry = req.query.dry === "1";
+  let rowId = "";
   try {
-    const d = await monday(`query { boards(ids:[${BOARD}]) { items_page(limit:100, query_params:{rules:[{column_id:"${C.draft}", compare_value:["pending"], operator:contains_text}]}) { items { id name column_values(ids:${JSON.stringify(Object.values(C))}) { id text value } } } } }`);
+    const d = await monday(`query { boards(ids:[${BOARD}]) { items_page(limit:100, query_params:{rules:[{column_id:"${C.draft}", compare_value:["pending","working"], operator:contains_text}]}) { items { id name column_values(ids:${JSON.stringify(Object.values(C))}) { id text value } } } } }`);
     const items = ((((d.boards || [])[0] || {}).items_page || {}).items) || [];
-    const row = items.find(it => (it.column_values.find(c => c.id === C.draft) || {}).text === "pending");
+    // A claim older than 10 minutes was cut off (time limit or error) and is tried again.
+    const state = it => (it.column_values.find(c => c.id === C.draft) || {}).text || "";
+    const row = items.find(it => state(it) === "pending" || (/^working /.test(state(it)) && Date.now() - Date.parse(state(it).slice(8)) > 600000));
     if (!row) return res.status(200).json({ ok: true, pending: 0 });
     const cv = {}; let ownerId = "";
     for (const c of row.column_values) { cv[c.id] = c.text || ""; if (c.id === C.owner) { try { ownerId = String(((JSON.parse(c.value || "{}").personsAndTeams) || [])[0].id); } catch (e) {} } }
@@ -48,12 +51,16 @@ export default async function handler(req, res) {
     const [tomId, mid] = cv[C.ids].split("|");
     if (dry) return res.status(200).json({ ok: true, next: row.id, name: row.name, owner, mid });
     if (!owner || !mid || cv[C.decision] !== "Routed") { await setCols(row.id, { [C.draft]: "failed: no owner or no message id" }); return res.status(200).json({ ok: false, row: row.id }); }
-    await setCols(row.id, { [C.draft]: "working" }); // claimed, so an overlapping run skips it
+    await setCols(row.id, { [C.draft]: "working " + new Date().toISOString() }); // claimed, so an overlapping run skips it
+    rowId = row.id;
     // The brand's email as the salesperson has it, laid out like a forward so the pitch system can read it.
     const tok = await gmailToken(owner[0]);
     const G = p => fetch("https://gmail.googleapis.com/gmail/v1/users/me" + p, { headers: { Authorization: "Bearer " + tok } }).then(r => r.json());
     const hit = ((await G("/messages?maxResults=1&q=" + encodeURIComponent("rfc822msgid:" + mid))).messages || [])[0];
     if (!hit) { await setCols(row.id, { [C.draft]: "failed: the brand's email is not in " + owner[1].split(" ")[0] + "'s inbox" }); return res.status(200).json({ ok: false }); }
+    // Never touch a thread the salesperson is already working on: the pitch system replaces drafts in the thread.
+    const th = await G("/threads/" + hit.threadId + "?format=minimal");
+    if ((th.messages || []).some(x => (x.labelIds || []).some(l => l === "SENT" || l === "DRAFT"))) { await setCols(row.id, { [C.draft]: "skipped: " + owner[1].split(" ")[0] + " is already replying" }); return res.status(200).json({ ok: true, skipped: row.id }); }
     const m = await G("/messages/" + hit.id + "?format=full");
     const h = n => (((m.payload || {}).headers || []).find(x => x.name.toLowerCase() === n) || {}).value || "";
     const part = (p, type) => { if (!p) return ""; if (p.mimeType === type && p.body && p.body.data) return Buffer.from(p.body.data, "base64url").toString("utf8"); for (const c of p.parts || []) { const r = part(c, type); if (r) return r; } return ""; };
@@ -74,6 +81,7 @@ export default async function handler(req, res) {
     await setCols(row.id, { [C.draft]: verdict.slice(0, 250) });
     return res.status(200).json({ ok: r.ok, row: row.id, verdict });
   } catch (e) {
+    if (rowId) await setCols(rowId, { [C.draft]: ("failed: " + String(e && e.message || e)).slice(0, 250) }).catch(() => null);
     return res.status(502).json({ error: String(e && e.message || e) });
   }
 }

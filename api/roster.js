@@ -2430,6 +2430,7 @@ function composeMulti(subs, fwdName) {
 
 async function pitchFromEmail(b) {
   const fromEmail = String(b.fromEmail || "").trim().toLowerCase();
+  routedSearch(b); // a bad routed search fails here, before any list is made
   if (!b.sub) await pitchItem(b.item, fromEmail);
   try {
     let f = parseForward(b);
@@ -2950,7 +2951,11 @@ async function polishPitch(paras, lessons, first, f, latest) {
 // The enquiry router (api/route-drafts.js, Tom, 22 Oct 2026) copies the brand's own email into a salesperson's inbox,
 // so there is no forward to pitch@ to find: it passes the brand email's Message-ID and the draft joins that thread.
 // Only an rfc822msgid query is accepted, as this op is open.
-const routedSearch = b => /^rfc822msgid:[A-Za-z0-9._%+=$#@!\-]+$/.test(String(b.search || "")) ? String(b.search) : "";
+const routedSearch = b => {
+  if (!b.search) return "";
+  if (!/^rfc822msgid:[^\s"()]+$/.test(String(b.search))) throw new Error("Bad routed search");
+  return String(b.search);
+};
 function pitchSearch(f) {
   const w = subjectWords(f.subject);
   // subject:(...) matches all the words; the quoted phrase it replaced missed subjects with "&", "|" or a date

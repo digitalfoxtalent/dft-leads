@@ -292,6 +292,8 @@ async function intake(ctx) {
   let seen = (labels.find(l => l.name === SEEN) || {}).id;
   if (!seen && !dry) seen = (await gmail(tok, "/gmail/v1/users/me/labels", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: SEEN, labelListVisibility: "labelHide", messageListVisibility: "hide" }) })).id;
   const list = await search(tok, "in:inbox after:" + START + " -label:" + SEEN + " -from:" + SOURCE, 25);
+  // Website brief form emails come from theteam@ and never sit in Tom's inbox, so they are looked for separately.
+  for (const b of await search(tok, "from:" + ALERT_FROM + " subject:Brief \"has submitted the brief\" after:" + START + " -label:" + SEEN, 5)) if (!list.some(x => x.id === b.id)) list.push(b);
   if (!list.length) return;
   // Advertisers on US Campaigns and who worked on each most recently; learned owner overrides from the board.
   const md = await monday(`query { boards(ids:[6162879609]) { a: items_page(limit:500, query_params:{order_by:[{column_id:"__creation_log__", direction: desc}]}) { items { created_at cv: column_values(ids:["dropdown_mm1a3tqp","deal_owner"]) { id text } } } b: items_page(limit:500, query_params:{order_by:[{column_id:"__creation_log__", direction: asc}]}) { items { created_at cv: column_values(ids:["dropdown_mm1a3tqp","deal_owner"]) { id text } } } } }`);
@@ -321,11 +323,11 @@ async function intake(ctx) {
     if (Date.now() - t0 > 40000) break; // the next run picks up the rest
     if (doneThreads.has(threadId)) continue; // a second new message in the same thread waits for the next run
     doneThreads.add(threadId);
-    // CLAIM first: the seen label is added before any work, so an overlapping run never picks the same message up.
-    if (!dry) await modify(tok, "messages", id, [seen]);
     const mark = () => null;
     const r = { id, thread: threadId };
     try {
+      // CLAIM first: the seen label is added before any work, so an overlapping run never picks the same message up.
+      if (!dry) await modify(tok, "messages", id, [seen]);
       const th = await gmail(tok, "/gmail/v1/users/me/threads/" + threadId + "?format=full");
       const msgs = th.messages || [];
       const me = msgs.find(x => x.id === id) || msgs[msgs.length - 1];
@@ -427,7 +429,7 @@ async function track(ctx) {
     try {
       // Website rows (roster shortlist, brief form) with no owner: Margot by default, and she is told.
       // (Brief form emails reach tom@ through theteam@ and are routed by intake, so only the other website sources here.)
-      if (mode === "live" && !dec && !row.ownerKey && v[C.source] && !/^(email|brief form)$/i.test(v[C.source]) && Date.parse(row.created) > Date.parse("2026-10-23T00:00:00Z")) {
+      if (mode === "live" && !dec && !row.ownerKey && v[C.source] && !/^(email|brief form)/i.test(v[C.source]) && Date.parse(row.created) > Date.parse("2026-10-23T00:00:00Z")) {
         if (!dry) {
           await setCols(row.id, { [C.owner]: ownerVal("margot"), [C.decision]: { label: "Routed" }, [C.why]: "Router: Margot (website " + v[C.source].toLowerCase() + ")", [C.routedAt]: dateVal(now) });
           await sendInternal(OWNERS.margot.email, "New brand enquiry: " + row.name, "<p>A brand sent an enquiry through the website (" + esc(v[C.source]) + ").</p><p><b>" + esc(row.name) + "</b><br>" + esc(v[C.contact]) + " " + esc(v[C.email]) + (v[C.budget] ? "<br>Budget: " + esc(v[C.budget]) : "") + (v[C.creators] ? "<br>Creators: " + esc(v[C.creators]) : "") + "</p><p><a href=\"https://digitalfoxtalent.monday.com/boards/" + BOARD + "/pulses/" + row.id + "\">Open it on the Brand Enquiries board</a></p>");
@@ -443,7 +445,7 @@ async function track(ctx) {
       // REASSIGNED on the board after delivery: the new owner gets the brand's email too, and is tracked from now on.
       if (v[C.routedAt] && sentTo && sentTo !== row.ownerKey && !dry) {
         await deliver(tok, tomId, row.ownerKey);
-        await modify(tok, "messages", tomId, [o.label], OWNERS[sentTo] ? [OWNERS[sentTo].label] : []).catch(() => null);
+        if (idParts[2]) await modify(tok, "threads", idParts[2], [o.label], OWNERS[sentTo] ? [OWNERS[sentTo].label] : []).catch(() => null);
         idParts[3] = ""; idParts[4] = row.ownerKey;
         await setCols(row.id, { [C.ids]: idParts.join("|"), [C.nudgedAt]: {}, [C.draft]: "pending" });
         t.did = "re-delivered to " + o.name; report.push(t); continue;
