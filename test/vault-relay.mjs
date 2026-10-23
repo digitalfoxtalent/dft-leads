@@ -18,7 +18,7 @@ setExecutor({
 let pass = 0;
 const ok = (c, m) => { assert.ok(c, m); pass++; };
 await ensureSchema();
-process.env.CRON_SECRET = "test-cron-secret-0123456789";
+process.env.CRON_SECRET = "test-cron-secret-0123456789-abcdefghijklmnop";
 const ANT = "sk-ant-vault-000000000000000", YT = "AIzaVAULT0000000000000000000000", HUN = "huntervault00000000000", APIFY = "apify_api_vault0000000000000";
 
 // ---------- vault ----------
@@ -43,7 +43,7 @@ await write(`UPDATE mirror.vault SET data = 'AAAA' || data WHERE name = 'hunter'
 _resetVaultMemo();
 k = await vaultKeys({ env: {}, mondayImpl: async () => ({ items: [] }), token: "tok" });
 ok(!k.hunter && k.anthropic === ANT, "a tampered row is ignored");
-const saved = process.env.CRON_SECRET; process.env.CRON_SECRET = "a-different-secret-entirely-xx";
+const saved = process.env.CRON_SECRET; process.env.CRON_SECRET = "a-different-secret-entirely-xx-0123456789abc";
 _resetVaultMemo();
 k = await vaultKeys({ env: {}, mondayImpl: async () => ({ items: [] }), token: "" });
 ok(!k.anthropic && !k.youtube, "without the right Vercel secret the vault cannot be read");

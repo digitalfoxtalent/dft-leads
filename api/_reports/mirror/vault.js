@@ -3,8 +3,8 @@
 // ever handling them again.
 //
 // - Keys are read server side, straight from the monday board, only for the items named below. Nobody sees them.
-// - Stored with AES-256-GCM. The encryption key is derived from CRON_SECRET, which lives only in Vercel's
-//   encrypted settings, so a copy of the database alone does not reveal any key.
+// - Stored with AES-256-GCM. The encryption key is derived from a long secret that lives only in Vercel's
+//   encrypted settings (see vaultKey), so a copy of the database alone does not reveal any key.
 // - Refreshed from monday at most once a day, so a key changed on the board reaches the Ecosystem. If monday is
 //   unreachable (or gone), the stored copy keeps working.
 // - A Vercel setting with the same purpose (env below) always wins, so keys can later be managed in Vercel only.
@@ -36,10 +36,14 @@ export const SECRETS = {
 const KEY_COL = "text_mm5bcxe7";
 const REFRESH_MS = 24 * 3600000, MEMO_MS = 10 * 60000;
 
+// The first long secret Vercel holds: VAULT_SECRET if one is ever set, otherwise the Gmail service account key,
+// otherwise CRON_SECRET. If that secret changes, stored keys can no longer be opened and are copied from monday again.
 const vaultKey = () => {
-  const s = String(process.env.CRON_SECRET || "");
-  if (s.length < 16) return null;
-  return crypto.createHmac("sha256", s).update("eco-vault-v1").digest();
+  for (const name of ["VAULT_SECRET", "GMAIL_DELEGATE_KEY", "CRON_SECRET"]) {
+    const s = String(process.env[name] || "");
+    if (s.length >= 32) return crypto.createHmac("sha256", s).update("eco-vault-v1:" + name).digest();
+  }
+  return null;
 };
 function seal(plain) {
   const key = vaultKey(); if (!key) throw new Error("vault key missing");
