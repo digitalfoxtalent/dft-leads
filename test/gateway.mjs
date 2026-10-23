@@ -98,6 +98,8 @@ await refused({ query: `mutation { create_item (board_id: 100, item_name: "#") {
 await refused({ query: `query { ...F } fragment F on Query { account { id } }` }, "named fragments refused", 400);
 await refused({ query: `query { ... on Query { account { id } } }` }, "fragments at the top level refused", 400);
 await refused({ query: `query { account { id name } }` }, "account details refused");
+await refused({ query: `query { items (ids: [500]) { b: board { id } } }` }, "renaming board (to dodge the answer check) refused", 400);
+await refused({ query: `query { boards (ids: [100]) { x: id } }` }, "renaming id refused", 400);
 await refused({ query: `query { boards { id name } }` }, "listing every board refused");
 await refused({ query: `query { boards (ids: [18422548864]) { items_page { items { name } } } }` }, "the API Keys board is refused even if named on the key");
 await refused({ query: `query { boards (ids: [200]) { id } }` }, "a board not on the key refused");

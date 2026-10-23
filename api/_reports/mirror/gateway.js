@@ -9,7 +9,7 @@
 //   - items a change touched are copied into the Ecosystem straight away instead of within 30 minutes.
 // Later stages answer reads from the Ecosystem's copy, then everything, section by section.
 
-import { parse, print, Kind } from "graphql";
+import { parse, print, visit, Kind } from "graphql";
 import { read, write } from "./db.js";
 import { refreshItems } from "./edit.js";
 import { isExcluded } from "./policy.js";
@@ -60,6 +60,8 @@ export function analyse(query) {
     if (r.kind !== Kind.FIELD) no(400, "Fragments are not supported at the top level.");
     if (r.directives && r.directives.length) no(400, "Directives are not supported at the top level.");
   }
+  // The answer check finds board ids by field name, so those fields may not be renamed anywhere.
+  visit(doc, { Field(node) { if (node.alias && ["id", "board", "boards", "board_id"].includes(node.name.value)) no(400, "Renaming " + node.name.value + " is not supported."); } });
   const roots = op.selectionSet.selections;
   return { kind: op.operation, roots, fields: roots.map(r => r.name.value), printed: print(doc) };
 }
