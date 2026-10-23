@@ -26,7 +26,7 @@ export const config = { maxDuration: 60 };
 // GET with the Vercel cron user agent or CRON_SECRET. ?dry=1 classifies without delivering or labelling.
 
 const SOURCE = "tom@digitalfoxtalent.com";
-const START = 1792695000; // 22 Oct 2026 19:03 UTC: never look at mail older than the day the router went in.
+const START = 1792522200; // 20 Oct 2026 19:03 UTC: Tom asked for more test copies (22 Oct), so the shadow run covers the last two days.
 const MODE_ITEM = "13365313505";
 const OWNERS = {
   margot: { name: "Margot", email: "margot@digitalfoxtalent.com", label: "Label_32" },
