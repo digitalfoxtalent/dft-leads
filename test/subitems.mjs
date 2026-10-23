@@ -24,8 +24,8 @@ const SITE = "https://ecosystem.digitalfoxtalent.com";
 const items = {
   "500": { board: "100", name: "Parent", subs: ["601", "602"] },
   "501": { board: "100", name: "No subitems yet", subs: [] },
-  "601": { board: "150", name: "Write draft", vals: { s1: ["Working on it", JSON.stringify({ index: 0 })] } },
-  "602": { board: "150", name: "Get facts", vals: {} },
+  "601": { board: "150", parent: "500", name: "Write draft", vals: { s1: ["Working on it", JSON.stringify({ index: 0 })] } },
+  "602": { board: "150", parent: "500", name: "Get facts", vals: {} },
 };
 let nextId = 9000, mode = "ok", calls = [];
 setFetch(async (url, opts) => {
@@ -36,7 +36,7 @@ setFetch(async (url, opts) => {
   if (/create_subitem/.test(q)) {
     if (mode === "reject") throw new Error("socket hang up");
     const id = String(nextId++), p = items[v.p], sb = p.subs.length ? items[p.subs[0]].board : "160";
-    items[id] = { board: sb, name: v.n, vals: {} }; p.subs.push(id);
+    items[id] = { board: sb, parent: String(v.p), name: v.n, vals: {} }; p.subs.push(id);
     if (mode === "lost") throw new Error("timeout after monday made it");
     return reply({ create_subitem: { id, board: { id: sb } } });
   }
@@ -54,7 +54,7 @@ setFetch(async (url, opts) => {
   }
   if (/items \(ids/.test(q)) {
     const id = String(v.i[0]), it = items[id];
-    return reply({ items: it ? [{ id, name: it.name, state: "active", board: { id: it.board }, group: { id: "topics" }, updated_at: new Date().toISOString(),
+    return reply({ items: it ? [{ id, name: it.name, state: "active", board: { id: it.board }, parent_item: it.parent ? { id: it.parent } : null, group: { id: "topics" }, updated_at: new Date().toISOString(),
       column_values: Object.entries(it.vals || {}).map(([cid, [text, value]]) => ({ id: cid, type: "x", text, value })) }] : [] });
   }
   throw new Error("unexpected " + q.slice(0, 50));
@@ -83,7 +83,7 @@ const J = out => JSON.parse(out.body);
 const K = boardToken(TOKEN, MARGOT, "100");
 
 // ---------- the panel ----------
-let d = J(await get("boards/100/items/500/panel"));
+let h, d = J(await get("boards/100/items/500/panel"));
 ok(/data-tab="s">Subitems<span class="n">2<\/span>/.test(d.html), "Subitems tab with the count");
 ok(/<tr data-si="601"><td class="nm" data-c="name" data-t="name"/.test(d.html) && /data-c="s1" data-t="status"/.test(d.html) && /data-cols="/.test(d.html), "subitem cells are click-to-edit, with their picker data");
 ok(/data-eco-addsub/.test(d.html), "+ Add subitem");
@@ -137,6 +137,29 @@ ok(!d.ok && calls.length === 0, "nothing added while the section's editing is of
 await write(`UPDATE mirror.edit_switch SET is_on = true WHERE department = 'marketing'`);
 
 const js = J ? (await get("assets/eco-board.js")).body : "";
-ok(/\/sub\/new/.test(js) && /"\/sub\/" \+ si/.test(js) && /editCell\(e, td, cols\)/.test(js), "script edits and adds subitems");
+ok(/\/sub\/new/.test(js) && /pi \+ "\/sub\/" \+ si/.test(js) && /editCell\(e, td, cols\)/.test(js), "script edits and adds subitems");
+
+// a subitem monday has moved under another item is refused
+items["602"].parent = "501"; calls = [];
+d = J(await post("boards/100/items/500/sub/602/cell", { k: K, c: "t2", f: fp(""), v: "x" }));
+ok(!d.ok && /moved to another item/.test(d.message) && !calls.includes("change_multiple_column_values"), "subitem moved in monday: nothing written");
+items["602"].parent = "500";
+
+// change log on the parent item shows subitem edits and adds
+h = (await get("boards/100/items/500")).html;
+ok(/Subitem Write draft: Status/.test(h) && /Subitem added/.test(h), "parent's change log lists subitem edits and adds");
+
+// a locked parent (money board name) cannot have its subitems edited, even in an editable section
+await write(`UPDATE mirror.boards SET name = 'Invoices plan' WHERE id = 100`);
+calls = [];
+d = J(await post("boards/100/items/500/sub/601/cell", { k: K, c: "t2", f: fp(""), v: "x" }));
+ok(!d.ok && calls.length === 0, "subitems of a locked board cannot be edited");
+await write(`UPDATE mirror.boards SET name = 'Editorial Plan' WHERE id = 100`);
+
+// a subitems board that belongs to another parent is refused
+await write(`UPDATE mirror.boards SET parent_board_id = 300 WHERE id = 150`);
+d = J(await post("boards/100/items/500/sub/601/cell", { k: K, c: "t2", f: fp(""), v: "x" }));
+ok(!d.ok && calls.length === 0, "subitems board of another parent refused");
+await write(`UPDATE mirror.boards SET parent_board_id = 100 WHERE id = 150`);
 
 console.log("subitem tests passed: " + pass);

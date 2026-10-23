@@ -46,7 +46,7 @@ export async function mirrorPage(route, req, res, email, token) {
   let m;
   const json = o => ({ status: 200, type: "application/json; charset=utf-8", body: JSON.stringify(o), cache: "no-store" });
   if (panelRoute) return json(await renderPanel(email, panelRoute[1], panelRoute[2], { secret: token }));
-  const BOARD_Q = `SELECT id::text AS id, name, folder_path, workspace_name, board_type, department, access, allowed_emails, gone, columns, groups FROM mirror.boards WHERE id = $1::bigint`;
+  const BOARD_Q = `SELECT id::text AS id, name, folder_path, workspace_name, board_type, department, access, allowed_emails, gone, columns, groups, parent_board_id::text AS parent_board_id FROM mirror.boards WHERE id = $1::bigint`;
   if (subCell || subNew) {
     if (req.method !== "POST" || !token) return Object.assign(json({ ok: false, message: "Not allowed." }), { status: 405 });
     const [, boardId, itemId, subId] = subCell || subNew;
@@ -60,13 +60,13 @@ export async function mirrorPage(route, req, res, email, token) {
         let html; if (note.ok && note.item) { try { html = await newSubRowHtml(note.item.board_id, note.item); } catch (e) { note.message += " Reopen the item to see it here."; } }
         return json({ ok: note.ok, message: note.message, html });
       }
-      const loadSub = async () => (await read(`SELECT id::text AS id, name, vals, board_id::text AS board_id FROM mirror.items WHERE id = $1::bigint AND parent_id = $2::bigint AND NOT deleted`, [subId, pit.id]))[0];
+      const loadSub = async () => (await read(`SELECT id::text AS id, name, vals, board_id::text AS board_id, parent_id::text AS parent_id FROM mirror.items WHERE id = $1::bigint AND parent_id = $2::bigint AND NOT deleted`, [subId, pit.id]))[0];
       const sub = await loadSub();
       const sb = sub && (await read(BOARD_Q, [sub.board_id]))[0];
       if (!sub || !sb) return json({ ok: false, message: "This subitem cannot be edited here." });
       const note = await saveSubCell(req, token, email, parent, sb, sub, team);
       const fresh = await loadSub();
-      const colId = String((req.body && typeof req.body === "object" ? req.body.c : "") || "");
+      const colId = String((req.body && typeof req.body === "object" ? req.body.c : (() => { try { return JSON.parse(req.body).c; } catch (e) { return ""; } })()) || "");
       const col = editableColumns(sb).find(c => c.id === colId);
       if (!fresh || !col) return json(note);
       const v = currentText(col, fresh);

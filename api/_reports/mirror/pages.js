@@ -585,8 +585,9 @@ const SUB_COLS = 6;
 const subCols = sb => (sb ? (sb.columns || []) : []).filter(c => c.type !== "name" && c.type !== "subtasks").slice(0, SUB_COLS);
 export function subCellHtml(col, it) { return col.id === "name" ? esc(it.name) : cell(col, it.vals && it.vals[col.id]); }
 function subRowHtml(sb, s, ecols, editable) {
+  const attrs = c => { const a = editable ? edAttrs(sb, ecols, c, s) : ""; return a.includes('data-t="long"') ? "" : a; }; // very long text: edit in monday
   const td = c => { const cls = c.type === "status" ? "st" : c.type === "numbers" ? "num" : LEFT.has(c.type) ? "txt" : "";
-    return `<td${cls ? ` class="${cls}"` : ""}${editable ? edAttrs(sb, ecols, c, s) : ""}>${cell(c, s.vals && s.vals[c.id])}</td>`; };
+    return `<td${cls ? ` class="${cls}"` : ""}${attrs(c)}>${cell(c, s.vals && s.vals[c.id])}</td>`; };
   return `<tr data-si="${esc(s.id)}"><td class="nm"${editable ? edAttrs(sb, ecols, NAME_COL, s) : ""}>${esc(s.name)}</td>${subCols(sb).map(td).join("")}</tr>`;
 }
 export async function newSubRowHtml(sbId, s) {
@@ -604,7 +605,7 @@ async function subitemsPane(b, it, editable) {
   const cols = subCols(sb);
   const data = canSub ? esc(JSON.stringify(await pickerData(sb, ecols))) : "";
   const width = 300 + cols.reduce((n, c) => n + (WIDTH[c.type] || 180), 0);
-  const html = `<div class="tw sub"><table data-sub${canSub ? ` data-cols="${data}"` : ""} style="width:${width}px"><colgroup><col style="width:300px">${cols.map(c => `<col style="width:${WIDTH[c.type] || 180}px">`).join("")}</colgroup><thead><tr><th class="nm">Subitem</th>${cols.map(c => `<th>${esc(c.title)}</th>`).join("")}</tr></thead><tbody>${subs.map(s => subRowHtml(sb, s, ecols, canSub)).join("")}${editable && subCol ? `<tr class="add"><td class="nm"><form data-eco-addsub><input name="n" maxlength="255" autocomplete="off" placeholder="+ Add subitem" aria-label="Add subitem"></form></td>${cols.length ? `<td colspan="${cols.length}"></td>` : ""}</tr>` : ""}</tbody></table></div>${subs.length || editable ? "" : `<p class="muted">No subitems.</p>`}`;
+  const html = `<div class="tw sub"><table data-sub data-pi="${esc(it.id)}"${canSub ? ` data-cols="${data}"` : ""} style="width:${width}px"><colgroup><col style="width:300px">${cols.map(c => `<col style="width:${WIDTH[c.type] || 180}px">`).join("")}</colgroup><thead><tr><th class="nm">Subitem</th>${cols.map(c => `<th>${esc(c.title)}</th>`).join("")}</tr></thead><tbody>${subs.map(s => subRowHtml(sb, s, ecols, canSub)).join("")}${editable && subCol ? `<tr class="add"><td class="nm"><form data-eco-addsub><input name="n" maxlength="255" autocomplete="off" placeholder="+ Add subitem" aria-label="Add subitem"></form></td>${cols.length ? `<td colspan="${cols.length}"></td>` : ""}</tr>` : ""}</tbody></table></div>${subs.length || editable ? "" : `<p class="muted">No subitems.</p>`}`;
   return { html, count: subs.length };
 }
 

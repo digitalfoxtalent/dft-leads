@@ -27,9 +27,9 @@ export const BOARD_JS = String.raw`(function () {
   }
 
   function save(td, value) {
-    var tr = td.closest("tr"), si = tr.getAttribute("data-si");
+    var tr = td.closest("tr"), si = tr.getAttribute("data-si"), pi = si ? td.closest("table").getAttribute("data-pi") : null;
     td.classList.add("saving");
-    fetch("/boards/" + B + "/items/" + (si ? cur + "/sub/" + si : tr.getAttribute("data-i")) + "/cell", {
+    fetch("/boards/" + B + "/items/" + (si ? pi + "/sub/" + si : tr.getAttribute("data-i")) + "/cell", {
       method: "POST", credentials: "same-origin", keepalive: true, headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ k: K, c: td.getAttribute("data-c"), f: td.getAttribute("data-f"), v: value })
     }).then(function (r) { return r.json(); }).then(function (d) {
