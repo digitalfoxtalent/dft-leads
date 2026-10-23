@@ -168,6 +168,12 @@ export const BOARD_JS = String.raw`(function () {
     }).catch(function () { sel.value = from; toast("Could not reach the Ecosystem. Check the item in monday before trying again.", true); })
       .then(function () { sel.disabled = false; });
   }
+  // Person / Filter / Sort menus: one open at a time, closed by clicking elsewhere or Escape.
+  document.addEventListener("click", function (e) {
+    var mine = e.target.closest("details.menu");
+    document.querySelectorAll("details.menu[open]").forEach(function (d) { if (d !== mine) d.open = false; });
+  });
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape") document.querySelectorAll("details.menu[open]").forEach(function (d) { d.open = false; }); });
   // Kanban: drag a card to another column to change its status (same checked save as clicking the status cell).
   var kb = root.querySelector(".kanban[data-kc]"), dragging = null;
   function laneCount(l) { if (l) l.querySelector("header span").textContent = String(l.querySelectorAll(".kcard").length); }
