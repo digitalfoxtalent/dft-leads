@@ -184,6 +184,9 @@ tr.add td{background:var(--surface)}tr.add td.nm{padding:0}tr.add form{margin:0}
 tr.add input{width:100%;height:35px;border:0;outline:0;background:none;color:var(--fg);font:inherit;font-size:13px;padding:0 10px}
 tr.add input::placeholder{color:var(--faint)}tr.add input:focus{box-shadow:inset 0 0 0 1px var(--primary)}tbody tr.add:hover td{background:var(--surface)}
 .pn-body dl{margin-top:0}
+tfoot td.sum{background:var(--surface);border-bottom:0;height:34px}tfoot td.sum.num{text-align:right}tfoot td.sum b{font-weight:600}tfoot td.sum span{display:block;font-size:10.5px;color:var(--faint);line-height:1}
+.bat{display:flex;height:22px;border-radius:3px;overflow:hidden;margin:0 2px}.bat i{display:block;height:100%}
+ul.hits{list-style:none;margin:0;padding:0;display:grid;gap:4px}ul.hits li{padding:6px 10px;border-radius:6px;background:var(--surface);border:1px solid var(--line2)}ul.hits a{text-decoration:none}mark{background:#ffcb00;color:#323338;border-radius:2px}
 .ppl{display:inline-flex;align-items:center;gap:0;max-width:100%}.ppl .av{width:24px;height:24px;font-size:10px;margin-right:-6px;box-shadow:0 0 0 2px var(--surface)}
 .ppl .more{font-size:11px;color:var(--muted);margin-left:10px}.ppl .pn{margin-left:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pop.multi{width:280px}.pop.multi .mlist{max-height:260px;overflow:auto;margin:8px 0;display:grid;gap:2px}.pop.multi label{display:flex;align-items:center;gap:8px;padding:5px 6px;border-radius:4px;font-size:13px;cursor:pointer}
@@ -233,7 +236,7 @@ export async function sidebar(email, current) {
       : bs.map(link).join("")).join("");
     return `<details${curDept === d ? " open" : ""}><summary><span class="ws" style="background:${WS_COLOURS[d]}">${esc(DEPT_NAMES[d][0])}</span>${esc(DEPT_NAMES[d])}</summary>${inner}<a class="bd" href="/${esc(d)}/boards">All ${esc(DEPT_NAMES[d])} boards</a></details>`;
   }).join("");
-  return `<aside class="side"><form method="get" action="/${esc(curDept || "marketing")}/boards"><input name="q" placeholder="Search boards" aria-label="Search boards"></form><a class="bd mw${current === "my-work" ? " on" : ""}" href="/my-work">My work</a><a class="bd mw${current === "inbox" ? " on" : ""}" href="/inbox">Inbox</a><h3>Workspaces</h3>${out}</aside>`;
+  return `<aside class="side"><form method="get" action="/search"><input name="q" placeholder="Search everything" aria-label="Search every board"></form><a class="bd mw${current === "my-work" ? " on" : ""}" href="/my-work">My work</a><a class="bd mw${current === "inbox" ? " on" : ""}" href="/inbox">Inbox</a><h3>Workspaces</h3>${out}</aside>`;
 }
 
 function frame(title, crumbs, body, nav, extraHead) {
@@ -422,6 +425,26 @@ function kanban(b, v, items, editable, counts) {
   return `<div class="kanban"${editable ? ` data-kc="${esc(col.id)}"` : ""}>${lanes.map(lane).join("")}${lane(empty)}</div>`;
 }
 
+// The footer under each group, as on monday: a colour bar for status columns and a total for number columns.
+function summaryRow(cols, list) {
+  const tds = cols.map(c => {
+    if (c.type === "status") {
+      const counts = new Map();
+      for (const it of list) { const t = currentText({ id: c.id, type: "status" }, it) || ""; counts.set(t, (counts.get(t) || 0) + 1); }
+      const colour = t => { const l = Object.values(c.labels || {}).find(x => x && x[0] === t); return hexOk(l && l[1]) || "#c4c4c4"; };
+      return `<td class="sum"><span class="bat" title="${esc([...counts].map(([t, n]) => (t || "Empty") + ": " + n).join(", "))}">${[...counts].map(([t, n]) =>
+        `<i style="width:${(100 * n / list.length).toFixed(2)}%;background:${t ? colour(t) : "#c4c4c4"}"></i>`).join("")}</span></td>`;
+    }
+    if (c.type === "numbers") {
+      let n = 0, any = false;
+      for (const it of list) { const t = String((it.vals && it.vals[c.id] && it.vals[c.id][0]) || "").replace(/,/g, ""); if (/^-?\d+(\.\d+)?$/.test(t)) { n += Number(t); any = true; } }
+      return `<td class="sum num">${any ? `<b>${esc(Number.isInteger(n) ? n.toLocaleString("en-US") : n.toLocaleString("en-US", { maximumFractionDigits: 2 }))}</b><span>sum</span>` : ""}</td>`;
+    }
+    return `<td class="sum"></td>`;
+  }).join("");
+  return `<tfoot><tr><td class="nm sum"></td>${tds}</tr></tfoot>`;
+}
+
 export async function renderBoard(email, id, q, page, opts = {}) {
   const b = await board(id);
   const team = await teamSet();
@@ -460,7 +483,7 @@ export async function renderBoard(email, id, q, page, opts = {}) {
   const byGroup = new Map(groups.map(g => [g.id, []]));
   for (const it of items) { const g = known.has(it.group_id) ? it.group_id : "_"; if (!byGroup.has(g)) byGroup.set(g, []); byGroup.get(g).push(it); }
   const gInfo = Object.fromEntries(groups.map(g => [g.id, g]));
-  const table = (list, g, title) => `<div class="tw"><table style="width:${tableWidth(cols)}px">${colgroup(cols)}<thead><tr><th class="nm">Item</th>${cols.map(c => `<th title="${esc(c.title)}">${esc(c.title)}</th>`).join("")}</tr></thead><tbody>${list.map(it => rowHtml(b, it, ctx)).join("")}${editable && g !== "_" ? addRow(g, title, cols.length) : ""}</tbody></table></div>`;
+  const table = (list, g, title) => `<div class="tw"><table style="width:${tableWidth(cols)}px">${colgroup(cols)}<thead><tr><th class="nm">Item</th>${cols.map(c => `<th title="${esc(c.title)}">${esc(c.title)}</th>`).join("")}</tr></thead><tbody>${list.map(it => rowHtml(b, it, ctx)).join("")}${editable && g !== "_" ? addRow(g, title, cols.length) : ""}</tbody>${list.length ? summaryRow(cols, list) : ""}</table></div>`;
   // Empty groups show on boards you can edit (so you can add to them), as on monday.
   const onePage = total <= PAGE_SIZE; // on a board split over pages, an empty-looking group may just have its items on another page
   const sections = [...byGroup.entries()].filter(([g, l]) => l.length || (editable && !filtered && onePage && g !== "_")).map(([g, l]) => {
@@ -704,6 +727,34 @@ export async function renderInbox(email) {
 <div class="bar"><span class="count">${list.length} update${list.length === 1 ? "" : "s"}${fresh ? ` · ${fresh} new since you last looked` : ""}</span></div>
 <div class="upd-list ibxl">${list.length ? list.map(card).join("") : `<p class="empty">Nothing new in the last ${INBOX_DAYS} days.</p>`}</div>`;
   return { status: 200, html: frame("Inbox", [["Inbox", null]], body, side) };
+}
+
+// ---------- Search everything: board names and items (names and values) across every board you can see ----------
+
+export async function renderSearch(email, raw = {}) {
+  const q = String(Array.isArray(raw.q) ? raw.q[0] : raw.q || "").trim().slice(0, 100);
+  await logAccess(email, "/search", null, true);
+  const side = await sidebar(email, "search");
+  const team = await teamSet();
+  const boards = (await read(`SELECT id::text AS id, name, department, folder_path, workspace_name, access, allowed_emails, gone, board_type
+    FROM mirror.boards WHERE board_type = 'board' AND NOT gone`)).filter(b => canSee(b, email, team));
+  const byId = new Map(boards.map(b => [b.id, b]));
+  let body = `<h1>Search</h1><form class="bar" method="get" action="/search"><input name="q" value="${esc(q)}" placeholder="Search every board" aria-label="Search every board" autofocus><button type="submit">Search</button></form>`;
+  if (q.length < 2) return { status: 200, html: frame("Search", [["Search", null]], body + `<p class="muted">Type at least two letters. Searches board names, item names and every field, on the ${esc(boards.length)} boards you can see.</p>`, side) };
+  const like = "%" + q.replace(/[%_\\]/g, m => "\\" + m) + "%";
+  const bHits = boards.filter(b => b.name.toLowerCase().includes(q.toLowerCase())).slice(0, 30);
+  const rows = boards.length ? await read(`SELECT id::text AS id, board_id::text AS board_id, name, (name ILIKE $2) AS in_name FROM mirror.items
+    WHERE board_id = ANY($1::bigint[]) AND NOT deleted AND parent_id IS NULL AND (name ILIKE $2 OR vals::text ILIKE $2)
+    ORDER BY (name ILIKE $2) DESC, updated_at DESC NULLS LAST LIMIT 300`, [boards.map(b => b.id), like]) : [];
+  const groups = new Map();
+  for (const r of rows) { if (!byId.has(r.board_id)) continue; if (!groups.has(r.board_id)) groups.set(r.board_id, []); groups.get(r.board_id).push(r); }
+  const mark = t => { const i = t.toLowerCase().indexOf(q.toLowerCase()); return i < 0 ? esc(t) : esc(t.slice(0, i)) + "<mark>" + esc(t.slice(i, i + q.length)) + "</mark>" + esc(t.slice(i + q.length)); };
+  body += `<p class="sub">${esc(rows.length)}${rows.length === 300 ? "+" : ""} item${rows.length === 1 ? "" : "s"} and ${esc(bHits.length)} board${bHits.length === 1 ? "" : "s"} match.</p>`;
+  if (bHits.length) body += `<h2 class="sec">Boards</h2><div class="cards">${bHits.map(b => `<a class="card" href="/boards/${esc(b.id)}"><b>${mark(b.name)}</b><span>${esc(DEPT_NAMES[b.department] || "")}</span></a>`).join("")}</div>`;
+  if (groups.size) body += `<h2 class="sec">Items</h2><div class="lists">${[...groups].map(([bid, list]) => `<section><h3 class="foldh"><a href="/boards/${esc(bid)}?q=${esc(encodeURIComponent(q))}">${esc(byId.get(bid).name)}</a> <span class="muted">${esc(list.length)}</span></h3><ul class="hits">${list.slice(0, 25).map(r =>
+    `<li><a href="/boards/${esc(bid)}#item-${esc(r.id)}">${mark(r.name)}</a>${r.in_name ? "" : `<span class="muted sm"> (matches a field)</span>`}</li>`).join("")}${list.length > 25 ? `<li><a href="/boards/${esc(bid)}?q=${esc(encodeURIComponent(q))}">All ${esc(list.length)} on this board</a></li>` : ""}</ul></section>`).join("")}</div>`;
+  if (!rows.length && !bHits.length) body += `<p class="empty">Nothing matches.</p>`;
+  return { status: 200, html: frame("Search: " + q, [["Search", null]], body, side) };
 }
 
 export async function renderStatus(email) {
