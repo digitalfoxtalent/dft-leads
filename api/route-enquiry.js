@@ -44,7 +44,7 @@ const C = {
   contact: "text_mm71bmkm", email: "email_mm71btg0", budget: "text_mm713bk9", creators: "long_text_mm714m1b",
   message: "long_text_mm71nh8r", received: "date_mm71mnz5", owner: "multiple_person_mm712vbw", status: "color_mm71ejc3",
   source: "color_mm71stz1", decision: "color_mm8d23ft", why: "text_mm8dj0v0", history: "text_mm8dgh8t", key: "text_mm8d1ymy",
-  ids: "text_mm8d131d", routedAt: "date_mm8d4cqy", repliedAt: "date_mm8d61s7", nudgedAt: "date_mm8d6b2v"
+  ids: "text_mm8d131d", routedAt: "date_mm8d4cqy", repliedAt: "date_mm8d61s7", nudgedAt: "date_mm8d6b2v", draft: "text_mm8d6pzp"
 };
 // SPECIALISM PROFILES (Tom's rules, 22 Oct 2026). Used in Claude's instructions and in decide().
 const OWNERS = {
@@ -372,6 +372,7 @@ async function intake(ctx) {
         if (d.owner && mode === "live") {
           delivered = await deliver(tok, me.id, d.owner);
           vals[C.routedAt] = dateVal(Date.now());
+          vals[C.draft] = "pending"; // api/route-drafts.js builds a shortlist and a reply draft in the owner's thread
         }
         const made = await monday("mutation($b:ID!,$n:String!,$v:JSON!){create_item(board_id:$b,item_name:$n,column_values:$v,create_labels_if_missing:true){id}}", { b: BOARD, n: noDash(v.brand || r.subject).slice(0, 120), v: JSON.stringify(vals) });
         r.row = ((made || {}).create_item || {}).id;
@@ -426,7 +427,7 @@ async function track(ctx) {
       if (!v[C.routedAt]) {
         if (!dry) {
           await deliver(tok, tomId, row.ownerKey);
-          await setCols(row.id, { [C.routedAt]: dateVal(now) });
+          await setCols(row.id, { [C.routedAt]: dateVal(now), [C.draft]: "pending" });
           await modify(tok, "messages", tomId, [o.label], ["INBOX"]).catch(() => null);
         }
         t.did = "delivered (rescued)"; report.push(t); continue;

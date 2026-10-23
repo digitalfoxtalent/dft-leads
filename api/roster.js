@@ -2805,7 +2805,7 @@ async function pitchFromEmail(b) {
       const dom0 = x => { const p = String(String(x || "").split("@")[1] || "").toLowerCase().split("."); return p.slice(p.length > 2 && p[p.length - 1].length === 2 && p[p.length - 2].length <= 3 ? -3 : -2).join("."); };
       const cd0 = dom0(f.contactEmail), side0 = x => !!cd0 && !FREE0.test(cd0) && dom0(x) === cd0;
       const cc0 = [...new Set((f.others || []).filter(x => x !== f.contactEmail && (side0(x) || /^(alex|margot|george)@digitalfoxtalent\.com$/i.test(x))).concat(["tom@digitalfoxtalent.com", "alex@digitalfoxtalent.com", "margot@digitalfoxtalent.com"]))].filter(x => x !== fromEmail).join(", ");
-      return { ok: true, listUrl: saved.url, title, linkText, placements: ids.length, product: noDash(b.sub.name), mix, first, answer, to: f.contactEmail, cc: cc0, subject, search: pitchSearch(f), html: html + quoteHtml, text: text + quoteText, quoteHtml, quoteText, model: out.model, picks: out.picks, questions: out.questions || [], reviewed, press, unanswered: todo, headsUp: [fellBack, whyNone].filter(Boolean).join(". ") };
+      return { ok: true, listUrl: saved.url, title, linkText, placements: ids.length, product: noDash(b.sub.name), mix, first, answer, to: f.contactEmail, cc: cc0, subject, search: routedSearch(b) || pitchSearch(f), html: html + quoteHtml, text: text + quoteText, quoteHtml, quoteText, model: out.model, picks: out.picks, questions: out.questions || [], reviewed, press, unanswered: todo, headsUp: [fellBack, whyNone].filter(Boolean).join(". ") };
     }
     if (b.listsOnly) {
       await pitchMark(b.item, "Lists only (no brand to reply to): " + title + ", " + ids.length + " placements (" + out.model + ")" + (fellBack ? ". Heads-up: " + fellBack : ""), saved.url);
@@ -2821,7 +2821,7 @@ async function pitchFromEmail(b) {
     const cDom = domOf(f.contactEmail);
     const brandSide = x => !!cDom && !FREE_MAIL.test(cDom) && domOf(x) === cDom;
     const cc = [...new Set((f.others || []).filter(x => x !== f.contactEmail && (brandSide(x) || /^(alex|margot|george)@digitalfoxtalent\.com$/i.test(x))).concat(["tom@digitalfoxtalent.com", "alex@digitalfoxtalent.com", "margot@digitalfoxtalent.com"]))].filter(x => x !== fromEmail).join(", ");
-    const resultObj = { ok: true, listUrl: saved.url, title, placements: ids.length, to: f.contactEmail, cc, subject, search: pitchSearch(f), html: b.outreach ? html : html + quoteHtml, text: b.outreach ? text : text + quoteText, model: out.model, picks: out.picks, research, stage: out.stage || "new", closing: out.closing === true, questions: out.questions || [], reviewed, reused: reuse ? reuse.slug : "", press };
+    const resultObj = { ok: true, listUrl: saved.url, title, placements: ids.length, to: f.contactEmail, cc, subject, search: routedSearch(b) || pitchSearch(f), html: b.outreach ? html : html + quoteHtml, text: b.outreach ? text : text + quoteText, model: out.model, picks: out.picks, research, stage: out.stage || "new", closing: out.closing === true, questions: out.questions || [], reviewed, reused: reuse ? reuse.slug : "", press };
     // For the sender only, never the brand: the questions the draft holds over (Make route "Before you send").
     resultObj.unanswered = todo;
     resultObj.polished = !!polished;
@@ -2947,6 +2947,10 @@ async function polishPitch(paras, lessons, first, f, latest) {
   if (got.length > all.length * 1.4 + 200) return null;
   return ps;
 }
+// The enquiry router (api/route-drafts.js, Tom, 22 Oct 2026) copies the brand's own email into a salesperson's inbox,
+// so there is no forward to pitch@ to find: it passes the brand email's Message-ID and the draft joins that thread.
+// Only an rfc822msgid query is accepted, as this op is open.
+const routedSearch = b => /^rfc822msgid:[A-Za-z0-9._%+=$#@!\-]+$/.test(String(b.search || "")) ? String(b.search) : "";
 function pitchSearch(f) {
   const w = subjectWords(f.subject);
   // subject:(...) matches all the words; the quoted phrase it replaced missed subjects with "&", "|" or a date
