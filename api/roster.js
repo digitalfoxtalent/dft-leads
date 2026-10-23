@@ -1579,12 +1579,12 @@ async function contractDraft(b, email) {
 
 function contractPage(q) {
   const e = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-  const args = JSON.stringify({ op: "contract-draft", item: String(q.item || ""), all: q.all === "1" });
+  const args = JSON.stringify({ op: "contract-draft", item: String(q.item || ""), all: q.all === "1" }); // injected below as an object literal, not a string
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Writing your amendment email</title>
 <style>body{margin:0;background:#f5f3ef;font:15px/1.55 Poppins,Arial,sans-serif;color:#1a1a1a;display:grid;place-items:center;min-height:100vh}.c{background:#fff;border:1px solid #ece9e4;border-radius:16px;padding:40px 44px;max-width:460px;margin:24px;text-align:center}.sp{width:34px;height:34px;border:3px solid #f2dcc6;border-top-color:#f58220;border-radius:50%;animation:s 1s linear infinite;margin:0 auto 18px}@keyframes s{to{transform:rotate(360deg)}}h1{font-size:20px;margin:0 0 8px}p{color:#6b6b76;margin:0}a{color:#0f085e;font-weight:600}</style></head>
 <body><div class="c" id="c"><div class="sp"></div><h1>Writing your amendment email${q.name ? " for " + e(q.name) : ""}…</h1><p id="m">Turning the review's asks into a reply on the brand's thread. Your draft opens in Gmail in a moment.</p></div>
 <script>
-const args=${JSON.stringify(args)};
+const args=${args};
 const c=document.getElementById("c");
 function go(extra){ c.innerHTML='<div class="sp"></div><h1>Writing your amendment email…</h1><p id="m">Turning the review\u2019s asks into a reply on the brand\u2019s thread.</p>';
   fetch("/api/roster",{method:"POST",headers:{"content-type":"application/json"},credentials:"same-origin",body:JSON.stringify(Object.assign({},args,extra||{}))}).then(r=>r.json()).then(j=>{
