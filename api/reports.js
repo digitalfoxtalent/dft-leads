@@ -66,6 +66,7 @@ import { earningsLookup } from "./_reports/ecosystem/earnings.js";
 import { resolveEco, ADDRESS_OF, REPORTS_HOST_MOVED, DEPARTMENTS, ECO_ORIGIN, carryQuery } from "./_reports/routes.js";
 import { renderSlots, slotsData } from "./_reports/slots/load.js";
 import { mirrorPage, isMirrorRoute } from "./_reports/mirror/route.js";
+import { Readable } from "node:stream";
 import { outsiderView, submitRequest, decide, REVIEW_PATH } from "./_reports/access-requests.js";
 
 export const config = { maxDuration: 300 }; // the Reporting refresh write step can take over a minute
@@ -213,6 +214,7 @@ export default async function handler(req, res) {
 
   if (eco && isMirrorRoute(route)) { // the read-only monday copy (see _reports/mirror/route.js)
     const out = await mirrorPage(route, req, res, teamEmail(req, token), token);
+    if (out.stream) { for (const [k, v] of Object.entries(out.headers || {})) res.setHeader(k, v); res.status(out.status); return Readable.fromWeb(out.stream).pipe(res); } // a backed-up file
     if (out.type) { res.setHeader("Content-Type", out.type); if (out.cache) res.setHeader("Cache-Control", out.cache); return res.status(out.status).send(out.body); }
     return html(res, out.status, out.html);
   }

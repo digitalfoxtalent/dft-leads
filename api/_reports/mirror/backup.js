@@ -186,8 +186,10 @@ export async function backupStatus() {
   const [c] = await read(`SELECT (SELECT count(*) FROM mirror.backup_updates)::int AS updates, (SELECT count(*) FROM mirror.backup_docs)::int AS docs,
     (SELECT count(*) FROM mirror.backup_files)::int AS files, (SELECT COALESCE(sum(size_bytes), 0) FROM mirror.backup_files)::bigint AS bytes,
     (SELECT count(*) FROM mirror.backup_files WHERE stored_at IS NOT NULL)::int AS stored,
+    (SELECT COALESCE(sum(stored_bytes), 0) FROM mirror.backup_files WHERE stored_at IS NOT NULL)::bigint AS stored_bytes,
+    (SELECT count(*) FROM mirror.backup_files WHERE skipped IS NOT NULL)::int AS skipped,
     (SELECT count(*) FROM mirror.backup_state WHERE done_at > now() - interval '24 hours')::int AS fresh, (SELECT count(*) FROM mirror.backup_state)::int AS units,
     pg_database_size(current_database())::bigint AS db_bytes`);
-  const runs = await read(`SELECT started_at, ok, updates_written, docs_written, files_seen, api_calls, note FROM mirror.backup_runs ORDER BY id DESC LIMIT 5`);
+  const runs = await read(`SELECT started_at, stage, ok, updates_written, docs_written, files_seen, bytes_stored, api_calls, note FROM mirror.backup_runs ORDER BY id DESC LIMIT 8`);
   return Object.assign({}, c, { runs });
 }

@@ -63,4 +63,14 @@ export const BACKUP_SCHEMA = [
      note text
    )`,
   `INSERT INTO mirror.locks (name) VALUES ('backup') ON CONFLICT (name) DO NOTHING`,
+  // Second stage (files.js): the files themselves, in the private file store.
+  `ALTER TABLE mirror.backup_files ADD COLUMN IF NOT EXISTS stored_bytes bigint`,
+  `ALTER TABLE mirror.backup_files ADD COLUMN IF NOT EXISTS attempts int NOT NULL DEFAULT 0`,
+  `ALTER TABLE mirror.backup_files ADD COLUMN IF NOT EXISTS last_error text`,
+  `ALTER TABLE mirror.backup_files ADD COLUMN IF NOT EXISTS skipped text`, // why a file will not be copied
+  `CREATE INDEX IF NOT EXISTS backup_files_todo ON mirror.backup_files (created_at DESC) WHERE stored_at IS NULL AND skipped IS NULL`,
+  `CREATE INDEX IF NOT EXISTS backup_files_item ON mirror.backup_files (item_id)`,
+  `ALTER TABLE mirror.backup_runs ADD COLUMN IF NOT EXISTS stage text NOT NULL DEFAULT 'pass'`, // 'pass' (backup.js) or 'files' (files.js)
+  `ALTER TABLE mirror.backup_runs ADD COLUMN IF NOT EXISTS bytes_stored bigint NOT NULL DEFAULT 0`,
+  `INSERT INTO mirror.locks (name) VALUES ('backup_files') ON CONFLICT (name) DO NOTHING`,
 ];

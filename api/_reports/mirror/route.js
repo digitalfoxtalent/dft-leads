@@ -10,6 +10,7 @@ import { read } from "./db.js";
 import { saveEdit, undoEdit, saveCell, saveSubCell, createSubitem, postUpdate, createItem, moveItem, canEdit, currentText, editableColumns, fp, fromSite } from "./edit.js";
 import { loadSwitches, flip } from "./switch.js";
 import { createKey, revokeKey, isOwner, adminToken } from "./apikeys.js";
+import { serveFile } from "./files.js";
 import crypto from "node:crypto";
 
 const BOARD = /^boards\/(\d{1,19})$/;
@@ -23,11 +24,12 @@ const MOVE = /^boards\/(\d{1,19})\/items\/(\d{1,19})\/move$/; // POST JSON: move
 const SUBCELL = /^boards\/(\d{1,19})\/items\/(\d{1,19})\/sub\/(\d{1,19})\/cell$/; // POST JSON: edit a subitem cell
 const SUBNEW = /^boards\/(\d{1,19})\/items\/(\d{1,19})\/sub\/new$/;               // POST JSON: add a subitem
 const ASSET = "assets/eco-board.js";
+const FILE = /^files\/(\d{1,19})$/;                     // GET: one backed-up monday file (files.js)
 const DEPT = /^([a-z]+)\/boards$/;
 
 export function isMirrorRoute(route) {
   const r = String(route || "");
-  if (BOARD.test(r) || ITEM.test(r) || ACT.test(r) || CELL.test(r) || PANEL.test(r) || POSTU.test(r) || NEWI.test(r) || MOVE.test(r) || SUBCELL.test(r) || SUBNEW.test(r) || r === ASSET || r === "data/mirror" || r === "my-work" || r === "inbox" || r === "search" || r === "data/editing" || r === "data/api-keys") return true;
+  if (BOARD.test(r) || FILE.test(r) || ITEM.test(r) || ACT.test(r) || CELL.test(r) || PANEL.test(r) || POSTU.test(r) || NEWI.test(r) || MOVE.test(r) || SUBCELL.test(r) || SUBNEW.test(r) || r === ASSET || r === "data/mirror" || r === "my-work" || r === "inbox" || r === "search" || r === "data/editing" || r === "data/api-keys") return true;
   const m = r.match(DEPT);
   return !!(m && DEPT_NAMES[m[1]]);
 }
@@ -47,6 +49,7 @@ export async function mirrorPage(route, req, res, email, token) {
   const page = one(req.query && req.query.page);
   let m;
   const json = o => ({ status: 200, type: "application/json; charset=utf-8", body: JSON.stringify(o), cache: "no-store" });
+  if ((m = route.match(FILE))) return serveFile(email, m[1]);
   if (panelRoute) return json(await renderPanel(email, panelRoute[1], panelRoute[2], { secret: token }));
   const BOARD_Q = `SELECT id::text AS id, name, folder_path, workspace_name, board_type, department, access, allowed_emails, gone, columns, groups, parent_board_id::text AS parent_board_id FROM mirror.boards WHERE id = $1::bigint`;
   if (subCell || subNew) {

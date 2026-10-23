@@ -4,6 +4,7 @@
   "type": "module",
   "dependencies": {
     "@neondatabase/serverless": "1.0.2",
+    "@vercel/blob": "2.8.0",
     "graphql": "16.9.0"
   }
 }
