@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "type": "module",
   "dependencies": {
-    "@neondatabase/serverless": "1.0.2"
+    "@neondatabase/serverless": "1.0.2",
+    "graphql": "16.9.0"
   }
 }

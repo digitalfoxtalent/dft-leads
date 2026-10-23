@@ -10,6 +10,7 @@ import crypto from "node:crypto";
 import { read, write } from "./db.js";
 import { OWNERS } from "./switch.js";
 import { editLocked } from "./policy.js";
+import { gatewayCall } from "./gateway.js";
 
 export const API_SCHEMA = [
   `CREATE TABLE IF NOT EXISTS mirror.api_keys (
@@ -36,7 +37,7 @@ export const API_SCHEMA = [
   `CREATE INDEX IF NOT EXISTS api_log_key ON mirror.api_log (key_id, at DESC)`,
 ];
 
-const PER_HOUR = 1000;
+const PER_HOUR = 1000, GATEWAY_PER_HOUR = 10000; // Make scenarios on the gateway can be busy
 const hash = k => crypto.createHash("sha256").update(String(k)).digest("hex");
 const isId = v => /^\d{1,19}$/.test(String(v || ""));
 
@@ -45,10 +46,10 @@ export function adminToken(secret, email) {
 }
 
 // Returns the new key, or null if this form (nonce) already made one.
-export async function createKey(name, departments, boards, email, nonce) {
+export async function createKey(name, departments, boards, email, nonce, gateway, linked) {
   const key = "eco_" + crypto.randomBytes(24).toString("base64url");
-  const made = await write(`INSERT INTO mirror.api_keys (name, key_hash, key_hint, departments, boards, created_by, nonce) VALUES ($1, $2, $3, $4::text[], $5::bigint[], $6, $7)
-    ON CONFLICT (nonce) DO NOTHING RETURNING id`, [String(name).slice(0, 80), hash(key), key.slice(-4), departments, boards || [], email, nonce || crypto.randomBytes(12).toString("hex")]);
+  const made = await write(`INSERT INTO mirror.api_keys (name, key_hash, key_hint, departments, boards, created_by, nonce, gateway, gateway_linked) VALUES ($1, $2, $3, $4::text[], $5::bigint[], $6, $7, $8, $9)
+    ON CONFLICT (nonce) DO NOTHING RETURNING id`, [String(name).slice(0, 80), hash(key), key.slice(-4), departments, boards || [], email, nonce || crypto.randomBytes(12).toString("hex"), !!gateway, !!(gateway && linked)]);
   return made.length ? key : null;
 }
 export const newNonce = () => crypto.randomBytes(12).toString("base64url");
@@ -57,7 +58,8 @@ export async function revokeKey(id) {
   return (await write(`UPDATE mirror.api_keys SET revoked_at = now() WHERE id = $1::bigint AND revoked_at IS NULL RETURNING id`, [id])).length > 0;
 }
 export async function listKeys() {
-  return read(`SELECT k.id::text AS id, k.name, k.key_hint, k.departments, k.boards::text[] AS boards, k.created_by, k.created_at, k.last_used_at, k.revoked_at,
+  return read(`SELECT k.id::text AS id, k.name, k.key_hint, k.departments, k.boards::text[] AS boards, k.gateway, k.gateway_linked, k.created_by,
+    (SELECT count(*) FROM mirror.gateway_log g WHERE g.key_id = k.id AND g.at > now() - interval '24 hours')::int AS gateway_24h, k.created_at, k.last_used_at, k.revoked_at,
     (SELECT count(*) FROM mirror.api_log l WHERE l.key_id = k.id AND l.at > now() - interval '24 hours')::int AS calls_24h
     FROM mirror.api_keys k ORDER BY k.revoked_at NULLS FIRST, k.created_at DESC`);
 }
@@ -71,7 +73,7 @@ const one = v => String(Array.isArray(v) ? v[0] : v == null ? "" : v);
 async function keyFor(req) {
   const m = /^Bearer\s+(eco_[A-Za-z0-9_-]{20,60})$/.exec(String((req.headers && req.headers.authorization) || ""));
   if (!m) return null;
-  return (await read(`SELECT id::text AS id, name, departments, boards::text[] AS boards FROM mirror.api_keys WHERE key_hash = $1 AND revoked_at IS NULL`, [hash(m[1])]))[0] || null;
+  return (await read(`SELECT id::text AS id, name, departments, boards::text[] AS boards, gateway, gateway_linked FROM mirror.api_keys WHERE key_hash = $1 AND revoked_at IS NULL`, [hash(m[1])]))[0] || null;
 }
 
 const boardOut = b => ({ id: b.id, name: b.name, department: b.department, folder: b.folder_path || null, workspace: b.workspace_name || null,
@@ -82,11 +84,19 @@ const itemOut = it => ({ id: it.id, board_id: it.board_id, name: it.name, group_
   values: Object.fromEntries(Object.entries(it.vals || {}).map(([k, [text, raw]]) => [k, { text: text == null ? null : text, value: (() => { try { return raw ? JSON.parse(raw) : null; } catch (e) { return raw; } })() }])) });
 
 // Returns { status, body }. path is everything after /api/v1/.
-export async function serveApi(req, path) {
+export async function serveApi(req, path, mondayToken) {
   const key = await keyFor(req);
   // Calls without a valid key, and calls refused for being over the limit, are not logged: anyone on the internet
   // can send them, and they must not fill the database or keep a key locked out.
   if (!key) return json(401, { error: "A valid Ecosystem API key is required (Authorization: Bearer eco_...)." });
+  if (path === "monday") { // the monday gateway (gateway.js): its own log and a higher hourly limit
+    const g = (await read(`SELECT count(*)::int AS n FROM mirror.gateway_log WHERE key_id = $1::bigint AND at > now() - interval '1 hour'`, [key.id]))[0].n;
+    if (g >= GATEWAY_PER_HOUR) return json(429, { errors: [{ message: "Too many gateway calls this hour for this key." }] });
+    if (!mondayToken) return json(503, { errors: [{ message: "The gateway is not connected to monday." }] });
+    await write(`UPDATE mirror.api_keys SET last_used_at = now() WHERE id = $1::bigint`, [key.id]).catch(() => {});
+    if (Math.random() < 0.01) await write(`DELETE FROM mirror.gateway_log WHERE at < now() - interval '30 days'`).catch(() => {});
+    return gatewayCall(req, key, mondayToken);
+  }
   const n = (await read(`SELECT count(*)::int AS n FROM mirror.api_log WHERE key_id = $1::bigint AND at > now() - interval '1 hour'`, [key.id]))[0].n;
   if (n >= PER_HOUR) return json(429, { error: "Too many calls this hour for this key." });
   const done = async (status, body) => {

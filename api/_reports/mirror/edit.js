@@ -598,3 +598,26 @@ export async function createSubitem(req, token, email, parent, parentItem, team)
     return { ok: true, message: "Added to monday: " + name + ".", item };
   } catch (e) { console.error("subitem copy", e); return { ok: true, message: "Added to monday: " + name + ". Reopen the item to see it here." }; }
 }
+
+// ---------- keep the copy in step after a write that came through the monday gateway (gateway.js) ----------
+// Re-reads each item from monday and saves it to our copy: new items are added (if their board is copied),
+// archived or deleted ones are marked deleted. At most 10 items, each with a short timeout.
+export async function refreshItems(token, ids) {
+  let done = 0;
+  for (const id of [...new Set(ids.map(String))].filter(isId).slice(0, 10)) {
+    try {
+      const it = ((await monday(token, ITEM_Q, { i: [id] }, 5000)).items || [])[0];
+      if (!it || it.state === "deleted" || it.state === "archived") { await write(`UPDATE mirror.items SET deleted = true, synced_at = now() WHERE id = $1::bigint`, [id]); done++; continue; }
+      const vals = {};
+      for (const v of it.column_values || []) { const text = v.display_value != null ? v.display_value : v.text; if ((text == null || text === "") && v.value == null) continue; vals[v.id] = [text, v.value]; }
+      const r = await write(`INSERT INTO mirror.items (id, board_id, parent_id, group_id, name, vals, created_at, updated_at, creator)
+        SELECT $1::bigint, b.id, $3::bigint, $4, $5, $6::jsonb, $7::timestamptz, $8::timestamptz, $9 FROM mirror.boards b WHERE b.id = $2::bigint
+        ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, vals = EXCLUDED.vals, group_id = COALESCE(EXCLUDED.group_id, mirror.items.group_id),
+          board_id = EXCLUDED.board_id, parent_id = EXCLUDED.parent_id, updated_at = EXCLUDED.updated_at, deleted = false, synced_at = now() RETURNING id`,
+        [id, String(it.board && it.board.id), it.parent_item ? String(it.parent_item.id) : null, it.group && it.group.id, String(it.name || "").replace(/\u0000/g, ""),
+          JSON.stringify(vals).replace(/\\u0000/g, ""), it.created_at || null, it.updated_at || null, it.creator && it.creator.name]);
+      if (r.length) done++;
+    } catch (e) { /* the 30-minute copy catches up */ }
+  }
+  return done;
+}
