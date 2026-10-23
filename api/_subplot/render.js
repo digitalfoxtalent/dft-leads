@@ -14,6 +14,7 @@ import { FORMATS, formatCss } from "./formats.js";
 import { LIVE as CROSSLINKS_LIVE, dftPageFor } from "./crosslinks.js";
 import { LAUNCHED } from "./launch.js";
 import { box as amazonBox } from "./affiliate.js";
+import { beacon as aiBeacon } from "./aistats.js";
 import { homePage3, snippetsPage as snippetsBody, card3, wire3Deps, CSS3 } from "./home3.js";
 
 // Brand-dependent strings resolve per request; see brand.js.
@@ -353,6 +354,7 @@ document.addEventListener('click', e => {
   p.appendChild(ifr); play.remove();
 });
 </script>
+${brand().key === "subplot" && !base ? aiBeacon() : ""}
 </body>
 </html>`;
 }
