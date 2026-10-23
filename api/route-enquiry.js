@@ -26,7 +26,7 @@ export const config = { maxDuration: 60 };
 // GET with the Vercel cron user agent or CRON_SECRET. ?dry=1 classifies without delivering or labelling.
 
 const SOURCE = "tom@digitalfoxtalent.com";
-const START = 1792721500; // 23 Oct 2026 02:11 UTC: never look at mail older than the day the router went in.
+const START = 1792695000; // 22 Oct 2026 19:03 UTC: never look at mail older than the day the router went in.
 const MODE_ITEM = "13365313505";
 const OWNERS = {
   margot: { name: "Margot", email: "margot@digitalfoxtalent.com", label: "Label_32" },
@@ -37,6 +37,7 @@ const OWNERS = {
 const ROUTED = Object.values(OWNERS).map(o => o.label);
 const BY_MONDAY_NAME = { "Margot Grant": "margot", "George Roush": "george", "Han Yi": "hani", "Alex Mackenzie": "alex" };
 const SEEN = "dft-router-seen";
+const ERR = "c) Brand Partnerships/Router could not deliver"; // visible to Tom, so a failure is never silent
 const DFT = /@digitalfoxtalent\.com$/i;
 
 async function gmailToken(subject) {
@@ -204,7 +205,7 @@ export default async function handler(req, res) {
       if (a && !last[a]) last[a] = { owner: String(cv.deal_owner || "").trim() };
     }
     const advertisers = Object.keys(last).sort();
-    const doneThreads = new Set();
+    const doneThreads = new Set(), tries = {};
     for (const { id, threadId } of list.reverse()) {
       if (Date.now() - t0 > 45000) break; // the next run picks up the rest
       const mark = () => dry ? null : gmail(tok, "/gmail/v1/users/me/messages/" + id + "/modify", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ addLabelIds: [seen] }) });
@@ -232,8 +233,18 @@ export default async function handler(req, res) {
         await mark();
       } catch (e) {
         r.error = String(e && e.message || e).slice(0, 300);
-        // Leave it unseen so the next run retries, unless it is over a day old.
-        if (Number(r.internalDate || 0) && Date.now() - Number(r.internalDate) > 86400000) await mark();
+        // A Gmail or Claude hiccup: leave it unseen so the next run retries, for up to 30 minutes. After that, mark it
+        // seen and put the visible "Router could not deliver" label on Tom's copy so he can forward it by hand.
+        r.tries = (tries[id] = (tries[id] || 0) + 1);
+        const old = Number(r.internalDate || 0) && Date.now() - Number(r.internalDate) > 1800000;
+        if (old && !dry) {
+          try {
+            let err = (labels.find(l => l.name === ERR) || {}).id;
+            if (!err) { err = (await gmail(tok, "/gmail/v1/users/me/labels", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: ERR }) })).id; labels.push({ id: err, name: ERR }); }
+            await gmail(tok, "/gmail/v1/users/me/threads/" + threadId + "/modify", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ addLabelIds: [err] }) });
+          } catch (e2) { /* still mark it seen below */ }
+          await mark();
+        }
       }
       report.push(r);
     }
