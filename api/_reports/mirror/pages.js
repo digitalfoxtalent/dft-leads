@@ -182,7 +182,24 @@ form.upd-new .acts{display:flex;gap:10px;align-items:center;justify-content:flex
 tr.add td{background:var(--surface)}tr.add td.nm{padding:0}tr.add form{margin:0}
 tr.add input{width:100%;height:35px;border:0;outline:0;background:none;color:var(--fg);font:inherit;font-size:13px;padding:0 10px}
 tr.add input::placeholder{color:var(--faint)}tr.add input:focus{box-shadow:inset 0 0 0 1px var(--primary)}tbody tr.add:hover td{background:var(--surface)}
-.pn-body dl{margin-top:0}.pn-sub{margin:18px 0 0}.pn-sub li{margin:4px 0}
+.pn-body dl{margin-top:0}
+.bar form.srch{display:flex;gap:8px;margin:0}
+details.menu{position:relative}details.menu>summary{list-style:none}details.menu>summary::-webkit-details-marker{display:none}
+details.menu.on>summary{border-color:var(--primary);color:var(--primary);background:var(--sel)}
+details.menu .mlist{position:absolute;z-index:30;top:38px;left:0;min-width:220px;max-height:420px;overflow:auto;background:var(--surface);border:1px solid var(--line);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.16);padding:8px}
+details.menu .mlist a{display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:6px;text-decoration:none;font-size:13px;white-space:nowrap}
+details.menu .mlist a:hover{background:var(--hover)}details.menu .mlist a.on{background:var(--sel);font-weight:500}
+details.menu .mlist .av{width:22px;height:22px;font-size:10px}.mh{font-size:11.5px;color:var(--faint);padding:10px 10px 4px}
+.dot{width:10px;height:10px;border-radius:3px;background:#c4c4c4;flex:none}
+.srow{display:grid;grid-template-columns:1fr auto auto;align-items:center;gap:4px;padding:2px 4px 2px 10px;font-size:13px}.srow a{padding:5px 8px!important;color:var(--muted)}
+.kanban{display:flex;gap:14px;overflow-x:auto;padding:18px 2px 24px;align-items:flex-start}
+.lane{flex:0 0 280px;background:var(--surface);border-radius:8px;box-shadow:0 0 0 1px var(--line2);overflow:hidden}
+.lane header{background:var(--lc);color:#fff;font-weight:500;font-size:14px;padding:10px 14px;display:flex;justify-content:space-between}.lane header span{opacity:.85}
+.cards-k{padding:10px;display:grid;gap:10px;min-height:60px}.lane.over{box-shadow:0 0 0 2px var(--primary)}
+.kcard{background:var(--surface);border:1px solid var(--line2);border-radius:8px;padding:12px 14px;cursor:pointer;box-shadow:0 1px 2px rgba(0,0,0,.05)}
+.kcard:hover{border-color:var(--primary)}.kcard>a{text-decoration:none;font-weight:500;display:block;margin-bottom:6px;overflow-wrap:anywhere}
+.kcard[draggable=true]{cursor:grab}.kcard.saving{opacity:.5}.kcard.drag{opacity:.4}.kcard.sel{border-color:var(--primary);background:var(--sel)}
+.kf{display:flex;justify-content:space-between;gap:10px;font-size:12px;color:var(--muted);margin-top:6px;align-items:center}.kf span:first-child{color:var(--faint)}.kf .pill{font-size:11.5px;padding:2px 8px}.pn-sub{margin:18px 0 0}.pn-sub li{margin:4px 0}
 @media (max-width:900px){.shell{grid-template-columns:1fr}.side{position:static;height:auto;border-right:0;border-bottom:1px solid var(--line2)}.main{padding:18px 16px 60px}}
 @media (max-width:640px){dl{grid-template-columns:1fr} dt{border-bottom:0}}
 `;
@@ -326,17 +343,102 @@ export async function newRowHtml(b, it) {
 }
 const addRow = (g, title, n) => `<tr class="add"><td class="nm"><form data-eco-add data-g="${esc(g)}"><input name="n" maxlength="255" autocomplete="off" placeholder="+ Add item" aria-label="Add item to ${esc(title)}"></form></td>${n ? `<td colspan="${n}"></td>` : ""}</tr>`;
 
+// ---------- board views: filter by person or status, sort, table or Kanban (all plain links, so they work
+// without script and can be bookmarked or shared) ----------
+const PEOPLE = new Set(["people", "multiple_person"]);
+const statusCols = b => boardCols(b).filter(c => c.type === "status");
+const labelsOf = c => Object.values(c.labels || {}).filter(l => l && l[0]);
+function viewState(b, q, raw) {
+  const one = k => String(Array.isArray(raw[k]) ? raw[k][0] : raw[k] == null ? "" : raw[k]).slice(0, 200);
+  const cols = boardCols(b), st = statusCols(b);
+  const v = { q: q || "", person: one("person").trim().slice(0, 100), st: "", sort: "", dir: one("dir") === "desc" ? "desc" : "asc", view: one("view") === "kanban" && st.length ? "kanban" : "table", kc: "" };
+  const [sc, ...rest] = one("st").split(":"); const sl = rest.join(":");
+  const scol = st.find(c => c.id === sc);
+  if (scol && (sl === "" || labelsOf(scol).some(l => l[0] === sl))) v.st = sc + ":" + sl;
+  const so = one("sort"); if (so === "name" || cols.some(c => c.id === so)) v.sort = so;
+  const kc = st.find(c => c.id === one("kc")) || st[0]; if (kc) v.kc = kc.id;
+  return v;
+}
+// A link to this board with some of the view settings changed; empty values are left out.
+function viewLink(b, v, change) {
+  const o = Object.assign({}, v, change), ps = [];
+  for (const k of ["q", "person", "st", "sort", "dir", "view", "kc"]) {
+    const x = o[k];
+    if (!x || (k === "dir" && (x === "asc" || !o.sort)) || (k === "view" && x === "table") || (k === "kc" && o.view !== "kanban")) continue;
+    ps.push(k + "=" + encodeURIComponent(x));
+  }
+  return "/boards/" + b.id + (ps.length ? "?" + ps.join("&") : "");
+}
+const menu = (label, on, inner) => `<details class="menu${on ? " on" : ""}"><summary class="btn">${label}</summary><div class="mlist">${inner}</div></details>`;
+
+async function personMenu(b, v, peopleIds) {
+  if (!peopleIds.length) return "";
+  const names = (await read(`SELECT DISTINCT trim(x) AS n FROM mirror.items i, jsonb_each(i.vals) e, regexp_split_to_table(e.value->>0, ',') x
+    WHERE i.board_id = $1::bigint AND NOT i.deleted AND i.parent_id IS NULL AND e.key = ANY($2::text[]) AND trim(x) <> '' ORDER BY 1 LIMIT 60`, [b.id, peopleIds])).map(r => r.n);
+  if (!names.length && !v.person) return "";
+  return menu(v.person ? "Person: " + esc(v.person) : "Person", !!v.person, (v.person ? `<a href="${esc(viewLink(b, v, { person: "" }))}">Anyone</a>` : "") +
+    names.map(n => `<a class="${n === v.person ? "on" : ""}" href="${esc(viewLink(b, v, { person: n }))}">${avatar(n)}${esc(n)}</a>`).join(""));
+}
+function filterMenu(b, v) {
+  const st = statusCols(b); if (!st.length) return "";
+  const [sc, ...rest] = v.st ? v.st.split(":") : [""]; const sl = rest.join(":");
+  const cur = st.find(c => c.id === sc);
+  return menu(cur ? esc(cur.title) + ": " + esc(sl || "Empty") : "Filter", !!cur, (cur ? `<a href="${esc(viewLink(b, v, { st: "" }))}">No filter</a>` : "") +
+    st.map(c => `<div class="mh">${esc(c.title)}</div>` + labelsOf(c).map(l => `<a class="${c.id === sc && l[0] === sl ? "on" : ""}" href="${esc(viewLink(b, v, { st: c.id + ":" + l[0] }))}"><i class="dot" style="background:${hexOk(l[1]) || "#c4c4c4"}"></i>${esc(l[0])}</a>`).join("") +
+      `<a class="${c.id === sc && !sl ? "on" : ""}" href="${esc(viewLink(b, v, { st: c.id + ":" }))}"><i class="dot"></i>Empty</a>`).join(""));
+}
+function sortMenu(b, v) {
+  const cols = [{ id: "name", title: "Item name" }].concat(boardCols(b).filter(c => !["file", "board_relation", "mirror", "subtasks"].includes(c.type)));
+  const cur = cols.find(c => c.id === v.sort);
+  return menu(cur ? "Sort: " + esc(cur.title) + (v.dir === "desc" ? " (Z to A)" : "") : "Sort", !!cur, (cur ? `<a href="${esc(viewLink(b, v, { sort: "", dir: "" }))}">Board order</a>` : "") +
+    cols.map(c => `<div class="srow"><span>${esc(c.title)}</span><a class="${c.id === v.sort && v.dir === "asc" ? "on" : ""}" href="${esc(viewLink(b, v, { sort: c.id, dir: "asc" }))}">A to Z</a><a class="${c.id === v.sort && v.dir === "desc" ? "on" : ""}" href="${esc(viewLink(b, v, { sort: c.id, dir: "desc" }))}">Z to A</a></div>`).join(""));
+}
+function kanbanByMenu(b, v) {
+  const cur = statusCols(b).find(c => c.id === v.kc);
+  return menu("Columns: " + esc(cur ? cur.title : ""), false, statusCols(b).map(c => `<a class="${c.id === v.kc ? "on" : ""}" href="${esc(viewLink(b, v, { kc: c.id }))}">${esc(c.title)}</a>`).join(""));
+}
+// Kanban: one column per label of a status column, as on monday. On editable boards cards can be dragged
+// between columns (it saves through the same checked cell edit as clicking the status).
+function kanban(b, v, items, editable, counts) {
+  const col = statusCols(b).find(c => c.id === v.kc); if (!col) return "";
+  const show = boardCols(b).filter(c => c.id !== col.id && (PEOPLE.has(c.type) || c.type === "date" || c.type === "status")).slice(0, 3);
+  const lanes = labelsOf(col).map(l => ({ label: l[0], color: hexOk(l[1]) || "#c4c4c4", list: [] }));
+  const empty = { label: "", color: "#c4c4c4", list: [] };
+  for (const it of items) { const t = currentText({ id: col.id, type: "status" }, it); (lanes.find(x => x.label === t) || empty).list.push(it); }
+  const card = it => { const t = currentText({ id: col.id, type: "status" }, it);
+    return `<div class="kcard" data-i="${esc(it.id)}"${editable ? ` draggable="true" data-f="${esc(fp(t))}"` : ""}><a href="/boards/${esc(b.id)}/items/${esc(it.id)}">${esc(it.name)}</a>${show.map(c => { const h = cell(c, it.vals && it.vals[c.id]); return h ? `<div class="kf"><span>${esc(c.title)}</span>${h}</div>` : ""; }).join("")}${counts.upd[it.id] ? `<div class="kf"><span>Updates</span>${esc(counts.upd[it.id] >= 10 ? "10+" : counts.upd[it.id])}</div>` : ""}</div>`; };
+  const lane = l => `<section class="lane" data-v="${esc(l.label)}" style="--lc:${l.color}"><header>${esc(l.label || "Empty")} <span>${l.list.length}</span></header><div class="cards-k">${l.list.map(card).join("")}</div></section>`;
+  return `<div class="kanban"${editable ? ` data-kc="${esc(col.id)}"` : ""}>${lanes.map(lane).join("")}${lane(empty)}</div>`;
+}
+
 export async function renderBoard(email, id, q, page, opts = {}) {
   const b = await board(id);
   const team = await teamSet();
   if (!b || b.board_type !== "board" || !canSee(b, email, team)) { await logAccess(email, "/boards/" + id, id, false); return notFound(); }
   await logAccess(email, "/boards/" + id, id, true);
   const p = Math.max(1, Math.min(10000, parseInt(page, 10) || 1));
-  const where = `board_id = $1::bigint AND NOT deleted AND parent_id IS NULL` + (q ? ` AND (name ILIKE $2 OR vals::text ILIKE $2)` : ``);
-  const params = q ? [b.id, "%" + String(q).slice(0, 100).replace(/[%_\\]/g, m => "\\" + m) + "%"] : [b.id];
-  const total = (await read(`SELECT count(*)::int AS n FROM mirror.items WHERE ${where}`, params))[0].n;
+  const v = viewState(b, q, opts.params || {});
+  const like = t => "%" + String(t).slice(0, 100).replace(/[%_\\]/g, m => "\\" + m) + "%";
+  const params = [b.id]; const arg = x => { params.push(x); return "$" + params.length; };
+  let where = `board_id = $1::bigint AND NOT deleted AND parent_id IS NULL`;
+  if (q) { const a = arg(like(q)); where += ` AND (name ILIKE ${a} OR vals::text ILIKE ${a})`; }
+  const peopleIds = boardCols(b).filter(c => PEOPLE.has(c.type)).map(c => c.id);
+  if (v.person && peopleIds.length) where += ` AND EXISTS (SELECT 1 FROM jsonb_each(vals) e WHERE e.key = ANY(${arg(peopleIds)}::text[]) AND (', ' || (e.value->>0) || ',') ILIKE ${arg("%, " + v.person.replace(/[%_\\]/g, m => "\\" + m) + ",%")})`;
+  if (v.st) { const [sc, ...rest] = v.st.split(":"); const sl = rest.join(":");
+    where += sl ? ` AND vals->${arg(sc)}->>0 = ${arg(sl)}` : ` AND COALESCE(vals->${arg(sc)}->>0, '') = ''`; }
+  const whereParams = params.slice(); // the count takes only the filter values, not the sort's
+  let order = `pos NULLS LAST, created_at`;
+  if (v.sort) {
+    const sc = boardCols(b).find(c => c.id === v.sort), d = v.dir === "desc" ? "DESC" : "ASC";
+    const expr = v.sort === "name" ? `lower(name)` : sc.type === "numbers"
+      ? `CASE WHEN (vals->${arg(v.sort)}->>0) ~ '^-?[0-9]+(\\.[0-9]+)?$' THEN (vals->${arg(v.sort)}->>0)::numeric END`
+      : `NULLIF(lower(vals->${arg(v.sort)}->>0), '')`;
+    order = `${expr} ${d} NULLS LAST, pos NULLS LAST, created_at`;
+  }
+  const filtered = !!(q || v.person || v.st);
+  const total = (await read(`SELECT count(*)::int AS n FROM mirror.items WHERE ${where}`, whereParams))[0].n;
   const items = await read(`SELECT id::text AS id, name, group_id, vals FROM mirror.items WHERE ${where}
-    ORDER BY pos NULLS LAST, created_at LIMIT ${PAGE_SIZE} OFFSET ${(p - 1) * PAGE_SIZE}`, params);
+    ORDER BY ${order} LIMIT ${PAGE_SIZE} OFFSET ${(p - 1) * PAGE_SIZE}`, params);
   const counts = await rowCounts(items.map(i => i.id));
   const editable = !!opts.secret && canEdit(b, email, team);
   const ecols = editable ? new Map(editableColumns(b).map(c => [c.id, c])) : new Map();
@@ -350,22 +452,24 @@ export async function renderBoard(email, id, q, page, opts = {}) {
   const table = (list, g, title) => `<div class="tw"><table style="width:${tableWidth(cols)}px">${colgroup(cols)}<thead><tr><th class="nm">Item</th>${cols.map(c => `<th title="${esc(c.title)}">${esc(c.title)}</th>`).join("")}</tr></thead><tbody>${list.map(it => rowHtml(b, it, ctx)).join("")}${editable && g !== "_" ? addRow(g, title, cols.length) : ""}</tbody></table></div>`;
   // Empty groups show on boards you can edit (so you can add to them), as on monday.
   const onePage = total <= PAGE_SIZE; // on a board split over pages, an empty-looking group may just have its items on another page
-  const sections = [...byGroup.entries()].filter(([g, l]) => l.length || (editable && !q && onePage && g !== "_")).map(([g, l]) => {
+  const sections = [...byGroup.entries()].filter(([g, l]) => l.length || (editable && !filtered && onePage && g !== "_")).map(([g, l]) => {
     const gi = gInfo[g] || { title: "Other" }; const col = hexOk(gi.color);
     return `<details class="group" open data-g="${esc(g)}"${col ? ` style="--gc:${col}"` : ""}><summary>${esc(gi.title)} <span class="gn">${l.length} item${l.length === 1 ? "" : "s"}</span></summary>${table(l, g, gi.title)}</details>`;
   }).join("");
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  const qs = n => `?${q ? "q=" + encodeURIComponent(q) + "&" : ""}page=${n}`;
+  const qs = n => { const l = viewLink(b, v, {}); return l + (l.includes("?") ? "&" : "?") + "page=" + n; };
   const dept = DEPT_NAMES[b.department] ? b.department : "data";
   const colsJson = editable ? JSON.stringify(Object.fromEntries([...ecols.values()].map(c => [c.id, { t: c.type, n: c.title, l: c.type === "status" ? Object.values(c.labels || {}).filter(x => x && x[0]).map(x => [x[0], hexOk(x[1]) || "#c4c4c4"]) : undefined }]))).replace(/</g, "\\u003c") : "";
   const body = `<div data-eco-board data-b="${esc(b.id)}"${editable ? ` data-k="${esc(boardToken(opts.secret, email, b.id))}"` : ""}>
 <h1>${esc(b.name)}</h1>${b.description ? `<p class="desc">${esc(b.description)}</p>` : ""}
-<div class="tabs"><span class="on">Main table</span></div>
-<form class="bar" method="get"><input name="q" value="${esc(q || "")}" placeholder="Search" aria-label="Search this board"><button type="submit">Search</button>${q ? `<a class="btn" href="/boards/${esc(b.id)}">Clear</a>` : ""}
-<span class="count">${esc(total)} ${Number(total) === 1 ? (q ? "item matches" : "item") : (q ? "items match" : "items")}</span><span class="grow"></span>
+<div class="tabs"><a class="${v.view === "table" ? "on" : ""}" href="${esc(viewLink(b, v, { view: "table" }))}">Main table</a>${v.kc ? `<a class="${v.view === "kanban" ? "on" : ""}" href="${esc(viewLink(b, v, { view: "kanban" }))}">Kanban</a>` : ""}</div>
+<div class="bar"><form method="get" class="srch">${["person", "st", "sort", "dir", "view", "kc"].filter(k => v[k] && viewLink(b, v, {}).includes(k + "=")).map(k => `<input type="hidden" name="${k}" value="${esc(v[k])}">`).join("")}<input name="q" value="${esc(q || "")}" placeholder="Search" aria-label="Search this board"><button type="submit">Search</button></form>
+${await personMenu(b, v, peopleIds)}${filterMenu(b, v)}${sortMenu(b, v)}${v.view === "kanban" && statusCols(b).length > 1 ? kanbanByMenu(b, v) : ""}
+${filtered || v.sort ? `<a class="btn" href="${esc(viewLink(b, { view: v.view, kc: v.kc }, {}))}">Clear all</a>` : ""}
+<span class="count">${esc(total)} ${Number(total) === 1 ? (filtered ? "item matches" : "item") : (filtered ? "items match" : "items")}</span><span class="grow"></span>
 <span class="badge${editable ? " edit" : ""}">${editable ? "Click any cell to edit · saves to monday" : "Read-only copy of monday · copied " + esc(ago(b.synced_at)) + " · click an item to see its updates"}</span>${b.access === "team" ? "" : `<span class="badge lock">Listed people only</span>`}
-<a class="btn" href="https://digitalfoxtalent.monday.com/boards/${esc(b.id)}" target="_blank" rel="noopener noreferrer">Open in monday</a></form>
-${sections || `<p class="empty">${b.synced_at ? "No items" + (q ? " match that search." : " on this board.") : "This board has not been copied yet. It fills in within the next few runs."}</p>`}
+<a class="btn" href="https://digitalfoxtalent.monday.com/boards/${esc(b.id)}" target="_blank" rel="noopener noreferrer">Open in monday</a></div>
+${v.view === "kanban" ? kanban(b, v, items, editable, counts) : sections || `<p class="empty">${b.synced_at ? "No items" + (filtered ? " match." : " on this board.") : "This board has not been copied yet. It fills in within the next few runs."}</p>`}
 ${pages > 1 ? `<div class="pager">${p > 1 ? `<a class="btn" href="${qs(p - 1)}">Previous</a>` : ""}<span>Page ${p} of ${pages}</span>${p < pages ? `<a class="btn" href="${qs(p + 1)}">Next</a>` : ""}</div>` : ""}
 </div>${editable ? `<script type="application/json" id="eco-cols">${colsJson}</script>` : ""}`;
   return { status: 200, html: frame(b.name, [[DEPT_NAMES[dept], "/" + dept + "/boards"], [b.name, null]], body, await sidebar(email, b.id),

@@ -117,8 +117,8 @@ export const BOARD_JS = String.raw`(function () {
     return panel;
   }
   function markRow(id) {
-    root.querySelectorAll("tr.sel").forEach(function (r) { r.classList.remove("sel"); });
-    if (id) { var r = root.querySelector('tr[data-i="' + id + '"]'); if (r) r.classList.add("sel"); }
+    root.querySelectorAll("tr.sel, .kcard.sel").forEach(function (r) { r.classList.remove("sel"); });
+    if (id) root.querySelectorAll('tr[data-i="' + id + '"], .kcard[data-i="' + id + '"]').forEach(function (r) { r.classList.add("sel"); });
   }
   function openPanel(id, tab) {
     if (!/^\d{1,19}$/.test(id)) return;
@@ -168,6 +168,48 @@ export const BOARD_JS = String.raw`(function () {
     }).catch(function () { sel.value = from; toast("Could not reach the Ecosystem. Check the item in monday before trying again.", true); })
       .then(function () { sel.disabled = false; });
   }
+  // Person / Filter / Sort menus: one open at a time, closed by clicking elsewhere or Escape.
+  document.addEventListener("click", function (e) {
+    var mine = e.target.closest("details.menu");
+    document.querySelectorAll("details.menu[open]").forEach(function (d) { if (d !== mine) d.open = false; });
+  });
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape") document.querySelectorAll("details.menu[open]").forEach(function (d) { d.open = false; }); });
+  // Kanban: drag a card to another column to change its status (same checked save as clicking the status cell).
+  var kb = root.querySelector(".kanban[data-kc]"), dragging = null;
+  function laneCount(l) { if (l) l.querySelector("header span").textContent = String(l.querySelectorAll(".kcard").length); }
+  if (kb && ED) {
+    kb.addEventListener("dragstart", function (e) {
+      var c = e.target.closest(".kcard"); if (!c || c.classList.contains("saving")) { e.preventDefault(); return; }
+      dragging = c; c.classList.add("drag"); e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", c.getAttribute("data-i"));
+    });
+    kb.addEventListener("dragend", function () {
+      if (dragging) dragging.classList.remove("drag"); dragging = null;
+      kb.querySelectorAll(".lane.over").forEach(function (l) { l.classList.remove("over"); });
+    });
+    kb.addEventListener("dragover", function (e) {
+      var l = e.target.closest(".lane"); if (!l || !dragging) return;
+      e.preventDefault();
+      kb.querySelectorAll(".lane.over").forEach(function (x) { if (x !== l) x.classList.remove("over"); }); l.classList.add("over");
+    });
+    kb.addEventListener("drop", function (e) {
+      var l = e.target.closest(".lane"); if (!l || !dragging) return;
+      e.preventDefault(); l.classList.remove("over");
+      var c = dragging, from = c.closest(".lane"), id = c.getAttribute("data-i");
+      if (from === l) return;
+      l.querySelector(".cards-k").appendChild(c); laneCount(from); laneCount(l); c.classList.add("saving");
+      send("/items/" + id + "/cell", { k: K, c: kb.getAttribute("data-kc"), f: c.getAttribute("data-f"), v: l.getAttribute("data-v") }).then(function (d) {
+        if (typeof d.f === "string") c.setAttribute("data-f", d.f);
+        if (!d.ok) { // put the card where monday says it is
+          var home = typeof d.v === "string" ? kb.querySelector('.lane[data-v="' + CSS.escape(d.v) + '"]') : null;
+          (home || from).querySelector(".cards-k").appendChild(c); laneCount(from); laneCount(l); laneCount(home);
+        }
+        toast(d.message || (d.ok ? "Saved" : "Not saved"), !d.ok);
+      }).catch(function () {
+        from.querySelector(".cards-k").appendChild(c); laneCount(from); laneCount(l);
+        toast("Could not reach the Ecosystem. Check the item in monday before trying again.", true);
+      }).then(function () { c.classList.remove("saving"); });
+    });
+  }
   // "+ Add item" at the bottom of each group: Enter adds it to monday and draws the new row; focus stays for the next one.
   root.addEventListener("submit", function (e) {
     var f = e.target.closest("form[data-eco-add]"); if (!f) return;
@@ -201,17 +243,18 @@ export const BOARD_JS = String.raw`(function () {
     }).then(function () { btn.disabled = false; ta.disabled = false; });
   }
   root.addEventListener("click", function (e) {
-    var nm = e.target.closest("td.nm");
+    var nm = e.target.closest("td.nm, .kcard");
     if (!nm || !root.contains(nm) || e.target.closest(".ren") || e.target.closest("tr.add")) return;
     if (e.target.closest("a") && (e.metaKey || e.ctrlKey || e.shiftKey || e.button === 1)) return; // new tab still opens the full page
+    if (nm.classList.contains("kcard") && e.target.closest(".kf a")) return;                           // links on a card still open
     e.preventDefault();
     close();
-    openPanel(nm.closest("tr").getAttribute("data-i"));
+    openPanel((nm.closest("tr") || nm).getAttribute("data-i"));
   });
   document.addEventListener("mousedown", function (e) {
     if (!panel || !panel.classList.contains("open") || open) return;
     var t = e.target;
-    if (panel.contains(t) || t.closest("td.nm") || t.closest("#eco-toast")) return;
+    if (panel.contains(t) || t.closest("td.nm") || t.closest(".kcard") || t.closest("#eco-toast")) return;
     closePanel();
   });
   var h = /^#item-(\d{1,19})$/.exec(location.hash); if (h) openPanel(h[1]);
