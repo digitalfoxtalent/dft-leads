@@ -316,7 +316,8 @@ async function listAll(tok, q, max) {
 // salesperson's "Routed to" folder instead of Tom's inbox. The owner is the last SALES LEAD on it, not whoever wrote
 // last ("It's who was the last sales lead on the campaign"): the last salesperson to write in the thread, Tom's own
 // replies ignored; failing that, the salesperson copied on it (Alex only when nobody else is, as he is copied on
-// everything). It stays with Tom when only DFT people are on it, or when a salesperson writes to Tom alone.
+// everything, and only when Tom has not written in it himself). It stays with Tom when only DFT people are on it, when
+// a salesperson writes to Tom alone, or when Tom is the only one at DFT who has written.
 const emailsIn = s => (String(s || "").match(/[\w.+'-]+@[\w-]+(?:\.[\w-]+)+/g) || []).map(x => x.toLowerCase());
 const ownerByEmail = e => Object.keys(OWNERS).find(k => OWNERS[k].email === e) || null;
 function ongoingOwner(msgs, me) {
@@ -327,6 +328,9 @@ function ongoingOwner(msgs, me) {
   let key = null;
   for (const m of msgs) { const k = ownerByEmail(realSender(m)); if (k) key = k; }
   if (key) return key;
+  // Tom is the one working it (Tom, 23 Oct 2026, Authors First: "that was directly to me and I was having the
+  // conversation"): no salesperson has written and Tom has, so it stays in his inbox even with salespeople copied.
+  if (msgs.some(m => realSender(m) === SOURCE)) return null;
   for (const m of msgs.slice().reverse()) {
     const copied = [...new Set(emailsIn(hdr(m, "to") + "," + hdr(m, "cc")).map(ownerByEmail).filter(Boolean))];
     if (copied.length) return copied.find(k => k !== "alex") || copied[0];
