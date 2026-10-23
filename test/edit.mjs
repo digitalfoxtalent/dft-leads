@@ -65,7 +65,7 @@ await write(`INSERT INTO mirror.items (id, board_id, group_id, name, vals) VALUE
   [live.name, JSON.stringify(live.vals)]);
 await write(`INSERT INTO mirror.team (email) VALUES ($1), ($2), ($3)`, [TOM, MARGOT, AMY]);
 const team = new Set([TOM, MARGOT, AMY]);
-const board = async id => (await read(`SELECT id::text AS id, board_type, department, access, allowed_emails, gone, columns FROM mirror.boards WHERE id = $1`, [id]))[0];
+const board = async id => (await read(`SELECT id::text AS id, name, folder_path, workspace_name, board_type, department, access, allowed_emails, gone, columns FROM mirror.boards WHERE id = $1`, [id]))[0];
 const item = async id => (await read(`SELECT id::text AS id, name, vals FROM mirror.items WHERE id = $1`, [id]))[0];
 const fpOf = async (col, id) => { const crypto = await import("node:crypto"); return crypto.createHash("sha256").update(String(currentText(col, await item(id)))).digest("base64url").slice(0, 16); };
 const post = (body, origin = "https://ecosystem.digitalfoxtalent.com") => ({ method: "POST", headers: { origin }, body });

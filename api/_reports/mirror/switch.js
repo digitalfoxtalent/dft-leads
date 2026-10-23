@@ -30,10 +30,14 @@ export const SWITCH_SCHEMA = [
 ];
 
 let onSet = new Set(), loadedAt = 0; // fails closed: nothing is editable until the switch has been read
+let started = 0, applied = 0;         // a slow read that started before a newer one never overwrites it
 
 export async function loadSwitches(force) {
   if (!force && Date.now() - loadedAt < TTL) return;
+  const seq = ++started;
   const rows = await read(`SELECT department FROM mirror.edit_switch WHERE is_on`);
+  if (seq < applied) return;
+  applied = seq;
   onSet = new Set(rows.map(r => r.department).filter(d => !NEVER.has(d)));
   loadedAt = Date.now();
 }
@@ -64,9 +68,10 @@ export async function flip(req, secret, email, depts, fromSite) {
   if (!depts[d]) return { ok: false, message: "Unknown section." };
   const turnOn = one(b.on) === "1";
   if (turnOn && NEVER.has(d)) return { ok: false, message: depts[d] + " stays read-only in the Ecosystem." };
-  await write(`INSERT INTO mirror.edit_switch (department, is_on, changed_by, changed_at) VALUES ($1, $2, $3, now())
-    ON CONFLICT (department) DO UPDATE SET is_on = EXCLUDED.is_on, changed_by = EXCLUDED.changed_by, changed_at = now()`, [d, turnOn, email]);
-  await write(`INSERT INTO mirror.switch_log (email, department, turned_on) VALUES ($1, $2, $3)`, [email, d, turnOn]);
-  await loadSwitches(true);
+  // One statement, so the switch never changes without its log row.
+  await write(`WITH s AS (INSERT INTO mirror.edit_switch (department, is_on, changed_by, changed_at) VALUES ($1, $2, $3, now())
+      ON CONFLICT (department) DO UPDATE SET is_on = EXCLUDED.is_on, changed_by = EXCLUDED.changed_by, changed_at = now() RETURNING department)
+    INSERT INTO mirror.switch_log (email, department, turned_on) SELECT $3, department, $2 FROM s`, [d, turnOn, email]);
+  await loadSwitches(true).catch(() => {}); // writes reload it themselves anyway
   return { ok: true, message: depts[d] + (turnOn ? ": editing is on. Changes save straight to monday." : ": editing is off. The boards are read-only in the Ecosystem from now.") };
 }

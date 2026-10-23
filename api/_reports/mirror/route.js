@@ -44,7 +44,7 @@ export async function mirrorPage(route, req, res, email, token) {
   let m;
   const json = o => ({ status: 200, type: "application/json; charset=utf-8", body: JSON.stringify(o), cache: "no-store" });
   if (panelRoute) return json(await renderPanel(email, panelRoute[1], panelRoute[2], { secret: token }));
-  const BOARD_Q = `SELECT id::text AS id, board_type, department, access, allowed_emails, gone, columns, groups FROM mirror.boards WHERE id = $1::bigint`;
+  const BOARD_Q = `SELECT id::text AS id, name, folder_path, workspace_name, board_type, department, access, allowed_emails, gone, columns, groups FROM mirror.boards WHERE id = $1::bigint`;
   if (newRoute || moveRoute) {
     if (req.method !== "POST" || !token) return Object.assign(json({ ok: false, message: "Not allowed." }), { status: 405 });
     const boardId = (newRoute || moveRoute)[1];
@@ -67,7 +67,7 @@ export async function mirrorPage(route, req, res, email, token) {
   if (postRoute) {
     if (req.method !== "POST" || !token) return Object.assign(json({ ok: false, message: "Not allowed." }), { status: 405 });
     const [, boardId, itemId] = postRoute;
-    const b = (await read(`SELECT id::text AS id, board_type, department, access, allowed_emails, gone, columns FROM mirror.boards WHERE id = $1::bigint`, [boardId]))[0];
+    const b = (await read(`SELECT id::text AS id, name, folder_path, workspace_name, board_type, department, access, allowed_emails, gone, columns FROM mirror.boards WHERE id = $1::bigint`, [boardId]))[0];
     const it = b && (await read(`SELECT id::text AS id, name, vals FROM mirror.items WHERE id = $1::bigint AND board_id = $2::bigint AND NOT deleted`, [itemId, boardId]))[0];
     const team = new Set((await read(`SELECT email FROM mirror.team`)).map(r => r.email));
     if (!b || !it || !canEdit(b, email, team)) return json({ ok: false, message: "Updates cannot be posted on this item here." });
@@ -81,7 +81,7 @@ export async function mirrorPage(route, req, res, email, token) {
     if (req.method !== "POST" || !token) return json({ ok: false, message: "Not allowed." });
     const [, boardId, itemId] = cellRoute;
     const load = async () => {
-      const b = (await read(`SELECT id::text AS id, board_type, department, access, allowed_emails, gone, columns FROM mirror.boards WHERE id = $1::bigint`, [boardId]))[0];
+      const b = (await read(`SELECT id::text AS id, name, folder_path, workspace_name, board_type, department, access, allowed_emails, gone, columns FROM mirror.boards WHERE id = $1::bigint`, [boardId]))[0];
       const it = b && (await read(`SELECT id::text AS id, name, vals FROM mirror.items WHERE id = $1::bigint AND board_id = $2::bigint AND NOT deleted`, [itemId, boardId]))[0];
       return [b, it];
     };
@@ -102,7 +102,7 @@ export async function mirrorPage(route, req, res, email, token) {
   if (act) {
     if (req.method !== "POST" || !token) return { status: 405, html: "Method not allowed" };
     const [, boardId, itemId, kind] = act;
-    const b = (await read(`SELECT id::text AS id, board_type, department, access, allowed_emails, gone, columns FROM mirror.boards WHERE id = $1::bigint`, [boardId]))[0];
+    const b = (await read(`SELECT id::text AS id, name, folder_path, workspace_name, board_type, department, access, allowed_emails, gone, columns FROM mirror.boards WHERE id = $1::bigint`, [boardId]))[0];
     const it = b && (await read(`SELECT id::text AS id, name, vals FROM mirror.items WHERE id = $1::bigint AND board_id = $2::bigint AND NOT deleted`, [itemId, boardId]))[0];
     const team = new Set((await read(`SELECT email FROM mirror.team`)).map(r => r.email));
     if (!b || !it) return renderItem(email, boardId, itemId, { secret: token }); // looks exactly like a missing item

@@ -18,7 +18,7 @@
 
 import crypto from "node:crypto";
 import { read, write } from "./db.js";
-import { canSee } from "./policy.js";
+import { canSee, editLocked } from "./policy.js";
 import { isOn, loadSwitches } from "./switch.js";
 
 export const EDITABLE = new Set(["name", "text", "long_text", "numbers", "status", "date", "email", "link", "checkbox"]);
@@ -75,7 +75,7 @@ const sign = (secret, v) => crypto.createHmac("sha256", String(secret) + "|eco-e
 const parse = s => { try { return typeof s === "string" ? JSON.parse(s) : s; } catch (e) { return null; } };
 
 export function canEdit(board, email, team) {
-  return !!board && board.board_type === "board" && isOn(board.department) && canSee(board, email, team);
+  return !!board && board.board_type === "board" && isOn(board.department) && !editLocked(board) && canSee(board, email, team);
 }
 export const editableColumns = board => [{ id: "name", title: "Name", type: "name" }].concat((board.columns || []).filter(c => EDITABLE.has(c.type) && c.type !== "name"));
 const statusLabels = col => Object.values(col.labels || {}).map(l => l && l[0]).filter(Boolean);
@@ -123,7 +123,7 @@ async function monday(token, query, variables, ms) {
 const ITEM_Q = `query ($i: [ID!]) { items (ids: $i) { id name created_at updated_at state group { id } parent_item { id } creator { name } board { id }
   column_values { id type text value ... on MirrorValue { display_value } ... on BoardRelationValue { display_value } ... on FormulaValue { display_value } } } }`;
 async function liveItem(token, itemId) {
-  const it = ((await monday(token, ITEM_Q, { i: [String(itemId)] })).items || [])[0];
+  const it = ((await monday(token, ITEM_Q, { i: [String(itemId)] }, 8000)).items || [])[0];
   if (!it || it.state === "deleted") return null;
   const vals = {};
   for (const v of it.column_values || []) {
@@ -137,6 +137,11 @@ async function saveLive(live) {
   await write(`UPDATE mirror.items SET name = $2, vals = $3::jsonb, group_id = COALESCE($4, group_id), updated_at = $5::timestamptz, synced_at = now() WHERE id = $1::bigint`,
     [live.id, live.name, JSON.stringify(live.vals), live.group_id || null, live.updated_at || null]);
 }
+
+// Checked again immediately before every monday write, so a section Tom has just turned off stops even a write
+// that was already past its first check.
+const OFF = "Editing on this board has just been turned off. Nothing was changed.";
+async function stillOn(board) { await loadSwitches(true); return isOn(board.department); }
 
 // ---------- the form ----------
 
@@ -216,6 +221,7 @@ async function apply(token, board, item, email, changes, undoOf) {
   }
   const values = {};
   for (const c of changes) values[c.col.id] = mondayValue(c.col, c.to);
+  if (!(await stillOn(board))) return { ok: false, message: OFF };
   let err = null;
   try {
     await monday(token, `mutation ($b: ID!, $i: ID!, $v: JSON!) { change_multiple_column_values (board_id: $b, item_id: $i, column_values: $v) { id } }`,
@@ -360,6 +366,7 @@ export async function postUpdate(req, token, email, board, item, team) {
   if (!before || before.board_id !== String(board.id)) return { ok: false, message: "This item is no longer on this board in monday. Nothing was posted." };
   const name = clean(((await read(`SELECT name FROM mirror.team WHERE email = $1`, [email]))[0] || {}).name || email).slice(0, 200);
   // Logged before monday is called, so even a request cut off mid-way leaves a record.
+  if (!(await stillOn(board))) return { ok: false, message: OFF };
   const logId = (await write(`INSERT INTO mirror.posts (email, board_id, item_id, name, ok, error) VALUES ($1, $2::bigint, $3::bigint, $4, false, 'pending') RETURNING id::text AS id`,
     [email, board.id, item.id, name]))[0].id;
   let u = null, err = null;
@@ -421,6 +428,7 @@ export async function createItem(req, token, email, board, team) {
   // Items with this name that already exist, so a lost reply can only ever be matched to the item this call made.
   let existing;
   try { existing = new Set((await same()).map(x => String(x.id))); } catch (e) { return { ok: false, message: "Could not reach monday. Nothing was added; try again in a moment." }; }
+  if (!(await stillOn(board))) return { ok: false, message: OFF };
   let id = null, err = null;
   try {
     const d = await monday(token, `mutation ($b: ID!, $g: String!, $n: String!) { create_item (board_id: $b, group_id: $g, item_name: $n) { id } }`,
@@ -460,6 +468,7 @@ export async function moveItem(req, token, email, board, item, team) {
   if (live.group_id === to.id) return { ok: true, message: "Already in " + to.title + "." };
   const from = groupOf(board, live.group_id);
   const base = { email, board_id: board.id, item_id: item.id, column_id: "_group", column_title: "Group", old_text: from ? from.title : live.group_id, new_text: to.title };
+  if (!(await stillOn(board))) return { ok: false, message: OFF };
   let err = null;
   try { await monday(token, `mutation ($i: ID!, $g: String!) { move_item_to_group (item_id: $i, group_id: $g) { id } }`, { i: String(item.id), g: to.id }, 15000); }
   catch (e) { err = String(e.message || e).slice(0, 300); }

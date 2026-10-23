@@ -35,7 +35,7 @@ const res = { setHeader() {} };
 const get = (r, who = MARGOT) => mirrorPage(r, { method: "GET", headers: {}, query: {} }, res, who, TOKEN);
 const post = (r, body, who = TOM, origin = SITE) => mirrorPage(r, { method: "POST", headers: { origin }, query: {}, body }, res, who, TOKEN);
 const flipBody = (d, on, who = TOM) => ({ t: switchToken(TOKEN, who), d, on: on ? "1" : "0" });
-const board = async id => (await read(`SELECT id::text AS id, board_type, department, access, allowed_emails, gone, columns, groups FROM mirror.boards WHERE id = $1`, [id]))[0];
+const board = async id => (await read(`SELECT id::text AS id, name, folder_path, workspace_name, board_type, department, access, allowed_emails, gone, columns, groups FROM mirror.boards WHERE id = $1`, [id]))[0];
 const team = new Set([TOM, MARGOT]);
 
 // fails closed before the switch is read
@@ -101,5 +101,32 @@ out = await get("boards/200");
 ok(/data-k=/.test(out.html) && /data-eco-add/.test(out.html), "Content boards become editable");
 out = await get("data/editing");
 ok(/Recent changes/.test(out.html) && /Turned on/.test(out.html) && /Turned off/.test(out.html), "change history on the page");
+
+// money, legal and private boards are never editable, whichever section they are filed under
+await write(`INSERT INTO mirror.boards (id, name, board_type, department, access, allowed_emails, columns, groups) VALUES
+  (400, 'Commission tracker', 'board', 'content', 'team', '{}', $1::jsonb, '[]'),
+  (401, 'Content invoices', 'board', 'content', 'team', '{}', $1::jsonb, '[]')`, [JSON.stringify(COLS)]);
+await write(`UPDATE mirror.boards SET folder_path = 'Legal / Contracts' WHERE id = 401`);
+await write(`INSERT INTO mirror.boards (id, name, board_type, department, access, allowed_emails, columns, groups, folder_path) VALUES
+  (402, 'Plain board', 'board', 'content', 'team', '{}', $1::jsonb, '[]', 'Legal / Contracts')`, [JSON.stringify(COLS)]);
+ok(!canEdit(await board(400), TOM, team), "a commission board filed under Content stays read-only with Content on");
+ok(!canEdit(await board(402), TOM, team), "a board in a Legal folder stays read-only");
+ok(canEdit(await board(200), TOM, team), "an ordinary Content board is editable");
+ok(!canEdit({ id: "200", board_type: "board", department: "content", access: "team", allowed_emails: [] }, TOM, team), "a board record without its name is treated as locked");
+
+// turned off between the first check and the monday write: nothing is written
+let mutations = 0;
+setFetch(async (url, opts) => {
+  const body = JSON.parse(opts.body);
+  if (/change_multiple_column_values/.test(body.query)) { mutations++; return { ok: true, json: async () => ({ data: { change_multiple_column_values: { id: "600" } } }) }; }
+  if (/items \(ids/.test(body.query)) {
+    await write(`UPDATE mirror.edit_switch SET is_on = false WHERE department = 'content'`); // Tom turns Content off right now
+    return { ok: true, json: async () => ({ data: { items: [{ id: "600", name: "B", state: "active", board: { id: "200" }, group: { id: "g1" }, updated_at: new Date().toISOString(), column_values: [] }] } }) };
+  }
+  throw new Error("unexpected " + body.query.slice(0, 40));
+});
+await loadSwitches(true);
+d = JSON.parse((await post("boards/200/items/600/cell", { k: boardToken(TOKEN, MARGOT, "200"), c: "t1", f: fp(""), v: "new" }, MARGOT)).body);
+ok(!d.ok && /just been turned off/.test(d.message) && mutations === 0, "switch turned off mid-request: monday is not written");
 
 console.log("switch tests passed: " + pass);
