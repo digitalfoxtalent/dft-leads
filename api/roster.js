@@ -2443,6 +2443,25 @@ function listsOnlyResult(f, lists, failed) {
   const text = "Your lists are ready. Nobody outside DFT was in this email, so no reply draft was made.\n\n" + lists.map(l => l.title + " (" + l.placements + " placements): " + l.url).join("\n");
   return { ok: true, listsOnly: true, draftMade: true, lists, listUrl: lists[0].url, title: lists.map(l => l.title).join(" + "), placements: lists.reduce((a, l) => a + l.placements, 0), to: "", cc: "", search: "", subject: "Lists ready: " + subj, html, text };
 }
+// The "lists ready" notice in the sender's INBOX (Tom, 21 Oct 2026: the heist movie links never reached him). Make emails
+// the notice from the sender's own account to themselves, so Gmail files it under Sent only and it is easily missed. The
+// same notice is also put straight into their inbox, unread, through the delegated Gmail access. Make's copy stays as a
+// fallback. A failure here never stops the lists.
+async function listsInbox(fromEmail, res) {
+  try {
+    if (!/@digitalfoxtalent\.com$/i.test(fromEmail || "") || !res || !res.html) return res;
+    const tok = await gmailToken(fromEmail); if (!tok) return res;
+    const enc = s => /[^\x20-\x7e]/.test(s) ? "=?UTF-8?B?" + Buffer.from(s, "utf8").toString("base64") + "?=" : s;
+    const b64 = s => Buffer.from(String(s || ""), "utf8").toString("base64").replace(/(.{76})/g, "$1\r\n");
+    const bound = "dftlists" + crypto.randomBytes(8).toString("hex");
+    const head = ["From: Digital Fox Talent <pitch@digitalfoxtalent.com>", "To: " + fromEmail, "Subject: " + enc(String(res.subject || "Lists ready")), "Date: " + new Date().toUTCString(), "MIME-Version: 1.0", "Content-Type: multipart/alternative; boundary=\"" + bound + "\""];
+    const parts = ["--" + bound, "Content-Type: text/plain; charset=\"UTF-8\"", "Content-Transfer-Encoding: base64", "", b64(cleanLinks(res.text)), "--" + bound, "Content-Type: text/html; charset=\"UTF-8\"", "Content-Transfer-Encoding: base64", "", b64(cleanLinks(res.html)), "--" + bound + "--", ""];
+    const raw = Buffer.from(head.join("\r\n") + "\r\n\r\n" + parts.join("\r\n"), "utf8").toString("base64url");
+    const r = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages?internalDateSource=dateHeader", { method: "POST", headers: { Authorization: "Bearer " + tok, "Content-Type": "application/json" }, body: JSON.stringify({ raw, labelIds: ["INBOX", "UNREAD"] }) });
+    res.inboxed = r.ok;
+  } catch (e) { res.inboxed = false; }
+  return res;
+}
 async function splitCampaigns(f) {
   const prompt = [
     "A DFT teammate forwarded a brand email to a creator talent agency and asked for a separate pitch for each campaign in it.",
@@ -2571,7 +2590,7 @@ async function pitchFromEmail(b) {
         if (!subs.length) { b = Object.assign({}, b, { multiFailed: failed.join("; ") }); } else {
         if (b.listsOnly) {
           await pitchMark(b.item, "Lists only (no brand to reply to): " + subs.map(s => s.title + ", " + s.placements + " placements").join("; ") + " (" + subs[0].model + ")" + (failed.length ? ". Not made: " + failed.join("; ") : ""), subs[0].listUrl);
-          return listsOnlyResult(f, subs.map(s => ({ title: s.title, url: s.listUrl, placements: s.placements })), failed);
+          return await listsInbox(fromEmail, listsOnlyResult(f, subs.map(s => ({ title: s.title, url: s.listUrl, placements: s.placements })), failed));
         }
         const fwdName0 = String(b.fromName || "").replace(/["<>]/g, "").trim() || fromEmail.split("@")[0];
         const mail = subs.length >= 2 ? composeMulti(subs, fwdName0) : { html: subs[0].html, text: subs[0].text };
@@ -2915,7 +2934,7 @@ async function pitchFromEmail(b) {
     }
     if (b.listsOnly) {
       await pitchMark(b.item, "Lists only (no brand to reply to): " + title + ", " + ids.length + " placements (" + out.model + ")" + (fellBack ? ". Heads-up: " + fellBack : ""), saved.url);
-      return listsOnlyResult(f, [{ title, url: saved.url, placements: ids.length }], []);
+      return await listsInbox(fromEmail, listsOnlyResult(f, [{ title, url: saved.url, placements: ids.length }], []));
     }
     await pitchMark(b.item, (press ? "Press package. " : "") + (reuse ? "Ready: same list as before, " : "Ready: ") + ids.length + " placements (" + out.model + ")" + (todo.length ? ". Brand also asked (not answered in the draft): " + todo.join("; ") : "") + (fellBack ? ". Heads-up: " + fellBack : "") + (b.multiFailed ? ". Heads-up: the separate campaign pitches failed (" + String(b.multiFailed).slice(0, 200) + "), so this is one combined pitch" : "") + (whyNone ? ". Heads-up: " + whyNone : "") + (lowFit ? ". Heads-up: no creator was a strong fit, so these are the closest" : ""), saved.url).catch(() => null); // never "Failed" once the list is saved (audit 19 Oct 2026)
     // Who gets copied (Tom, 14 Oct 2026, after a creator's personal email was copied on Margot's Base44 draft):
