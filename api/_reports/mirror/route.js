@@ -111,7 +111,7 @@ export async function mirrorPage(route, req, res, email, token) {
     return note.ok ? out : Object.assign(out, { status: out.status === 200 ? 400 : out.status });
   }
   if ((m = route.match(ITEM))) return renderItem(email, m[1], m[2], { secret: token });
-  if ((m = route.match(BOARD))) return renderBoard(email, m[1], q, page, { secret: token });
+  if ((m = route.match(BOARD))) return renderBoard(email, m[1], q, page, { secret: token, params: req.query || {} });
   if (route === "data/mirror") return renderStatus(email);
   if ((m = route.match(DEPT))) return renderDepartment(email, m[1], q);
   return { status: 404, html: "Not found" };
