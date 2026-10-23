@@ -21,7 +21,7 @@ const JS_VER = crypto.createHash("sha256").update(BOARD_JS).digest("hex").slice(
 async function teamSet() { return new Set((await read(`SELECT email FROM mirror.team`)).map(r => r.email)); }
 import { canSee } from "./policy.js";
 import { backupStatus } from "./backup.js";
-import { listKeys, isOwner, adminToken } from "./apikeys.js";
+import { listKeys, isOwner, adminToken, newNonce } from "./apikeys.js";
 export { INBOX_SCHEMA } from "./inbox-schema.js";
 import { isOn, NEVER, OWNERS, switchRows, switchLog, switchToken } from "./switch.js";
 import { canEdit, editForm, historyHtml, editableColumns, currentText, fp, boardToken, liveUpdates, authors } from "./edit.js";
@@ -815,13 +815,14 @@ export async function renderApiKeys(email, secret, note, newKey) {
 ${note ? `<p class="note ${note.ok ? "ok" : "bad"}">${esc(note.message)}</p>` : ""}
 ${newKey ? `<div class="note ok"><b>New key (shown once):</b><pre class="key">${esc(newKey)}</pre>In Make, use an HTTP module with the header <code>Authorization: Bearer</code> followed by this key.</div>` : ""}
 <h2 class="sec">Make a key</h2>
-<form class="edit" method="post" action="/data/api-keys"><input type="hidden" name="t" value="${esc(tok)}"><input type="hidden" name="do" value="create">
+<form class="edit" method="post" action="/data/api-keys"><input type="hidden" name="t" value="${esc(tok)}"><input type="hidden" name="do" value="create"><input type="hidden" name="n" value="${esc(newNonce())}">
 <div class="fields"><label><span>Name (what uses it)</span><input name="name" maxlength="80" required placeholder="Make: renewal pipeline"></label></div>
 <p class="sm muted" style="margin:14px 0 6px">Sections it can read</p><div class="checks">${depts.map(d => `<label class="ck"><input type="checkbox" name="d" value="${esc(d)}"> ${esc(DEPT_NAMES[d])}</label>`).join("")}</div>
-<label class="ck" style="margin-top:12px"><input type="checkbox" name="private" value="1"> Also boards limited to listed people (leave off unless the scenario needs one)</label>
+<p class="sm muted" style="margin:14px 0 6px">Money, legal and private boards are never included by section. If a scenario needs one, name it here by its board number (from its address), separated by commas.</p>
+<div class="fields"><label><span>Extra boards (optional)</span><input name="boards" maxlength="400" placeholder="18424308602, 18424308590"></label></div>
 <div class="acts"><button class="btn fox" type="submit">Make key</button></div></form>
 <h2 class="sec">Keys</h2>${keys.length ? `<div class="tw plain"><table><thead><tr><th>Name</th><th>Ends</th><th>Sections</th><th>Made</th><th>Last used</th><th>Calls (24 h)</th><th></th></tr></thead><tbody>${keys.map(k =>
-  `<tr${k.revoked_at ? ' class="muted"' : ""}><td>${esc(k.name)}</td><td>...${esc(k.key_hint)}</td><td>${esc(k.departments.map(d => DEPT_NAMES[d] || d).join(", "))}${k.include_private ? " + listed-only boards" : ""}</td><td>${when(k.created_at)}</td><td>${when(k.last_used_at)}</td><td class="num">${esc(k.calls_24h)}</td><td>${k.revoked_at ? "Revoked" : `<form method="post" action="/data/api-keys"><input type="hidden" name="t" value="${esc(tok)}"><input type="hidden" name="do" value="revoke"><input type="hidden" name="id" value="${esc(k.id)}"><button class="btn sm" type="submit">Revoke</button></form>`}</td></tr>`).join("")}</tbody></table></div>` : `<p class="muted">No keys yet.</p>`}`;
+  `<tr${k.revoked_at ? ' class="muted"' : ""}><td>${esc(k.name)}</td><td>...${esc(k.key_hint)}</td><td>${esc(k.departments.map(d => DEPT_NAMES[d] || d).join(", "))}${k.boards && k.boards.length ? " + boards " + esc(k.boards.join(", ")) : ""}</td><td>${when(k.created_at)}</td><td>${when(k.last_used_at)}</td><td class="num">${esc(k.calls_24h)}</td><td>${k.revoked_at ? "Revoked" : `<form method="post" action="/data/api-keys"><input type="hidden" name="t" value="${esc(tok)}"><input type="hidden" name="do" value="revoke"><input type="hidden" name="id" value="${esc(k.id)}"><button class="btn sm" type="submit">Revoke</button></form>`}</td></tr>`).join("")}</tbody></table></div>` : `<p class="muted">No keys yet.</p>`}`;
   return { status: note && !note.ok ? 400 : 200, html: frame("API keys", [["Data Engine", "/data"], ["API keys", null]], body, await sidebar(email, "data")) };
 }
 
