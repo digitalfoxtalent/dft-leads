@@ -105,6 +105,9 @@ export default async function handler(req, res) {
     // Gmail's search can take a few minutes to find a message that was only just delivered (Tripo 3D, 23 Oct 2026), so a
     // miss is tried again up to 5 times, 3 minutes apart, before the row says it failed.
     if (!hit) {
+      // Already binned by the salesperson (Tripo 3D, 23 Oct 2026): nothing to draft, and the row says so.
+      const binned = ((await G("/messages?maxResults=1&includeSpamTrash=true&q=" + encodeURIComponent("rfc822msgid:" + mid + " in:trash"))).messages || [])[0];
+      if (binned) { await save({ [C.draft]: "skipped: " + owner[1].split(" ")[0] + " deleted it" }); return res.status(200).json({ ok: true, skipped: "deleted" }); }
       const n = (Number((String(rowState || "").match(/^retry (\d+)/) || [])[1]) || 0) + 1;
       await save({ [C.draft]: n <= 5 ? "retry " + n + " at " + new Date().toISOString() : "failed: the brand's email is not in " + owner[1].split(" ")[0] + "'s inbox" });
       return res.status(200).json({ ok: false, retry: n });
