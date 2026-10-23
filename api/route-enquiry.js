@@ -33,7 +33,7 @@ export const config = { maxDuration: 60 };
 //   rows (roster shortlist, brief form) with no owner get one and the owner is told.
 // READ SYNC (every 5 minutes, both modes). The unread count on each "Routed to" folder in Tom's Gmail is what that
 //   salesperson has not opened yet: Tom's copy turns read once theirs is read.
-// NUDGES (weekdays 9am to 5pm Denver). A routed lead with no reply after one working day: the owner gets a short reminder
+// NUDGES (weekdays 9am to 5pm in the owner's own time zone: Denver, or China for Han Yi). A routed lead with no reply after one working day: the owner gets a short reminder
 //   from theteam@. It also tops Tom's 5pm list.
 // DIGEST (5pm Denver, daily). One email from theteam@ to Tom: what came in, who it went to, what was held back, what is
 //   waiting on a reply.
@@ -59,7 +59,7 @@ const OWNERS = {
     profile: "Brand partnerships lead: consumer brands, apps, tech, finance and lifestyle, any enquiry with a stated budget over $5,000, and anything that fits no one else." },
   george: { name: "George", email: "george@digitalfoxtalent.com", label: "Label_33", monday: 104886769,
     profile: "Studios, gaming and PR: film and TV studios, distributors and streamers promoting a title, game publishers and gaming products, and press or PR (junkets, screeners, review copies, events), when no budget over $5,000 is stated." },
-  hani: { name: "Han Yi", email: "hani@digitalfoxtalent.com", label: "Label_34", monday: 119590675,
+  hani: { name: "Han Yi", email: "hani@digitalfoxtalent.com", label: "Label_34", monday: 119590675, tz: "Asia/Shanghai",
     profile: "China market: Chinese brands and Chinese agencies (TecDo, Meetsocial, Mobvista and others), including Chinese agencies pitching games, and anything written in Chinese." },
   alex: { name: "Alex", email: "alex@digitalfoxtalent.com", label: "Label_35", monday: 54957240,
     profile: "Only clients Alex already worked on last." }
@@ -133,15 +133,20 @@ const byDft = m => DFT.test(realSender(m)) && !isBrief(m);
 const esc = s => String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 const noDash = s => String(s || "").replace(/\s*[—–]\s*/g, ", ");
 const isoDay = d => new Date(d).toISOString().slice(0, 10);
-const DENVER_FMT = new Intl.DateTimeFormat("en-US", { timeZone: "America/Denver", hour12: false, weekday: "short", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
-const denver = (d = new Date()) => {
-  const p = Object.fromEntries(DENVER_FMT.formatToParts(d).map(x => [x.type, x.value]));
+// Clock in any time zone (each salesperson's working hours are their own: Tom, 23 Oct 2026, "Han Yi works China hours").
+const TZ_FMT = {};
+const local = (tz, d = new Date()) => {
+  const f = TZ_FMT[tz] || (TZ_FMT[tz] = new Intl.DateTimeFormat("en-US", { timeZone: tz, hour12: false, weekday: "short", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }));
+  const p = Object.fromEntries(f.formatToParts(d).map(x => [x.type, x.value]));
   return { day: p.weekday, date: p.year + "-" + p.month + "-" + p.day, hour: Number(p.hour) % 24, minute: Number(p.minute) };
 };
-// Working hours between two times, Mon to Fri 9am to 5pm Denver, counted in half hours. One working day = 8 hours.
-function workingHours(fromMs, toMs) {
+const denver = (d = new Date()) => local("America/Denver", d);
+const isWorkTime = (tz, d) => { const x = local(tz, d); return !["Sat", "Sun"].includes(x.day) && x.hour >= 9 && x.hour < 17; };
+// Working hours between two times, Mon to Fri 9am to 5pm in the given time zone (Denver unless the owner has their own),
+// counted in half hours. One working day = 8 hours.
+function workingHours(fromMs, toMs, tz = "America/Denver") {
   let h = 0;
-  for (let t = fromMs; t < toMs; t += 1800000) { const d = denver(new Date(t)); if (!["Sat", "Sun"].includes(d.day) && d.hour >= 9 && d.hour < 17) h += 0.5; }
+  for (let t = fromMs; t < toMs; t += 1800000) if (isWorkTime(tz, new Date(t))) h += 0.5;
   return h;
 }
 
@@ -601,7 +606,6 @@ async function track(ctx) {
   let replied = (labels.find(l => l.name === REPLIED) || {}).id;
   if (!replied && !dry) { replied = (await gmail(tok, "/gmail/v1/users/me/labels", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: REPLIED }) })).id; labels.push({ id: replied, name: REPLIED }); }
   const now = Date.now(), dn = denver();
-  const workHours = !["Sat", "Sun"].includes(dn.day) && dn.hour >= 9 && dn.hour < 17;
   for (const row of rows) {
     if (Date.now() - ctx.t0 > 50000) break;
     const v = row.v, dec = v[C.decision], status = v[C.status];
@@ -668,7 +672,7 @@ async function track(ctx) {
           t.mirrored = (t.mirrored || 0) + 1;
         }
         // NUDGE: no reply after one working day (weekdays 9 to 5 Denver).
-        if (!answered && !v[C.repliedAt] && !v[C.nudgedAt] && workHours && workingHours(whenOf(row, C.routedAt) || Date.parse(row.created), now) >= 8) {
+        if (!answered && !v[C.repliedAt] && !v[C.nudgedAt] && isWorkTime(o.tz || "America/Denver", new Date(now)) && workingHours(whenOf(row, C.routedAt) || Date.parse(row.created), now, o.tz || "America/Denver") >= 8) {
           await setCols(row.id, { [C.nudgedAt]: dateVal(now) }); // saved before sending, so a failure can never repeat the nudge
           await sendInternal(o.email, "Still waiting on a reply: " + row.name, "<p>Hi " + esc(o.name) + ",</p><p>This enquiry has been in your inbox for a working day without a reply:</p><p><b>" + esc(row.name) + "</b><br>" + esc(String(v[C.message]).split("\n")[0]) + "</p><p>It is in your inbox from " + esc(v[C.email]) + ". If it is not for you, forward it to the right person and copy Tom.</p>");
           t.did = (t.did ? t.did + ", " : "") + "nudged";
@@ -688,7 +692,7 @@ async function digest(ctx) {
   const today = denver().date;
   const inToday = r => denver(new Date(r.created)).date === today;
   const todays = rows.filter(r => inToday(r) && r.v[C.decision]);
-  const waiting = rows.filter(r => r.v[C.decision] === "Routed" && r.v[C.routedAt] && !r.v[C.repliedAt] && !/won|lost|replied|proposal/i.test(r.v[C.status]) && workingHours(whenOf(r, C.routedAt) || Date.parse(r.created), Date.now()) >= 8);
+  const waiting = rows.filter(r => r.v[C.decision] === "Routed" && r.v[C.routedAt] && !r.v[C.repliedAt] && !/won|lost|replied|proposal/i.test(r.v[C.status]) && workingHours(whenOf(r, C.routedAt) || Date.parse(r.created), Date.now(), (OWNERS[r.ownerKey] || {}).tz || "America/Denver") >= 8);
   const link = r => "https://digitalfoxtalent.monday.com/boards/" + BOARD + "/pulses/" + r.id;
   const li = (r, extra) => "<li><a href=\"" + link(r) + "\">" + esc(r.name) + "</a>" + (extra ? " <span style=\"color:#777\">" + esc(extra) + "</span>" : "") + "</li>";
   const by = {};
