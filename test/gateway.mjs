@@ -64,6 +64,8 @@ ok(r.status === 200 && JSON.parse(r.raw).data.boards[0].items_page.items[0].name
 ok(sent.at(-1).body.query.replace(/\s+/g, " ").includes("items_page(limit: 5)") && JSON.stringify(sent.at(-1).body.variables) === '{"b":["100"]}' && sent.at(-1).version === "2025-04", "same query and variables sent; default API version");
 r = await gw({ query: Q, variables: { b: ["100"] } }, gk, "POST", { "api-version": "2024-10" });
 ok(sent.at(-1).version === "2024-10", "the caller's API version is passed on");
+r = await gw({ query: Q, variables: { b: ["100"] } }, gk, "POST", { "api-version": "2026-07" });
+ok(r.status === 400, "newer API versions than the gateway knows are refused");
 r = await gw(JSON.stringify({ query: Q, variables: { b: ["100"] } }));
 ok(r.status === 200, "a body sent as text works too");
 
@@ -126,6 +128,10 @@ await refused({ query: `query { items (ids: [500]) { column_values { ... on Mirr
 await refused({ query: `query { items (ids: [500]) { creator { name email } } }` }, "contact details refused anywhere");
 await refused({ query: `query { users { name phone } }` }, "phone numbers refused");
 await refused({ query: `query { me { account { id } } }` }, "account details refused, even nested");
+await refused({ query: `query { users { id name birthday } }` }, "people: only id, name and enabled");
+await refused({ query: `query { items (ids: [500]) { creator { name photo_original } } }` }, "people details refused on creators too");
+await refused({ query: `query { items (ids: [500]) { cursor: name } }` }, "renaming another field to a protected name refused", 400);
+await refused({ query: `query { boards (ids: [100]) { team_subscribers { id } } }` }, "team subscribers refused");
 await refused({ query: `query ($i: [ID!]) { items (ids: $i) { name } }`, variables: { i: [["500"]] } }, "ids must be a flat list", 400);
 r = await gw({ query: `query { items (ids: [500]) { column_values { ... on MirrorValue { display_value } } } }` }, linkedKey);
 ok(r.status === 200, "a key allowed mirrored text can read it");

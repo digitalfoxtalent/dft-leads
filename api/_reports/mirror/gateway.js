@@ -46,7 +46,7 @@ export const READS = new Set(["boards", "items", "items_page_by_column_values", 
 // Fields refused anywhere in a request: ways from an allowed item to items on other boards, contact details,
 // and account-wide lists. display_value (the text of mirrored and connected columns) only for keys allowed it.
 export const DENY = new Set(["linked_items", "mirrored_items", "linked_item", "email", "phone", "mobile_phone", "account", "owners", "subscribers",
-  "teams", "team_owners", "workspace", "workspaces", "activity_logs", "views", "webhooks", "apps_monetization_status", "is_admin", "is_guest"]);
+  "teams", "team_owners", "team_subscribers", "workspace", "workspaces", "activity_logs", "views", "webhooks", "apps_monetization_status", "is_admin", "is_guest"]);
 
 class Refusal extends Error { constructor(status, message) { super(message); this.status = status; } }
 const no = (status, message) => { throw new Refusal(status, message); };
@@ -54,6 +54,13 @@ const no = (status, message) => { throw new Refusal(status, message); };
 // Parse with the real GraphQL parser and refuse anything whose meaning could differ from what we check: exactly
 // one operation, no named fragments, only plain fields (no fragments or directives) at the top level. The
 // request forwarded to monday is the parser's own re-print of what was checked.
+// People: only who they are, never their details (the answer to users, me, creator, uploaded_by, created_by).
+const PERSON_FIELDS = new Set(["users", "me", "creator", "uploaded_by", "created_by"]);
+const PERSON_OK = new Set(["id", "name", "enabled", "__typename"]);
+const PROTECTED = new Set(["id", "board", "boards", "board_id", "cursor"]);
+// Only the monday API versions the deny-list was written for (newer versions can add fields).
+export const VERSIONS = new Set(["2024-10", "2025-01", "2025-04"]);
+
 export function analyse(query, opts = {}) {
   let doc;
   try { doc = parse(query, { noLocation: true }); } catch (e) { no(400, "The query is not valid GraphQL."); }
@@ -68,9 +75,14 @@ export function analyse(query, opts = {}) {
     if (r.directives && r.directives.length) no(400, "Directives are not supported at the top level.");
   }
   // The answer check finds board ids by field name, so those fields may not be renamed anywhere.
+  const people = sel => { for (const x of (sel && sel.selections) || []) {
+    if (x.kind === Kind.FIELD) { if (!PERSON_OK.has(x.name.value)) no(403, "The gateway only allows a person's id, name and enabled, not " + x.name.value + "."); }
+    else people(x.selectionSet);
+  } };
   visit(doc, { Field(node) {
     const n = node.name.value;
-    if (node.alias && ["id", "board", "boards", "board_id", "cursor"].includes(n)) no(400, "Renaming " + n + " is not supported.");
+    if (node.alias && (PROTECTED.has(n) || PROTECTED.has(node.alias.value))) no(400, "Renaming " + n + (PROTECTED.has(node.alias.value) ? " to " + node.alias.value : "") + " is not supported.");
+    if (PERSON_FIELDS.has(n)) people(node.selectionSet);
     if (DENY.has(n)) no(403, "The gateway does not allow reading " + n + ".");
     if (n === "display_value" && !opts.linked) no(403, "This key may not read mirrored or connected column text (display_value).");
   } });
@@ -103,9 +115,13 @@ const isId = v => /^\d{1,19}$/.test(String(v || ""));
 
 // Which boards this key may touch: the boards named on the key, their subitems boards, never a credential board.
 async function boardRule(key) {
+  // Main boards named on the key, and their subitems boards. A subitems board named on its own does not count
+  // (its items lead to the parent board, which the key was not given).
   const named = new Set((key.boards || []).map(String));
-  const subs = named.size ? await read(`SELECT id::text AS id FROM mirror.boards WHERE parent_board_id = ANY($1::bigint[])`, [[...named]]) : [];
-  const ok = new Set([...named, ...subs.map(r => r.id)]);
+  const rows = named.size ? await read(`SELECT id::text AS id, board_type FROM mirror.boards WHERE id = ANY($1::bigint[])`, [[...named]]) : [];
+  const mains = rows.filter(r => r.board_type === "board").map(r => r.id);
+  const subs = mains.length ? await read(`SELECT id::text AS id FROM mirror.boards WHERE parent_board_id = ANY($1::bigint[])`, [mains]) : [];
+  const ok = new Set([...mains, ...subs.map(r => r.id)]);
   return id => isId(id) && ok.has(String(id)) && !isExcluded({ id: String(id), name: "" });
 }
 async function boardsOfItems(ids) {
@@ -213,7 +229,9 @@ export async function gatewayCall(req, key, token) {
   try { a = analyse(query, { linked: !!key.gateway_linked }); allowed = await boardRule(key); await checkScope(a, vars, allowed, key); }
   catch (e) { if (e instanceof Refusal) return refuse(e.status, e.message, a ? { kind: a.kind, fields: a.fields } : {}); throw e; }
   const { kind, fields } = a;
-  const version = /^\d{4}-\d{2}$/.test(String((req.headers && req.headers["api-version"]) || "")) ? req.headers["api-version"] : "2025-04";
+  const asked = String((req.headers && req.headers["api-version"]) || "");
+  if (asked && !VERSIONS.has(asked)) return refuse(400, "The gateway supports monday API versions " + [...VERSIONS].join(", ") + ".", { kind, fields });
+  const version = asked || "2025-04";
   let r, text;
   try {
     r = await fetchImpl(API, { method: "POST", headers: { "Content-Type": "application/json", Authorization: token, "API-Version": version },
