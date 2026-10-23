@@ -10,7 +10,12 @@
 // strict Content-Security-Policy (see securityHeaders); a board the viewer may not see looks exactly like a
 // board that does not exist; every view is logged.
 
+import crypto from "node:crypto";
 import { read, write } from "./db.js";
+import { BOARD_JS } from "./client.js";
+// The script address carries a hash of its contents, so browsers fetch a new version as soon as it ships
+// (CSP matches the path only, so the strict script-src still applies).
+const JS_VER = crypto.createHash("sha256").update(BOARD_JS).digest("hex").slice(0, 10);
 
 // Active, non-guest monday users (refreshed by every sync). Someone who leaves monday loses access here too.
 async function teamSet() { return new Set((await read(`SELECT email FROM mirror.team`)).map(r => r.email)); }
@@ -349,7 +354,7 @@ ${sections || `<p class="empty">${b.synced_at ? "No items" + (q ? " match that s
 ${pages > 1 ? `<div class="pager">${p > 1 ? `<a class="btn" href="${qs(p - 1)}">Previous</a>` : ""}<span>Page ${p} of ${pages}</span>${p < pages ? `<a class="btn" href="${qs(p + 1)}">Next</a>` : ""}</div>` : ""}
 </div>${editable ? `<script type="application/json" id="eco-cols">${colsJson}</script>` : ""}`;
   return { status: 200, html: frame(b.name, [[DEPT_NAMES[dept], "/" + dept + "/boards"], [b.name, null]], body, await sidebar(email, b.id),
-    `<script src="/assets/eco-board.js" defer></script>`) };
+    `<script src="/assets/eco-board.js?v=${JS_VER}" defer></script>`) };
 }
 
 export async function renderItem(email, boardId, itemId, opts = {}) {

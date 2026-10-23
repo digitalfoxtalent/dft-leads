@@ -170,7 +170,7 @@ ok(out.status === 400 && sent.length === before + 1, "finance edit through the r
 // ---------- the monday-style board: click a cell to edit ----------
 const get = r => mirrorPage(r, { method: "GET", headers: {}, query: {} }, resStub, MARGOT, TOKEN);
 out = await get("boards/100");
-ok(out.status === 200 && /data-eco-board/.test(out.html) && /data-c="s1" data-t="status"/.test(out.html) && /<script src="\/assets\/eco-board.js" defer>/.test(out.html), "Marketing board is click-to-edit");
+ok(out.status === 200 && /data-eco-board/.test(out.html) && /data-c="s1" data-t="status"/.test(out.html) && /<script src="\/assets\/eco-board.js\?v=[0-9a-f]{10}" defer>/.test(out.html), "Marketing board is click-to-edit");
 ok(!/data-c="f1"/.test(out.html), "formula cells are not editable on the board");
 ok(/id="eco-cols">/.test(out.html) && !/id="eco-cols">[^<]*<[^/]/.test(out.html), "column data embedded without raw <");
 ok(/class="side"/.test(out.html) && /Editorial Plan/.test(out.html) && !/Private Marketing/.test(out.html) && !/Partner Pay Cap/.test(out.html), "sidebar lists only boards the viewer can see");
