@@ -184,6 +184,10 @@ tr.add td{background:var(--surface)}tr.add td.nm{padding:0}tr.add form{margin:0}
 tr.add input{width:100%;height:35px;border:0;outline:0;background:none;color:var(--fg);font:inherit;font-size:13px;padding:0 10px}
 tr.add input::placeholder{color:var(--faint)}tr.add input:focus{box-shadow:inset 0 0 0 1px var(--primary)}tbody tr.add:hover td{background:var(--surface)}
 .pn-body dl{margin-top:0}
+.ppl{display:inline-flex;align-items:center;gap:0;max-width:100%}.ppl .av{width:24px;height:24px;font-size:10px;margin-right:-6px;box-shadow:0 0 0 2px var(--surface)}
+.ppl .more{font-size:11px;color:var(--muted);margin-left:10px}.ppl .pn{margin-left:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pop.multi{width:280px}.pop.multi .mlist{max-height:260px;overflow:auto;margin:8px 0;display:grid;gap:2px}.pop.multi label{display:flex;align-items:center;gap:8px;padding:5px 6px;border-radius:4px;font-size:13px;cursor:pointer}
+.pop.multi label:hover{background:var(--hover)}.pop.multi input[type=checkbox]{width:auto}.pop .tl{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted)}.pop .tl input{width:140px}
 .ibxl{max-width:860px;margin-top:14px}.ibx header{align-items:flex-start}.ibx header>div{flex:1;font-size:13.5px}.ibx header a{font-weight:500}
 .ibx.new{border-color:var(--primary);box-shadow:inset 3px 0 0 var(--primary)}.nw{font-size:11px;font-weight:600;color:#fff;background:var(--primary);border-radius:4px;padding:2px 6px}
 .bar form.srch{display:flex;gap:8px;margin:0}
@@ -266,6 +270,11 @@ export function cell(col, pair) {
       return url ? `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(label)}</a>` : esc(label);
     }
     case "checkbox": { const v = parse(raw); return v && String(v.checked) === "true" ? "Yes" : ""; }
+    case "people": case "multiple_person": {
+      const names = t.split(",").map(x => x.trim()).filter(Boolean);
+      if (!names.length) return "";
+      return `<span class="ppl" title="${esc(names.join(", "))}">${names.slice(0, 3).map(n => avatar(n)).join("")}${names.length > 3 ? `<span class="more">+${names.length - 3}</span>` : ""}<span class="pn">${esc(names.length === 1 ? names[0] : names.length + " people")}</span></span>`;
+    }
     case "long_text": return `<span class="clip" title="${esc(t.slice(0, 600))}">${esc(t)}</span>`;
     case "file": return esc(t.split(/,\s*/).map(u => { try { return decodeURIComponent(new URL(u).pathname.split("/").pop()); } catch (e) { return u; } }).join(", "));
     default: return esc(t);
@@ -461,7 +470,16 @@ export async function renderBoard(email, id, q, page, opts = {}) {
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const qs = n => { const l = viewLink(b, v, {}); return l + (l.includes("?") ? "&" : "?") + "page=" + n; };
   const dept = DEPT_NAMES[b.department] ? b.department : "data";
-  const colsJson = editable ? JSON.stringify(Object.fromEntries([...ecols.values()].map(c => [c.id, { t: c.type, n: c.title, l: c.type === "status" ? Object.values(c.labels || {}).filter(x => x && x[0]).map(x => [x[0], hexOk(x[1]) || "#c4c4c4"]) : undefined }]))).replace(/</g, "\\u003c") : "";
+  // Choices for the pickers: status labels, dropdown options (the column's own list plus values already used),
+  // everyone on the team for people columns, and the rating scale.
+  const teamNames = editable && [...ecols.values()].some(c => c.type === "people") ? (await read(`SELECT name FROM mirror.team WHERE name IS NOT NULL ORDER BY name`)).map(r => r.name) : [];
+  const ddUsed = {};
+  for (const c of [...ecols.values()].filter(c => c.type === "dropdown")) ddUsed[c.id] = (await read(`SELECT DISTINCT trim(x) AS v FROM mirror.items i, regexp_split_to_table(i.vals->$2->>0, ',') x
+    WHERE i.board_id = $1::bigint AND NOT i.deleted AND trim(x) <> '' ORDER BY 1 LIMIT 300`, [b.id, c.id])).map(r => r.v);
+  const colsJson = editable ? JSON.stringify(Object.fromEntries([...ecols.values()].map(c => [c.id, { t: c.type, n: c.title,
+    l: c.type === "status" ? Object.values(c.labels || {}).filter(x => x && x[0]).map(x => [x[0], hexOk(x[1]) || "#c4c4c4"]) : undefined,
+    o: c.type === "dropdown" ? [...new Set([...(c.options || []), ...(c.options && c.options.length ? [] : ddUsed[c.id] || [])])] : c.type === "people" ? teamNames : undefined,
+    m: c.type === "rating" ? c.max || 5 : undefined }]))).replace(/</g, "\\u003c") : "";
   const body = `<div data-eco-board data-b="${esc(b.id)}"${editable ? ` data-k="${esc(boardToken(opts.secret, email, b.id))}"` : ""}>
 <h1>${esc(b.name)}</h1>${b.description ? `<p class="desc">${esc(b.description)}</p>` : ""}
 <div class="tabs"><a class="${v.view === "table" ? "on" : ""}" href="${esc(viewLink(b, v, { view: "table" }))}">Main table</a>${v.kc ? `<a class="${v.view === "kanban" ? "on" : ""}" href="${esc(viewLink(b, v, { view: "kanban" }))}">Kanban</a>` : ""}</div>

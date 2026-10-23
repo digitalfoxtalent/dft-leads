@@ -86,6 +86,7 @@ export const SCHEMA_SQL = [
      name text,
      seen_at timestamptz NOT NULL DEFAULT now()
    )`,
+  `ALTER TABLE mirror.team ADD COLUMN IF NOT EXISTS monday_id bigint`, // for assigning people from the Ecosystem
   `CREATE TABLE IF NOT EXISTS mirror.locks (name text PRIMARY KEY, until timestamptz NOT NULL DEFAULT 'epoch')`,
   `INSERT INTO mirror.locks (name) VALUES ('sync') ON CONFLICT (name) DO NOTHING`,
   ...EDIT_SCHEMA, // the edit log (edit.js)
