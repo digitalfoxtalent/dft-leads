@@ -4,6 +4,14 @@
 // server (which escapes everything) replies with the cell's new HTML.
 
 export const BOARD_JS = String.raw`(function () {
+  // Copy buttons (data-copy="<id of the element holding the text>"), used on the API keys page.
+  document.addEventListener("click", function (e) {
+    var b = e.target.closest && e.target.closest("[data-copy]"); if (!b) return;
+    var el = document.getElementById(b.getAttribute("data-copy")); if (!el) return;
+    var v = el.value || el.textContent;
+    var done = function () { b.textContent = "Copied"; }, fail = function () { if (el.select) el.select(); b.textContent = "Now press Cmd+C"; };
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(v).then(done, fail); else fail();
+  });
   var root = document.querySelector("[data-eco-board]");
   if (!root) return;
   var B = root.getAttribute("data-b"), K = root.getAttribute("data-k"), ED = !!K; // K only on boards this person can edit

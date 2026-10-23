@@ -187,7 +187,7 @@ form.upd-new .acts{display:flex;gap:10px;align-items:center;justify-content:flex
 tr.add td{background:var(--surface)}tr.add td.nm{padding:0}tr.add form{margin:0}
 tr.add input{width:100%;height:35px;border:0;outline:0;background:none;color:var(--fg);font:inherit;font-size:13px;padding:0 10px}
 tr.add input::placeholder{color:var(--faint)}tr.add input:focus{box-shadow:inset 0 0 0 1px var(--primary)}tbody tr.add:hover td{background:var(--surface)}
-.pn-body dl{margin-top:0}.checks{display:flex;flex-wrap:wrap;gap:8px 18px}.ck{display:inline-flex;align-items:center;gap:6px;font-size:13.5px}pre.key{user-select:all;font-size:13px;padding:10px;background:var(--bg);border-radius:6px;overflow-x:auto;margin:8px 0}
+.pn-body dl{margin-top:0}.checks{display:flex;flex-wrap:wrap;gap:8px 18px}.ck{display:inline-flex;align-items:center;gap:6px;font-size:13.5px}form.edit .ck input{width:auto;min-height:0;padding:0;margin:0}.ck{justify-content:flex-start;text-align:left}label.ck{display:flex}.mk{border:2px solid var(--accent,#C05600);border-radius:10px;padding:18px 20px;margin:18px 0 26px;background:var(--surface)}.mk h2{margin:0 0 6px;font-size:18px}.mk ol{margin:10px 0 0 18px;padding:0}.mk li{margin:8px 0}.keybox{display:flex;gap:8px;align-items:center;margin:10px 0}.keybox input{flex:1;font:13px ui-monospace,Menlo,monospace;padding:10px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--fg)}.btn.big{font-size:15px;padding:10px 16px}pre.key{user-select:all;font-size:13px;padding:10px;background:var(--bg);border-radius:6px;overflow-x:auto;margin:8px 0}
 tfoot td.sum{background:var(--surface);border-bottom:0;height:34px}tfoot td.sum.num{text-align:right}tfoot td.sum b{font-weight:600}tfoot td.sum span{display:block;font-size:10.5px;color:var(--faint);line-height:1}
 .bat{display:flex;height:22px;border-radius:3px;overflow:hidden;margin:0 2px}.bat i{display:block;height:100%}
 ul.hits{list-style:none;margin:0;padding:0;display:grid;gap:4px}ul.hits li{padding:6px 10px;border-radius:6px;background:var(--surface);border:1px solid var(--line2)}ul.hits a{text-decoration:none}mark{background:#ffcb00;color:#323338;border-radius:2px}
@@ -821,11 +821,22 @@ export async function renderApiKeys(email, secret, note, newKey) {
   const tok = adminToken(secret, email);
   const when = t => t ? esc(iso(t).slice(0, 16).replace("T", " ")) + " UTC" : "never";
   const depts = Object.keys(DEPT_NAMES).filter(d => d !== "reporting");
+  const MAKE_LINK = "https://us2.make.com/2620340/credentials-requests/inbox?requestId=a2a2ca78-7402-4625-9861-25c1593a3e8d";
+  const jobsKey = keys.find(k => k.jobs && !k.revoked_at);
+  const forMake = newKey && note && note.jobsKey ? `<section class="mk"><h2>Your key for Make is ready</h2>
+<p>It is shown only this once. Two steps:</p>
+<ol><li><b>Copy it:</b><div class="keybox"><input id="newkey" readonly value="Bearer ${esc(newKey)}"><button class="btn fox big" type="button" data-copy="newkey">Copy</button></div><span class="sm muted">The word Bearer and the space are already included.</span></li>
+<li><b>Paste it into Make:</b> <a class="btn fox big" href="${MAKE_LINK}" target="_blank" rel="noopener">Open the Make page</a> then paste into the one box there and save.</li></ol>
+<p class="sm muted" style="margin-top:12px">Then tell Claude it is done. If you lose this page before pasting, revoke the key in the list below and make a new one.</p></section>`
+    : jobsKey ? `<section class="mk"><h2>Key for Make</h2><p>Made ${when(jobsKey.created_at)} (ends ...${esc(jobsKey.key_hint)}), last used ${when(jobsKey.last_used_at)}. If it was never pasted into Make, revoke it below and make a new one here.</p></section>`
+    : `<section class="mk"><h2>Key for Make</h2><p>One click makes the key Make uses to reach the Ecosystem. You then copy it and paste it into Make.</p>
+<form method="post" action="/data/api-keys"><input type="hidden" name="t" value="${esc(tok)}"><input type="hidden" name="do" value="jobs-key"><input type="hidden" name="n" value="${esc(newNonce())}"><button class="btn fox big" type="submit">Make the key for Make</button></form></section>`;
   const body = `<h1>Ecosystem API keys</h1>
+${note && !note.jobsKey ? `<p class="note ${note.ok ? "ok" : "bad"}">${esc(note.message)}</p>` : ""}
+${forMake}
 <p class="desc">Keys let Make and other systems read the Ecosystem's copy of monday at <code>https://ecosystem.digitalfoxtalent.com/api/v1/</code>, so scenarios can move off monday one at a time. Keys allowed to use the monday gateway can send monday's own GraphQL requests to <code>https://ecosystem.digitalfoxtalent.com/api/v1/monday</code> instead of to monday. Each key sees only the sections you tick. A new key is shown once: copy it into Make straight away.</p>
-${note ? `<p class="note ${note.ok ? "ok" : "bad"}">${esc(note.message)}</p>` : ""}
-${newKey ? `<div class="note ok"><b>New key (shown once):</b><pre class="key">${esc(newKey)}</pre>In Make, use an HTTP module with the header <code>Authorization: Bearer</code> followed by this key.</div>` : ""}
-<h2 class="sec">Make a key</h2>
+${newKey && !(note && note.jobsKey) ? `<div class="note ok"><b>New key (shown once):</b><pre class="key">${esc(newKey)}</pre>In Make, use an HTTP module with the header <code>Authorization: Bearer</code> followed by this key.</div>` : ""}
+<details><summary class="sec" style="cursor:pointer;font-weight:600;margin:10px 0">Make another kind of key (reading boards, the monday gateway)</summary>
 <form class="edit" method="post" action="/data/api-keys"><input type="hidden" name="t" value="${esc(tok)}"><input type="hidden" name="do" value="create"><input type="hidden" name="n" value="${esc(newNonce())}">
 <div class="fields"><label><span>Name (what uses it)</span><input name="name" maxlength="80" required placeholder="Make: renewal pipeline"></label></div>
 <p class="sm muted" style="margin:14px 0 6px">Sections it can read</p><div class="checks">${depts.map(d => `<label class="ck"><input type="checkbox" name="d" value="${esc(d)}"> ${esc(DEPT_NAMES[d])}</label>`).join("")}</div>
@@ -834,10 +845,10 @@ ${newKey ? `<div class="note ok"><b>New key (shown once):</b><pre class="key">${
 <label class="ck" style="margin-top:14px"><input type="checkbox" name="gateway" value="1"> Can use the monday gateway, for the boards named above (for a Make scenario being moved off monday)</label>
 <label class="ck" style="margin-top:8px"><input type="checkbox" name="linked" value="1"> Gateway may also read the text of mirrored and connected columns (only if the scenario needs it)</label>
 <label class="ck" style="margin-top:8px"><input type="checkbox" name="jobs" value="1"> Can run Make jobs (the creator finding and alert programs that use the YouTube, Hunter and Claude keys kept in the Ecosystem)</label>
-<div class="acts"><button class="btn fox" type="submit">Make key</button></div></form>
+<div class="acts"><button class="btn fox" type="submit">Make key</button></div></form></details>
 <h2 class="sec">Keys</h2>${keys.length ? `<div class="tw plain"><table><thead><tr><th>Name</th><th>Ends</th><th>Sections</th><th>Made</th><th>Last used</th><th>Calls (24 h)</th><th>Gateway (24 h)</th><th></th></tr></thead><tbody>${keys.map(k =>
   `<tr${k.revoked_at ? ' class="muted"' : ""}><td>${esc(k.name)}</td><td>...${esc(k.key_hint)}</td><td>${esc(k.departments.map(d => DEPT_NAMES[d] || d).join(", "))}${k.boards && k.boards.length ? " + boards " + esc(k.boards.join(", ")) : ""}</td><td>${when(k.created_at)}</td><td>${when(k.last_used_at)}</td><td class="num">${esc(k.calls_24h)}</td><td class="num">${k.gateway ? esc(k.gateway_24h) + (k.gateway_linked ? " (linked)" : "") : `<span class="muted">off</span>`}${k.jobs ? " · jobs" : ""}</td><td>${k.revoked_at ? "Revoked" : `<form method="post" action="/data/api-keys"><input type="hidden" name="t" value="${esc(tok)}"><input type="hidden" name="do" value="revoke"><input type="hidden" name="id" value="${esc(k.id)}"><button class="btn sm" type="submit">Revoke</button></form>`}</td></tr>`).join("")}</tbody></table></div>` : `<p class="muted">No keys yet.</p>`}`;
-  return { status: note && !note.ok ? 400 : 200, html: frame("API keys", [["Data Engine", "/data"], ["API keys", null]], body, await sidebar(email, "data")) };
+  return { status: note && !note.ok ? 400 : 200, html: frame("API keys", [["Data Engine", "/data"], ["API keys", null]], body, await sidebar(email, "data"), `<script src="/assets/eco-board.js?v=${JS_VER}" defer></script>`) };
 }
 
 export async function renderStatus(email) {

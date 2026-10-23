@@ -159,6 +159,11 @@ export async function mirrorPage(route, req, res, email, token) {
     const tok = one(b.t), want = adminToken(token, email);
     if (!isOwner(email)) return renderApiKeys(email, token);
     if (!fromSite(req) || tok.length !== want.length || !crypto.timingSafeEqual(Buffer.from(tok), Buffer.from(want))) return renderApiKeys(email, token, { ok: false, message: "That page has expired. Open it again." });
+    if (one(b.do) === "jobs-key") {
+      const key = await createKey("Make: jobs", [], [], email, one(b.n).slice(0, 40), false, false, true);
+      if (!key) return renderApiKeys(email, token, { ok: false, message: "That button already made a key; it is in the list below. If it was not pasted into Make, revoke it and make a new one." });
+      return renderApiKeys(email, token, { ok: true, jobsKey: true, message: "Key made." }, key);
+    }
     if (one(b.do) === "revoke") return renderApiKeys(email, token, (await revokeKey(one(b.id))) ? { ok: true, message: "Key revoked. Anything using it stops working now." } : { ok: false, message: "That key was already revoked." });
     const depts = (Array.isArray(b.d) ? b.d : b.d ? [b.d] : []).map(String).filter(d => DEPT_NAMES[d] && d !== "reporting");
     const name = one(b.name).trim();
