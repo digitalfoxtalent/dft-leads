@@ -177,6 +177,41 @@ async function deliver(srcTok, msgId, ownerKey, mode) {
   return { target, importedId: out.id };
 }
 
+// RECALL (Tom, 22 Oct 2026: "Pull them back if we can"). Four real enquiries were copied to the team at about 9pm on
+// 22 Oct while the mode switch was misread as live. Each run, the router copy of these tom@ messages is moved to Trash in
+// the owner's mailbox (recoverable there for 30 days), only if it carries the router's own X-DFT-Routed header.
+// Tom's copy then gets the hidden label dft-router-recalled and loses its "Routed to" label, so this is done once.
+// Remove this block once the recall is confirmed.
+const RECALL = [
+  ["1a16501efe486460", "margot"], ["1a16526224bdda26", "margot"],
+  ["1a164c73448e6bd0", "margot"], ["1a164d5f081939ff", "margot"], ["1a164dadef61b979", "margot"],
+  ["1a166b280215330f", "hani"]
+];
+async function recall(tok, labels) {
+  const out = [];
+  let done = (labels.find(l => l.name === "dft-router-recalled") || {}).id;
+  if (!done) done = (await gmail(tok, "/gmail/v1/users/me/labels", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: "dft-router-recalled", labelListVisibility: "labelHide", messageListVisibility: "hide" }) })).id;
+  for (const [id, key] of RECALL) {
+    try {
+      const m = await gmail(tok, "/gmail/v1/users/me/messages/" + id + "?format=metadata&metadataHeaders=Message-ID");
+      if ((m.labelIds || []).includes(done)) continue;
+      const mid = hdr(m, "message-id").replace(/[<>]/g, "");
+      const otok = await gmailToken(OWNERS[key].email);
+      const q = await gmail(otok, "/gmail/v1/users/me/messages?maxResults=5&q=" + encodeURIComponent("rfc822msgid:" + mid));
+      let trashed = 0;
+      for (const c of q.messages || []) {
+        const cm = await gmail(otok, "/gmail/v1/users/me/messages/" + c.id + "?format=metadata&metadataHeaders=X-DFT-Routed");
+        if (!hdr(cm, "x-dft-routed")) continue; // never touch a copy the owner got some other way
+        await gmail(otok, "/gmail/v1/users/me/messages/" + c.id + "/trash", { method: "POST" });
+        trashed++;
+      }
+      await gmail(tok, "/gmail/v1/users/me/messages/" + id + "/modify", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ addLabelIds: [done], removeLabelIds: [OWNERS[key].label] }) });
+      out.push({ id, owner: OWNERS[key].name, trashed });
+    } catch (e) { out.push({ id, error: String(e && e.message || e).slice(0, 200) }); }
+  }
+  return out;
+}
+
 export default async function handler(req, res) {
   const secret = process.env.CRON_SECRET;
   const ok = /vercel-cron/i.test(String(req.headers["user-agent"] || "")) || (secret && (String(req.headers.authorization || "") === "Bearer " + secret || req.query.key === secret));
@@ -188,11 +223,12 @@ export default async function handler(req, res) {
     const tok = await gmailToken(SOURCE);
     // Hidden "seen" label, created once.
     const labels = (await gmail(tok, "/gmail/v1/users/me/labels")).labels || [];
+    const recalled = dry ? [] : await recall(tok, labels);
     let seen = (labels.find(l => l.name === SEEN) || {}).id;
     if (!seen && !dry) seen = (await gmail(tok, "/gmail/v1/users/me/labels", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: SEEN, labelListVisibility: "labelHide", messageListVisibility: "hide" }) })).id;
     const q = "in:inbox after:" + START + " -label:" + SEEN + " -from:" + SOURCE;
     const list = (await gmail(tok, "/gmail/v1/users/me/messages?maxResults=25&q=" + encodeURIComponent(q))).messages || [];
-    if (!list.length) return res.status(200).json({ ok: true, checked: 0 });
+    if (!list.length) return res.status(200).json({ ok: true, checked: 0, recalled });
     // Mode switch and advertisers, read once per run.
     const mq = `query { mode: items(ids:[${MODE_ITEM}]) { name } boards(ids:[6162879609]) { a: items_page(limit:500, query_params:{order_by:[{column_id:"__creation_log__", direction: desc}]}) { items { created_at cv: column_values(ids:["dropdown_mm1a3tqp","deal_owner"]) { id text } } } b: items_page(limit:500, query_params:{order_by:[{column_id:"__creation_log__", direction: asc}]}) { items { created_at cv: column_values(ids:["dropdown_mm1a3tqp","deal_owner"]) { id text } } } } }`;
     const md = await (await fetch("https://api.monday.com/v2", { method: "POST", headers: { "Content-Type": "application/json", Authorization: MK }, body: JSON.stringify({ query: mq }) })).json();
@@ -249,7 +285,7 @@ export default async function handler(req, res) {
       }
       report.push(r);
     }
-    return res.status(200).json({ ok: true, mode, checked: report.length, report });
+    return res.status(200).json({ ok: true, mode, checked: report.length, report, recalled });
   } catch (e) {
     return res.status(502).json({ error: String(e && e.message || e), report });
   }
