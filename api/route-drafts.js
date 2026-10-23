@@ -49,7 +49,9 @@ async function demo(rowId) {
   const tom = "tom@digitalfoxtalent.com", tok = await gmailToken(tom);
   const { lines, body, sep } = await rawMessage(tok, tomMsg);
   const mid = "dft-demo-" + crypto.randomBytes(6).toString("hex") + "@digitalfoxtalent.com";
-  const head = ["X-DFT-Routed: enquiry router demo for Tom"].concat(lines.filter(l => !/^(message-id|references|in-reply-to):/i.test(l)), ["Message-ID: <" + mid + ">"]);
+  // "[Demo]" on the subject keeps it a conversation of its own: with the same subject Gmail joined it to Tom's original,
+  // and the router then filed that whole thread out of his inbox (23 Oct 2026).
+  const head = ["X-DFT-Routed: enquiry router demo for Tom"].concat(lines.filter(l => !/^(message-id|references|in-reply-to):/i.test(l)).map(l => /^subject:/i.test(l) ? l.replace(/^subject:\s*/i, "Subject: [Demo] ") : l), ["Message-ID: <" + mid + ">"]);
   const boundary = "dftdemo" + crypto.randomBytes(8).toString("hex");
   const multipart = Buffer.concat([
     Buffer.from("--" + boundary + "\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n" + JSON.stringify({ labelIds: ["INBOX", "UNREAD"] }) + "\r\n--" + boundary + "\r\nContent-Type: message/rfc822\r\n\r\n", "utf8"),

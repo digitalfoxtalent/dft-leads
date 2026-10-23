@@ -3101,7 +3101,8 @@ async function pitchReplyTo(b) {
   } catch (e) { return b; }
 }
 async function teamDraft(fromEmail, o) {
-  if (!/@digitalfoxtalent\.com$/i.test(fromEmail) || /^tom@/i.test(fromEmail)) return false;
+  // Tom's own drafts come from Make, except the router demo (a "dft-demo-" copy in his inbox), which shows him the draft a salesperson gets.
+  if (!/@digitalfoxtalent\.com$/i.test(fromEmail) || (/^tom@/i.test(fromEmail) && !/^rfc822msgid:dft-demo-/.test(String(o.search || "")))) return false;
   const tok = await gmailToken(fromEmail); if (!tok) return false;
   const G = (path, opt = {}) => fetch("https://gmail.googleapis.com/gmail/v1/users/me" + path, Object.assign({}, opt, { headers: Object.assign({ Authorization: "Bearer " + tok }, opt.headers || {}) })).then(async r => { const t = await r.text(); let j = {}; try { j = t ? JSON.parse(t) : {}; } catch (_) {} if (!r.ok) throw new Error("Gmail " + r.status + " " + ((j.error && j.error.message) || "")); return j; });
   const q = encodeURIComponent;
