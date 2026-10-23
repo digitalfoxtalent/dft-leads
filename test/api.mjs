@@ -132,4 +132,18 @@ const id = (await read(`SELECT id::text AS id FROM mirror.api_keys WHERE name = 
 out = await page(TOM, "POST", { t: T, do: "revoke", id });
 ok(/Key revoked/.test(out.html) && (await call("boards", shown)).status === 401, "a revoked key stops working at once");
 
+// ---------- the one-click key for Make ----------
+out = await page(TOM);
+ok(/Make the key for Make/.test(out.html) && /eco-board\.js/.test(out.html), "the page offers a one-click key for Make, with the copy button script");
+out = await page(TOM, "POST", { t: T, do: "jobs-key", n: "nonce-jobs" });
+const jk = (out.html.match(/id="newkey" readonly value="Bearer (eco_[^"]+)"/) || [])[1];
+ok(out.status === 200 && jk && /Your key for Make is ready/.test(out.html) && /Open the Make page/.test(out.html) && /data-copy="newkey"/.test(out.html), "one click shows the key ready to copy, with Bearer included, and the Make link");
+ok((await read(`SELECT jobs, departments FROM mirror.api_keys WHERE name = 'Make: jobs'`))[0].jobs === true && (await call("boards", jk)).body.boards.length === 0, "it can run jobs and reads no boards");
+out = await page(TOM, "POST", { t: T, do: "jobs-key", n: "nonce-jobs" });
+ok(out.status === 400 && /already made a key/.test(out.html), "a refresh does not make a second key");
+out = await page(TOM);
+ok(/Key for Make/.test(out.html) && !/Make the key for Make/.test(out.html) && !out.html.includes(jk), "afterwards the page says the key exists, never shows it again");
+out = await page(MARGOT, "POST", { t: adminToken("tok", MARGOT), do: "jobs-key", n: "x" });
+ok((await read(`SELECT count(*)::int AS n FROM mirror.api_keys WHERE name = 'Make: jobs'`))[0].n === 1, "only Tom can make it");
+
 console.log("api tests passed: " + pass);
