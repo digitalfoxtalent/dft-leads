@@ -21,7 +21,8 @@ import { read, write } from "./db.js";
 import { canSee, editLocked } from "./policy.js";
 import { isOn, loadSwitches } from "./switch.js";
 
-export const EDITABLE = new Set(["name", "text", "long_text", "numbers", "status", "date", "email", "link", "checkbox"]);
+export const EDITABLE = new Set(["name", "text", "long_text", "numbers", "status", "date", "email", "link", "checkbox", "people", "dropdown", "timeline", "rating"]);
+const MULTI = new Set(["people", "dropdown"]); // several values, written as "A, B"; order does not matter
 const ORIGIN = "https://ecosystem.digitalfoxtalent.com";
 const API = "https://api.monday.com/v2";
 const VERSION = "2025-04";
@@ -89,8 +90,11 @@ export function currentText(col, item) {
   if (col.type === "checkbox") { const v = parse(raw); return v && String(v.checked) === "true" ? "true" : ""; }
   if (col.type === "link") { const v = parse(raw); return (v && v.url) || text || ""; }
   if (col.type === "date") return String(text || "").slice(0, 10);
+  if (col.type === "timeline") { const v = parse(raw); return v && v.from && v.to ? String(v.from).slice(0, 10) + " - " + String(v.to).slice(0, 10) : String(text || ""); }
+  if (MULTI.has(col.type)) return splitList(text).join(", ");
   return text == null ? "" : String(text);
 }
+const splitList = t => String(t == null ? "" : t).split(",").map(x => x.trim()).filter(Boolean);
 
 // The monday value for a field, from what the editor typed. Throws a plain-English reason when it is not valid.
 export function mondayValue(col, input) {
@@ -108,10 +112,28 @@ export function mondayValue(col, input) {
     case "link": { if (!t) return {}; let u; try { u = new URL(t); } catch (e) { throw new Error(col.title + " must be a web address starting https://"); }
       if (!/^https?:$/.test(u.protocol)) throw new Error(col.title + " must be a web address starting https://"); return { url: u.href, text: t }; }
     case "checkbox": return t === "true" ? { checked: "true" } : null;
+    case "dropdown": {
+      const want = splitList(t), known = new Set(col.options || []);
+      if (known.size) { const bad = want.filter(x => !known.has(x)); if (bad.length) throw new Error(col.title + ": choose from the listed options (" + bad[0] + " is not one)."); }
+      return want.length ? { labels: want } : {};
+    }
+    case "timeline": {
+      if (!t) return {};
+      const m = t.match(/^(\d{4}-\d{2}-\d{2})\s*-\s*(\d{4}-\d{2}-\d{2})$/);
+      if (!m || m[1] > m[2]) throw new Error(col.title + " needs a start and end date, start first.");
+      return { from: m[1], to: m[2] };
+    }
+    case "rating": {
+      if (!t || t === "0") return {};
+      const n = Number(t), max = col.max || 5;
+      if (!Number.isInteger(n) || n < 1 || n > max) throw new Error(col.title + " must be a whole number from 1 to " + max + ".");
+      return { rating: n };
+    }
+    case "people": throw new Error("people values are resolved by peopleValue"); // async: needs monday user ids
     default: throw new Error(col.title + " cannot be edited here.");
   }
 }
-const same = (col, a, b) => col.type === "numbers" ? (a === "" && b === "") || (a !== "" && b !== "" && Number(String(a).replace(/,/g, "")) === Number(String(b).replace(/,/g, ""))) : String(a) === String(b);
+const same = (col, a, b) => MULTI.has(col.type) ? JSON.stringify(splitList(a).map(x => x.toLowerCase()).sort()) === JSON.stringify(splitList(b).map(x => x.toLowerCase()).sort()) : col.type === "numbers" ? (a === "" && b === "") || (a !== "" && b !== "" && Number(String(a).replace(/,/g, "")) === Number(String(b).replace(/,/g, ""))) : String(a) === String(b);
 
 async function monday(token, query, variables, ms) {
   const r = await fetchImpl(API, { method: "POST", headers: { "Content-Type": "application/json", Authorization: token, "API-Version": VERSION }, body: JSON.stringify({ query, variables }),
@@ -138,6 +160,33 @@ async function saveLive(live) {
     [live.id, live.name, JSON.stringify(live.vals), live.group_id || null, live.updated_at || null]);
 }
 
+// People columns: names (as shown in monday) to monday user ids. Our team copy first, then monday itself, so a
+// guest or a renamed person still resolves; anyone monday does not know is refused rather than dropped.
+let peopleCache = { at: 0, map: null };
+async function peopleIds(token, names) {
+  const want = names.map(n => n.toLowerCase());
+  const map = new Map((await read(`SELECT lower(name) AS n, monday_id::text AS id FROM mirror.team WHERE monday_id IS NOT NULL AND name IS NOT NULL`)).map(r => [r.n, { id: r.id, kind: "person" }]));
+  if (want.some(n => !map.has(n))) {
+    if (!peopleCache.map || Date.now() - peopleCache.at > 600000) {
+      const d = await monday(token, `query { users (limit: 1000) { id name enabled } teams { id name } }`, {}, 8000);
+      const m = new Map((d.teams || []).filter(t => t.name).map(t => [String(t.name).toLowerCase(), { id: String(t.id), kind: "team" }]));
+      for (const u of (d.users || []).filter(u => u.enabled !== false && u.name)) m.set(String(u.name).toLowerCase(), { id: String(u.id), kind: "person" });
+      peopleCache = { at: Date.now(), map: m };
+    }
+    for (const [k, v] of peopleCache.map) if (!map.has(k)) map.set(k, v);
+  }
+  const bad = names.filter(n => !map.has(n.toLowerCase()));
+  if (bad.length) throw new Error(bad[0] + " is not a monday user. Pick people from the list.");
+  return want.map(n => map.get(n));
+}
+async function peopleValue(token, col, input) {
+  const names = splitList(input);
+  if (!names.length) return {};
+  if (names.length > 20) throw new Error(col.title + ": 20 people at most.");
+  return { personsAndTeams: (await peopleIds(token, names)).map(p => ({ id: Number(p.id), kind: p.kind })) };
+}
+export const valueFor = async (token, col, input) => col.type === "people" ? peopleValue(token, col, input) : mondayValue(col, input);
+
 // Checked again immediately before every monday write, so a section Tom has just turned off stops even a write
 // that was already past its first check.
 const OFF = "Editing on this board has just been turned off. Nothing was changed.";
@@ -148,6 +197,7 @@ async function stillOn(board) { await loadSwitches(true); return isOn(board.depa
 export function formToken(secret, email, itemId) { return sign(secret, email + "|" + itemId); }
 export function boardToken(secret, email, boardId) { return sign(secret, email + "|board|" + boardId); }
 
+const HINT = { people: "Name, Name", dropdown: "Option, Option", timeline: "2026-10-01 - 2026-10-05", rating: "1 to 5" };
 export function editForm(board, item, email, secret, note) {
   const cols = editableColumns(board);
   const field = c => {
@@ -156,7 +206,7 @@ export function editForm(board, item, email, secret, note) {
     if (c.type === "long_text") input = `<textarea name="${esc(name)}" rows="5" maxlength="${LIMITS.long_text}">${esc(cur)}</textarea>`;
     else if (c.type === "status") input = `<select name="${esc(name)}"><option value=""${cur ? "" : " selected"}>(empty)</option>${statusLabels(c).map(l => `<option value="${esc(l)}"${l === cur ? " selected" : ""}>${esc(l)}</option>`).join("")}${cur && !statusLabels(c).includes(cur) ? `<option value="${esc(cur)}" selected>${esc(cur)}</option>` : ""}</select>`;
     else if (c.type === "checkbox") input = `<select name="${esc(name)}"><option value=""${cur ? "" : " selected"}>No</option><option value="true"${cur ? " selected" : ""}>Yes</option></select>`;
-    else input = `<input name="${esc(name)}" value="${esc(cur)}" type="${c.type === "date" ? "date" : c.type === "numbers" ? "text\" inputmode=\"decimal" : c.type === "email" ? "email" : c.type === "link" ? "url" : "text"}"${LIMITS[c.type] ? ` maxlength="${LIMITS[c.type]}"` : ""}>`;
+    else input = `<input name="${esc(name)}" value="${esc(cur)}" type="${c.type === "date" ? "date" : c.type === "numbers" ? "text\" inputmode=\"decimal" : c.type === "email" ? "email" : c.type === "link" ? "url" : "text"}"${LIMITS[c.type] ? ` maxlength="${LIMITS[c.type]}"` : ""}${HINT[c.type] ? ` placeholder="${esc(HINT[c.type])}"` : ""}>`;
     return `<label><span>${esc(c.title)}</span>${input}${base}</label>`;
   };
   return `<form class="edit" method="post" action="/boards/${esc(board.id)}/items/${esc(item.id)}/edit">
@@ -220,7 +270,8 @@ async function apply(token, board, item, email, changes, undoOf) {
     return { ok: false, message: "Someone changed " + moved.map(c => c.col.title).join(", ") + " in monday since you opened this item. The page now shows the latest values; make your change again if it is still needed." };
   }
   const values = {};
-  for (const c of changes) values[c.col.id] = mondayValue(c.col, c.to);
+  try { for (const c of changes) values[c.col.id] = await valueFor(token, c.col, c.to); }
+  catch (e) { return { ok: false, message: String(e.message || e) }; }
   if (!(await stillOn(board))) return { ok: false, message: OFF };
   let err = null;
   try {
@@ -253,7 +304,7 @@ export async function saveEdit(req, token, email, board, item, team) {
       if (one(b["b_" + col.id]) !== fp(from)) return { ok: false, message: "This item changed since you opened it. Please check the latest values and try again." };
       const to = col.type === "long_text" ? one(b[key]).replace(/\r\n/g, "\n") : one(b[key]).trim();
       if (same(col, from, to)) continue;
-      mondayValue(col, to); // validate before anything is written
+      if (col.type !== "people") mondayValue(col, to); // validate before anything is written (people are checked against monday)
       changes.push({ col, from, to });
     }
   } catch (e) { return { ok: false, message: String(e.message || e) }; }
@@ -296,7 +347,7 @@ export async function saveCell(req, token, email, board, item, team) {
   const raw = typeof b.v === "string" ? b.v : "";
   const to = col.type === "long_text" ? raw.replace(/\r\n/g, "\n") : raw.trim();
   if (same(col, from, to)) return { ok: true, message: "No change." };
-  try { mondayValue(col, to); } catch (e) { return { ok: false, message: String(e.message || e) }; }
+  try { if (col.type !== "people") mondayValue(col, to); } catch (e) { return { ok: false, message: String(e.message || e) }; }
   return apply(token, board, item, email, [{ col, from, to }], null);
 }
 

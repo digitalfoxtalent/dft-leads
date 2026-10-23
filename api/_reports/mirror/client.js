@@ -58,12 +58,62 @@ export const BOARD_JS = String.raw`(function () {
     setTimeout(function () { document.addEventListener("mousedown", outside, true); }, 0);
   }
 
+  // People and dropdown columns: tick any number of choices, with a search box, as on monday.
+  function multiPicker(td, col) {
+    var pop = document.createElement("div"); pop.className = "pop multi";
+    var have = (td.getAttribute("data-v") || "").split(",").map(function (x) { return x.trim(); }).filter(Boolean);
+    var opts = (col.o || []).slice(); have.forEach(function (h) { if (opts.indexOf(h) < 0) opts.unshift(h); });
+    var q = document.createElement("input"); q.type = "text"; q.placeholder = col.t === "people" ? "Search people" : "Search options"; pop.appendChild(q);
+    var box = document.createElement("div"); box.className = "mlist"; pop.appendChild(box);
+    var picked = {}; have.forEach(function (h) { picked[h] = true; });
+    function draw() {
+      box.textContent = ""; var f = q.value.trim().toLowerCase(), n = 0;
+      opts.forEach(function (o) {
+        if (f && o.toLowerCase().indexOf(f) < 0) return; if (++n > 200) return;
+        var lab = document.createElement("label"), cb = document.createElement("input"); cb.type = "checkbox"; cb.checked = !!picked[o];
+        cb.addEventListener("change", function () { if (cb.checked) picked[o] = true; else delete picked[o]; });
+        lab.appendChild(cb); lab.appendChild(document.createTextNode(" " + o)); box.appendChild(lab);
+      });
+      if (!n) { var e = document.createElement("div"); e.className = "muted sm"; e.textContent = "No match"; box.appendChild(e); }
+    }
+    draw(); q.addEventListener("input", draw);
+    var acts = document.createElement("div"); acts.className = "acts";
+    var cancel = document.createElement("button"); cancel.type = "button"; cancel.className = "btn"; cancel.textContent = "Cancel";
+    var ok = document.createElement("button"); ok.type = "button"; ok.className = "btn primary"; ok.textContent = "Save";
+    function commit() { var v = opts.filter(function (o) { return picked[o]; }).join(", "); close(); if (v !== have.join(", ")) save(td, v); }
+    cancel.addEventListener("click", close); ok.addEventListener("click", commit);
+    q.addEventListener("keydown", function (e) { if (e.key === "Escape") { e.stopPropagation(); close(); } if (e.key === "Enter") { e.preventDefault(); commit(); } });
+    acts.appendChild(cancel); acts.appendChild(ok); pop.appendChild(acts);
+    place(pop, td, 280);
+    open = { pop: pop, td: td };
+    setTimeout(function () { document.addEventListener("mousedown", outside, true); }, 0);
+    q.focus();
+  }
+  // Timeline: a start and an end date.
+  function timelinePicker(td) {
+    var pop = document.createElement("div"); pop.className = "pop";
+    var cur = (td.getAttribute("data-v") || "").split(" - ");
+    var a = document.createElement("input"); a.type = "date"; a.value = cur[0] || "";
+    var b = document.createElement("input"); b.type = "date"; b.value = cur[1] || "";
+    var row = document.createElement("div"); row.className = "tl"; row.appendChild(a); row.appendChild(document.createTextNode(" to ")); row.appendChild(b); pop.appendChild(row);
+    var acts = document.createElement("div"); acts.className = "acts";
+    var clear = document.createElement("button"); clear.type = "button"; clear.className = "btn"; clear.textContent = "Clear";
+    var ok = document.createElement("button"); ok.type = "button"; ok.className = "btn primary"; ok.textContent = "Save";
+    var start = td.getAttribute("data-v") || "";
+    clear.addEventListener("click", function () { close(); if (start) save(td, ""); });
+    ok.addEventListener("click", function () { if (!a.value || !b.value) { toast("Pick both dates.", true); return; } var v = a.value + " - " + b.value; close(); if (v !== start) save(td, v); });
+    acts.appendChild(clear); acts.appendChild(ok); pop.appendChild(acts);
+    place(pop, td, 320);
+    open = { pop: pop, td: td };
+    setTimeout(function () { document.addEventListener("mousedown", outside, true); }, 0);
+    a.focus();
+  }
   function inputEditor(td, type) {
     var pop = document.createElement("div"); pop.className = "pop";
     var long = type === "long_text";
     var el = document.createElement(long ? "textarea" : "input");
     if (!long) el.type = type === "date" ? "date" : type === "numbers" ? "text" : type === "email" ? "email" : type === "link" ? "url" : "text";
-    if (type === "numbers") el.setAttribute("inputmode", "decimal");
+    if (type === "numbers" || type === "rating") el.setAttribute("inputmode", type === "rating" ? "numeric" : "decimal");
     el.value = td.getAttribute("data-v") || "";
     pop.appendChild(el);
     var start = el.value;
@@ -273,6 +323,8 @@ export const BOARD_JS = String.raw`(function () {
     var col = COLS[td.getAttribute("data-c")] || { t: t };
     if (t === "status") return statusPicker(td, col);
     if (t === "checkbox") return save(td, td.getAttribute("data-v") ? "" : "true");
+    if (t === "people" || t === "dropdown") return multiPicker(td, col);
+    if (t === "timeline") return timelinePicker(td);
     inputEditor(td, t);
   });
   document.addEventListener("keydown", function (e) { if (e.key !== "Escape") return; if (open) close(); else closePanel(); });

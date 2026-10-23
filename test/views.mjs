@@ -91,7 +91,7 @@ h = await page(100, { view: "kanban" });
 ok(/<a class="on" href="\/boards\/100\?view=kanban/.test(h) && /class="kanban" data-kc="s1"/.test(h), "Kanban tab, grouped by the first status column");
 ok(JSON.stringify(cards(h, "Idea")) === '["Alpha"]' && JSON.stringify(cards(h, "Brief ready")) === '["Bravo"]' && JSON.stringify(cards(h, "Published")) === '["Charlie"]' && JSON.stringify(cards(h, "")) === '["Delta"]', "cards in the right columns, empty ones in Empty");
 ok(/class="kcard" data-i="1" draggable="true" data-f="/.test(h), "cards can be dragged on editable boards");
-ok(/<span>Owner<\/span>Tom James/.test(h), "cards show key fields");
+ok(/<span>Owner<\/span><span class="ppl" title="Tom James">.*?<span class="pn">Tom James<\/span>/.test(h), "cards show key fields (people as initials and name)");
 h = await page(100, { view: "kanban", kc: "s2" });
 ok(/data-kc="s2"/.test(h) && JSON.stringify(cards(h, "Phase 2")) === '["Charlie"]' && /Columns: Phase/.test(h), "choose which status column makes the Kanban");
 h = await page(100, { view: "kanban", kc: "nope" });

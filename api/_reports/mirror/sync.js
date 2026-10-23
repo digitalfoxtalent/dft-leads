@@ -95,12 +95,12 @@ async function listAll(gql) {
 }
 
 async function saveTeam(gql) {
-  const users = (await gql(`query { users (kind: non_guests, limit: 1000) { email name enabled } }`)).users || [];
+  const users = (await gql(`query { users (kind: non_guests, limit: 1000) { id email name enabled } }`)).users || [];
   const active = users.filter(u => u.enabled && /@digitalfoxtalent\.com$/i.test(String(u.email || "")))
-    .map(u => ({ email: String(u.email).toLowerCase(), name: clean(u.name) }));
+    .map(u => ({ email: String(u.email).toLowerCase(), name: clean(u.name), id: /^\d{1,19}$/.test(String(u.id)) ? String(u.id) : null }));
   if (!active.length) return; // never empty the list on a bad answer
-  await write(`INSERT INTO mirror.team (email, name, seen_at) SELECT r->>'email', r->>'name', now() FROM jsonb_array_elements($1::jsonb) r
-    ON CONFLICT (email) DO UPDATE SET name = EXCLUDED.name, seen_at = now()`, [JSON.stringify(active)]);
+  await write(`INSERT INTO mirror.team (email, name, monday_id, seen_at) SELECT r->>'email', r->>'name', (r->>'id')::bigint, now() FROM jsonb_array_elements($1::jsonb) r
+    ON CONFLICT (email) DO UPDATE SET name = EXCLUDED.name, monday_id = EXCLUDED.monday_id, seen_at = now()`, [JSON.stringify(active)]);
   await write(`DELETE FROM mirror.team WHERE NOT (email = ANY($1::text[]))`, [active.map(u => u.email)]);
 }
 
@@ -148,6 +148,8 @@ function parseColumns(cols) {
       }
     }
     if (c.type === "subtasks" && Array.isArray(s.boardIds)) out.subBoards = s.boardIds.map(String);
+    if (c.type === "dropdown" && Array.isArray(s.labels)) out.options = s.labels.map(l => clean(l && l.name)).filter(Boolean).slice(0, 300);
+    if (c.type === "rating") out.max = Math.min(10, Math.max(1, parseInt(s.max, 10) || 5));
     return out;
   });
 }
