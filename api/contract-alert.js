@@ -147,7 +147,9 @@ export default async function handler(req, res) {
     if (!it || String((it.board || {}).id) !== BOARD) return res.status(404).json({ error: "Deal not found on US Campaigns" });
 
     const label = String((it.status[0] || {}).text || "").trim();
-    if (label !== "Review" && label !== "Red Flag") return res.status(200).json({ skipped: "status is " + (label || "empty") });
+    // dry=1 is for checking the wording and the recipient on any row, so it is allowed to look at a
+    // deal whatever its status. Only a real send is gated, because only a real send can be wrong.
+    if (!dry && label !== "Review" && label !== "Red Flag") return res.status(200).json({ skipped: "status is " + (label || "empty") });
 
     const review = String((it.review[0] || {}).text || "");
     const tracker = String((it.tracker[0] || {}).text || "");
