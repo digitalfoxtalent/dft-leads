@@ -4,21 +4,23 @@
 
 import { ensureSchema } from "./schema.js";
 import { hasDatabase } from "./db.js";
-import { securityHeaders, renderDepartment, renderBoard, renderItem, renderStatus, DEPT_NAMES, cellHtml } from "./pages.js";
+import { securityHeaders, renderDepartment, renderBoard, renderItem, renderStatus, renderPanel, itemUpdates, updatesList, DEPT_NAMES, cellHtml } from "./pages.js";
 import { BOARD_JS } from "./client.js";
 import { read } from "./db.js";
-import { saveEdit, undoEdit, saveCell, canEdit, currentText, editableColumns, fp } from "./edit.js";
+import { saveEdit, undoEdit, saveCell, postUpdate, canEdit, currentText, editableColumns, fp } from "./edit.js";
 
 const BOARD = /^boards\/(\d{1,19})$/;
 const ITEM = /^boards\/(\d{1,19})\/items\/(\d{1,19})$/;
 const ACT = /^boards\/(\d{1,19})\/items\/(\d{1,19})\/(edit|undo)$/; // POST only (edit.js)
 const CELL = /^boards\/(\d{1,19})\/items\/(\d{1,19})\/cell$/;  // POST JSON from the board's click-to-edit
+const PANEL = /^boards\/(\d{1,19})\/items\/(\d{1,19})\/panel$/; // GET JSON: the item side panel
+const POSTU = /^boards\/(\d{1,19})\/items\/(\d{1,19})\/update$/; // POST JSON: post an update to monday
 const ASSET = "assets/eco-board.js";
 const DEPT = /^([a-z]+)\/boards$/;
 
 export function isMirrorRoute(route) {
   const r = String(route || "");
-  if (BOARD.test(r) || ITEM.test(r) || ACT.test(r) || CELL.test(r) || r === ASSET || r === "data/mirror") return true;
+  if (BOARD.test(r) || ITEM.test(r) || ACT.test(r) || CELL.test(r) || PANEL.test(r) || POSTU.test(r) || r === ASSET || r === "data/mirror") return true;
   const m = r.match(DEPT);
   return !!(m && DEPT_NAMES[m[1]]);
 }
@@ -27,17 +29,31 @@ const one = v => String(Array.isArray(v) ? v[0] : v == null ? "" : v);
 
 export async function mirrorPage(route, req, res, email, token) {
   securityHeaders(res);
-  const act = route.match(ACT), cellRoute = route.match(CELL);
+  const act = route.match(ACT), cellRoute = route.match(CELL), postRoute = route.match(POSTU), panelRoute = route.match(PANEL);
   if (route === ASSET) return { status: 200, type: "text/javascript; charset=utf-8", body: BOARD_JS, cache: "private, max-age=300" };
-  if (req.method && req.method !== "GET" && req.method !== "HEAD" && !((act || cellRoute) && req.method === "POST")) return { status: 405, html: "Method not allowed" };
+  if (req.method && req.method !== "GET" && req.method !== "HEAD" && !((act || cellRoute || postRoute) && req.method === "POST")) return { status: 405, html: "Method not allowed" };
   if (!email) return { status: 401, html: "Sign in required" };
   if (!hasDatabase()) return { status: 503, html: "The Ecosystem database is not connected yet." };
   await ensureSchema();
   const q = one(req.query && req.query.q).slice(0, 100).trim();
   const page = one(req.query && req.query.page);
   let m;
+  const json = o => ({ status: 200, type: "application/json; charset=utf-8", body: JSON.stringify(o), cache: "no-store" });
+  if (panelRoute) return json(await renderPanel(email, panelRoute[1], panelRoute[2], { secret: token }));
+  if (postRoute) {
+    if (req.method !== "POST" || !token) return Object.assign(json({ ok: false, message: "Not allowed." }), { status: 405 });
+    const [, boardId, itemId] = postRoute;
+    const b = (await read(`SELECT id::text AS id, board_type, department, access, allowed_emails, gone, columns FROM mirror.boards WHERE id = $1::bigint`, [boardId]))[0];
+    const it = b && (await read(`SELECT id::text AS id, name, vals FROM mirror.items WHERE id = $1::bigint AND board_id = $2::bigint AND NOT deleted`, [itemId, boardId]))[0];
+    const team = new Set((await read(`SELECT email FROM mirror.team`)).map(r => r.email));
+    if (!b || !it || !canEdit(b, email, team)) return json({ ok: false, message: "Updates cannot be posted on this item here." });
+    let note;
+    try { note = await postUpdate(req, token, email, b, it, team); }
+    catch (e) { console.error("post update", e); note = { ok: false, message: "Something went wrong. Check the item in monday before posting again." }; }
+    const { ups } = await itemUpdates(b, it, token, note.ok ? { fresh: true } : { copyOnly: true }); // monday is read again only after a real post
+    return json(Object.assign({}, note, { html: updatesList(ups), count: ups.length }));
+  }
   if (cellRoute) {
-    const json = o => ({ status: 200, type: "application/json; charset=utf-8", body: JSON.stringify(o) });
     if (req.method !== "POST" || !token) return json({ ok: false, message: "Not allowed." });
     const [, boardId, itemId] = cellRoute;
     const load = async () => {
@@ -57,7 +73,7 @@ export async function mirrorPage(route, req, res, email, token) {
     const col = editableColumns(b).find(c => c.id === colId);
     if (!fresh || !col) return json(note);
     const v = currentText(col, fresh);
-    return json(Object.assign({}, note, { html: cellHtml(b, col, fresh, true), f: fp(v), v }));
+    return json(Object.assign({}, note, { html: await cellHtml(b, col, fresh, true), f: fp(v), v }));
   }
   if (act) {
     if (req.method !== "POST" || !token) return { status: 405, html: "Method not allowed" };

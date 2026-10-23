@@ -5,16 +5,17 @@
 //   /boards/<board id>/items/<id>     one item: every field, its subitems and its updates
 //   /data/mirror                      how the copy is doing: runs, and boards whose counts differ
 //
-// SECURITY: every value is escaped before it reaches the page; only http(s) links are ever linked; the
-// pages carry no script at all and a strict Content-Security-Policy (see securityHeaders); a board the
-// viewer may not see looks exactly like a board that does not exist; every view is logged.
+// SECURITY: every value is escaped before it reaches the page; only http(s) links are ever linked; the only
+// script is our own /assets/eco-board.js (client.js), which inserts nothing but server-escaped HTML, under a
+// strict Content-Security-Policy (see securityHeaders); a board the viewer may not see looks exactly like a
+// board that does not exist; every view is logged.
 
 import { read, write } from "./db.js";
 
 // Active, non-guest monday users (refreshed by every sync). Someone who leaves monday loses access here too.
 async function teamSet() { return new Set((await read(`SELECT email FROM mirror.team`)).map(r => r.email)); }
 import { canSee } from "./policy.js";
-import { canEdit, editForm, historyHtml, editableColumns, currentText, fp, boardToken } from "./edit.js";
+import { canEdit, editForm, historyHtml, editableColumns, currentText, fp, boardToken, liveUpdates, authors } from "./edit.js";
 
 export const DEPT_NAMES = {
   partnerships: "Brand Partnerships", platforms: "Platform Monetization", shows: "Show Development", talent: "Talent",
@@ -146,6 +147,33 @@ form.edit textarea{resize:vertical}
 form.edit .acts{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin-top:18px}
 .btn.sm{height:26px;padding:0 8px;font-size:12px}
 .tw.plain{border-left:0;border-radius:8px}.tw.plain td,.tw.plain th{text-align:left;white-space:normal}
+td.nm{padding:0 6px 0 10px}.nmw{display:flex;align-items:center;gap:4px;min-width:0;height:36px}
+.nmw a{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.nmw .sp{flex:1}
+.ub{flex:none;display:inline-flex;align-items:center;gap:3px;border:0;background:none;color:var(--faint);cursor:pointer;padding:4px;border-radius:4px;font:inherit;font-size:11.5px}
+.ub svg{width:18px;height:18px}.ub:hover{background:var(--hover);color:var(--primary)}.ub.has{color:var(--primary)}
+tr.sel td{background:var(--sel)!important}
+#eco-panel{position:fixed;top:48px;right:0;bottom:0;width:min(660px,100vw);background:var(--surface);border-left:1px solid var(--line2);box-shadow:-10px 0 30px rgba(0,0,0,.14);transform:translateX(105%);transition:transform .2s ease;z-index:40;display:flex;flex-direction:column}
+#eco-panel.open{transform:none}
+#eco-panel .pn-x{position:absolute;top:16px;left:16px;width:32px;height:32px;border:0;border-radius:6px;background:none;color:var(--muted);font-size:22px;line-height:1;cursor:pointer}
+#eco-panel .pn-x:hover{background:var(--hover)}
+#eco-panel .pn-body{flex:1;overflow:auto;padding:22px 32px 48px 32px}
+.pn-head{padding:0 0 0 36px}.pn-head h2{margin:2px 0 10px;font-size:22px;font-weight:600;line-height:1.25;overflow-wrap:anywhere}
+.pn-meta{display:flex;flex-wrap:wrap;gap:8px;align-items:center;color:var(--muted);font-size:12.5px}
+.pn-meta .grp{display:inline-flex;align-items:center;gap:6px}.pn-meta .grp i{width:8px;height:8px;border-radius:2px;background:var(--gc,#579bfc)}
+.pn-tabs{display:flex;gap:4px;border-bottom:1px solid var(--line2);margin:18px 0 18px}
+.pn-tabs button{border:0;background:none;font:inherit;font-size:13.5px;color:var(--muted);padding:9px 12px;border-bottom:2px solid transparent;margin-bottom:-1px;cursor:pointer}
+.pn-tabs button.on{color:var(--fg);border-bottom-color:var(--primary);font-weight:500}.pn-tabs .n{margin-left:4px;color:var(--faint);font-weight:400}
+form.upd-new{border:1px solid var(--line);border-radius:8px;padding:12px;margin:0 0 20px;background:var(--surface)}
+form.upd-new textarea{width:100%;min-height:76px;border:0;outline:0;resize:vertical;background:none;color:var(--fg);font:inherit;font-size:14px}
+form.upd-new:focus-within{border-color:var(--primary)}
+form.upd-new .acts{display:flex;gap:10px;align-items:center;justify-content:flex-end;margin-top:8px}form.upd-new .acts .sp{flex:1}
+.upd-list article{border:1px solid var(--line2);border-radius:8px;padding:14px 16px;margin-bottom:12px;background:var(--surface)}
+.upd-list header{display:flex;align-items:center;gap:10px;margin-bottom:8px}.upd-list header b{font-weight:500;font-size:13.5px}
+.upd-list time{margin-left:auto;color:var(--faint);font-size:12px}
+.av{width:28px;height:28px;border-radius:50%;display:inline-grid;place-items:center;color:#fff;font-size:11px;font-weight:600;flex:none}
+.upd-list .ubody{white-space:pre-wrap;overflow-wrap:anywhere;font-size:14px}
+.upd-list .rep{margin:12px 0 0 38px;padding:10px 12px;border-radius:8px;background:var(--bg)}.upd-list .rep header{margin-bottom:4px}.upd-list .rep .av{width:22px;height:22px;font-size:10px}
+.pn-body dl{margin-top:0}.pn-sub{margin:18px 0 0}.pn-sub li{margin:4px 0}
 @media (max-width:900px){.shell{grid-template-columns:1fr}.side{position:static;height:auto;border-right:0;border-bottom:1px solid var(--line2)}.main{padding:18px 16px 60px}}
 @media (max-width:640px){dl{grid-template-columns:1fr} dt{border-bottom:0}}
 `;
@@ -251,12 +279,21 @@ const EDIT_NOTE = { marketing: ", and editable here: changes save straight to mo
 
 // The text-like column types, left-aligned as on monday; everything else is centred.
 const LEFT = new Set(["text", "long_text", "link", "email", "people", "multiple_person", "dropdown", "board_relation", "mirror", "tags", "file", "phone", "location"]);
-const nameInner = (b, it, subs, editable) => `<a href="/boards/${esc(b.id)}/items/${esc(it.id)}">${esc(it.name)}</a>${subs ? `<span class="subs">${esc(subs)} subitem${subs === 1 ? "" : "s"}</span>` : ""}${editable ? `<button class="ren" type="button" aria-label="Rename">Rename</button>` : ""}`;
+const BUBBLE = `<svg viewBox="0 0 20 20" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" d="M4 4.5h12a1.5 1.5 0 0 1 1.5 1.5v7a1.5 1.5 0 0 1-1.5 1.5H9l-4 3v-3H4A1.5 1.5 0 0 1 2.5 13V6A1.5 1.5 0 0 1 4 4.5z"/></svg>`;
+const nameInner = (b, it, subs, editable, upd) => `<div class="nmw"><a href="/boards/${esc(b.id)}/items/${esc(it.id)}">${esc(it.name)}</a>${subs ? `<span class="subs">${esc(subs)} subitem${subs === 1 ? "" : "s"}</span>` : ""}${editable ? `<button class="ren" type="button" aria-label="Rename">Rename</button>` : ""}<span class="sp"></span><button class="ub${upd ? " has" : ""}" type="button" data-open aria-label="Open updates">${BUBBLE}${upd ? `<span>${upd >= 10 ? "10+" : esc(upd)}</span>` : ""}</button></div>`;
+// Subitem and update counts for a set of items (the update count is from our copy, which keeps the latest 10).
+async function rowCounts(ids) {
+  if (!ids.length) return { subs: {}, upd: {} };
+  const [s, u] = await Promise.all([
+    read(`SELECT parent_id::text AS id, count(*)::int AS n FROM mirror.items WHERE parent_id = ANY($1::bigint[]) AND NOT deleted GROUP BY parent_id`, [ids]),
+    read(`SELECT item_id::text AS id, count(*)::int AS n FROM mirror.updates WHERE item_id = ANY($1::bigint[]) GROUP BY item_id`, [ids])]);
+  return { subs: Object.fromEntries(s.map(r => [r.id, r.n])), upd: Object.fromEntries(u.map(r => [r.id, r.n])) };
+}
 const LONG_MAX = 4000; // longer texts are edited on the item page, so a board never ships megabytes of text
 
 // One cell's inner HTML, used by the board and by the inline editor's reply.
-export function cellHtml(b, col, it, editable) {
-  if (col.id === "name") return nameInner(b, it, 0, editable);
+export async function cellHtml(b, col, it, editable) {
+  if (col.id === "name") { const c = await rowCounts([it.id]); return nameInner(b, it, c.subs[it.id] || 0, editable, c.upd[it.id] || 0); }
   return cell(col, it.vals && it.vals[col.id]);
 }
 
@@ -271,8 +308,7 @@ export async function renderBoard(email, id, q, page, opts = {}) {
   const total = (await read(`SELECT count(*)::int AS n FROM mirror.items WHERE ${where}`, params))[0].n;
   const items = await read(`SELECT id::text AS id, name, group_id, vals FROM mirror.items WHERE ${where}
     ORDER BY pos NULLS LAST, created_at LIMIT ${PAGE_SIZE} OFFSET ${(p - 1) * PAGE_SIZE}`, params);
-  const subCounts = items.length ? Object.fromEntries((await read(`SELECT parent_id::text AS id, count(*)::int AS n FROM mirror.items
-    WHERE parent_id = ANY($1::bigint[]) AND NOT deleted GROUP BY parent_id`, [items.map(i => i.id)])).map(r => [r.id, r.n])) : {};
+  const counts = await rowCounts(items.map(i => i.id));
   const editable = !!opts.secret && canEdit(b, email, team);
   const ecols = editable ? new Map(editableColumns(b).map(c => [c.id, c])) : new Map();
   const cols = (b.columns || []).filter(c => c.type !== "name" && c.type !== "subtasks");
@@ -293,7 +329,7 @@ export async function renderBoard(email, id, q, page, opts = {}) {
   };
   const nameCol = { id: "name", type: "name", title: "Name" };
   const table = list => `<div class="tw"><table style="width:${tableWidth(cols)}px">${colgroup(cols)}<thead><tr><th class="nm">Item</th>${cols.map(c => `<th title="${esc(c.title)}">${esc(c.title)}</th>`).join("")}</tr></thead><tbody>${list.map(it =>
-    `<tr data-i="${esc(it.id)}"><td class="nm"${editable ? edAttrs(nameCol, it).replace(/data-t="name"/, 'data-t="name"') : ""}>${nameInner(b, it, subCounts[it.id] || 0, editable)}</td>${cols.map(c => td(c, it)).join("")}</tr>`).join("")}</tbody></table></div>`;
+    `<tr data-i="${esc(it.id)}"><td class="nm"${editable ? edAttrs(nameCol, it).replace(/data-t="name"/, 'data-t="name"') : ""}>${nameInner(b, it, counts.subs[it.id] || 0, editable, counts.upd[it.id] || 0)}</td>${cols.map(c => td(c, it)).join("")}</tr>`).join("")}</tbody></table></div>`;
   const sections = [...byGroup.entries()].filter(([, l]) => l.length).map(([g, l]) => {
     const gi = gInfo[g] || { title: "Other" }; const col = hexOk(gi.color);
     return `<details class="group" open${col ? ` style="--gc:${col}"` : ""}><summary>${esc(gi.title)} <span>${l.length} item${l.length === 1 ? "" : "s"}</span></summary>${table(l)}</details>`;
@@ -302,18 +338,18 @@ export async function renderBoard(email, id, q, page, opts = {}) {
   const qs = n => `?${q ? "q=" + encodeURIComponent(q) + "&" : ""}page=${n}`;
   const dept = DEPT_NAMES[b.department] ? b.department : "data";
   const colsJson = editable ? JSON.stringify(Object.fromEntries([...ecols.values()].map(c => [c.id, { t: c.type, n: c.title, l: c.type === "status" ? Object.values(c.labels || {}).filter(x => x && x[0]).map(x => [x[0], hexOk(x[1]) || "#c4c4c4"]) : undefined }]))).replace(/</g, "\\u003c") : "";
-  const body = `<div${editable ? ` data-eco-board data-b="${esc(b.id)}" data-k="${esc(boardToken(opts.secret, email, b.id))}"` : ""}>
+  const body = `<div data-eco-board data-b="${esc(b.id)}"${editable ? ` data-k="${esc(boardToken(opts.secret, email, b.id))}"` : ""}>
 <h1>${esc(b.name)}</h1>${b.description ? `<p class="desc">${esc(b.description)}</p>` : ""}
 <div class="tabs"><span class="on">Main table</span></div>
 <form class="bar" method="get"><input name="q" value="${esc(q || "")}" placeholder="Search" aria-label="Search this board"><button type="submit">Search</button>${q ? `<a class="btn" href="/boards/${esc(b.id)}">Clear</a>` : ""}
 <span class="count">${esc(total)} ${Number(total) === 1 ? (q ? "item matches" : "item") : (q ? "items match" : "items")}</span><span class="grow"></span>
-<span class="badge${editable ? " edit" : ""}">${editable ? "Click any cell to edit · saves to monday" : "Read-only copy of monday · copied " + esc(ago(b.synced_at))}</span>${b.access === "team" ? "" : `<span class="badge lock">Listed people only</span>`}
+<span class="badge${editable ? " edit" : ""}">${editable ? "Click any cell to edit · saves to monday" : "Read-only copy of monday · copied " + esc(ago(b.synced_at)) + " · click an item to see its updates"}</span>${b.access === "team" ? "" : `<span class="badge lock">Listed people only</span>`}
 <a class="btn" href="https://digitalfoxtalent.monday.com/boards/${esc(b.id)}" target="_blank" rel="noopener noreferrer">Open in monday</a></form>
 ${sections || `<p class="empty">${b.synced_at ? "No items" + (q ? " match that search." : " on this board.") : "This board has not been copied yet. It fills in within the next few runs."}</p>`}
 ${pages > 1 ? `<div class="pager">${p > 1 ? `<a class="btn" href="${qs(p - 1)}">Previous</a>` : ""}<span>Page ${p} of ${pages}</span>${p < pages ? `<a class="btn" href="${qs(p + 1)}">Next</a>` : ""}</div>` : ""}
 </div>${editable ? `<script type="application/json" id="eco-cols">${colsJson}</script>` : ""}`;
   return { status: 200, html: frame(b.name, [[DEPT_NAMES[dept], "/" + dept + "/boards"], [b.name, null]], body, await sidebar(email, b.id),
-    editable ? `<script src="/assets/eco-board.js" defer></script>` : "") };
+    `<script src="/assets/eco-board.js" defer></script>`) };
 }
 
 export async function renderItem(email, boardId, itemId, opts = {}) {
@@ -327,7 +363,7 @@ export async function renderItem(email, boardId, itemId, opts = {}) {
   const subs = await read(`SELECT i.id::text AS id, i.name, i.vals, i.board_id::text AS board_id FROM mirror.items i
     WHERE i.parent_id = $1::bigint AND NOT i.deleted ORDER BY i.pos NULLS LAST, i.created_at`, [it.id]);
   const subBoard = subs.length ? await board(subs[0].board_id) : null;
-  const upd = await read(`SELECT body, creator, created_at FROM mirror.updates WHERE item_id = $1::bigint ORDER BY created_at DESC LIMIT 50`, [it.id]);
+  const upd = await copiedUpdates(it.id, 50);
   const cols = (b.columns || []).filter(c => c.type !== "name" && c.type !== "subtasks");
   const group = (b.groups || []).find(g => g.id === it.group_id);
   const scols = subBoard ? (subBoard.columns || []).filter(c => c.type !== "name") : [];
@@ -342,8 +378,56 @@ ${note}${editable ? `<h2 class="sec">Edit</h2>${editForm(b, it, email, opts.secr
 ${subs.length ? `<h2 class="sec">Subitems</h2><div class="tw"><table>${colgroup(scols)}<thead><tr><th>Subitem</th>${scols.map(c => `<th>${esc(c.title)}</th>`).join("")}</tr></thead><tbody>${subs.map(s =>
   `<tr><td class="nm">${esc(s.name)}</td>${scols.map(c => `<td${c.type === "numbers" ? ' class="num"' : ""}>${cell(c, s.vals && s.vals[c.id])}</td>`).join("")}</tr>`).join("")}</tbody></table></div>` : ""}
 ${editable ? `<h2 class="sec">Changes made in the Ecosystem</h2>${await historyHtml(b, it, email, opts.secret)}` : ""}
-<h2 class="sec">Updates</h2>${upd.length ? upd.map(u => `<div class="upd"><b>${esc(u.creator || "Someone")} · ${esc(iso(u.created_at).slice(0, 16).replace("T", " "))}</b>${esc(u.body)}</div>`).join("") : `<p class="muted">No updates.</p>`}`;
+<h2 class="sec">Updates</h2><div class="upd-list">${updatesList(upd)}</div>`;
   return { status: 200, html: frame(it.name, [[DEPT_NAMES[dept], "/" + dept + "/boards"], [b.name, "/boards/" + b.id], [it.name, null]], body, await sidebar(email, b.id)) };
+}
+
+// ---------- the item side panel (opened from a board, like monday) ----------
+
+const AV = ["#e2445c", "#00c875", "#a25ddc", "#fdab3d", "#579bfc", "#ff642e", "#037f4c", "#ff158a", "#9cd326", "#225091"];
+const avatar = n => { const s = String(n || "?"); let h = 0; for (const ch of s) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  const ini = s.split(/[\s@.]+/).filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join("") || "?";
+  return `<span class="av" style="background:${AV[h % AV.length]}">${esc(ini)}</span>`; };
+// An update posted from the Ecosystem starts "<name> via the Ecosystem" in monday; we show the name as the author instead.
+const cleanBody = u => u.posted_by ? String(u.body || "").replace(new RegExp("^\\s*" + String(u.posted_by).replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\s+via the Ecosystem\\s*"), "") : String(u.body || "");
+const oneUpdate = (u, cls) => { const who = u.posted_by || u.creator || "Someone";
+  return `<article${cls ? ` class="${cls}"` : ""}><header>${avatar(who)}<b>${esc(who)}</b><time title="${esc(iso(u.created_at).slice(0, 16).replace("T", " "))} UTC">${esc(ago(u.created_at))}</time></header><div class="ubody">${esc(cleanBody(u))}</div>${(u.replies || []).map(r => oneUpdate(r, "rep")).join("")}</article>`; };
+export const updatesList = ups => ups.length ? ups.map(u => oneUpdate(u)).join("") : `<p class="muted">No updates yet.</p>`;
+
+// Latest updates: live from monday when it answers within 3 seconds, otherwise our copy.
+export async function itemUpdates(b, it, secret, opts = {}) {
+  const live = secret && !opts.copyOnly ? await liveUpdates(secret, b, it, opts.fresh) : null;
+  if (live) return { ups: live, live: true };
+  return { ups: await copiedUpdates(it.id, 25), live: false };
+}
+async function copiedUpdates(itemId, limit) {
+  const ups = await read(`SELECT id::text AS id, body, creator, created_at, posted_by FROM mirror.updates WHERE item_id = $1::bigint ORDER BY created_at DESC LIMIT ${limit}`, [itemId]);
+  const by = await authors(ups.map(u => u.id));
+  return ups.map(u => (by[u.id] ? Object.assign(u, { posted_by: by[u.id] }) : u));
+}
+
+export async function renderPanel(email, boardId, itemId, opts = {}) {
+  const b = await board(boardId);
+  const team = await teamSet();
+  const missing = { ok: false, message: "This item is not available." };
+  if (!b || b.board_type !== "board" || !isId(itemId) || !canSee(b, email, team)) { await logAccess(email, "/boards/" + boardId + "/items/" + itemId + "/panel", boardId, false); return missing; }
+  const it = (await read(`SELECT id::text AS id, name, group_id, vals, created_at, creator FROM mirror.items WHERE id = $1::bigint AND board_id = $2::bigint AND NOT deleted`, [itemId, b.id]))[0];
+  if (!it) { await logAccess(email, "/boards/" + b.id + "/items/" + itemId + "/panel", b.id, false); return missing; }
+  await logAccess(email, "/boards/" + b.id + "/items/" + it.id + "/panel", b.id, true);
+  const editable = !!opts.secret && canEdit(b, email, team);
+  const { ups, live } = await itemUpdates(b, it, opts.secret);
+  const subs = await read(`SELECT name FROM mirror.items WHERE parent_id = $1::bigint AND NOT deleted ORDER BY pos NULLS LAST, created_at LIMIT 50`, [it.id]);
+  const cols = (b.columns || []).filter(c => c.type !== "name" && c.type !== "subtasks");
+  const group = (b.groups || []).find(g => g.id === it.group_id); const gc = group && hexOk(group.color);
+  const html = `<div class="pn-head"><h2>${esc(it.name)}</h2><div class="pn-meta">${group ? `<span class="grp"${gc ? ` style="--gc:${gc}"` : ""}><i></i>${esc(group.title)}</span>` : ""}
+<a class="btn sm" href="/boards/${esc(b.id)}/items/${esc(it.id)}">${editable ? "Full page and change log" : "Full page"}</a>
+<a class="btn sm" href="https://digitalfoxtalent.monday.com/boards/${esc(b.id)}/pulses/${esc(it.id)}" target="_blank" rel="noopener noreferrer">Open in monday</a></div></div>
+<div class="pn-tabs" role="tablist"><button type="button" role="tab" data-tab="u" class="on">Updates<span class="n">${esc(ups.length)}</span></button><button type="button" role="tab" data-tab="f">Fields</button></div>
+<section data-pane="u">${editable ? `<form class="upd-new" data-eco-post><textarea name="t" maxlength="5000" placeholder="Write an update..." aria-label="Write an update"></textarea><div class="acts"><span class="muted sm sp">Posts to monday with your name at the top.</span><button class="btn primary" type="submit">Update</button></div></form>` : ""}
+${live ? "" : `<p class="muted sm">monday did not answer in time, so this is the copy from the last half hour.</p>`}<div class="upd-list">${updatesList(ups)}</div></section>
+<section data-pane="f" hidden><dl>${cols.map(c => `<dt>${esc(c.title)}</dt><dd>${c.type === "long_text" ? esc((it.vals && it.vals[c.id] && it.vals[c.id][0]) || "") : cell(c, it.vals && it.vals[c.id])}</dd>`).join("")}</dl>
+${subs.length ? `<h2 class="sec">Subitems</h2><ul class="pn-sub">${subs.map(s => `<li>${esc(s.name)}</li>`).join("")}</ul>` : ""}</section>`;
+  return { ok: true, html, count: ups.length };
 }
 
 export async function renderStatus(email) {

@@ -48,6 +48,22 @@ export const EDIT_SCHEMA = [
    )`,
   `CREATE INDEX IF NOT EXISTS edits_item ON mirror.edits (item_id, at DESC)`,
   `CREATE INDEX IF NOT EXISTS edits_email ON mirror.edits (email, at DESC)`,
+  // Updates posted from the Ecosystem: monday shows them under the account that owns the API token, so we
+  // keep who really wrote each one (posted_by, which the sync never overwrites) and log every post.
+  `ALTER TABLE mirror.updates ADD COLUMN IF NOT EXISTS posted_by text`,
+  `CREATE TABLE IF NOT EXISTS mirror.posts (
+     id bigserial PRIMARY KEY,
+     at timestamptz NOT NULL DEFAULT now(),
+     email text NOT NULL,
+     board_id bigint NOT NULL,
+     item_id bigint NOT NULL,
+     update_id bigint,
+     name text,                                        -- the author's name as it went into monday
+     ok boolean NOT NULL,
+     error text
+   )`,
+  `CREATE INDEX IF NOT EXISTS posts_email ON mirror.posts (email, at DESC)`,
+  `CREATE INDEX IF NOT EXISTS posts_update ON mirror.posts (update_id) WHERE update_id IS NOT NULL`,
 ];
 
 const esc = v => String(v == null ? "" : v).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
@@ -96,8 +112,9 @@ export function mondayValue(col, input) {
 }
 const same = (col, a, b) => col.type === "numbers" ? (a === "" && b === "") || (a !== "" && b !== "" && Number(String(a).replace(/,/g, "")) === Number(String(b).replace(/,/g, ""))) : String(a) === String(b);
 
-async function monday(token, query, variables) {
-  const r = await fetchImpl(API, { method: "POST", headers: { "Content-Type": "application/json", Authorization: token, "API-Version": VERSION }, body: JSON.stringify({ query, variables }) });
+async function monday(token, query, variables, ms) {
+  const r = await fetchImpl(API, { method: "POST", headers: { "Content-Type": "application/json", Authorization: token, "API-Version": VERSION }, body: JSON.stringify({ query, variables }),
+    signal: ms ? AbortSignal.timeout(ms) : undefined });
   const d = await r.json();
   if (!r.ok || d.errors || d.error_message) throw new Error("monday: " + JSON.stringify(d.errors || d.error_message || r.status).slice(0, 300));
   return d.data;
@@ -272,4 +289,91 @@ export async function saveCell(req, token, email, board, item, team) {
   if (same(col, from, to)) return { ok: true, message: "No change." };
   try { mondayValue(col, to); } catch (e) { return { ok: false, message: String(e.message || e) }; }
   return apply(token, board, item, email, [{ col, from, to }], null);
+}
+
+// ---------- updates: read live for the side panel, and post one ----------
+
+const POSTS_PER_HOUR = 30;
+const UPDATE_MAX = 5000;
+const LIVE_TTL = 60000; // one monday read per item per minute per server instance, so panels never eat the sync's budget
+const UPD_Q = `query ($i: [ID!]) { items (ids: $i) { id state board { id } updates (limit: 25) { id text_body created_at creator { name }
+  replies { id text_body created_at creator { name } } } } }`;
+const liveCache = new Map();
+const clean = v => String(v == null ? "" : v).replace(/\u0000/g, "");
+
+// Who really wrote each update posted from the Ecosystem, from our post log (survives the sync trimming updates).
+export async function authors(ids) {
+  if (!ids.length) return {};
+  return Object.fromEntries((await read(`SELECT p.update_id::text AS id, COALESCE(p.name, t.name, p.email) AS name FROM mirror.posts p
+    LEFT JOIN mirror.team t ON t.email = p.email WHERE p.ok AND p.update_id = ANY($1::bigint[])`, [ids])).map(r => [r.id, r.name]));
+}
+
+async function fetchLive(token, itemId, ms) {
+  const it = ((await monday(token, UPD_Q, { i: [String(itemId)] }, ms)).items || [])[0];
+  if (!it || it.state === "deleted") return null;
+  const one = u => ({ id: String(u.id), body: clean(u.text_body), creator: clean(u.creator && u.creator.name), created_at: u.created_at });
+  return { board_id: String(it.board && it.board.id), ups: (it.updates || []).map(u => Object.assign(one(u), { replies: (u.replies || []).map(one) })) };
+}
+
+// The item's latest updates straight from monday (so the panel is never 30 minutes behind), saved to our copy.
+// Returns null if monday is slow or unreachable; the panel then shows our copy instead.
+export async function liveUpdates(token, board, item, fresh) {
+  const key = String(item.id), hit = liveCache.get(key);
+  let got = !fresh && hit && Date.now() - hit.at < LIVE_TTL ? hit.got : null;
+  if (!got) {
+    try { got = await fetchLive(token, item.id, 3000); } catch (e) { return null; }
+    if (!got) return null;
+    liveCache.set(key, { at: Date.now(), got });
+    if (liveCache.size > 500) liveCache.delete(liveCache.keys().next().value);
+    if (got.board_id === String(board.id) && got.ups.length) await write(`INSERT INTO mirror.updates (id, item_id, body, creator, created_at)
+      SELECT (u->>'id')::bigint, $1::bigint, u->>'body', u->>'creator', (u->>'created_at')::timestamptz FROM jsonb_array_elements($2::jsonb) u
+      ON CONFLICT (id) DO UPDATE SET body = EXCLUDED.body, creator = EXCLUDED.creator`, [item.id, JSON.stringify(got.ups)]).catch(() => {});
+  }
+  if (got.board_id !== String(board.id)) return null;
+  const by = await authors(got.ups.map(u => u.id));
+  return got.ups.map(u => (by[u.id] ? Object.assign({}, u, { posted_by: by[u.id] }) : u));
+}
+
+const htmlText = v => String(v).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]); // monday shows &#39; literally
+const prefix = name => `${name} via the Ecosystem`;
+const updateHtml = (name, text) => `<p><strong>${htmlText(name)}</strong> via the Ecosystem</p><p>${htmlText(text).replace(/\n/g, "<br>")}</p>`;
+const NOT_TAKEN = "monday did not confirm the update. Check the item in monday before posting again.";
+
+export async function postUpdate(req, token, email, board, item, team) {
+  if (req.method !== "POST") return { ok: false, message: "Not allowed." };
+  if (!fromSite(req)) return { ok: false, message: "That request did not come from the Ecosystem." };
+  if (!canEdit(board, email, team)) return { ok: false, message: "Updates cannot be posted on this board here yet." };
+  const b = jsonBody(req), tok = one(b.k), want = boardToken(token, email, board.id);
+  if (tok.length !== want.length || !crypto.timingSafeEqual(Buffer.from(tok), Buffer.from(want))) return { ok: false, message: "This page has expired. Refresh it and try again." };
+  const text = clean(typeof b.t === "string" ? b.t : "").replace(/\r\n/g, "\n").trim();
+  if (!text) return { ok: false, message: "Write something first." };
+  if (text.length > UPDATE_MAX) return { ok: false, message: "That update is too long (5,000 characters at most)." };
+  const n = (await read(`SELECT count(*)::int AS n FROM mirror.posts WHERE email = $1 AND at > now() - interval '1 hour'`, [email]))[0].n;
+  if (n >= POSTS_PER_HOUR) return { ok: false, message: "Too many updates in the last hour. Please wait a little." };
+  // monday is the master: the item must still be on this board there (our copy can be half an hour behind).
+  let before;
+  try { before = await fetchLive(token, item.id, 5000); } catch (e) { return { ok: false, message: "Could not reach monday. Nothing was posted; try again in a moment." }; }
+  if (!before || before.board_id !== String(board.id)) return { ok: false, message: "This item is no longer on this board in monday. Nothing was posted." };
+  const name = clean(((await read(`SELECT name FROM mirror.team WHERE email = $1`, [email]))[0] || {}).name || email).slice(0, 200);
+  // Logged before monday is called, so even a request cut off mid-way leaves a record.
+  const logId = (await write(`INSERT INTO mirror.posts (email, board_id, item_id, name, ok, error) VALUES ($1, $2::bigint, $3::bigint, $4, false, 'pending') RETURNING id::text AS id`,
+    [email, board.id, item.id, name]))[0].id;
+  let u = null, err = null;
+  try {
+    u = (await monday(token, `mutation ($i: ID!, $b: String!) { create_update (item_id: $i, body: $b) { id created_at } }`,
+      { i: String(item.id), b: updateHtml(name, text) }, 15000)).create_update;
+  } catch (e) { err = String(e.message || e).slice(0, 300); }
+  if (!u || !isId(u.id)) {
+    // A timeout can arrive after monday saved it: look for it before telling anyone to post again.
+    const seen = new Set(before.ups.map(x => x.id)), head = prefix(name), start = text.slice(0, 60).replace(/\s+/g, " ");
+    const after = await fetchLive(token, item.id, 5000).catch(() => null);
+    const found = after && after.ups.find(x => !seen.has(x.id) && x.body.replace(/\s+/g, " ").startsWith(head) && x.body.replace(/\s+/g, " ").includes(start));
+    if (found) u = { id: found.id, created_at: found.created_at };
+    else { await write(`UPDATE mirror.posts SET error = $2 WHERE id = $1::bigint`, [logId, err || "no update id returned"]); return { ok: false, message: NOT_TAKEN }; }
+  }
+  await write(`UPDATE mirror.posts SET ok = true, error = NULL, update_id = $2::bigint WHERE id = $1::bigint`, [logId, u.id]);
+  await write(`INSERT INTO mirror.updates (id, item_id, body, creator, created_at, posted_by) VALUES ($1::bigint, $2::bigint, $3, $4, COALESCE($5::timestamptz, now()), $4)
+    ON CONFLICT (id) DO UPDATE SET posted_by = EXCLUDED.posted_by`, [u.id, item.id, text, name, u.created_at || null]).catch(() => {});
+  liveCache.delete(String(item.id));
+  return { ok: true, message: "Update posted to monday." };
 }
