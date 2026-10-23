@@ -65,6 +65,9 @@ const OWNERS = {
     profile: "Only clients Alex already worked on last." }
 };
 const ROUTED = Object.values(OWNERS).map(o => o.label);
+// Shared with api/contract-alert.js (Tom, 23 Oct 2026: contract alerts run through the routing system),
+// so a salesperson joining or leaving is one edit here and nowhere else.
+export { OWNERS, BY_MONDAY_ID, BY_MONDAY_NAME, sendInternal, ALERT_FROM };
 const BY_MONDAY_NAME = { "Margot Grant": "margot", "George Roush": "george", "Han Yi": "hani", "Alex Mackenzie": "alex" };
 const BY_MONDAY_ID = Object.fromEntries(Object.entries(OWNERS).map(([k, o]) => [String(o.monday), k]));
 const TEAM = ["tom@digitalfoxtalent.com", "margot@digitalfoxtalent.com", "george@digitalfoxtalent.com", "hani@digitalfoxtalent.com", "alex@digitalfoxtalent.com", "theteam@digitalfoxtalent.com"];
