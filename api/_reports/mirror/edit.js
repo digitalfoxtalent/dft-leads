@@ -53,7 +53,7 @@ export const EDIT_SCHEMA = [
 const esc = v => String(v == null ? "" : v).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 const isId = v => /^\d{1,19}$/.test(String(v || ""));
 const one = v => String(Array.isArray(v) ? v[0] : v == null ? "" : v);
-const fp = t => crypto.createHash("sha256").update(String(t == null ? "" : t)).digest("base64url").slice(0, 16);
+export const fp = t => crypto.createHash("sha256").update(String(t == null ? "" : t)).digest("base64url").slice(0, 16);
 const sign = (secret, v) => crypto.createHmac("sha256", String(secret) + "|eco-edit-v1").update(String(v)).digest("base64url").slice(0, 32);
 const parse = s => { try { return typeof s === "string" ? JSON.parse(s) : s; } catch (e) { return null; } };
 
@@ -123,6 +123,7 @@ async function saveLive(live) {
 // ---------- the form ----------
 
 export function formToken(secret, email, itemId) { return sign(secret, email + "|" + itemId); }
+export function boardToken(secret, email, boardId) { return sign(secret, email + "|board|" + boardId); }
 
 export function editForm(board, item, email, secret, note) {
   const cols = editableColumns(board);
@@ -247,4 +248,28 @@ export async function undoEdit(req, token, email, board, item, team) {
   const r = await apply(token, board, item, email, [{ col, from: e.new_text == null ? "" : e.new_text, to: e.old_text == null ? "" : e.old_text }], e.id);
   if (r.ok) await write(`UPDATE mirror.edits SET undone_by = (SELECT max(id) FROM mirror.edits WHERE undo_of = $1::bigint) WHERE id = $1::bigint`, [e.id]);
   return r.ok ? { ok: true, message: "Undone: " + col.title + " is back to its previous value in monday." } : r;
+}
+
+// ---------- one cell, from the board's click-to-edit (client.js) ----------
+
+function jsonBody(req) {
+  if (typeof req.body === "string") { try { return JSON.parse(req.body); } catch (e) { return {}; } }
+  return req.body && typeof req.body === "object" ? req.body : {};
+}
+
+export async function saveCell(req, token, email, board, item, team) {
+  if (req.method !== "POST") return { ok: false, message: "Not allowed." };
+  if (!fromSite(req)) return { ok: false, message: "That request did not come from the Ecosystem." };
+  if (!canEdit(board, email, team)) return { ok: false, message: "This board cannot be edited here yet." };
+  const b = jsonBody(req), tok = one(b.k), want = boardToken(token, email, board.id);
+  if (tok.length !== want.length || !crypto.timingSafeEqual(Buffer.from(tok), Buffer.from(want))) return { ok: false, message: "This page has expired. Refresh it and try again." };
+  const col = editableColumns(board).find(c => c.id === one(b.c));
+  if (!col) return { ok: false, message: "This field cannot be edited here." };
+  const from = currentText(col, item);
+  if (one(b.f) !== fp(from)) return { ok: false, message: "This changed since the board loaded. It now shows the latest value; make your change again if it is still needed." };
+  const raw = typeof b.v === "string" ? b.v : "";
+  const to = col.type === "long_text" ? raw.replace(/\r\n/g, "\n") : raw.trim();
+  if (same(col, from, to)) return { ok: true, message: "No change." };
+  try { mondayValue(col, to); } catch (e) { return { ok: false, message: String(e.message || e) }; }
+  return apply(token, board, item, email, [{ col, from, to }], null);
 }

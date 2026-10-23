@@ -116,7 +116,7 @@ ok(page.status === 200 && page.html.includes("Planned") && page.html.includes("I
 ok(!page.html.includes("<script>alert(1)") && page.html.includes("&lt;script&gt;"), "item names are escaped");
 ok(!page.html.includes('href="javascript:') && page.html.includes('href="https://digitalfoxtalent.com/"'), "only http(s) links are linked");
 ok(page.html.includes("background:#00c875"), "status colour from monday");
-ok(page.html.includes("(1 subitems)"), "subitem count shown");
+ok(page.html.includes("1 subitem<"), "subitem count shown");
 page = await renderBoard("margot@digitalfoxtalent.com", "200", "", "1");
 ok(page.status === 404, "a listed board looks like a missing one to others");
 page = await renderBoard("tom@digitalfoxtalent.com", "200", "", "1");

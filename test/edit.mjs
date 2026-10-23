@@ -167,4 +167,38 @@ ok(out.status === 200 && /Saved to monday: Type/.test(out.html) && sent.length =
 out = await mirrorPage("boards/200/items/600/edit", { method: "POST", headers: { origin: "https://ecosystem.digitalfoxtalent.com" }, query: {}, body: { t: formToken(TOKEN, TOM, "600"), f_t1: "x" } }, resStub, TOM, TOKEN);
 ok(out.status === 400 && sent.length === before + 1, "finance edit through the route refused, nothing sent");
 
+// ---------- the monday-style board: click a cell to edit ----------
+const get = r => mirrorPage(r, { method: "GET", headers: {}, query: {} }, resStub, MARGOT, TOKEN);
+out = await get("boards/100");
+ok(out.status === 200 && /data-eco-board/.test(out.html) && /data-c="s1" data-t="status"/.test(out.html) && /<script src="\/assets\/eco-board.js" defer>/.test(out.html), "Marketing board is click-to-edit");
+ok(!/data-c="f1"/.test(out.html), "formula cells are not editable on the board");
+ok(/id="eco-cols">/.test(out.html) && !/id="eco-cols">[^<]*<[^/]/.test(out.html), "column data embedded without raw <");
+ok(/class="side"/.test(out.html) && /Editorial Plan/.test(out.html) && !/Private Marketing/.test(out.html) && !/Partner Pay Cap/.test(out.html), "sidebar lists only boards the viewer can see");
+out = await mirrorPage("boards/200", { method: "GET", headers: {}, query: {} }, resStub, TOM, TOKEN);
+ok(out.status === 200 && !/data-eco-board/.test(out.html) && !/eco-board.js/.test(out.html), "finance board has no editing code at all");
+out = await get("assets/eco-board.js");
+ok(out.status === 200 && /javascript/.test(out.type) && /data-eco-board/.test(out.body) && !/innerHTML\s*=\s*[^d]/.test(out.body.replace(/td\.innerHTML = d\.html/, "")), "board script served from our own address; only server HTML goes into cells");
+const cellPost = (body, who = MARGOT, origin = "https://ecosystem.digitalfoxtalent.com", boardId = "100", itemId = "500") =>
+  mirrorPage(`boards/${boardId}/items/${itemId}/cell`, { method: "POST", headers: { origin }, query: {}, body }, resStub, who, TOKEN).then(o => JSON.parse(o.body));
+const { boardToken } = await import("../api/_reports/mirror/edit.js");
+const K = boardToken(TOKEN, MARGOT, "100");
+let j = await cellPost({ k: "x".repeat(32), c: "s1", f: await fpOf(COLS[1], 500), v: "Published" });
+ok(!j.ok && /expired/.test(j.message), "cell edit with a forged page token refused");
+j = await cellPost({ k: K, c: "s1", f: await fpOf(COLS[1], 500), v: "Published" }, MARGOT, "https://evil.example");
+ok(!j.ok && /did not come from/.test(j.message), "cell edit from another site refused");
+j = await cellPost({ k: K, c: "f1", f: "x", v: "1" });
+ok(!j.ok && /cannot be edited/.test(j.message), "formula cell refused");
+const n0 = sent.length;
+j = await cellPost({ k: K, c: "s1", f: await fpOf(COLS[1], 500), v: "Published" });
+ok(j.ok && sent.length === n0 + 1 && JSON.parse(sent[sent.length - 1].v).s1.label === "Published", "status changed from the board, one monday call");
+ok(/class="pill"/.test(j.html) && /Published/.test(j.html) && j.v === "Published" && j.f === await fpOf(COLS[1], 500), "reply carries the new cell, value and fingerprint");
+j = await cellPost({ k: K, c: "s1", f: "stale-fingerprint", v: "Idea" });
+ok(!j.ok && /changed since the board loaded/.test(j.message) && /Published/.test(j.html) && sent.length === n0 + 1, "stale cell refused, shows the current value, nothing sent");
+j = await cellPost({ k: K, c: "t1", f: await fpOf(COLS[0], 500), v: "<img src=x onerror=alert(1)>" });
+ok(j.ok && !/<img/.test(j.html) && /&lt;img/.test(j.html), "typed HTML comes back escaped");
+j = await cellPost({ k: boardToken(TOKEN, TOM, "200"), c: "t1", f: "x", v: "y" }, TOM, undefined, "200", "600");
+ok(!j.ok && sent.length === n0 + 2, "finance cell edit refused");
+j = await cellPost({ k: K, c: "name", f: await fpOf({ id: "name", type: "name" }, 500), v: "Renamed from the board" });
+ok(j.ok && live.name === "Renamed from the board" && /Renamed from the board/.test(j.html), "rename from the board");
+
 console.log("edit tests passed: " + pass);

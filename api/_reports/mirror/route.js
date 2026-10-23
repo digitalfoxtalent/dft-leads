@@ -4,18 +4,21 @@
 
 import { ensureSchema } from "./schema.js";
 import { hasDatabase } from "./db.js";
-import { securityHeaders, renderDepartment, renderBoard, renderItem, renderStatus, DEPT_NAMES } from "./pages.js";
+import { securityHeaders, renderDepartment, renderBoard, renderItem, renderStatus, DEPT_NAMES, cellHtml } from "./pages.js";
+import { BOARD_JS } from "./client.js";
 import { read } from "./db.js";
-import { saveEdit, undoEdit } from "./edit.js";
+import { saveEdit, undoEdit, saveCell, canEdit, currentText, editableColumns, fp } from "./edit.js";
 
 const BOARD = /^boards\/(\d{1,19})$/;
 const ITEM = /^boards\/(\d{1,19})\/items\/(\d{1,19})$/;
 const ACT = /^boards\/(\d{1,19})\/items\/(\d{1,19})\/(edit|undo)$/; // POST only (edit.js)
+const CELL = /^boards\/(\d{1,19})\/items\/(\d{1,19})\/cell$/;  // POST JSON from the board's click-to-edit
+const ASSET = "assets/eco-board.js";
 const DEPT = /^([a-z]+)\/boards$/;
 
 export function isMirrorRoute(route) {
   const r = String(route || "");
-  if (BOARD.test(r) || ITEM.test(r) || ACT.test(r) || r === "data/mirror") return true;
+  if (BOARD.test(r) || ITEM.test(r) || ACT.test(r) || CELL.test(r) || r === ASSET || r === "data/mirror") return true;
   const m = r.match(DEPT);
   return !!(m && DEPT_NAMES[m[1]]);
 }
@@ -24,14 +27,38 @@ const one = v => String(Array.isArray(v) ? v[0] : v == null ? "" : v);
 
 export async function mirrorPage(route, req, res, email, token) {
   securityHeaders(res);
-  const act = route.match(ACT);
-  if (req.method && req.method !== "GET" && req.method !== "HEAD" && !(act && req.method === "POST")) return { status: 405, html: "Method not allowed" };
+  const act = route.match(ACT), cellRoute = route.match(CELL);
+  if (route === ASSET) return { status: 200, type: "text/javascript; charset=utf-8", body: BOARD_JS, cache: "private, max-age=300" };
+  if (req.method && req.method !== "GET" && req.method !== "HEAD" && !((act || cellRoute) && req.method === "POST")) return { status: 405, html: "Method not allowed" };
   if (!email) return { status: 401, html: "Sign in required" };
   if (!hasDatabase()) return { status: 503, html: "The Ecosystem database is not connected yet." };
   await ensureSchema();
   const q = one(req.query && req.query.q).slice(0, 100).trim();
   const page = one(req.query && req.query.page);
   let m;
+  if (cellRoute) {
+    const json = o => ({ status: 200, type: "application/json; charset=utf-8", body: JSON.stringify(o) });
+    if (req.method !== "POST" || !token) return json({ ok: false, message: "Not allowed." });
+    const [, boardId, itemId] = cellRoute;
+    const load = async () => {
+      const b = (await read(`SELECT id::text AS id, board_type, department, access, allowed_emails, gone, columns FROM mirror.boards WHERE id = $1::bigint`, [boardId]))[0];
+      const it = b && (await read(`SELECT id::text AS id, name, vals FROM mirror.items WHERE id = $1::bigint AND board_id = $2::bigint AND NOT deleted`, [itemId, boardId]))[0];
+      return [b, it];
+    };
+    const team = new Set((await read(`SELECT email FROM mirror.team`)).map(r => r.email));
+    const [b, it] = await load();
+    if (!b || !it || !canEdit(b, email, team)) return json({ ok: false, message: "This item cannot be edited here." });
+    let note;
+    try { note = await saveCell(req, token, email, b, it, team); }
+    catch (e) { note = { ok: false, message: "Something went wrong. Check the item in monday before trying again. " + String(e.message || e).slice(0, 160) }; }
+    // Reply with the cell as it now stands in our copy (after a save, or the newer value after a conflict).
+    const [, fresh] = await load();
+    const colId = String((req.body && typeof req.body === "object" ? req.body.c : (() => { try { return JSON.parse(req.body).c; } catch (e) { return ""; } })()) || "");
+    const col = editableColumns(b).find(c => c.id === colId);
+    if (!fresh || !col) return json(note);
+    const v = currentText(col, fresh);
+    return json(Object.assign({}, note, { html: cellHtml(b, col, fresh, true), f: fp(v), v }));
+  }
   if (act) {
     if (req.method !== "POST" || !token) return { status: 405, html: "Method not allowed" };
     const [, boardId, itemId, kind] = act;
@@ -46,7 +73,7 @@ export async function mirrorPage(route, req, res, email, token) {
     return note.ok ? out : Object.assign(out, { status: out.status === 200 ? 400 : out.status });
   }
   if ((m = route.match(ITEM))) return renderItem(email, m[1], m[2], { secret: token });
-  if ((m = route.match(BOARD))) return renderBoard(email, m[1], q, page);
+  if ((m = route.match(BOARD))) return renderBoard(email, m[1], q, page, { secret: token });
   if (route === "data/mirror") return renderStatus(email);
   if ((m = route.match(DEPT))) return renderDepartment(email, m[1], q);
   return { status: 404, html: "Not found" };
