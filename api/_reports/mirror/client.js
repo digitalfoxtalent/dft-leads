@@ -30,7 +30,7 @@ export const BOARD_JS = String.raw`(function () {
     var tr = td.closest("tr");
     td.classList.add("saving");
     fetch("/boards/" + B + "/items/" + tr.getAttribute("data-i") + "/cell", {
-      method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" },
+      method: "POST", credentials: "same-origin", keepalive: true, headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ k: K, c: td.getAttribute("data-c"), f: td.getAttribute("data-f"), v: value })
     }).then(function (r) { return r.json(); }).then(function (d) {
       if (typeof d.html === "string") td.innerHTML = d.html;
@@ -101,6 +101,5 @@ export const BOARD_JS = String.raw`(function () {
     inputEditor(td, t);
   });
   document.addEventListener("keydown", function (e) { if (e.key === "Escape") close(); });
-  window.addEventListener("resize", close);
 })();
 `;

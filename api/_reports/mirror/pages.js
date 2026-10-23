@@ -38,7 +38,7 @@ const ago = t => { if (!t) return "never"; const m = Math.round((Date.now() - Da
 const hexOk = c => (/^#[0-9a-f]{3,8}$/i.test(String(c || "")) ? c : null);
 
 export function securityHeaders(res) {
-  res.setHeader("Content-Security-Policy", "default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'unsafe-inline' https://fonts.googleapis.com; " +
+  res.setHeader("Content-Security-Policy", "default-src 'none'; script-src https://ecosystem.digitalfoxtalent.com/assets/eco-board.js; connect-src 'self'; style-src 'unsafe-inline' https://fonts.googleapis.com; " +
     "font-src https://fonts.gstatic.com; img-src 'self' data:; form-action 'self'; base-uri 'none'; frame-ancestors 'none'");
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("X-Frame-Options", "DENY");
