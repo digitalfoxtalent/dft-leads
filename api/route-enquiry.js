@@ -694,12 +694,31 @@ async function digest(ctx) {
       }
     }
   } catch (e) { /* the list is a courtesy; the digest still goes */ }
+  // Addressed to Tom and filed away today (Tom, 23 Oct 2026: "I'm worried I'm missing things that I do need to see").
+  // Every conversation written to tom@ directly that the router filed into a salesperson's folder today, apart from the
+  // new enquiries already listed above, one line each with a link, so a misfiling is caught the same day.
+  const toYou = [];
+  try {
+    const rowThreads = new Set(rows.map(r => String(r.v[C.ids] || "").split("|")[2]).filter(Boolean));
+    const seenT = new Set();
+    for (const k of Object.keys(OWNERS)) {
+      const ids = (await gmail(ctx.tok, "/gmail/v1/users/me/messages?maxResults=25&labelIds=" + OWNERS[k].label + "&q=" + encodeURIComponent("newer_than:1d to:" + SOURCE + " -from:" + SOURCE))).messages || [];
+      for (const m of ids) {
+        if (seenT.has(m.threadId) || rowThreads.has(m.threadId) || toYou.length >= 30) continue;
+        seenT.add(m.threadId);
+        const x = await gmail(ctx.tok, "/gmail/v1/users/me/messages/" + m.id + "?format=metadata&metadataHeaders=Subject&metadataHeaders=From&metadataHeaders=To");
+        if (!emailsIn(hdr(x, "to")).includes(SOURCE)) continue; // copied in, not written to Tom
+        toYou.push({ t: m.threadId, line: OWNERS[k].name + ": " + addr(hdr(x, "from")) + ", " + hdr(x, "subject").slice(0, 90) });
+      }
+    }
+  } catch (e) { /* a courtesy list; the digest still goes */ }
   const html = "<div style=\"font:14px/1.5 Arial,sans-serif;color:#222;max-width:620px\">" +
     "<p><b>" + routedCount + " enquir" + (routedCount === 1 ? "y" : "ies") + " " + (mode === "live" ? "routed" : "would have been routed (test mode)") + " today, " + held.length + " held back, " + waiting.length + " waiting on a reply.</b></p>" +
     sec("Waiting on a reply for over a working day", waiting, r => li(r, (ownerOf(r) ? OWNERS[ownerOf(r)].name : "") + ", " + r.v[C.status])) +
     Object.entries(by).map(([n, arr]) => sec(n, arr, r => li(r, String(r.v[C.why]).replace(/^Router: \w[\w ]*? \(|\)$/g, "")))).join("") +
     sec("From the website", website, r => li(r, r.v[C.source] + (ownerOf(r) ? ", " + OWNERS[ownerOf(r)].name : ", no owner yet"))) +
     sec("Held back (to send one on: pick an Owner and set Router decision to Routed on its row)", held, r => li(r, String(r.v[C.why]).replace(/^Router: held back \(|\)$/g, ""))) +
+    sec("Written to you and filed in a salesperson's folder today (if one is yours, move it back to your inbox)", toYou, y => "<li><a href=\"https://mail.google.com/mail/u/0/#all/" + y.t + "\">" + esc(y.line) + "</a></li>") +
     sec("Platform noise filed today (in the Platform noise folder; forward anything real to the right person)", noise, n => "<li>" + esc(n) + "</li>") +
     "<p style=\"margin-top:18px;color:#777;font-size:12px\">Everything is on the <a href=\"https://digitalfoxtalent.monday.com/boards/" + BOARD + "\">Brand Enquiries board</a>.</p></div>";
   if (!dry && !ctx.force) {
