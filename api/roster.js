@@ -1531,17 +1531,20 @@ function contractAsks(review) {
 
 async function contractDraft(b, email) {
   const item = Number(b.item) || 0;
-  const d = await monday(`query{items(ids:[${item}]){id name board{id} column_values(ids:${JSON.stringify(Object.values(CC))}){id text}}}`);
+  const d = await monday(`query{items(ids:[${item}]){id name board{id} column_values(ids:${JSON.stringify(Object.values(CC))}){id text ... on MirrorValue{display_value}}}}`);
   const it = d && d.items && d.items[0];
   if (!it || String((it.board || {}).id) !== CAMPAIGN_BOARD) throw new Error("Deal not found on US Campaigns");
   const v = {}; (it.column_values || []).forEach(c => { v[c.id] = c; });
-  const t = id => String((v[id] || {}).text || "").trim();
+  const t = id => String((v[id] || {}).text || (v[id] || {}).display_value || "").trim(); // mirrors answer on display_value
 
   const asks = contractAsks(t(CC.review)).filter(a => b.all ? true : a.level !== "yellow");
   if (!asks.length) throw new Error("No amendments to ask for: this review has no Red or Orange flags with an Ask");
 
-  const to = String(b.to || t(CC.contact)).split(/[,;\s]+/).filter(x => /@/.test(x))[0] || "";
-  if (!to) throw new Error("No brand contact email on this deal. Add one to the CLIENTS row, or pass to=");
+  // The CLIENTS mirror is empty on plenty of rows (nobody has linked the client yet), so rather than
+  // dead-ending, the page asks for the address once and sends it back as `to`.
+  const to = String(b.to || t(CC.contact)).split(/[,;\s]+/).filter(x => /^[^@\s]+@[^@\s]+\.[a-z]{2,}$/i.test(x))[0] || "";
+  if (!to) return { ok: false, need: "to", deal: String(it.name || "").trim(), asks: asks.length };
+  if (DFT_DOMAIN.test(to)) throw new Error("That is a DFT address. Use the brand's own contact.");
 
   const deal = String(it.name || "").trim();
   const advertiser = t(CC.advertiser);
@@ -1580,7 +1583,23 @@ function contractPage(q) {
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Writing your amendment email</title>
 <style>body{margin:0;background:#f5f3ef;font:15px/1.55 Poppins,Arial,sans-serif;color:#1a1a1a;display:grid;place-items:center;min-height:100vh}.c{background:#fff;border:1px solid #ece9e4;border-radius:16px;padding:40px 44px;max-width:460px;margin:24px;text-align:center}.sp{width:34px;height:34px;border:3px solid #f2dcc6;border-top-color:#f58220;border-radius:50%;animation:s 1s linear infinite;margin:0 auto 18px}@keyframes s{to{transform:rotate(360deg)}}h1{font-size:20px;margin:0 0 8px}p{color:#6b6b76;margin:0}a{color:#0f085e;font-weight:600}</style></head>
 <body><div class="c" id="c"><div class="sp"></div><h1>Writing your amendment email${q.name ? " for " + e(q.name) : ""}…</h1><p id="m">Turning the review's asks into a reply on the brand's thread. Your draft opens in Gmail in a moment.</p></div>
-<script>fetch("/api/roster",{method:"POST",headers:{"content-type":"application/json"},credentials:"same-origin",body:${JSON.stringify(args)}}).then(r=>r.json()).then(j=>{ if(j&&j.url){ document.getElementById("m").textContent="Done. Opening your draft…"; location.href=j.url; } else throw new Error((j&&j.error)||"Something went wrong"); }).catch(err=>{ const c=document.getElementById("c"); c.innerHTML="<h1>That didn’t work</h1><p>"+String(err.message||err).replace(/[<>&]/g,"")+"</p><p style=\\"margin-top:14px\\"><a href=\\"javascript:location.reload()\\">Try again</a></p>"; });</script></body></html>`;
+<script>
+const args=${JSON.stringify(args)};
+const c=document.getElementById("c");
+function go(extra){ c.innerHTML='<div class="sp"></div><h1>Writing your amendment email…</h1><p id="m">Turning the review\u2019s asks into a reply on the brand\u2019s thread.</p>';
+  fetch("/api/roster",{method:"POST",headers:{"content-type":"application/json"},credentials:"same-origin",body:JSON.stringify(Object.assign({},args,extra||{}))}).then(r=>r.json()).then(j=>{
+    if(j&&j.url){ document.getElementById("m").textContent="Done. Opening your draft\u2026"; location.href=j.url; return; }
+    if(j&&j.need==="to"){ ask(j); return; }
+    throw new Error((j&&j.error)||"Something went wrong");
+  }).catch(err=>{ c.innerHTML="<h1>That didn\u2019t work</h1><p>"+String(err.message||err).replace(/[<>&]/g,"")+'</p><p style="margin-top:14px"><a href="javascript:location.reload()">Try again</a></p>'; });
+}
+function ask(j){ c.innerHTML='<h1>Who should this go to?</h1><p>We have '+j.asks+' amendment'+(j.asks===1?"":"s")+" ready for "+String(j.deal||"this deal").replace(/[<>&]/g,"")+', but no brand contact is linked on the deal. Add their address and we will write the draft.</p><p style="margin-top:18px"><input id="e" type="email" placeholder="name@brand.com" style="width:100%;padding:11px 13px;border:1px solid #ddd9d2;border-radius:9px;font:15px Poppins,Arial,sans-serif"></p><p style="margin-top:12px"><button id="b" style="background:#f58220;color:#fff;border:0;border-radius:9px;padding:11px 22px;font:600 15px Poppins,Arial,sans-serif;cursor:pointer">Write the draft</button></p>';
+  const e=document.getElementById("e"), b=document.getElementById("b");
+  const fire=()=>{ const v=e.value.trim(); if(!/^[^@\s]+@[^@\s]+\.[a-z]{2,}$/i.test(v)){ e.style.borderColor="#d64545"; e.focus(); return; } go({to:v}); };
+  b.onclick=fire; e.onkeydown=ev=>{ if(ev.key==="Enter") fire(); }; e.focus();
+}
+go();
+</script></body></html>`;
 }
 function outreachPage(q) {
   const e = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
