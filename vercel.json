@@ -159,6 +159,10 @@
     {
       "path": "/api/route-enquiry",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/route-drafts",
+      "schedule": "*/2 * * * *"
     }
   ],
   "rewrites": [
