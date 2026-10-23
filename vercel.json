@@ -163,6 +163,16 @@
   ],
   "rewrites": [
     {
+      "source": "/api/v1/:path*",
+      "has": [
+        {
+          "type": "host",
+          "value": "ecosystem.digitalfoxtalent.com"
+        }
+      ],
+      "destination": "/api/eco-api?p=:path*"
+    },
+    {
       "source": "/api/apply",
       "has": [
         {

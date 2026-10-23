@@ -9,6 +9,7 @@ import { EDIT_SCHEMA } from "./edit.js";
 import { SWITCH_SCHEMA } from "./switch.js";
 import { INBOX_SCHEMA } from "./inbox-schema.js";
 import { BACKUP_SCHEMA } from "./backup-schema.js";
+import { API_SCHEMA } from "./apikeys.js";
 
 export const SCHEMA_SQL = [
   `CREATE SCHEMA IF NOT EXISTS mirror`,
@@ -94,6 +95,7 @@ export const SCHEMA_SQL = [
   ...SWITCH_SCHEMA, // the editing switch per section (switch.js)
   ...INBOX_SCHEMA, // when each person last opened their Inbox (pages.js)
   ...BACKUP_SCHEMA, // the nightly full backup (backup.js)
+  ...API_SCHEMA, // Ecosystem API keys and call log (apikeys.js)
 ];
 
 let ready = false;
