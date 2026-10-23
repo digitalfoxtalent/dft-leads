@@ -340,7 +340,7 @@ function ongoingOwner(msgs, me) {
   if (key) return key;
   // Tom is the one working it (Tom, 23 Oct 2026, Authors First: "that was directly to me and I was having the
   // conversation"): no salesperson has written and Tom has, so it stays in his inbox even with salespeople copied.
-  if (msgs.some(m => realSender(m) === SOURCE)) return null;
+  if (msgs.some(m => realSender(m) === SOURCE && !/^fwd:/i.test(hdr(m, "subject")))) return null;
   for (const m of msgs.slice().reverse()) {
     const copied = [...new Set(emailsIn(hdr(m, "to") + "," + hdr(m, "cc")).map(ownerByEmail).filter(Boolean))];
     if (copied.length) return copied.find(k => k !== "alex") || copied[0];
@@ -503,7 +503,10 @@ async function intake(ctx) {
         // offered, so a conversation first filed during the test still reaches the owner whole (never twice: by Message-ID).
         const ownerKey = Object.keys(OWNERS).find(k => OWNERS[k].label === routedLabel);
         if (mode === "live" && !dry && ownerKey) for (const x of msgs) if (!byDft(x) && !hdr(x, "x-dft-routed")) await deliver(tok, x.id, ownerKey);
-        if (!dry) await modify(tok, "messages", id, [routedLabel], salesReplied(msgs) || /^mirror/i.test(hdr(me, "x-dft-routed")) ? [] : ["INBOX"]);
+        // Stays in Tom's inbox when a salesperson has replied, when it is a mirrored copy, or when Tom himself is writing in
+        // the conversation (Authors First, 23 Oct 2026: it had been filed to Margot before, and kept going there).
+        const keep = salesReplied(msgs) || /^mirror/i.test(hdr(me, "x-dft-routed")) || msgs.some(x => realSender(x) === SOURCE && !/^fwd:/i.test(hdr(x, "subject")));
+        if (!dry) await modify(tok, "messages", id, [routedLabel], keep ? [] : ["INBOX"]);
       } else if (hdr(me, "x-dft-routed")) r.skip = "router copy";
       else if (realSender(me) === ALERT_FROM && !isBrief(me) && alertOwner(me)) {
         const k = alertOwner(me);
