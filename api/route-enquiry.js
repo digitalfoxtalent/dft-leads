@@ -666,6 +666,13 @@ async function track(ctx) {
       else if (opened && /^new$/i.test(status)) { upd[C.status] = { label: "Opened" }; t.did = "opened"; }
       if (!dry) {
         if (opened) await modify(tok, "messages", tomId, [], ["UNREAD"]).catch(() => null);
+        // Not opened by the owner yet: Tom's copy in the folder stays bold even if he has opened it (Tom, 23 Oct 2026: "keep
+        // it unread until the salesperson reads it"). A copy in his inbox (written to him) is left as he has it.
+        else {
+          const tm = await gmail(tok, "/gmail/v1/users/me/messages/" + tomId + "?format=minimal").catch(() => null);
+          const tl = (tm && tm.labelIds) || [];
+          if (tm && !tl.includes("INBOX") && !tl.includes("UNREAD")) await modify(tok, "messages", tomId, ["UNREAD"], []).catch(() => null);
+        }
         if (answered && replied) await modify(tok, "messages", tomId, [replied]).catch(() => null);
         // MIRROR: every message in the owner's conversation that Tom did not get, into his "Routed to" folder.
         if (String(omsgs.length) !== String(seenCount || "")) for (const om of omsgs) {
