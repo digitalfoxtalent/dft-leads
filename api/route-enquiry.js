@@ -222,10 +222,20 @@ async function classify(advertisers, m, msgCount, body, history) {
   return claude({ model: "claude-sonnet-5-5", max_tokens: 1500, system: sys, tools: [TOOL], tool_choice: { type: "auto" }, messages: [{ role: "user", content: user }] });
 }
 
+// ONE OWNER PER BRAND (Tom, 23 Oct 2026): a brand keeps the salesperson it was last routed to, whatever address or
+// agency it writes from (PolyBuzz, Freecash and Neta AI each reached two people on go-live day). The owner is read from
+// the Owner column of the brand's latest routed row, so changing it there changes the brand's owner.
+const brandKey = s => {
+  const b = String(s || "").toLowerCase().replace(/\(.*?\)/g, " ").replace(/[^a-z0-9 ]+/g, " ")
+    .replace(/\b(ai|app|apps|inc|ltd|llc|co|corp|official|games|studio|studios|the)\b/g, " ").replace(/\s+/g, " ").trim();
+  return /^unnamed\b/.test(b) ? "" : b;
+};
+
 // ---------- Tom's rules ----------
 // The past-client rule beats every specialism: a deal on US Campaigns or a salesperson's own email to the company,
 // whichever is more recent, decides who worked with them last. Tom is not a sales owner, so his replies never count.
-function decide(v, last, known, overrides, domain, history) {
+// A brand that already has an owner (its latest routed lead) stays with them unless a newer deal was booked by someone else.
+function decide(v, last, known, overrides, domain, history, brandOwners) {
   history = history || {};
   const brandish = ["brand_enquiry", "press_or_pr"].includes(v.kind);
   if (!brandish || !v.new_enquiry) return { owner: null, held: false, why: "not a new enquiry (" + v.kind + ")" };
@@ -239,7 +249,11 @@ function decide(v, last, known, overrides, domain, history) {
     if (who) deal = { owner: BY_MONDAY_NAME[who], at: Date.parse(last[ex].date) || 0, why: "past client " + ex + ", last deal with " + who.split(" ")[0] + " (" + last[ex].date + ")" };
   }
   const mail = history.lastBy && OWNERS[history.lastBy] ? { owner: history.lastBy, at: history.lastAt, why: "past contact: " + OWNERS[history.lastBy].name + " last emailed this company on " + new Date(history.lastAt).toISOString().slice(0, 10) } : null;
-  const pick = deal && mail ? (mail.at > deal.at ? mail : deal) : (deal || mail);
+  const bo = (brandOwners || {})[brandKey(v.brand)];
+  const owned = bo && OWNERS[bo.owner] ? { owner: bo.owner, at: bo.at, why: "brand owner: " + OWNERS[bo.owner].name + " has " + bo.name } : null;
+  // A brand with an owner stays with them (an email from someone else to an agency does not move it); only a deal booked
+  // after that by someone else does.
+  const pick = owned ? (deal && deal.at > owned.at ? deal : owned) : (deal && mail ? (mail.at > deal.at ? mail : deal) : (deal || mail));
   if (pick) return { owner: pick.owner, why: pick.why };
   if (v.china_market) return { owner: "hani", why: "China market" };
   if (v.studio_gaming_pr && !(budget && budget > 5000)) return { owner: "george", why: v.kind === "press_or_pr" ? "press or PR" : "studio or gaming" };
@@ -487,6 +501,11 @@ async function intake(ctx) {
     const router = m && Object.keys(OWNERS).find(k => OWNERS[k].name === m[1]);
     if (dom && router && r.ownerKey && r.ownerKey !== router) overrides[dom] = r.ownerKey;
   }
+  const brandOwners = {};
+  for (const r of rows.slice().reverse()) { // oldest first, so the latest routed lead of each brand wins
+    const k = brandKey(r.name);
+    if (k && r.v[C.decision] === "Routed" && r.ownerKey) brandOwners[k] = { owner: r.ownerKey, at: Date.parse(r.created) || 0, name: r.name };
+  }
   const histCache = {}, doneThreads = new Set();
   for (const { id, threadId } of list.reverse()) {
     if (Date.now() - t0 > 40000) break; // the next run picks up the rest
@@ -544,7 +563,7 @@ async function intake(ctx) {
       if (!(await maybeEnquiry(me, body))) { r.skip = "not an enquiry (quick check)"; await mark(); report.push(r); continue; }
       const history = await senderHistory(sender, histCache);
       const v = await classify(advertisers, me, msgs.length, body, history);
-      const d = decide(v, last, history.count > 0, overrides, history.target, history);
+      const d = decide(v, last, history.count > 0, overrides, history.target, history, brandOwners);
       Object.assign(r, { kind: v.kind, brand: v.brand, owner: d.owner ? OWNERS[d.owner].name : null, why: d.why, known: history.count });
       // Press releases and screener mailers (press or PR, but not a fresh approach): George's folder, and his inbox once live.
       if (!d.owner && !d.held && v.kind === "press_or_pr") { await fileTo(OWNERS.george.label, "press mailer to George", "george"); continue; }
