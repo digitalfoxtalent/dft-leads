@@ -636,10 +636,41 @@ const bookLink = (h, name) => {
   return href ? ` &middot; <a class="yt" href="${esc(href)}">Business enquiries: book ${esc(name)}</a>` : "";
 };
 
+// CREATOR PAGES AS ENTITY PAGES, 24 Oct 2026 (Tom: "Yes, please action all of these", AI search work). Each creator
+// page now says what the creator covers (worked out from their own articles' topics and sections), links the other
+// SUBPLOT channels run by the same person, and carries every one of their YouTube channels in its structured data, so
+// search engines and AI assistants credit the right person. Bios stay in bios.js and stay human-approved.
+const SAME_PERSON = [
+  ["thekristianharloff", "downtoearthkh", "kristianharloff"],
+  ["geekdom101", "geekdom101plus", "worldofgeekdom"],
+  ["chaostrektv", "chaosgaming", "morechaosgaming", "chaoscinemayt"],
+  ["wesnemo", "wesnemotv"],
+  ["newrockstars", "deepdivenr", "witchinghournr"],
+];
+function creatorTopics(list) {
+  const tags = {}, secs = {};
+  for (const a of list) {
+    for (const t of a.t || []) { const k = String(t).trim(); if (k && k.length < 40) tags[k] = (tags[k] || 0) + 1; }
+    if (CATS[a.k]) secs[CATS[a.k]] = (secs[CATS[a.k]] || 0) + 1;
+  }
+  const top = o => Object.entries(o).sort((x, y) => y[1] - x[1]).map(x => x[0]);
+  return { tags: top(tags).slice(0, 6), sections: top(secs).slice(0, 3) };
+}
+const listWords = xs => xs.length < 2 ? (xs[0] || "") : xs.slice(0, -1).join(", ") + " and " + xs[xs.length - 1];
+
 export function creatorPage(handle, data, base) {
   const list = data.arts.filter(a => slugH(a.c).toLowerCase() === handle.toLowerCase());
   if (!list.length) return null;
   const name = list[0].b; const h = list[0].c;
+  const me = slugH(h).toLowerCase();
+  const group = SAME_PERSON.find(g => g.includes(me)) || [me];
+  const siblings = group.filter(x => x !== me).map(x => {
+    const a = data.arts.find(y => slugH(y.c).toLowerCase() === x);
+    return a ? { slug: slugH(a.c), name: a.b || a.c, handle: a.c, n: data.arts.filter(y => slugH(y.c).toLowerCase() === x).length } : null;
+  }).filter(Boolean);
+  const { tags, sections } = creatorTopics(list);
+  const covers = tags.length ? `Covers ${listWords(tags.slice(0, 5))}${sections.length ? `, mostly in ${listWords(sections)}` : ""}.` : "";
+  const sib = siblings.length ? `<p class="meta" style="margin:.6rem 0 0">Also on ${BRAND_()} from the same creator: ${siblings.map(x => `<a href="${base}/c/${esc(x.slug)}" style="color:var(--blue)">${esc(x.name)}</a> (${x.n})`).join(", ")}</p>` : "";
   const body = `
 <main class="homeview">
   <div class="wrap">
@@ -648,7 +679,9 @@ export function creatorPage(handle, data, base) {
       <div><h1>${esc(h)}</h1>
         <p>${list.length} article${list.length === 1 ? "" : "s"} on ${BRAND_()} &middot; <a class="yt" href="https://www.youtube.com/${esc(h)}" target="_blank" rel="noopener">Channel on YouTube</a>${bookLink(h, name)}</p>
         <span class="meta">Every piece below is adapted from one of ${esc(name)}&rsquo;s own videos, with the video at the end.</span>
-        ${bioFor(h) ? `<p class="bio" style="margin:.9rem 0 0;max-width:62ch">${esc(bioFor(h))}</p>` : ""}</div>
+        ${bioFor(h) ? `<p class="bio" style="margin:.9rem 0 0;max-width:62ch">${esc(bioFor(h))}</p>` : ""}
+        ${covers ? `<p class="bio" style="margin:.6rem 0 0;max-width:62ch">${esc(covers)}</p>` : ""}
+        ${sib}</div>
     </div>
     <section class="grid3">${list.slice(0, 3).map(a => card(a, base)).join("")}</section>
     <div class="cols">
@@ -657,13 +690,15 @@ export function creatorPage(handle, data, base) {
     </div>
   </div>
 </main>`;
-  // Creator as a named entity (23 Oct 2026, AI search): ties the SUBPLOT page to the creator's YouTube channel so
-  // AI answers and search engines credit the right person.
+  // Creator as a named entity (23 Oct 2026, AI search; widened 24 Oct): every channel this person runs is in sameAs.
+  const yts = [h, ...siblings.map(x => x.handle)].map(x => "https://www.youtube.com/" + x);
   const jsonld = `<script type="application/ld+json">${JSON.stringify({
     "@context": "https://schema.org", "@type": "ProfilePage", url: siteUrl() + base + "/c/" + slugH(h),
-    mainEntity: { "@type": "Person", name, alternateName: h, url: siteUrl() + base + "/c/" + slugH(h), sameAs: ["https://www.youtube.com/" + h], ...(bioFor(h) ? { description: bioFor(h) } : {}) },
+    mainEntity: { "@type": "Person", name, alternateName: h, url: siteUrl() + base + "/c/" + slugH(h), sameAs: yts,
+      ...(tags.length ? { knowsAbout: tags } : {}), ...(bioFor(h) ? { description: bioFor(h) } : covers ? { description: covers } : {}) },
   }).replace(/</g, "\\u003c")}</script>`;
-  return shell({ base, title: `${name} - ${BRAND_()}`, desc: `${name}'s videos, in writing.`, body, trending: data.threads, jsonld })
+  const desc = `${name} on ${BRAND_()}: ${list.length} articles${tags.length ? " on " + listWords(tags.slice(0, 3)) : ""}, each adapted from their own YouTube videos.`;
+  return shell({ base, title: `${name} - ${BRAND_()}`, desc, body, trending: data.threads, jsonld })
     .replace('<span id="panelcount-slot"></span>', `<span>${data.panel.length} creators writing here</span>`);
 }
 
