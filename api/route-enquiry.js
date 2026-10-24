@@ -325,11 +325,17 @@ async function listAll(tok, q, max) {
 // a salesperson writes to Tom alone, or when Tom is the only one at DFT who has written.
 const emailsIn = s => (String(s || "").match(/[\w.+'-]+@[\w-]+(?:\.[\w-]+)+/g) || []).map(x => x.toLowerCase());
 const ownerByEmail = e => Object.keys(OWNERS).find(k => OWNERS[k].email === e) || null;
-// AFTER THE REPLY, TOM SEES IT ALL (Tom, 23 Oct 2026: "the whole conversation after the reply. That way I can't miss
-// anything"). Once a salesperson has written in a conversation, its messages stay in Tom's inbox, labelled with the
-// owner's folder; before that, they are filed out of his inbox into the folder.
-const salesReplied = msgs => (msgs || []).some(m => !!ownerByEmail(realSender(m)));
-const fileThread = (tok, threadId, label, msgs) => modify(tok, "threads", threadId, [label], salesReplied(msgs) ? [] : ["INBOX"]);
+// ADDRESSED TO TOM, IN HIS INBOX (Tom, 23 Oct 2026: "as soon as I get copied into the reply, it does come through to my
+// inbox as usual. And if it's addressed to me, it obviously should come to me"). An email with tom@ itself in To or Cc
+// stays in his inbox, labelled with the owner's folder. One that reached him only through a shared address (theteam@, a
+// creator's address) is filed into the folder. The streams Tom chose to file away (alerts, Agentio and the other offer
+// streams, Docusign, press releases, platform noise) are filed whole, as agreed.
+const toTom = m => emailsIn(hdr(m, "to") + "," + hdr(m, "cc")).includes(SOURCE);
+async function fileAway(tok, threadId, label, msgs) {
+  await modify(tok, "threads", threadId, [label], []);
+  const ids = (msgs || []).filter(m => !toTom(m) && (m.labelIds || []).includes("INBOX")).map(m => m.id);
+  if (ids.length) await gmail(tok, "/gmail/v1/users/me/messages/batchModify", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids, removeLabelIds: ["INBOX"] }) });
+}
 function ongoingOwner(msgs, me) {
   const people = m => emailsIn([hdr(m, "from"), hdr(m, "to"), hdr(m, "cc"), hdr(m, "reply-to")].join(","));
   if (!msgs.some(m => people(m).some(a => !DFT.test(a)))) return null;
@@ -450,12 +456,12 @@ async function intake(ctx) {
       const dd = row.v[C.decision], pick = dd === "Routed" ? row.ownerKey : dd === "Test only" ? ownerOf(row) : null;
       const to = dd === "Held back" ? held : pick ? OWNERS[pick].label : "";
       if (!to) continue;
-      // A conversation a salesperson has replied in belongs in Tom's inbox now, so it is never filed away again.
-      if (row.v[C.repliedAt]) continue;
-      const hth = await gmail(tok, "/gmail/v1/users/me/threads/" + m.threadId + "?format=metadata&metadataHeaders=From").catch(() => null);
-      if (!hth || salesReplied(hth.messages)) continue;
+      // Only what reached Tom through a shared address is filed; anything written to him stays in his inbox.
+      const hth = await gmail(tok, "/gmail/v1/users/me/threads/" + m.threadId + "?format=metadata&metadataHeaders=To&metadataHeaders=Cc").catch(() => null);
+      const hm = ((hth || {}).messages || []).find(x => x.id === m.id);
+      if (!hm || toTom(hm)) continue;
       healed.add(m.threadId);
-      await modify(tok, "threads", m.threadId, [to], ["INBOX"]).then(() => report.push({ healed: m.threadId, row: row.id }), () => null);
+      await fileAway(tok, m.threadId, to, hth.messages).then(() => report.push({ healed: m.threadId, row: row.id }), () => null);
     }
   }
   list = list.filter(x => !done.has(x.id)).slice(0, 40);
@@ -503,15 +509,15 @@ async function intake(ctx) {
         // offered, so a conversation first filed during the test still reaches the owner whole (never twice: by Message-ID).
         const ownerKey = Object.keys(OWNERS).find(k => OWNERS[k].label === routedLabel);
         if (mode === "live" && !dry && ownerKey) for (const x of msgs) if (!byDft(x) && !hdr(x, "x-dft-routed")) await deliver(tok, x.id, ownerKey);
-        if (!dry) await modify(tok, "messages", id, [routedLabel], salesReplied(msgs) || /^mirror/i.test(hdr(me, "x-dft-routed")) ? [] : ["INBOX"]);
+        if (!dry) await modify(tok, "messages", id, [routedLabel], toTom(me) || /^mirror/i.test(hdr(me, "x-dft-routed")) ? [] : ["INBOX"]);
       } else if (hdr(me, "x-dft-routed")) r.skip = "router copy";
       else if (realSender(me) === ALERT_FROM && !isBrief(me) && alertOwner(me)) {
         const k = alertOwner(me);
-        r.skip = "alert for " + OWNERS[k].name; if (!dry) await fileThread(tok, threadId, OWNERS[k].label, msgs);
+        r.skip = "alert for " + OWNERS[k].name; if (!dry) await modify(tok, "threads", threadId, [OWNERS[k].label], ["INBOX"]);
       }
       else if (byDft(me) || msgs.some(byDft)) {
         const k = ongoingOwner(msgs, me);
-        if (k) { r.skip = "ongoing deal, filed to " + OWNERS[k].name + (salesReplied(msgs) ? " (kept in Tom's inbox)" : ""); if (!dry) await fileThread(tok, threadId, OWNERS[k].label, msgs); }
+        if (k) { r.skip = "ongoing deal, labelled " + OWNERS[k].name + (toTom(me) ? " (written to Tom, kept in his inbox)" : ""); if (!dry) await fileAway(tok, threadId, OWNERS[k].label, msgs); }
         else r.skip = byDft(me) ? "sent by DFT" : "DFT already in this conversation";
       }
       if (r.skip) { await mark(); report.push(r); continue; }
@@ -523,7 +529,7 @@ async function intake(ctx) {
       // STREAMS: filed by sender. Offers go to the owner too in live mode (once only, by Message-ID).
       const fileTo = async (to, why, give) => {
         r.skip = why;
-        if (!dry) { if (give && mode === "live") await deliver(tok, me.id, give); await fileThread(tok, threadId, to, msgs); }
+        if (!dry) { if (give && mode === "live") await deliver(tok, me.id, give); await modify(tok, "threads", threadId, [to], ["INBOX"]); }
         await mark(); report.push(r);
       };
       const streamKey = STREAM_DOMAINS[baseDomain(domain)];
@@ -552,7 +558,7 @@ async function intake(ctx) {
           // Filed with the original: its owner's folder (the router's pick for a test row), or Held back.
           const dd = dup.v[C.decision], pick = dd === "Routed" ? dup.ownerKey : dd === "Test only" ? ownerOf(dup) : null;
           const fileTo = dd === "Held back" ? held : pick ? OWNERS[pick].label : "";
-          if (fileTo) await fileThread(tok, threadId, fileTo, msgs);
+          if (fileTo) await fileAway(tok, threadId, fileTo, msgs);
           const creators = [dup.v[C.creators], v.creators].filter(Boolean).join(", ");
           await setCols(dup.id, { [C.creators]: { text: [...new Set(creators.split(/\s*,\s*/).filter(Boolean))].join(", ") } }).catch(() => null);
         }
@@ -582,7 +588,7 @@ async function intake(ctx) {
         r.row = ((made || {}).create_item || {}).id;
         rows.unshift({ id: r.row, created: new Date().toISOString(), v: { [C.key]: key, [C.creators]: v.creators || "", [C.why]: why, [C.decision]: decision }, raw: {}, ownerKey: mode === "live" ? d.owner : null });
         // Tom's copy leaves his inbox for the owner's "Routed to" folder, or Held back (test mode too: only delivery differs).
-        await fileThread(tok, threadId, d.held ? held : OWNERS[d.owner].label, msgs);
+        await fileAway(tok, threadId, d.held ? held : OWNERS[d.owner].label, msgs);
         Object.assign(r, { decision, delivered });
       }
       await mark();
@@ -660,15 +666,13 @@ async function track(ctx) {
       if (!dry) {
         if (opened) await modify(tok, "messages", tomId, [], ["UNREAD"]).catch(() => null);
         if (answered && replied) await modify(tok, "messages", tomId, [replied]).catch(() => null);
-        // MIRROR: every message in the owner's conversation, into Tom's "Routed to" folder; from the owner's first reply on,
-        // into his inbox as well, unread, so nothing after the reply is missed (Tom, 23 Oct 2026).
+        // MIRROR: every message in the owner's conversation that Tom did not get, into his "Routed to" folder.
         if (String(omsgs.length) !== String(seenCount || "")) for (const om of omsgs) {
           const omid = hdr(om, "message-id").replace(/[<>\s]/g, "");
           if (!omid || omid === mid || (om.labelIds || []).includes("DRAFT")) continue;
           if ((await search(tok, "rfc822msgid:" + omid)).length) continue;
           const { head, body, sep } = await rawMessage(otok, om.id);
-          const after = answered && Number(om.internalDate) >= Number(answered.internalDate);
-          await importRaw(tok, ["X-DFT-Routed: mirror, " + o.name].concat(head.split(/\r?\n(?=[^ \t])/)), body, sep, after ? [o.label, "INBOX", "UNREAD"] : [o.label]);
+          await importRaw(tok, ["X-DFT-Routed: mirror, " + o.name].concat(head.split(/\r?\n(?=[^ \t])/)), body, sep, [o.label]);
           t.mirrored = (t.mirrored || 0) + 1;
         }
         // NUDGE: no reply after one working day (weekdays 9 to 5 Denver).
