@@ -654,16 +654,32 @@ async function track(ctx) {
       }
       if (!mid) continue;
       const otok = await tokenFor(o.email);
-      const copy = (await search(otok, "rfc822msgid:" + mid))[0];
+      // Trash included, so a binned enquiry is still found (Tom, 23 Oct 2026, below).
+      const copy = ((await gmail(otok, "/gmail/v1/users/me/messages?maxResults=1&includeSpamTrash=true&q=" + encodeURIComponent("rfc822msgid:" + mid)).catch(() => ({}))).messages || [])[0];
       if (!copy) continue;
       const oth = await gmail(otok, "/gmail/v1/users/me/threads/" + copy.threadId + "?format=metadata&metadataHeaders=Message-ID");
       const omsgs = oth.messages || [];
       const first = omsgs.find(x => x.id === copy.id) || {};
       const opened = !(first.labelIds || []).includes("UNREAD");
       const answered = omsgs.find(x => (x.labelIds || []).includes("SENT"));
+      // DELETED UNREAD (Tom, 23 Oct 2026: "if a sales person deletes the email before looking at it ... it would be good if it
+      // was removed from my routed folders too"). The owner binned their copy without opening it or replying: the row says
+      // "Deleted unread", and Tom's copy leaves the "Routed to" folder (and its unread count). A copy that is also in his
+      // inbox, because it was written to him, stays there as he has it. Checked again each run, so nothing repeats.
+      if ((first.labelIds || []).includes("TRASH") && !opened && !answered) {
+        if (!/^deleted unread$/i.test(status) && !dry) {
+          await setCols(row.id, { [C.status]: { label: "Deleted unread" } });
+          if (idParts[2]) await modify(tok, "threads", idParts[2], [], [o.label]).catch(() => null);
+          const tm = await gmail(tok, "/gmail/v1/users/me/messages/" + tomId + "?format=minimal").catch(() => null);
+          const inInbox = ((tm && tm.labelIds) || []).includes("INBOX");
+          await modify(tok, "messages", tomId, [], inInbox ? [o.label] : [o.label, "UNREAD"]).catch(() => null);
+        }
+        if (!/^deleted unread$/i.test(status)) { t.did = "deleted unread by " + o.name; report.push(t); }
+        continue;
+      }
       const upd = {};
-      if (answered && !v[C.repliedAt]) { upd[C.repliedAt] = dateVal(Number(answered.internalDate)); if (/^(new|opened|)$/i.test(status)) upd[C.status] = { label: "Replied" }; t.did = "replied"; }
-      else if (opened && /^new$/i.test(status)) { upd[C.status] = { label: "Opened" }; t.did = "opened"; }
+      if (answered && !v[C.repliedAt]) { upd[C.repliedAt] = dateVal(Number(answered.internalDate)); if (/^(new|opened|deleted unread|)$/i.test(status)) upd[C.status] = { label: "Replied" }; t.did = "replied"; }
+      else if (opened && /^(new|deleted unread)$/i.test(status)) { upd[C.status] = { label: "Opened" }; t.did = "opened"; } // restored from the bin and read
       if (!dry) {
         if (opened) await modify(tok, "messages", tomId, [], ["UNREAD"]).catch(() => null);
         // Not opened by the owner yet: Tom's copy in the folder stays bold even if he has opened it (Tom, 23 Oct 2026: "keep
