@@ -16,7 +16,7 @@ import { isExcluded, canSee } from "./policy.js";
 const RUN_MS = 230000;          // stop starting new work after this
 const MIN_LEFT_MS = 60000;      // never start a file with less than a minute left
 const MAX_CALLS = 20;           // monday calls per run (one per batch of 25 files)
-const DAY_CALLS = 1200;         // shared with the backup passes (backup.js)
+const DAY_CALLS = 240;          // file runs' own allowance (about 10 a day at most); the backup passes have theirs (backup.js)
 const RUN_BYTES = 2 * 1024 ** 3;
 export const MAX_FILE = 1024 ** 3; // files over 1 GB are listed but not copied
 const BATCH = 25;
@@ -43,8 +43,10 @@ export async function copyFiles(token, { force = false, fetchImpl = fetch, putIm
     const got = await write(`UPDATE mirror.locks SET until = now() + interval '20 minutes' WHERE name = 'backup_files' AND until < now() RETURNING name`);
     if (!got.length) return { skipped: "a file run started less than 20 minutes ago" };
   }
-  const used = (await read(`SELECT COALESCE(sum(api_calls), 0)::int AS n FROM mirror.backup_runs WHERE started_at > now() - interval '24 hours'`))[0].n;
-  if (used >= DAY_CALLS) return { skipped: "daily backup call budget used (" + used + ")" };
+  // Counted separately from the backup passes: on 23 to 24 Oct they used the shared allowance overnight and the
+  // hourly file runs were skipped for six hours, though each needs only a handful of calls.
+  const used = (await read(`SELECT COALESCE(sum(api_calls), 0)::int AS n FROM mirror.backup_runs WHERE started_at > now() - interval '24 hours' AND stage = 'files'`))[0].n;
+  if (used >= DAY_CALLS) return { skipped: "daily file-copy call budget used (" + used + ")" };
   const run = (await write(`INSERT INTO mirror.backup_runs (stage) VALUES ('files') RETURNING id`))[0].id;
   const client = makeClient(token, fetchImpl);
   const deadline = now() + RUN_MS;

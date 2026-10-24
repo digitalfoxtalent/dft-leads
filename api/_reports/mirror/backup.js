@@ -141,7 +141,8 @@ export async function runBackup(token, { force = false, fetchImpl, now = Date.no
     const got = await write(`UPDATE mirror.locks SET until = now() + interval '20 minutes' WHERE name = 'backup' AND until < now() RETURNING name`);
     if (!got.length) return { skipped: "a backup run started less than 20 minutes ago" };
   }
-  const used = (await read(`SELECT COALESCE(sum(api_calls), 0)::int AS n FROM mirror.backup_runs WHERE started_at > now() - interval '24 hours'`))[0].n;
+  // File copies (files.js) have their own small allowance, so neither stage can starve the other (24 Oct 2026).
+  const used = (await read(`SELECT COALESCE(sum(api_calls), 0)::int AS n FROM mirror.backup_runs WHERE started_at > now() - interval '24 hours' AND stage IS DISTINCT FROM 'files'`))[0].n;
   if (used >= DAY_CALLS) return { skipped: "daily backup call budget used (" + used + ")" };
   const run = (await write(`INSERT INTO mirror.backup_runs DEFAULT VALUES RETURNING id`))[0].id;
   const client = makeClient(token, fetchImpl);
