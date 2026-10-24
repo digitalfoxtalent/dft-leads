@@ -146,4 +146,18 @@ ok(/Key for Make/.test(out.html) && !/Make the key for Make/.test(out.html) && !
 out = await page(MARGOT, "POST", { t: adminToken("tok", MARGOT), do: "jobs-key", n: "x" });
 ok((await read(`SELECT count(*)::int AS n FROM mirror.api_keys WHERE name = 'Make: jobs'`))[0].n === 1, "only Tom can make it");
 
+// Gateway grants (gateway.js GATEWAY_GRANTS): Tom's agreed batches add boards to his one Make key, nothing else.
+{
+  const { _resetSchemaFlag } = await import("../api/_reports/mirror/schema.js");
+  await write(`INSERT INTO mirror.api_keys (name, key_hash, key_hint, created_by, boards, jobs) VALUES
+    ('Make: jobs', 'h-grant-1', 'nUKx', $1, '{999}', true), ('Make: jobs', 'h-grant-2', 'nUKx', $2, '{}', true), ('Make: jobs', 'h-grant-3', 'abcd', $1, '{}', true)`, [TOM, MARGOT]);
+  _resetSchemaFlag(); await ensureSchema(); _resetSchemaFlag(); await ensureSchema();
+  const g = Object.fromEntries((await read(`SELECT key_hash, gateway, boards::text[] AS boards FROM mirror.api_keys WHERE key_hash LIKE 'h-grant-%'`)).map(r => [r.key_hash, r]));
+  ok(g["h-grant-1"].gateway && ["999", "18419654453", "18420546526", "18434716799"].every(b => g["h-grant-1"].boards.includes(b)) && g["h-grant-1"].boards.length === 4, "the grant adds the agreed boards to Tom's key once, keeping what it had");
+  ok(!g["h-grant-2"].gateway && !g["h-grant-2"].boards.length && !g["h-grant-3"].gateway && !g["h-grant-3"].boards.length, "a key someone else made, or a different key, is left alone");
+  await write(`UPDATE mirror.api_keys SET revoked_at = now(), gateway = false WHERE key_hash = 'h-grant-1'`);
+  _resetSchemaFlag(); await ensureSchema();
+  ok(!(await read(`SELECT gateway FROM mirror.api_keys WHERE key_hash = 'h-grant-1'`))[0].gateway, "a revoked key is never switched back on");
+}
+
 console.log("api tests passed: " + pass);
