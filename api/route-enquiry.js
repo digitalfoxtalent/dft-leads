@@ -713,6 +713,49 @@ async function track(ctx) {
   }
 }
 
+// ---------- FRIDAY SCORECARD: 4pm Denver, Fridays (Tom, 23 Oct 2026) ----------
+// One line per salesperson for the routed leads of the last 7 days: received, opened, replied, average reply time in
+// their own working hours, and deals booked this week for brands they were routed. From theteam@ to Tom.
+async function scorecard(ctx) {
+  const { rows, dry } = ctx;
+  if (Date.now() - ctx.t0 > 45000) return { skipped: "out of time, next slot retries" };
+  const now = Date.now(), week = 7 * 86400000;
+  const norm = s => String(s || "").toLowerCase().replace(/\(.*?\)/g, " ").replace(/[^a-z0-9]+/g, " ")
+    .replace(/\b(ai|app|apps|inc|ltd|llc|studio|studios|the)\b/g, " ").replace(/\s+/g, " ").trim();
+  const routed = rows.filter(r => r.v[C.decision] === "Routed" && r.ownerKey);
+  const at = r => whenOf(r, C.routedAt) || Date.parse(r.created);
+  const md = await monday(`query { boards(ids:[6162879609]) { items_page(limit:200, query_params:{order_by:[{column_id:"__creation_log__", direction: desc}]}) { items { name created_at cv: column_values(ids:["dropdown_mm1a3tqp","deal_owner"]) { id text } } } } }`);
+  const deals = ((((md.boards || [])[0] || {}).items_page || {}).items || []).filter(it => now - Date.parse(it.created_at) < week).map(it => {
+    const cv = {}; for (const c of it.cv || []) cv[c.id] = c.text || "";
+    return { name: it.name, brand: norm(String(cv.dropdown_mm1a3tqp || "").split(",")[0]), owners: String(cv.deal_owner || "").split(",").map(x => BY_MONDAY_NAME[x.trim()]).filter(Boolean) };
+  });
+  const lines = [];
+  let total = 0, totalReplied = 0;
+  for (const k of Object.keys(OWNERS)) {
+    const o = OWNERS[k], tz = o.tz || "America/Denver";
+    const mine = routed.filter(r => r.ownerKey === k && now - at(r) < week);
+    const opened = mine.filter(r => r.v[C.repliedAt] || !/^(new)?$/i.test(String(r.v[C.status]).trim()));
+    const replied = mine.filter(r => r.v[C.repliedAt]);
+    const hrs = replied.map(r => workingHours(at(r), whenOf(r, C.repliedAt) || now, tz));
+    const avg = hrs.length ? hrs.reduce((a, b) => a + b, 0) / hrs.length : null;
+    const brands = new Set(routed.filter(r => r.ownerKey === k && now - at(r) < 60 * 86400000).map(r => norm(r.name)).filter(Boolean));
+    const won = deals.filter(d => d.owners.includes(k) && d.brand && brands.has(d.brand));
+    if (!mine.length && !won.length) continue;
+    total += mine.length; totalReplied += replied.length;
+    lines.push("<tr><td style=\"padding:6px 14px 6px 0\"><b>" + esc(o.name) + "</b></td><td>" + mine.length + "</td><td>" + opened.length + "</td><td>" + replied.length + "</td><td>" +
+      (avg === null ? "-" : avg.toFixed(1) + " hrs") + "</td><td>" + (won.length ? won.length + " (" + esc(won.map(d => d.name).join(", ").slice(0, 120)) + ")" : "0") + "</td></tr>");
+  }
+  const html = "<div style=\"font:14px/1.5 Arial,sans-serif;color:#222;max-width:640px\"><p><b>Routed leads, last 7 days: " + total + " received, " + totalReplied + " replied.</b></p>" +
+    (lines.length ? "<table style=\"border-collapse:collapse;font-size:14px\"><tr style=\"color:#777;text-align:left\"><th style=\"padding:6px 14px 6px 0\"></th><th style=\"padding-right:14px\">Received</th><th style=\"padding-right:14px\">Opened</th><th style=\"padding-right:14px\">Replied</th><th style=\"padding-right:14px\">Avg reply time</th><th>Deals booked</th></tr>" + lines.join("") + "</table>" : "<p>No routed leads this week.</p>") +
+    "<p style=\"margin-top:18px;color:#777;font-size:12px\">Reply time counts each person's working hours (China hours for Han Yi). Deals booked: US Campaigns deals created this week for a brand that was routed to that person in the last 60 days. Everything is on the <a href=\"https://digitalfoxtalent.monday.com/boards/" + BOARD + "\">Brand Enquiries board</a>.</p></div>";
+  if (!dry && !ctx.force) {
+    const t = await tokenFor(ALERT_FROM);
+    if ((await search(t, "in:sent to:" + SOURCE + " subject:\"Weekly scorecard\" newer_than:2d")).length) return { already: true };
+  }
+  if (!dry) await sendInternal(SOURCE, "Weekly scorecard: " + total + " leads, " + totalReplied + " replied", html);
+  return { total, replied: totalReplied, people: lines.length };
+}
+
 // ---------- DIGEST: 5pm Denver ----------
 async function digest(ctx) {
   const { rows, mode, dry } = ctx;
@@ -809,6 +852,7 @@ export default async function handler(req, res) {
     if (task === "track" || (!task && dn.minute % 5 === 2)) await track(ctx);
     if (task === "readsync" || (!task && dn.minute % 5 === 4)) await readSync(ctx);
     let dg = null;
+    if (task === "scorecard" || (!task && dn.day === "Fri" && dn.hour === 16 && dn.minute % 10 === 5)) dg = await scorecard(Object.assign(ctx, { force: task === "scorecard" && req.query.force === "1" && !!secret && req.query.key === secret }));
     if (task === "digest" || (!task && dn.hour === 17 && dn.minute % 10 === 5)) dg = await digest(Object.assign(ctx, { force: task === "digest" && req.query.force === "1" && !!secret && req.query.key === secret }));
     return res.status(200).json({ ok: true, mode, checked: report.length, report, digest: dg });
   } catch (e) {
