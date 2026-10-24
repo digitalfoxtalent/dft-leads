@@ -328,8 +328,9 @@ const ownerByEmail = e => Object.keys(OWNERS).find(k => OWNERS[k].email === e) |
 // ADDRESSED TO TOM, IN HIS INBOX (Tom, 23 Oct 2026: "as soon as I get copied into the reply, it does come through to my
 // inbox as usual. And if it's addressed to me, it obviously should come to me"). An email with tom@ itself in To or Cc
 // stays in his inbox, labelled with the owner's folder. One that reached him only through a shared address (theteam@, a
-// creator's address) is filed into the folder. The streams Tom chose to file away (alerts, Agentio and the other offer
-// streams, Docusign, press releases, platform noise) are filed whole, as agreed.
+// creator's address) is filed into the folder. The streams (alerts, Agentio and the other offer streams, Docusign, press
+// releases, platform noise) are labelled but stay in his inbox ("these still do come through to me", 23 Oct 2026); only
+// new brand and press enquiries are taken out of it.
 const toTom = m => emailsIn(hdr(m, "to") + "," + hdr(m, "cc")).includes(SOURCE);
 async function fileAway(tok, threadId, label, msgs) {
   await modify(tok, "threads", threadId, [label], []);
@@ -513,7 +514,7 @@ async function intake(ctx) {
       } else if (hdr(me, "x-dft-routed")) r.skip = "router copy";
       else if (realSender(me) === ALERT_FROM && !isBrief(me) && alertOwner(me)) {
         const k = alertOwner(me);
-        r.skip = "alert for " + OWNERS[k].name; if (!dry) await modify(tok, "threads", threadId, [OWNERS[k].label], ["INBOX"]);
+        r.skip = "alert for " + OWNERS[k].name; if (!dry) await modify(tok, "threads", threadId, [OWNERS[k].label], []);
       }
       else if (byDft(me) || msgs.some(byDft)) {
         const k = ongoingOwner(msgs, me);
@@ -529,7 +530,7 @@ async function intake(ctx) {
       // STREAMS: filed by sender. Offers go to the owner too in live mode (once only, by Message-ID).
       const fileTo = async (to, why, give) => {
         r.skip = why;
-        if (!dry) { if (give && mode === "live") await deliver(tok, me.id, give); await modify(tok, "threads", threadId, [to], ["INBOX"]); }
+        if (!dry) { if (give && mode === "live") await deliver(tok, me.id, give); await modify(tok, "threads", threadId, [to], []); }
         await mark(); report.push(r);
       };
       const streamKey = STREAM_DOMAINS[baseDomain(domain)];
