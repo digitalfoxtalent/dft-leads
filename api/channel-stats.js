@@ -128,7 +128,15 @@ function isReferred(text) {
   return t.length > 1 && !/^(no|none|nope|n\/?a|nobody|not really|-+)$/i.test(t);
 }
 
-function viewsCheck(avg, referred) {
+// Channels Tom has chosen to sign even though they are under the bar. Never auto-declined.
+// KEEP IN STEP WITH APPROVED_CHANNELS in dft-connect api/signup-check.js, which lets the
+// same channels through the sign-up check. Channel id -> who and when.
+const APPROVED_CHANNELS = {
+  "UCp5iQKNN9A-ORbUGmlV5NmA": "Cody McManus (@codymcmanus), Tom, 18 Oct 2026",
+};
+
+function viewsCheck(avg, referred, channel) {
+  if (APPROVED_CHANNELS[channel]) return { label: "Approved by Tom", decline: false };
   if (avg == null) return { label: "No data", decline: false };
   if (avg >= ELIGIBILITY_AVG_VIEWS) return { label: "Meets 50k", decline: false };
   if (avg < REFERRAL_FLOOR_VIEWS) return { label: "Declined under 30k", decline: true };
@@ -210,7 +218,7 @@ export default async function handler(req, res) {
     const cols = { [STATS_COL]: { url: statsUrl, text: "Open live stats" } };
     const s = await summaryPromise;
     const refRow = (row.column_values || []).find((c) => c.id === REFERRED_COL);
-    const check = viewsCheck(s ? s.avgLongformViews : null, isReferred(refRow && refRow.text));
+    const check = viewsCheck(s ? s.avgLongformViews : null, isReferred(refRow && refRow.text), m[1]);
     cols[CHECK_COL] = { label: check.label };
     if (check.decline) cols[REVIEW_COL] = { label: "Declined" };
     if (s) {
