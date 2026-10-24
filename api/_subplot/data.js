@@ -407,6 +407,7 @@ async function load() {
         // 400-word floor then dropped them.
         short: /youtube\.com\/shorts\//i.test(String(a.link || "")) || /_snippets__items$/.test(keys[i]),
         format: a.format || "",
+        qa: noDash(a.quick_answer || ""),   // 24 Oct 2026: one or two sentence direct answer, written by the publisher for question-style articles
       });
     }
   });

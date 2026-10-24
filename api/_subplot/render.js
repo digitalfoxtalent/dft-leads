@@ -553,7 +553,7 @@ export function articlePage(a, data, base) {
   const thr = inThread ? inThread.items.filter(id => id !== a.id).map(id => data.arts.find(x => x.id === id)).filter(Boolean).filter(x => x.c !== a.c).slice(0, 3) : [];
   const kp = a.short ? [] : keyPoints(a.body);
   const jsonld = `<script type="application/ld+json">${JSON.stringify({ "@context": "https://schema.org", "@graph": [{
-    "@type": "Article", "@id": siteUrl() + base + artPath(a) + "#article", headline: a.h, description: a.s,
+    "@type": "Article", "@id": siteUrl() + base + artPath(a) + "#article", headline: a.h, description: a.qa || a.s,
     datePublished: a.p, dateModified: a.p, image: [a.thumb], wordCount: a.w, articleSection: CATS[a.k], keywords: a.t.join(", "),
     author: { "@type": "Person", name: a.b, alternateName: a.c, url: siteUrl() + base + "/c/" + slugH(a.c), sameAs: ["https://www.youtube.com/" + a.c], ...(bioFor(a.c) ? { description: bioFor(a.c) } : {}) },
     publisher: { "@type": "Organization", name: BRAND_(), url: siteUrl() + base + "/", ...(brand().key === "subplot" ? { logo: siteUrl() + base + "/apple-touch-icon.png", parentOrganization: { "@type": "Organization", "@id": "https://digitalfoxtalent.com/#organization", name: "Digital Fox Talent", url: "https://digitalfoxtalent.com" } } : {}) },
@@ -586,6 +586,10 @@ export function articlePage(a, data, base) {
         <span class="nm"><b><a href="${base}/c/${esc(slugH(a.c))}" style="color:inherit;text-decoration:none">${esc(a.b || a.c)}</a> <span style="font-weight:400">(AI-assisted)</span></b><span>${esc(fmt(a.p))}${brand().key === "subplot" ? " &middot; Editor: Digital Fox Talent Editorial Team" : ""}</span></span>
         <span class="meta">${a.w.toLocaleString("en-GB")} words · ${a.rt} min read</span></div>
       ${editorNote(a, data, base)}
+      ${a.qa && !a.short ? `<aside class="quickanswer" aria-label="Quick answer" style="margin:1.4rem 0 1rem;padding:1.1rem 1.3rem;border-left:3px solid var(--blue);background:var(--paper-3)">
+        <p style="margin:0 0 .45rem;font-size:.72rem;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3)">Quick answer</p>
+        <p style="margin:0">${esc(a.qa)}</p>
+      </aside>` : ""}
       ${kp.length ? `<aside class="keypoints" aria-label="Key points" style="margin:1.4rem 0 2rem;padding:1.1rem 1.3rem;border:1px solid var(--rule-2);border-radius:4px">
         <p style="margin:0 0 .55rem;font-size:.72rem;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3)">Key points</p>
         <ul style="margin:0;padding-left:1.1rem">${kp.map(t => `<li style="margin:.25rem 0">${esc(t)}</li>`).join("")}</ul>
