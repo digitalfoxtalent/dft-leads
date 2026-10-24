@@ -104,4 +104,9 @@ calls = [];
 r = await runBackup("tok", { fetchImpl: fake, force: true });
 ok(r.ok && r.calls === 90 && /part way through the docs/.test(r.note), "a run spends its full 90 calls before stopping: " + r.calls);
 
+// File runs (files.js) are counted separately, so they never use up the backup passes' allowance.
+await write(`INSERT INTO mirror.backup_runs (stage, api_calls, started_at) VALUES ('files', 2000, now() - interval '1 hour')`);
+r = await runBackup("tok", { fetchImpl: fake, force: true });
+ok(!r.skipped, "file runs do not count against the backup passes' allowance");
+
 console.log("backup tests passed: " + pass);

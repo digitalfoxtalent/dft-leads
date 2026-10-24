@@ -106,4 +106,12 @@ const res = { setHeader() {} };
 const out = await mirrorPage("files/701", { method: "POST", headers: {}, query: {} }, res, TOM, "tok");
 ok(out.status === 405, "files are read only");
 
+// The file runs have their own daily allowance: a busy night of backup passes must not stop them (24 Oct 2026).
+await write(`INSERT INTO mirror.backup_runs (stage, api_calls, started_at) VALUES ('pass', 1300, now() - interval '1 hour')`);
+r = await copyFiles("tok", { fetchImpl: fake, putImpl: putFake, force: true });
+ok(!r.skipped, "backup passes using their whole allowance do not stop the file runs: " + JSON.stringify(r).slice(0, 120));
+await write(`INSERT INTO mirror.backup_runs (stage, api_calls, started_at) VALUES ('files', 240, now() - interval '1 hour')`);
+r = await copyFiles("tok", { fetchImpl: fake, putImpl: putFake, force: true });
+ok(/file-copy call budget/.test(r.skipped || ""), "the file runs stop at their own daily allowance");
+
 console.log("files tests passed: " + pass);
