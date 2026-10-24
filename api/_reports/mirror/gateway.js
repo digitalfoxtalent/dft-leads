@@ -37,7 +37,28 @@ export const GATEWAY_SCHEMA = [
      error text
    )`,
   `CREATE INDEX IF NOT EXISTS gateway_log_key ON mirror.gateway_log (key_id, at DESC)`,
+  ...GATEWAY_GRANTS(),
 ];
+
+// Boards Tom has agreed (in chat) to add to his existing Make key, batch by batch, as scenarios move onto the
+// gateway. Each grant only ADDS the named boards and turns on the gateway for that one key (matched by name, the
+// last 4 characters Tom sees on /data/api-keys, who made it, and not revoked). Running it again changes nothing.
+// Tom can still revoke the key on /data/api-keys at any time, and every gateway call is logged.
+function GATEWAY_GRANTS() {
+  const grants = [
+    // 23 Oct 2026, Tom: "Extend today's Make key". Content batch: 6572088 MSN back catalogue robot (writes the
+    // Back Catalogue Queue, reads the Trending & Evergreen Queue) and 6046416 Shorts next-pull date (Shorts Clip Requests).
+    { name: "Make: jobs", hint: "nUKx", by: "tom@digitalfoxtalent.com", boards: ["18434716799", "18420546526", "18419654453"] },
+  ];
+  return grants.map(g => {
+    const ids = g.boards.filter(b => /^\d{1,19}$/.test(b)).join(",");
+    const esc = s => String(s).replace(/'/g, "''");
+    return `UPDATE mirror.api_keys SET gateway = true,
+      boards = ARRAY(SELECT DISTINCT b FROM unnest(boards || '{${ids}}'::bigint[]) AS b ORDER BY b)
+      WHERE name = '${esc(g.name)}' AND key_hint = '${esc(g.hint)}' AND created_by = '${esc(g.by)}' AND revoked_at IS NULL
+        AND NOT (gateway AND boards @> '{${ids}}'::bigint[])`;
+  });
+}
 
 let fetchImpl = (...a) => fetch(...a);
 export function setGatewayFetch(f) { fetchImpl = f; }
