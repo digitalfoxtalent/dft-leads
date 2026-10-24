@@ -42,4 +42,8 @@ export const BIOS = {
   galaxygeeks: "Galaxy Geeks is a community channel where co-hosts Luke and Audrey dive into movies, trailers and pop culture together. It has more than 685,000 subscribers and over 4,000 videos.",
 };
 
+// 24 Oct 2026: some creators' articles arrive under a different handle from the one their bio is keyed on
+// (see the handles lists in data.js), so the bio never showed. Alias the alternate handles to the same bio.
+BIOS.kristianharloff = BIOS.thekristianharloff;
+BIOS.filmparadise = BIOS.film_paradise;
 export const bioFor = handle => BIOS[String(handle || "").replace(/^@/, "").toLowerCase()] || "";
